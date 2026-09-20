@@ -43,7 +43,7 @@ import {
 import { inspectWorkEnvironment, type ExtensionExec } from "./work-environment";
 import { resolveClientPaths } from "../src/paths"
 import { currentPaneIdentity } from "../src/pane-control";
-import { getProperty, parsePropertyRecords } from "../src/properties";
+import { getProperty, matchesFilters, parsePropertyRecords } from "../src/properties";
 import { blockDisplayTitle } from "../src/references";
 import {
   containsWorkIdPlaceholder,
@@ -76,6 +76,7 @@ import {
   type CaptureReceipt,
   type CaptureSource,
   type DeliveryReceipt,
+  type DeliverySyncReceipt,
   type OutlinerClientRegistration,
   type OutlinerClientRuntime,
   type OutlinerServiceStatus,
@@ -1069,7 +1070,7 @@ function workId(block: Block): string | undefined {
 }
 
 function requireRoadmapTask(block: Block): string {
-  if (getProperty(block.properties, "type") !== "roadmap-item") {
+  if (!matchesFilters(block.properties, [{ key: "type", value: "roadmap-item" }])) {
     throw new Error(`Block is not a roadmap item: ${block.id}`);
   }
   const identifier = workId(block);
@@ -1173,8 +1174,9 @@ function formatContext(
   const dependencies = options.dependencies
     ?.slice(0, 8)
     .map((block) => {
-      const status = getProperty(block.properties, "status");
-      return `- [${block.id}] ${blockDisplayTitle(block)}${status ? ` · status=${status}` : ""}`;
+      const key = matchesFilters(block.properties, [{ key: "type", value: "roadmap-item" }]) ? "work-stage" : "status";
+      const state = getProperty(block.properties, key);
+      return `- [${block.id}] ${blockDisplayTitle(block)}${state ? ` · ${key}=${state}` : ""}`;
     })
     .join("\n");
   return boundAgentContext([
@@ -1555,38 +1557,18 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     if (!exec) throw new Error("This host does not expose pi.exec for delivery synchronization");
     const pullRequest = await inspectPullRequest(exec, current.delivery, context.signal,);
     if (!pullRequest) return { task, delivery: current.delivery, pullRequest: null };
-    const nextStage = current.delivery.stage === "complete"
-      ? "complete"
-      : pullRequest.state === "MERGED" && pullRequest.mergeCommit
-        ? "validate"
-        : "review";
-    const values: Record<string, string> = {
-      "delivery-stage": nextStage,
-      "pull-request-number": String(pullRequest.number),
-      "pull-request-url": pullRequest.url,
-      "pull-request-state": pullRequest.state.toLowerCase(),
-    };
-    if (pullRequest.mergeCommit) values["merge-commit"] = pullRequest.mergeCommit;
-    const updatedDelivery = await patchBlockProperties(
-      current.delivery.block,
-      values,
-      context,
-      "outliner-delivery:sync",
-    );
-    const taskStage = getProperty(task.properties, "work-stage");
-    const nextTaskStage = nextStage === "validate"
-      ? "validate"
-      : nextStage === "review"
-        ? "review"
-        : taskStage;
-    const updatedTask = nextTaskStage && nextTaskStage !== taskStage
-      ? await patchBlockProperties(
-        task,
-        { "work-stage": nextTaskStage },
-        context,
-        "outliner-delivery:sync",
-      )
-      : task;
+    const result = await client.request<DeliverySyncReceipt>({
+      action: "deliveries.sync",
+      input: {
+        taskBlockId: task.id,
+        deliveryBlockId: current.delivery.block.id,
+        expectedDeliveryRevision: current.delivery.block.revision,
+        expectedTaskRevision: task.revision,
+        pullRequest,
+      },
+      mutation: agentMutation(actorId, context, "outliner-delivery:sync"),
+    });
+    const { task: updatedTask, delivery: updatedDelivery } = result;
     const delivery = parseDeliveryIdentity(updatedDelivery);
     context.ui.setStatus(
       "pi-outliner-delivery",
@@ -1616,12 +1598,12 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         `Another task is active in this session: ${active ? workId(active) ?? active.id : activeTaskId}. Pause, complete, or clear it before switching.`,
       );
     }
-    const stage = getProperty(task.properties, "work-stage");
-    if (stage === "done" || stage === "complete") {
+    const stage = getProperty(task.properties, "work-stage")?.toLowerCase();
+    if (stage === "done" || stage === "superseded") {
       throw new Error(`Cannot start completed task: ${workId(task) ?? task.id}`);
     }
     const { delivery } = await ensureTaskDelivery(task, context);
-    const updated = stage === "doing"
+    const updated = ["doing", "review", "validate"].includes(stage ?? "")
       ? task
       : await client.request<Block>({
         action: "properties.patch",
@@ -1637,6 +1619,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       blockId: updated.id,
       workId: requireRoadmapTask(updated),
       stage: getProperty(updated.properties, "work-stage"),
+      workBatchId: getProperty(updated.properties, "work-batch"),
       deliveryKey: delivery.key,
       repository: delivery.repository,
       baseBranch: delivery.baseBranch,
@@ -1649,19 +1632,20 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     await ensureService(false);
     const task = await currentTask();
     if (!task) throw new Error("No active Outliner task");
-    const updated = await client.request<Block>({
+    const updated = getProperty(task.properties, "work-stage")?.toLowerCase() === "doing" ? await client.request<Block>({
       action: "properties.patch",
       blockId: task.id,
       expectedRevision: task.revision,
-      operations: [propertyTransition(task, "work-stage", "next")],
+      operations: [propertyTransition(task, "work-stage", "queued")],
       mutation: agentMutation(actorId, context, "outliner-task:pause"),
-    });
+    }) : task;
     persistActiveTask(null);
     const presenceReported = await presentTask(context, null, "clear");
     return {
       blockId: updated.id,
       workId: requireRoadmapTask(updated),
       stage: getProperty(updated.properties, "work-stage"),
+      workBatchId: getProperty(updated.properties, "work-batch"),
       presenceReported,
     };
   }
@@ -1677,6 +1661,9 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     await ensureService(false);
     const activeTask = await currentTask();
     if (!activeTask) throw new Error("No active Outliner task");
+    if (getProperty(activeTask.properties, "work-stage")?.toLowerCase() === "superseded") {
+      throw new Error("Cannot complete a superseded task; explicitly reopen it first");
+    }
     const synchronized = await syncDelivery(activeTask, context);
     const task = synchronized.task;
     if (
@@ -1700,7 +1687,6 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       throw new Error(`Proof block must be a child of or reference the active task: ${task.id}`);
     }
     const operations: PropertyPatchOperation[] = [
-      propertyTransition(task, "status", "complete"),
       propertyTransition(task, "work-stage", "done"),
     ];
     if (!task.properties.some((property) => property.key === "proof" && property.value === proof.id)) {
@@ -1727,7 +1713,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       blockId: updated.id,
       workId: requireRoadmapTask(updated),
       stage: getProperty(updated.properties, "work-stage"),
-      status: getProperty(updated.properties, "status"),
+      workBatchId: getProperty(updated.properties, "work-batch"),
       proofBlockId: proof.id,
       presenceReported,
     };
@@ -1817,7 +1803,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         const task = await currentTask();
         if (task) {
           const taskProperties = [
-            getProperty(task.properties, "status") && `status=${getProperty(task.properties, "status")}`,
+            getProperty(task.properties, "work-batch") && `work-batch=${getProperty(task.properties, "work-batch")}`,
             getProperty(task.properties, "work-stage") &&
             `work-stage=${getProperty(task.properties, "work-stage")}`,
           ].filter(Boolean).join(", ");
@@ -1984,7 +1970,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         }
         if (operation === "pause") {
           const result = await pauseTask(context);
-          context.ui.notify(`Paused ${result.workId}; returned it to Next`, "info");
+          context.ui.notify(`Paused ${result.workId}; stage ${result.stage}`, "info");
           return;
         }
         if (operation === "complete") {
@@ -2226,7 +2212,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
             blockId: task.id,
             workId: requireRoadmapTask(task),
             stage: getProperty(task.properties, "work-stage"),
-            status: getProperty(task.properties, "status"),
+            workBatchId: getProperty(task.properties, "work-batch"),
           }
           : { blockId: null });
       }
@@ -2454,12 +2440,13 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       ]),
       workStage: Type.Optional(Type.Union([
         Type.Literal("unprioritized"),
-        Type.Literal("next"),
+        Type.Literal("queued"),
         Type.Literal("doing"),
         Type.Literal("review"),
         Type.Literal("validate"),
         Type.Literal("later"),
       ])),
+      workBatchId: Type.Optional(Type.String({ description: "UUID of the agreed work-batch; defaults its new member to queued" })),
       project: Type.String(),
       arc: Type.String(),
       tracks: Type.Array(Type.String(), { minItems: 1 }),

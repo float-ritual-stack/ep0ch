@@ -887,6 +887,20 @@ export interface DeliveryReceipt {
   created: boolean;
 }
 
+export interface DeliverySyncInput {
+  taskBlockId: string;
+  deliveryBlockId: string;
+  expectedDeliveryRevision: number;
+  expectedTaskRevision: number;
+  pullRequest: { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null };
+}
+
+export interface DeliverySyncReceipt {
+  task: Block;
+  delivery: Block;
+  changed: boolean;
+}
+
 export type OutlinerClientRole = "tree" | "detail" | "composed";
 export type OutlinerRegion = "tree" | "detail";
 
@@ -986,20 +1000,17 @@ export interface WorkIdAllocation {
 
 export type RoadmapItemPriority = "high" | "medium" | "low";
 
-export type RoadmapWorkStage =
-  | "unprioritized"
-  | "next"
-  | "doing"
-  | "review"
-  | "validate"
-  | "later"
-  | "done";
+export const ROADMAP_WORK_STAGES = [
+  "unprioritized", "later", "queued", "doing", "review", "validate", "done", "superseded",
+] as const;
+export type RoadmapWorkStage = typeof ROADMAP_WORK_STAGES[number];
 
 export interface RoadmapItemCreateInput {
   title: string;
   body?: string;
   priority: RoadmapItemPriority;
-  workStage?: Exclude<RoadmapWorkStage, "done">;
+  workStage?: Exclude<RoadmapWorkStage, "done" | "superseded">;
+  workBatchId?: string;
   project: string;
   arc: string;
   tracks: string[];
@@ -1167,7 +1178,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 61;
+export const OUTLINER_PROTOCOL_VERSION = 62;
 
 
 export interface OutlinerServiceStatus {
@@ -1368,6 +1379,12 @@ export type OutlinerRequest =
       input: RoadmapItemCreateInput;
       author?: BlockAuthor;
       provenance?: BlockProvenance;
+    }
+  | {
+      id: string;
+      action: "deliveries.sync";
+      input: DeliverySyncInput;
+      mutation: MutationProvenance;
     }
   | {
       id: string;

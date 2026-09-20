@@ -23,7 +23,7 @@ import outlinerExtension, {
   selectCapturedResponseTree,
 } from "../pi-extension/index";
 import { OutlinerClient, type RequestInput } from "../src/client";
-import { parseProperties, patchPropertyText } from "../src/properties";
+import { parseProperties, parsePropertyRecords, patchPropertyText } from "../src/properties";
 import { OUTLINER_PROTOCOL_VERSION } from "../src/types";
 import type {
   AnnotationAgentPromptPackage,
@@ -707,8 +707,8 @@ test("drives an explicit task through context, focus, durable proof, and complet
   const taskText = [
     "PIE-144 — Agent [context::inline-before] workflow [type::roadmap-item]",
     "owner:: evan",
-    "[status::planned] [priority::high]",
-    "[work-stage::next] [work-id::PIE-144] [depends-on::dependency-id]",
+    "[priority::high]",
+    "[work-stage::queued] [work-id::PIE-144] [depends-on::dependency-id] [work-batch::11111111-1111-4111-8111-111111111111]",
   ].join("\n");
 
   let task: Block = {
@@ -820,6 +820,24 @@ test("drives an explicit task through context, focus, durable proof, and complet
       if (target.id === task.id) task = updated;
       else deliveryRecord = updated;
       return updated as T;
+    }
+    if (input.action === "deliveries.sync") {
+      if (!deliveryRecord) throw new Error("No fixture delivery");
+      const oldStage = deliveryRecord.properties.find(p => p.key === "delivery-stage")!.value;
+      const stage = oldStage === "complete" ? "complete" : input.input.pullRequest.state === "MERGED" ? "validate" : "review";
+      const values = { "delivery-stage": stage, "pull-request-number": "44", "pull-request-url": input.input.pullRequest.url,
+        "pull-request-state": input.input.pullRequest.state.toLowerCase(), ...(input.input.pullRequest.mergeCommit ? { "merge-commit": input.input.pullRequest.mergeCommit } : {}) };
+      const records = parsePropertyRecords(deliveryRecord.text).filter(p => p.scope === "block");
+      const text = patchPropertyText(deliveryRecord.text, Object.entries(values).map(([key, value]) => {
+        const old = records.find(p => p.key === key);
+        return old ? { op: "replace" as const, ordinal: old.ordinal, value } : { op: "append" as const, key, value };
+      }));
+      deliveryRecord = { ...deliveryRecord, text, properties: parseProperties(text) };
+      if (oldStage !== stage && !task.properties.some(p => p.key === "work-stage" && ["done", "superseded"].includes(p.value))) {
+        task = { ...task, text: task.text.replace(/\[work-stage::[^\]]+\]/, `[work-stage::${stage}]`) };
+        task.properties = parseProperties(task.text);
+      }
+      return { task, delivery: deliveryRecord, changed: oldStage !== stage } as T;
     }
     if (input.action === "deliveries.ensure") {
       if (deliveryRecord) {
@@ -1038,7 +1056,7 @@ test("drives an explicit task through context, focus, durable proof, and complet
     expect(paused).toMatchObject({
       blockId: task.id,
       workId: "PIE-144",
-      stage: "next",
+      stage: "queued",
       presenceReported: true,
     });
 
@@ -1080,6 +1098,23 @@ test("drives an explicit task through context, focus, durable proof, and complet
     expect(reviewing.pullRequest).toMatchObject({ number: 44, state: "OPEN" });
     expect(reviewing.task.properties).toContainEqual({ key: "work-stage", value: "review" });
     expect(reviewing.delivery.stage).toBe("review");
+    const reviewWrites = requests.filter(request => request.action === "properties.patch").length;
+    const pausedReview = JSON.parse((await tools.get("outliner_task")!.execute(
+      "pause-review", { operation: "pause" }, undefined, undefined, context,
+    )).content[0]!.text);
+    expect(pausedReview).toMatchObject({ stage: "review", workBatchId: "11111111-1111-4111-8111-111111111111" });
+    const resumedReview = JSON.parse((await tools.get("outliner_task")!.execute(
+      "resume-review", { operation: "start", address: "PIE-144" }, undefined, undefined, context,
+    )).content[0]!.text);
+    expect(resumedReview).toMatchObject({ stage: "review", workBatchId: "11111111-1111-4111-8111-111111111111" });
+    expect(requests.filter(request => request.action === "properties.patch").length).toBe(reviewWrites);
+    const setExternalStage = (stage: string) => {
+      task = { ...task, text: task.text.replace(/\[work-stage::[^\]]+\]/, `[work-stage::${stage}]`) };
+      task.properties = parseProperties(task.text);
+    };
+    setExternalStage("doing");
+    await handlers.get("before_agent_start")!({ systemPrompt: "base", prompt: "review requested changes" }, context);
+    expect(task.properties).toContainEqual({ key: "work-stage", value: "doing" });
 
     process.env.HERDR_ENV = "0";
     const focused = JSON.parse(
@@ -1129,6 +1164,19 @@ test("drives an explicit task through context, focus, durable proof, and complet
     expect(create.text).toContain(`[source-block::${task.id}]`);
 
     pullRequestState = "merged";
+    await tools.get("outliner_delivery")!.execute("sync-merge", { operation: "sync" }, undefined, undefined, context);
+    expect(task.properties).toContainEqual({ key: "work-stage", value: "validate" });
+    setExternalStage("doing");
+    await handlers.get("before_agent_start")!({ systemPrompt: "base", prompt: "fix failed validation" }, context);
+    expect(task.properties).toContainEqual({ key: "work-stage", value: "doing" });
+    setExternalStage("superseded");
+    const beforeRejectedCompletion = requests.filter(request => request.action === "properties.patch").length;
+    await expect(tools.get("outliner_task")!.execute(
+      "complete-superseded", { operation: "complete", proofBlockId: "proof-id" }, undefined, undefined, context,
+    )).rejects.toThrow("superseded");
+    expect(requests.filter(request => request.action === "properties.patch").length).toBe(beforeRejectedCompletion);
+    expect(task.properties).toContainEqual({ key: "work-stage", value: "superseded" });
+    setExternalStage("validate");
     const completed = JSON.parse(
       (await tools.get("outliner_task")!.execute(
         "complete-task",
@@ -1141,7 +1189,7 @@ test("drives an explicit task through context, focus, durable proof, and complet
     expect(completed).toMatchObject({
       workId: "PIE-144",
       stage: "done",
-      status: "complete",
+      workBatchId: "11111111-1111-4111-8111-111111111111",
       proofBlockId: "proof-id",
     });
     expect(completed.presenceReported).toBe(true);
@@ -1150,10 +1198,12 @@ test("drives an explicit task through context, focus, durable proof, and complet
       { version: 1, blockId: null },
       { version: 1, blockId: task.id },
       { version: 1, blockId: null },
+      { version: 1, blockId: task.id },
+      { version: 1, blockId: null },
     ]);
     expect(task.properties).toEqual(expect.arrayContaining([
       { key: "work-stage", value: "done" },
-      { key: "status", value: "complete" },
+      { key: "work-batch", value: "11111111-1111-4111-8111-111111111111" },
       { key: "proof", value: "proof-id" },
     ]));
     expect(task.text).toContain("[context::inline-before]");
@@ -1166,14 +1216,11 @@ test("drives an explicit task through context, focus, durable proof, and complet
         request.action === "properties.patch" && request.blockId === task.id,
     );
     expect(transitions.map(({ operations }) => operations)).toEqual([
-      [{ op: "replace", ordinal: 5, value: "doing" }],
-      [{ op: "replace", ordinal: 5, value: "next" }],
-      [{ op: "replace", ordinal: 5, value: "doing" }],
-      [{ op: "replace", ordinal: 5, value: "review" }],
-      [{ op: "replace", ordinal: 5, value: "validate" }],
+      [{ op: "replace", ordinal: 4, value: "doing" }],
+      [{ op: "replace", ordinal: 4, value: "queued" }],
+      [{ op: "replace", ordinal: 4, value: "doing" }],
       [
-        { op: "replace", ordinal: 3, value: "complete" },
-        { op: "replace", ordinal: 5, value: "done" },
+        { op: "replace", ordinal: 4, value: "done" },
         { op: "append", key: "proof", value: "proof-id" },
       ],
     ]);
@@ -1183,16 +1230,12 @@ test("drives an explicit task through context, focus, durable proof, and complet
     const currentPaneCalls = herdrCalls.filter(
       (args) => args[0] === "pane" && args[1] === "current",
     );
-    expect(currentPaneCalls).toHaveLength(4);
+    expect(currentPaneCalls).toHaveLength(6);
     const metadataCalls = herdrCalls.filter(
       (args) => args[0] === "pane" && args[1] === "report-metadata",
     );
-    expect(metadataCalls).toHaveLength(3);
-    expect(metadataCalls.map((args) => args[2])).toEqual([
-      "moved-pane",
-      "moved-pane",
-      "moved-pane",
-    ]);
+    expect(metadataCalls).toHaveLength(5);
+    expect(metadataCalls.every((args) => args[2] === "moved-pane")).toBe(true);
     expect(metadataCalls.some((args) => args.includes("launch-pane"))).toBe(false);
     expect(diagnostic).toHaveBeenCalledTimes(1);
     const identityDiagnostic = String(diagnostic.mock.calls[0]![0]);
