@@ -752,6 +752,29 @@ explicit unpositioned status. Probable, unresolved,
 ambiguous, orphaned, unsupported, and rejected records remain valid, visible
 history rather than being coerced into a location.
 
+### Comments on individual Resource references
+
+The same file can appear several times in a block without becoming several
+Resources. In Detail, `o` opens the existing Properties choices when there are
+multiple references. Select a particular row with `Tab`, then press `c` to
+comment on that use. This does not open the file or create a Resource. Selecting
+an exact reference token with the source-selection controls also preserves its
+occurrence.
+
+Opening that row with `o` carries its context into the Resource reader. A passage
+comment there keeps both the host occurrence and the file representation/version
+and quote. Opening the Resource directly gives a file-global view; its comments
+have no reference context. Navigation history keeps repeated uses distinct.
+
+Original source evidence is immutable. Moving an unchanged reference line can
+retain placement only when that line is unique in both the captured and current
+block. Deleting or ambiguously copying a reference leaves the thread recoverable
+under Unpositioned comments. Editing the reference's own line also requires
+explicit reattachment through the existing annotation approval operation. A
+later unique survivor does not silently inherit an earlier comment. Reattachment
+never erases the original target or history. Contextual Resource reveals request
+the recorded revision; unavailable old file bytes are not replaced by newer bytes.
+
 ### Detail edit and comment modes
 
 | Key | Action |
@@ -1052,7 +1075,7 @@ The project Pi extension is auto-discovered through [`.pi/extensions/outliner.ts
 
 `outliner_query` accepts structured filters such as `{ key: "status", value: "in progress" }`, plus optional text and subtree fields. The service normalizes keys/values and applies the same bounded semantics used by human surfaces. `outliner_focus` targets an explicit or unique live Tree client and returns compact structural context.
 
-Annotation tools use the same ordinary comment and reply blocks as Detail and the same relational target sidecar. `outliner_annotations` queries a block or Resource subject. `outliner_annotate` accepts a representation plus one of `text-quote`, `dom-range`, `pdf-page-region`, `structured-entity-field`, or `provider-comment-id`; it does not treat a file path as identity or use a web-specific creation path. Create and batch calls are idempotent, replies inherit the root target and history, and lifecycle changes can link promoted canonical blocks. The immutable original target is returned beside the current resolution and complete append-only history. Text and PDF quote anchors use deterministic unchanged, exact, contextual, and bounded local-fuzzy reconciliation; PDF results are mapped back to current page regions. Probable, unresolved, ambiguous, orphaned, unsupported, and rejected records remain preserved history rather than being coerced into a location.
+Annotation tools use the same ordinary comment and reply blocks as Detail and the same relational target sidecar. `outliner_annotations` queries a block or Resource subject. `outliner_annotate` accepts a representation plus one of `text-quote`, `dom-range`, `pdf-page-region`, `structured-entity-field`, or `provider-comment-id`; it does not treat a file path as identity or use a web-specific creation path. For an occurrence-scoped comment, pass `target.referenceContext` with the containing block representation, exact authored-reference anchor, and original `sourceText`; omit it for a subject-wide comment. File-passage comments retain the Resource representation and passage anchor alongside that context. Create and batch calls are idempotent, replies inherit the root target and history, and lifecycle changes can link promoted canonical blocks. The immutable original target is returned beside the current resolution and complete append-only history. Text and PDF quote anchors use deterministic unchanged, exact, contextual, and bounded local-fuzzy reconciliation; PDF results are mapped back to current page regions. Probable, unresolved, ambiguous, orphaned, unsupported, and rejected records remain preserved history rather than being coerced into a location.
 
 `outliner_attention` requires an explicit live client ID. It can mark, advance,
 acknowledge, clear, or inspect short-lived block/file attention. Exact UTF-16
