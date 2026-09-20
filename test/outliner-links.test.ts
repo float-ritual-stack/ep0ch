@@ -197,7 +197,7 @@ describe("outliner link URIs", () => {
       { action: "selection.set", blockId: target.id },
       {
         action: "ui.command.send",
-        command: { targetClientId: "tree-client", command: "focus", target: { kind: "block", blockId: target.id } },
+        command: { targetClientId: "tree-client", command: "focus", targetRegion: "tree", target: { kind: "block", blockId: target.id } },
       },
     ]);
     calls.length = 0;
@@ -216,7 +216,7 @@ describe("outliner link URIs", () => {
       { action: "selection.set", blockId: target.id },
       {
         action: "ui.command.send",
-        command: { targetClientId: "tree-client", command: "focus", target: { kind: "block", blockId: target.id } },
+        command: { targetClientId: "tree-client", command: "focus", targetRegion: "tree", target: { kind: "block", blockId: target.id } },
       },
     ]);
 
@@ -234,7 +234,7 @@ describe("outliner link URIs", () => {
       { action: "selection.set", blockId: target.id },
       {
         action: "ui.command.send",
-        command: { targetClientId: "tree-client", command: "focus", target: { kind: "block", blockId: target.id } },
+        command: { targetClientId: "tree-client", command: "focus", targetRegion: "tree", target: { kind: "block", blockId: target.id } },
       },
     ]);
   });
@@ -407,7 +407,7 @@ describe("outliner link URIs", () => {
       { action: "selection.set", blockId: target.id },
       {
         action: "ui.command.send",
-        command: { targetClientId: "detail-client", command: "focus", target: { kind: "block", blockId: target.id },  },
+        command: { targetClientId: "detail-client", command: "focus", targetRegion: "detail", target: { kind: "block", blockId: target.id },  },
       },
     ]);
   });

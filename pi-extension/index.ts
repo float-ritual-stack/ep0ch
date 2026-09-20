@@ -1,3 +1,4 @@
+import { clientSupportsRole } from "../src/types";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -1399,7 +1400,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       action: "ui.command.send",
       command: {
         targetClientId: target.clientId,
-        command: "focus",
+        command: "focus", targetRegion: "tree",
         target: { kind: "block", blockId },
       },
     });
@@ -1767,8 +1768,10 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       hostname(),
     );
     if (!focusedClient) return null;
-    const directTarget = focusedClient.currentTarget;
-    const browsing = directTarget
+    const directTarget = focusedClient.role === "composed" && focusedClient.focusedRegion === "tree"
+      ? focusedClient.treeSelection?.target
+      : focusedClient.currentTarget;
+    const browsing = focusedClient.role === "composed" || directTarget
       ? null
       : await client.request<BrowsingContextState>({
           action: "browsing-context.get",
@@ -1785,7 +1788,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         }, 250),
       };
     }
-    if (focusedClient.role !== "detail") return null;
+    if (!clientSupportsRole(focusedClient, "detail")) return null;
     return {
       kind: "resource",
       description: await client.request<ResourceDescription>({
@@ -2755,6 +2758,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         clientId: Type.String(),
         markId: Type.Optional(Type.String()),
         target: attentionTargetSchema,
+        targetRegion: Type.Optional(Type.Union([Type.Literal("tree"), Type.Literal("detail")])),
         tone: Type.Union([
           Type.Literal("current"),
           Type.Literal("info"),
@@ -2801,6 +2805,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         clientId: string;
         markId?: string;
         target: AttentionTargetInput;
+        targetRegion?: AttentionMarkInput["targetRegion"];
         tone: AttentionMarkInput["tone"];
         role?: AttentionMarkInput["role"];
         expiresInMs?: number;
@@ -2811,6 +2816,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
         markId: markParams.markId ?? `${context.sessionManager.getSessionId()}:${toolCallId}`,
         targetClientId: markParams.clientId,
         target: markParams.target,
+        ...(markParams.targetRegion ? {targetRegion: markParams.targetRegion} : {}),
         tone: markParams.tone,
         role: markParams.operation === "advance" ? "current" : markParams.role ?? "current",
         sender: actorId,
@@ -3218,7 +3224,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     description: "List live Tree and Detail client IDs for explicit targeting",
     promptSnippet: "List live outliner client instances",
     parameters: Type.Object({
-      role: Type.Optional(Type.Union([Type.Literal("tree"), Type.Literal("detail")])),
+      role: Type.Optional(Type.Union([Type.Literal("tree"), Type.Literal("detail"), Type.Literal("composed")])),
     }),
     async execute(_id, params) {
       await ensureService(false);

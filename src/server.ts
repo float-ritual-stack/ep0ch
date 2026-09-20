@@ -13,7 +13,7 @@ import { readAuthoredLinks } from "./authored-links";
 import { normalizeAnnotationReferenceContext } from "./annotations";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import { isFragmentId, resolveFragment } from "./fragments";
-import { ALL_DETAILS_LOCKED_ERROR } from "./navigation-routes";
+import { ALL_DETAILS_LOCKED_ERROR, PRIMARY_DETAIL_LOCKED_ERROR } from "./navigation-routes";
 import { OutlinerStore } from "./store";
 import {
   normalizeResourceId,
@@ -28,6 +28,8 @@ import {
 import { WorkflowManager } from "./workflows";
 import {
   OUTLINER_PROTOCOL_VERSION,
+  clientSupportsRole,
+  type OutlinerRegion,
   type AnnotationBatchReceipt,
   type AnnotationAgentProposalReceipt,
   type AttentionClientState,
@@ -320,7 +322,7 @@ export class OutlinerServer {
     ) {
       throw new Error("Client registration clientId must be 1-200 printable characters");
     }
-    if (registration.role !== "tree" && registration.role !== "detail") {
+    if (registration.role !== "tree" && registration.role !== "detail" && registration.role !== "composed") {
       throw new Error(`Invalid client role: ${String(registration.role)}`);
     }
     const contextId = this.normalizeContextId(registration.contextId);
@@ -331,6 +333,9 @@ export class OutlinerServer {
     for (const [owner, client] of this.subscribers) {
       if (owner !== socket && client.clientId === clientId) {
         throw new Error(`Client ID is already registered: ${clientId}`);
+      }
+      if (registration.role === "composed" && client.role === "composed" && client.contextId === contextId) {
+        throw new Error("This browsing context already has a composed primary reader");
       }
     }
     const runtime = this.normalizeClientRuntime(registration.runtime);
@@ -346,17 +351,18 @@ export class OutlinerServer {
     const resourcePresentation = registration.resourcePresentation === undefined
       ? undefined
       : normalizeResourcePresentationContext(registration.resourcePresentation);
-    if (registration.role !== "detail" && resourcePresentation) {
+    if (!clientSupportsRole(registration, "detail") && resourcePresentation) {
       throw new Error("Only Detail clients can declare Resource presentation capabilities");
     }
     const normalized: OutlinerClientRegistration = {
       clientId,
       role: registration.role,
       contextId,
-      ...(registration.role === "detail" ? { locked: registration.locked ?? false } : {}),
+      ...(clientSupportsRole(registration, "detail") ? { locked: registration.locked ?? false } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),
       ...(resourcePresentation ? { resourcePresentation } : {}),
+      ...this.normalizeComposedState(registration.role, registration.focusedRegion, registration.treeSelection),
     };
     const stored = this.herdrRegistry === undefined || this.clientOwnsTopology(normalized)
       ? normalized
@@ -435,7 +441,7 @@ export class OutlinerServer {
     this.pruneDestroyedSubscribers();
     return [...this.subscribers.values()]
       .map((client) => this.reconcileClientRuntime(client))
-      .filter((client) => role === undefined || client.role === role)
+      .filter((client) => role === undefined || clientSupportsRole(client, role))
       .sort((left, right) =>
         left.role.localeCompare(right.role) || left.clientId.localeCompare(right.clientId)
       );
@@ -529,20 +535,25 @@ export class OutlinerServer {
       locked?: boolean;
       currentTarget?: OutlinerNavigationTarget | null;
       runtime?: OutlinerClientRuntime | null;
+      focusedRegion?: OutlinerRegion;
+      treeSelection?: OutlinerClientRegistration["treeSelection"] | null;
     },
   ): OutlinerClientRegistration {
     if (
       update.locked === undefined &&
       update.currentTarget === undefined &&
-      update.runtime === undefined
+      update.runtime === undefined && update.focusedRegion === undefined && update.treeSelection === undefined
     ) {
       throw new Error("Client update must change locked, currentTarget, or runtime");
     }
     for (const [socket, client] of this.subscribers) {
       if (client.clientId !== clientId) continue;
+      if (update.treeSelection === null && client.role !== "composed") throw new Error("Only composed clients have internal regions");
       const updated = { ...client };
+      Object.assign(updated, this.normalizeComposedState(client.role, update.focusedRegion, update.treeSelection ?? undefined, false));
+      if (update.treeSelection === null) delete updated.treeSelection;
       if (update.locked !== undefined) {
-        if (client.role !== "detail") throw new Error("Only Detail clients can be locked");
+        if (!clientSupportsRole(client, "detail")) throw new Error("Only Detail clients can be locked");
         updated.locked = update.locked;
       }
       if (update.currentTarget === null) {
@@ -561,6 +572,26 @@ export class OutlinerServer {
       return this.reconcileClientRuntime(updated);
     }
     throw new Error(`Client is not registered: ${clientId}`);
+  }
+
+  private normalizeComposedState(
+    role: OutlinerClientRole,
+    focusedRegion: OutlinerRegion | undefined,
+    treeSelection: OutlinerClientRegistration["treeSelection"],
+    initial = true,
+  ): Pick<OutlinerClientRegistration, "focusedRegion" | "treeSelection"> {
+    if (role !== "composed") {
+      if (focusedRegion !== undefined || treeSelection !== undefined) throw new Error("Only composed clients have internal regions");
+      return {};
+    }
+    if (focusedRegion !== undefined && focusedRegion !== "tree" && focusedRegion !== "detail") throw new Error("Invalid composed focus region");
+    if (treeSelection !== undefined && (!treeSelection || typeof treeSelection.rowId !== "string" || !treeSelection.rowId || treeSelection.rowId.length > 2000)) {
+      throw new Error("Composed Tree selection requires an occurrence row ID");
+    }
+    return {
+      ...(focusedRegion !== undefined || initial ? {focusedRegion: focusedRegion ?? "tree"} : {}),
+      ...(treeSelection ? {treeSelection: {...treeSelection, target: this.normalizeNavigationTarget(treeSelection.target, "retain")}} : {}),
+    };
   }
 
   private attentionClient(clientId: string): OutlinerClientRegistration {
@@ -625,12 +656,15 @@ export class OutlinerServer {
 
   private setAttention(input: AttentionMarkInput, advance: boolean): AttentionClientState {
     const client = this.attentionClient(input.targetClientId);
+    if (client.role === "composed" && (input.reveal || input.focus) && input.targetRegion !== "tree" && input.targetRegion !== "detail") throw new Error("Composed attention navigation requires an explicit target region");
+    if (input.targetRegion !== undefined && !clientSupportsRole(client, input.targetRegion)) throw new Error("Attention target region is unavailable");
+    if (input.targetRegion === "tree" && input.target.kind === "file") throw new Error("File attention requires the Detail region");
     const source = this.store.require(input.target.sourceBlockId);
     const mark = normalizeAttentionMark(input, client, source);
     if (advance && mark.role !== "current") {
       throw new Error("Attention advance requires a current mark");
     }
-    if (mark.target.kind === "file" && client.role !== "detail") {
+    if (mark.target.kind === "file" && !clientSupportsRole(client, "detail")) {
       throw new Error("File attention requires a Detail target client");
     }
 
@@ -734,6 +768,7 @@ export class OutlinerServer {
     focus = false,
   ): AttentionMarkInput {
     return {
+      ...(this.attentionClient(targetClientId).role === "composed" ? {targetRegion: "detail" as const} : {}),
       markId: this.workflowAttentionMarkId(run.runId, step.ordinal),
       targetClientId,
       target: step.target,
@@ -821,6 +856,7 @@ export class OutlinerServer {
     );
     const attention = this.setAttention(attentionInput, true);
     this.emitAttention("workflows.transition", attention, {
+      ...(this.attentionClient(targetClientId).role === "composed" ? {targetRegion: "detail" as const} : {}),
       markId: attentionInput.markId,
       reveal: true,
       focus: attentionInput.focus ?? false,
@@ -918,6 +954,7 @@ export class OutlinerServer {
   private detailPool(source: OutlinerClientRegistration): OutlinerClientRegistration[] {
     if (!this.hasAvailableTopology(source)) return [];
     const details = this.listClients("detail")
+      .filter(client => client.role !== "composed" || client.contextId === source.contextId)
       .filter((client) => this.hasAvailableTopology(client));
     const candidates = source.runtime?.workspaceId && source.runtime.tabId
       ? details.filter((client) => this.sameTab(source, client))
@@ -955,6 +992,7 @@ export class OutlinerServer {
     return {
       sourceClientId: source.clientId,
       targetClientId: target.clientId,
+      ...(target.role === "composed" ? { targetRegion: "detail" as const } : {}),
       intent,
       resolution: "unlocked",
     };
@@ -966,6 +1004,11 @@ export class OutlinerServer {
     preserveSource = false,
   ): Omit<OutlinerNavigationDispatch, "command"> {
     const source = this.clientById(sourceClientId);
+    const primary = this.listClients("composed").find(client => client.contextId === source.contextId);
+    if (primary && !preserveSource) {
+      if (intent !== "reveal" && primary.locked) throw new Error(PRIMARY_DETAIL_LOCKED_ERROR);
+      return { sourceClientId, targetClientId: primary.clientId, intent, resolution: "context", targetRegion: intent === "reveal" ? "tree" : "detail" };
+    }
     if (!this.hasAvailableTopology(source)) {
       throw new Error("Herdr pane discovery is unavailable · wait for the service registry to reconnect");
     }
@@ -987,6 +1030,7 @@ export class OutlinerServer {
       return {
         sourceClientId,
         targetClientId: contextCandidates[0]!.clientId,
+        ...(contextCandidates[0]!.role === "composed" ? { targetRegion: "tree" as const } : {}),
         intent,
         resolution: "context",
       };
@@ -998,6 +1042,7 @@ export class OutlinerServer {
       return {
         sourceClientId,
         targetClientId: sameTabCandidates[0]!.clientId,
+        ...(sameTabCandidates[0]!.role === "composed" ? { targetRegion: "tree" as const } : {}),
         intent,
         resolution: "same-tab",
       };
@@ -1036,7 +1081,7 @@ export class OutlinerServer {
     }
     try {
       const destination = this.clientById(request.destinationClientId);
-      if (destination.role !== "detail") {
+      if (!clientSupportsRole(destination, "detail")) {
         throw new Error("Resource documents require a Detail destination");
       }
       let result: unknown;
@@ -1165,7 +1210,8 @@ export class OutlinerServer {
           if (
             request.role !== undefined &&
             request.role !== "tree" &&
-            request.role !== "detail"
+            request.role !== "detail" &&
+            request.role !== "composed"
           ) {
             throw new Error(`Invalid client role: ${String(request.role)}`);
           }
@@ -1217,7 +1263,7 @@ export class OutlinerServer {
           break;
         case "resources.write-filesystem": {
           const destination = this.clientById(request.destinationClientId);
-          if (destination.role !== "detail") {
+          if (!clientSupportsRole(destination, "detail")) {
             throw new Error("Filesystem Resource writes require a Detail destination");
           }
           const local = this.presentResource(
@@ -1265,7 +1311,7 @@ export class OutlinerServer {
           break;
         case "resources.describe": {
           const destination = this.clientById(request.destinationClientId);
-          if (destination.role !== "detail") {
+          if (!clientSupportsRole(destination, "detail")) {
             throw new Error("Resource descriptions require a Detail destination");
           }
           const target = this.normalizeNavigationTarget(request.target);
@@ -1363,6 +1409,7 @@ export class OutlinerServer {
                 ...route,
                 command: {
                   targetClientId: route.targetClientId,
+                  ...(route.targetRegion ? {targetRegion: route.targetRegion} : {}),
                   command: "preview",
                   target,
                 },
@@ -1404,6 +1451,7 @@ export class OutlinerServer {
             }
             command = {
               targetClientId: route.targetClientId,
+              ...(route.targetRegion ? {targetRegion: route.targetRegion} : {}),
               command: "reveal",
               target: navigationTarget,
               ...(request.focusTarget ? { focus: true } : {}),
@@ -1411,6 +1459,7 @@ export class OutlinerServer {
           } else {
             command = {
               targetClientId: route.targetClientId,
+              ...(route.targetRegion ? {targetRegion: route.targetRegion} : {}),
               command: intent,
               target: navigationTarget,
             };
@@ -1423,6 +1472,10 @@ export class OutlinerServer {
             throw new Error(`Target client is not registered: ${request.command.targetClientId}`);
           }
           const target = this.clientById(request.command.targetClientId);
+          const region = request.command.targetRegion;
+          if (target.role === "composed" && region !== "tree" && region !== "detail") throw new Error("Composed commands require an explicit target region: tree or detail");
+          if (region !== undefined && (region !== "tree" && region !== "detail" || !clientSupportsRole(target, region))) throw new Error("Command target region is unavailable");
+          if (target.role === "composed" && region === "tree" && !["focus", "reveal"].includes(request.command.command)) throw new Error("This command requires the Detail region");
           if ("target" in request.command && request.command.target !== undefined) {
             request.command.target = this.normalizeNavigationTarget(request.command.target);
           }
@@ -1431,7 +1484,7 @@ export class OutlinerServer {
             request.command.command === "replace"
           ) {
             const operation = request.command.command === "replace" ? "replace" : "open";
-            if (target.role !== "detail") {
+            if (!clientSupportsRole(target, "detail")) {
               throw new Error(`Direct ${operation} target must be a Detail client`);
             }
             if (operation === "open" && target.locked) {
@@ -1439,7 +1492,7 @@ export class OutlinerServer {
             }
           }
           if (request.command.command === "backlinks.select") {
-            if (target.role !== "detail") {
+            if (!clientSupportsRole(target, "detail")) {
               throw new Error("Backlink selection target must be a Detail client");
             }
             if (!request.command.targetBlockId || !request.command.sourceBlockId) {
@@ -1450,7 +1503,7 @@ export class OutlinerServer {
           }
           if (request.command.command === "comment.selection") {
             const capture = request.command.renderedSelection;
-            if (target.role !== "detail") {
+            if (!clientSupportsRole(target, "detail")) {
               throw new Error("Rendered selection comment target must be a Detail client");
             }
             if (!capture.quote.trim()) {
@@ -1926,6 +1979,7 @@ export class OutlinerServer {
         blockId = request.input.target.sourceBlockId;
         attention = response.result as AttentionClientState;
         attentionInstruction = {
+          ...(request.input.targetRegion ? {targetRegion: request.input.targetRegion} : {}),
           markId: request.input.markId,
           reveal: request.input.reveal ?? false,
           focus: request.input.focus ?? false,

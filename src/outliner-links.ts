@@ -2,6 +2,7 @@ import { hyperlink } from "@earendil-works/pi-tui";
 import { createAnnotationReferenceContext } from "./annotations";
 import {
   focusBlockByQuery,
+  resolveBlockFocus,
   formatBlockFocusMatch,
   type BlockFocusRequester,
 } from "./block-focus";
@@ -20,6 +21,7 @@ import {
   type TextRange,
 } from "./reference-occurrences";
 import {
+  type TreeNavigation,
   dispatchNavigation,
   resolveNavigationDestination,
 } from "./navigation-routes";
@@ -34,6 +36,7 @@ import type {
   PageAddressFollowResult,
   PageAddressResolution,
   Resource,
+  WorkspaceSnapshot,
   InternResourceReceipt,
   AnnotationReferenceContext,
   ResourceTarget,
@@ -322,12 +325,19 @@ export async function navigateOutlinerLink(
     treeClientId?: string;
     detailClientId?: string;
     sourceClientId?: string;
+    navigation?: Pick<TreeNavigation, "dispatch" | "resolve">;
     intent?: OutlinerNavigationIntent;
   } = {},
 ): Promise<OutlinerLinkNavigation> {
+  const dispatch = targets.navigation?.dispatch ?? ((target, intent, options) =>
+    dispatchNavigation(requester, targets.sourceClientId!, target, intent, options));
+  const resolve = targets.navigation?.resolve ?? ((intent, options) =>
+    resolveNavigationDestination(requester, targets.sourceClientId!, intent, options));
   const target = parseOutlinerLinkUri(uri);
   if (target.kind === "goto") {
-    const focused = await focusBlockByQuery(requester, target.value, 20, targets.treeClientId);
+    const focused = targets.navigation
+      ? {resolution: resolveBlockFocus((await requester.request<WorkspaceSnapshot>({action: "workspace.snapshot"})).physical.blocks, target.value, 20)}
+      : await focusBlockByQuery(requester, target.value, 20, targets.treeClientId);
     if (focused.resolution.kind === "none") {
       throw new Error(`No outliner block matches clicked link: ${target.value}`);
     }
@@ -337,6 +347,7 @@ export async function navigateOutlinerLink(
         .join("\n");
       throw new Error(`Clicked outliner link is ambiguous:\n${candidates}`);
     }
+    if (targets.navigation) await targets.navigation.dispatch({kind: "block", blockId: focused.resolution.match.block.id}, "reveal");
     return {
       kind: "goto",
       id: focused.resolution.match.block.id,
@@ -357,9 +368,7 @@ export async function navigateOutlinerLink(
     };
     if (targets.sourceClientId) {
       const intent = target.intent ?? targets.intent ?? "open";
-      const dispatched = await dispatchNavigation(
-        requester,
-        targets.sourceClientId,
+      const dispatched = await dispatch(
         navigationTarget,
         intent,
         { preserveSource: target.preserveSource },
@@ -376,7 +385,7 @@ export async function navigateOutlinerLink(
     const detailClientId =
       targets.detailClientId ?? await requireUniqueClientId(requester, "detail");
     await sendClientCommand(requester, detailClientId, {
-      command: "open",
+      command: "open", targetRegion: "detail",
       target: navigationTarget,
     });
     return {
@@ -390,17 +399,13 @@ export async function navigateOutlinerLink(
   if (targets.sourceClientId) {
     const intent = target.intent ?? targets.intent ?? "open";
     if (target.kind === "page") {
-      await resolveNavigationDestination(
-        requester,
-        targets.sourceClientId,
+      await resolve(
         intent,
         { preserveSource: target.preserveSource },
       );
     }
     const resolved = await resolveOutlinerLinkTarget(requester, target);
-    const dispatched = await dispatchNavigation(
-      requester,
-      targets.sourceClientId,
+    const dispatched = await dispatch(
       {
         kind: "block",
         blockId: resolved.block.id,
@@ -455,7 +460,7 @@ export async function navigateOutlinerLink(
       targets.detailClientId ?? await requireUniqueClientId(requester, "detail");
     await requester.request({ action: "selection.set", blockId: block.id });
     await sendClientCommand(requester, detailClientId, {
-      command: "focus",
+      command: "focus", targetRegion: "detail",
       target: {
         kind: "block",
         blockId: block.id,
@@ -474,7 +479,7 @@ export async function navigateOutlinerLink(
   treeClientId ??= await requireUniqueClientId(requester, "tree");
   await requester.request({ action: "selection.set", blockId: block.id });
   await sendClientCommand(requester, treeClientId, {
-    command: "focus",
+    command: "focus", targetRegion: "tree",
     target: {
       kind: "block",
       blockId: block.id,
