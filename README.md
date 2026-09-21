@@ -13,6 +13,24 @@ The same service is exposed to Pi/OMP as agent tools, so notes, decisions, quest
 
 See [`CHANGELOG.md`](CHANGELOG.md) for notable changes after the first dogfood tag.
 
+After [opening the workspace](#open-the-workspace), start with these controls.
+`?` in either pane shows the effective bindings and every available action.
+Fresh workspaces also include **Explore the Outliner** beneath **Documentation**,
+addressable as `[[outliner-tour]]`.
+
+| To… | Start here |
+| --- | --- |
+| Find a note and preview it | Tree `g`: [Goto search](#tree-browse-mode) |
+| Keep a reference beside your work | [Independent Details and locking](#working-with-multiple-details) |
+| Read files and comment on a particular use | [Authored Resources](#inspect-authored-links) and [reference comments](#comments-on-individual-resource-references) |
+| Capture a thought and inspect its cleanup | Tree `c`, then `Shift+I`: [Capture and Inbox](#capture-and-inbox) |
+| Tune the AI's instructions | [Editable prompt files](#editing-ai-prompts) |
+| Share notes and track work with an agent | [Agent tools, stages, and batches](#agent-integration) |
+
+The [combined Tree/Detail surface](#combined-tree-and-detail-experiment) and
+[automatic Inbox editor](#automatic-inbox-agent) are shipped experiments. The
+normal separate-pane layout remains the default.
+
 ## Why this exists
 
 The project started as a small Friday-night experiment and grew into a durable workspace with a few explicit constraints:
@@ -72,7 +90,7 @@ No shared user host is used.
 
 - SQLite-backed hierarchical blocks with stable UUIDs, sibling order, authors, timestamps, and one canonical graph per workspace root.
 - Workspace-isolated service and runtime paths.
-- JSON-lines RPC protocol v53 over a Unix socket.
+- Versioned JSON-lines RPC over a Unix socket. Clients and service must use matching [`OUTLINER_PROTOCOL_VERSION`](src/types.ts) values.
 - Reactive canonical content/view broadcasts, per-process Tree/Detail registration with Detail lock availability, exact-client UI commands, and source-aware `preview | open | reveal` navigation.
 - Durable resources have UUID identities independent of blocks and mutable locators. Provider-qualified Sources bind filesystem roots or remote namespaces; overlapping Sources remain distinct, relocations preserve Resource IDs, provider revisions remain explicit, and capability resolution reports blockers across provider, credentials, workspace policy, host, and connectivity. Registered Detail hosts declare Surface, Placement, renderer, capability, credential, and connectivity facts; open/describe/refresh deterministically negotiate cached Markdown, embedded-browser, native-document, metadata, or external-link representations without changing Resource identity. PDF is a media type reachable through filesystem and web Sources: one captured binary snapshot can produce both native PDF and page-aware Markdown representations through versioned replaceable extractors.
 - Each Tree owns its cursor, occurrence selection, filter, viewport, collapsed rows, multiline expansion, explicit-navigation history, and browsing context; moving a Tree previews only in the first unlocked same-tab Detail and never replaces a locked anchor.
@@ -84,24 +102,31 @@ No shared user host is used.
 - Plain-clickable Work IDs, canonical UUIDs, exact references, and `[[address]]` links inside Tree/Detail, with OSC 8 `pi-outliner://` links retained for external terminal interoperability.
 - Tree can project a selected block's authored Outlinks and Resources as read-only generated branches. Enumeration never creates pages, Resources, Sources, or provider traffic. Explicit activation follows or creates unresolved ordinary `[[page]]` links and human-authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` Resources; unresolved Work IDs stay unavailable.
 - Property-driven virtual branches with ranked or timestamp-sorted canonical roots, read-only contextual descendants through relative depth 2, independent occurrence disclosure, a 1,000-row branch budget, property-aware creation, and persisted manual root ordering.
-- Fresh databases seed version 4 of the agent-readable Documentation hub. The seed includes addressable sections, native transclusions, one exact cross-reference, a working property-driven virtual branch, and an authored-links example with block, page, local-file, web, SSH-application, and Jira references.
+- Fresh databases seed version 5 of the Documentation hub: an addressable feature tour, the agent documentation guide, native transclusions, a working virtual branch, and authored block, page, file, web, SSH-application, and Jira reference examples. Existing workspaces keep their customized content.
 - Agent-created blocks retain immutable creator provenance. Every later text or property mutation records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator.
 - Recoverable deletion preserves canonical structure and identity, excludes Trash content from normal queries/completions, and requires explicit identifier-confirmed purge.
-- Idempotent zero-context-loss Tree capture writes ordinary canonical children under one stable workspace Inbox without moving selection or navigation history.
+- Idempotent quick capture retains drafts and writes ordinary canonical children under one workspace Inbox without moving selection or navigation history. The automatic Inbox agent can organize them using the configured Pi model, with optional Jev judgments, inspectable results, Pause/Resume, guarded Undo, and directed reconsideration.
 - Canonical bookmarks use one strict record per target beneath the durable Bookmarks system view; Tree and Detail toggle them optimistically, and the generic split navigator resolves each record back to its live target without rewriting target text.
+- Goto search combines immediate text matches, location context, and a document preview with optional bounded Jev ranking; exact UUIDs, pages, aliases, and Work IDs remain deterministic.
 - Client-local multiline-expanded Tree rows support viewport-sized intra-block PageUp/PageDown without changing the Tree cursor.
 - Pi Markdown preview with line, page, endpoint, and mouse/trackpad scrolling.
 - Detail renders source-spanned Markdown, nested Obsidian callouts, generated embeds, Backlinks, and a structured property inspector through one PreviewRegion focus/action model while canonical source remains authoritative.
 - The property inspector preserves repeated keys and block/line/inline scope, offers inline disclosure plus a locked dedicated Detail pane, and routes typed block/page/Work-ID values through existing navigation.
 - Grapheme-safe wrapped Detail editing, word motion, selection, deletion, bounded per-session undo/redo, completion, optimistic save, and whole-session Esc cancellation.
 - Targeted ephemeral attention marks exact block/file source ranges in one addressed Tree or Detail without mutating content, selection, navigation history, or durable annotations. Marks expire, become stale instead of drifting when source changes, retain one current plus bounded supporting cues, and coalesce missed activity into a return summary.
-- Each Detail visibly reports `Unlocked` or `Locked`; unlocked Details form a spatial preview/open pool, while locked Details retain exact context anchors.
+- Detail shows `🔓` when unlocked and `🔐` when locked; unlocked Details form a spatial preview/open pool, while locked Details retain exact context anchors.
 - Durable annotations use ordinary blocks for comment and reply content, lifecycle, and promotion presentation. One relational sidecar owns immutable original targets and append-only resolution history for block, filesystem Resource, rendered, web, and provider evidence. Typed anchors share one codec seam. Reconciliation follows a deterministic ladder: unchanged representation, provider-native identity, structural quote verification, unique exact quote, context ranking, then bounded local fuzzy matching. High-confidence matches apply automatically; medium candidates remain probable, low candidates remain unresolved, and candidate targets and scores remain in history. Detail reveals only currently resolved text-quote positions and keeps probable, unresolved, ambiguous, orphaned, unsupported, and rejected outcomes inspectable.
 - Herdr-owned pane placement/focus and current-pane recovery, one remembered service pane, per-process live client discovery, and an ephemeral runtime registry.
 - Pi/OMP commands, tools, selection-context injection, canonical `/send-to-outline` capture, and deterministic configured `PREFIX-XXX` work-placeholder nudging.
 
-Planned work is tracked inside the outliner itself; this document describes only
-behavior already shipped on the current branch.
+Tree loads a complete structural index with bounded previews and fetches exact
+bodies when needed. Detail paints the primary document before optional link and
+projection enrichment; a bounded 32-target cache speeds revisits while revisions
+remain service-owned. Ranked views reuse projection/query work rather than
+introducing another persistent index.
+
+Planned work is tracked inside the outliner itself; this document describes
+behavior implemented on the current branch. Experiments are labeled explicitly.
 
 ### Web Resource snapshots
 
@@ -432,18 +457,18 @@ bun run goto "Authored links example"
 
 Known limits in the current dogfood build:
 
-- Resource activation does not yet open the block destination chooser when the
-  current Detail is locked. This is tracked as PIE-260.
+- Tree-generated Resource opens require an unlocked reader. If all Details are
+  locked, unlock or open another reader first; Tree does not offer a destination
+  chooser for this action. Inside Detail, Resource references use the shared
+  destination chooser.
 - `[file::user@host/path]` creates an SSH application deep link, not a
   source-backed remote file. SSH-backed text and `[ssh::host/path]` authoring
   are tracked as PIE-261.
-- Metadata-only Resource fields are readable but not commentable. Structured
-  metadata comments are tracked as PIE-262.
-- Authored Resource properties are actionable through Tree's generated branch
-  but remain plain text in Detail. Inline activation is tracked as PIE-263.
-- Direct comments work on filesystem text, cached web Markdown, and extracted
-  PDF text. Computed and remote-entity cached Markdown support is tracked as
-  PIE-264.
+- Metadata-only Resource fields are readable but do not support direct Detail
+  comments. That interaction is tracked as PIE-262.
+- Direct Detail comments work on filesystem text, cached web Markdown, and
+  extracted PDF text. Computed and remote-entity cached Markdown support is
+  tracked as PIE-264.
 
 Activating an inline Backlinks source opens a transient preview over the
 invoking Detail instead of consuming another reader. `Left` and `Right` traverse
@@ -472,7 +497,7 @@ In another terminal, from the same workspace root:
 ```sh
 bun run cli list
 bun run cli list --filter work-stage=queued --limit 20
-bun run cli list --filter 'status=in progress' --filter project=pi-outliner --limit 20
+bun run cli list --filter 'status="in progress"' --filter project=pi-outliner --limit 20
 bun run cli capture --text "A quick thought"
 bun run cli capture <<'EOF'
 Multiline capture with literal $VARIABLE and Unicode 🐢.
@@ -525,7 +550,7 @@ title. Collapsed Tree rows right-align summaries against the row's available
 width, omit a lone property's repeated key, remove lower-priority fields before
 truncating the title, and never add a second row.
 The complete authored metadata remains available in expanded rows and the
-property inspector. Detail also right-aligns the clickable `🔓`/`🔒` lock and
+property inspector. Detail also right-aligns the clickable `🔓`/`🔐` lock and
 `[⋯]` action controls.
 
 Resource properties use the same activation for metadata and inline mentions.
@@ -672,7 +697,7 @@ Projected virtual occurrences deliberately constrain hierarchy and collapse. Bra
 | Key | Action |
 | --- | --- |
 | `Up` / `Down` | Scroll one visual line |
-| `Ctrl+U` / `Ctrl+D` | Scroll half a viewport |
+| `Ctrl+U` / `Ctrl+D` | Scroll one viewport |
 | `PageUp` / `PageDown` | Scroll one viewport |
 | `g` / `G` | Top / bottom |
 | Mouse wheel / trackpad | Scroll preview |
@@ -874,7 +899,7 @@ annotation document also scrolls through its full evidence and history with `G`.
 | --- | --- |
 | Arrow keys | Grapheme-safe character/physical-line movement |
 | `Option+Left/Right`, `Ctrl+Left/Right`, `Option+B/F` | Previous/next word start |
-| `Home` / `End`, `Ctrl+A` / `Ctrl+E` | Physical line start / end |
+| `Home` / `Ctrl+A`; `End` | Physical line start / end (`Ctrl+E` opens the external editor in block edit mode) |
 | `Shift` + a supported motion | Extend selection |
 | Primary-button drag | Select exact authored text across wrapped rows and Unicode graphemes; dragging over a viewport edge scrolls and extends |
 | `Command+A` or `Ctrl+Shift+A` | Select all authored source |
@@ -885,7 +910,7 @@ annotation document also scrolls through its full evidence and history with `G`.
 | `Tab` or `Ctrl+Space` | Open completion in block edit mode |
 | `Ctrl+W` | Move focus between the wide editor and draft preview |
 | `Ctrl+L` | Toggle source-line-linked editor/preview scrolling |
-| `Ctrl+E` or `Option+E` / `Alt+E` | Yield this Detail pane to `$VISUAL` or `$EDITOR`; `Ctrl+E` avoids AltGr/dead-key layouts. Imports a block draft as one undoable edit, or revision-checks and writes a changed filesystem Resource |
+| `Ctrl+E` or `Option+E` / `Alt+E` (block edit or preview) | Yield this Detail pane to `$VISUAL` or `$EDITOR`; `Ctrl+E` avoids AltGr/dead-key layouts. Imports a block draft as one undoable edit, or revision-checks and writes a changed filesystem Resource |
 | `Ctrl+S` | Save a block or writable filesystem Resource, or add an annotation |
 | `Esc` | Cancel the complete edit session and return to Tree |
 
@@ -948,122 +973,14 @@ The service owns one structured `BlockSearchQuery` used by Tree filters, virtual
 ```text
 status=open priority
 status="in progress" project=pi-outliner
-status::"in review" type::roadmap-item
+work-stage::review type::roadmap-item
 ```
 
 Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. OR, NOT, ranges, grouping, aggregation, and reference traversal are intentionally not supported by the property expression.
 
-Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text substring, subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query carries a limit from 1 through 1000 and returns `complete` or `truncated` metadata. Tree `/` mode uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and requires an explicit `--limit`.
+Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text substring, subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query carries a limit from 1 through 1000 and returns `complete` or `truncated` metadata. Tree `/` mode uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and accepts `--limit` (default 500).
 
-### Quick capture Inbox
-
-Tree `c` opens the manifest-owned Herdr popup without navigating away from the selected row. The popup reuses the Detail multiline editor’s `TextBuffer`, command mapping, wrapping, cursor, selection, and row renderer. Enter adds a line and Ctrl+S explicitly saves. Text, cursor, stable request identity, and the original captured-from context are retained in one workspace-owned draft after a short debounce; Esc/Ctrl+C flush and close, while Ctrl+D requires a second press before discarding. Reopening from any pane in the same workspace resumes that draft. A failed save or stale concurrent writer leaves the full draft visible for a safe retry.
-
-`capture.create` writes one ordinary canonical child beneath the active `[system-view::inbox]` block. Tree, CLI, Pi/OMP tools/commands, and exact standalone dispatch markers are adapters over this same mutation. Captures include:
-
-```text
-Useful title [type::capture] [status::unprocessed] [capture-source::tree] [captured-at::<ISO timestamp>] [captured-from::<optional canonical block UUID>]
-Optional supporting detail on later lines.
-```
-
-The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt. Automatic Inbox editing starts after that durable save, independently of the popup.
-
-### Automatic Inbox agent
-
-The service uses the default model and authentication already configured in Pi.
-It processes existing unprocessed Inbox notes and newly saved captures without a
-separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
-Optional `TYPESAFE_API_KEY` enables Jev comparisons of duplicate and related notes;
-the editor still works without Jev. Missing Pi configuration is visible in the
-Inbox view. Restart the service after configuring its model.
-
-Press `Shift+I` in Tree (also available in `?`). The view shows progress, results,
-links, and observed model usage. `a` switches between outstanding questions/errors
-and recent results; Left/Right page through older results. The attention count
-includes questions outside the current page. `p` pauses/resumes, `u` undoes the
-selected cleanup, and `r` reconsiders a held, failed, or undone note with optional
-direction. `Tab` selects an output/source link, `Enter` reveals it in Tree, and
-`Alt+Enter` opens it in Detail. Closing the view leaves the agent running.
-Pause and reconsideration instructions survive service restart. History and Undo
-remain available when the model is disabled or unavailable.
-
-The editor can rewrite, split, combine useful context, and file ordinary notes.
-General notes, lists, and meetings stay notes. Concrete Outliner tasks use the
-existing PIE allocator and enter Backlog; cleanup never commits or executes them.
-The original source keeps its identity and children. Clean primary notes move to
-**Filed notes**; sources whose content moved elsewhere become concise linked
-summaries in **Processed captures**. Original text is retained in internal recovery
-records, without another raw-copy block in the outline.
-
-Each cleanup and its recovery record commit together. Apply and Undo reject stale
-edits; Undo refuses to overwrite later changes to affected blocks or their children,
-or remove a new output that has since acquired references or annotations. If its
-bounded reference inspection is incomplete, Undo refuses rather than guessing.
-An undone note is held until edited or explicitly reconsidered. Questions do not
-block the remaining Inbox. Provider failures stop automatic processing and remain
-visible; Resume retries the failed note. A single note exceeding its editor budget
-needs attention without stopping unrelated notes. Jev failures are shown with the
-result; the Pi editor can still complete the cleanup. Costs are estimates from observed usage,
-not billing receipts; cancellation may interrupt final usage reporting. This is a
-single-user editorial experiment: inspect the results and use Undo when a judgment
-is wrong.
-
-CLI accepts `--text`, explicit `--stdin`, or automatic non-TTY stdin/heredoc input. `--request-id` provides caller-controlled retry identity and `--captured-from` records optional context. Receipt JSON is written to stdout; service failure exits nonzero without a local fallback. Retry with the same text and context. New CLI and popup clients reject an incompatible service before capture; restart the service and clients together for protocol upgrades. Legacy receipts without payload evidence reject replay and identify the existing capture for manual inspection; migration preserves retained drafts rather than guessing what was submitted.
-
-### Editing AI prompts
-
-The service keeps editable prompt files in its workspace state directory:
-`~/.local/state/pi-herdr-outliner/<workspace-key>/prompts/` (or beneath the configured
-`OUTLINER_STATE_DIR`). They are seeded once from the versioned `prompts/` defaults.
-Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
-selects another complete directory; explicit directories are never populated or
-silently mixed with defaults.
-
-| File | Controls |
-| --- | --- |
-| `inbox-editor.md` | Pi's Inbox editing instructions |
-| `inbox-relationships.json` | Jev's duplicate/related and coverage questions |
-| `goto-ranking.json` | Jev's Goto scoring instructions and four score levels |
-
-Add ordinary `[file::/absolute/path/to/prompts/inbox-editor.md]` references to an
-**AI prompts** block. Open each Resource in Detail, press `e`, edit, and save with
-`Ctrl+S`. The runtime reads those same files: the block does not contain a second
-copy of the instructions. Files are on the service host, including for remote clients.
-
-Each Inbox job reads its prompt files once when it starts; each eligible Goto
-search reads its ranking file. Saving affects the next job/search without a rebuild
-or restart. Jobs already running retain their captured versions. Results record
-the exact file text, path and SHA-256 hash; Inbox shows the filenames and short
-hashes alongside model usage. Historical results keep their old snapshots after
-later edits. Routine `inbox.status` responses include only prompt paths and hashes;
-`inbox.result` with a `resultId` retrieves a receipt's full prompt snapshots. These
-are evidence, never another editable configuration source.
-
-JSON instructions and criteria are editable, while the result keys and score count
-remain the contract enforced by code. Tool permissions, mutation checks and work
-allocation are also code-owned. Empty, missing, oversized or malformed files report
-the affected path. Fix the file and Resume Inbox; Goto retries on the next search
-and retains text matches while its prompt is invalid. No stale prompt is silently
-used. The separate older-note survey remains an experiment, outside automatic Inbox processing.
-
-`bun run test:e2e:prompts` tests Resource editing and prompt reload in a private
-Herdr session using real Pi/Jev calls. It requires configured Pi authentication;
-the service environment supplies `TYPESAFE_API_KEY` for relationship judgments.
-
-
-
-The Pi extension registers `/capture` and `outliner_capture`. An exact standalone `float.dispatch(…)` input is intercepted by the Pi/OMP input hook, durably captured, acknowledged, and handled without starting an agent turn. Embedded/conversational markers are left untouched; malformed markers report a warning and continue as ordinary input.
-
-`/send-to-outline` copies the latest completed assistant Markdown from the
-current Pi/OMP session into Inbox as an ordinary agent-authored canonical
-capture with session provenance. After durable capture, the active model generates a concise plain title while the complete Markdown remains unchanged as the body. Title generation or revision conflicts never remove the original capture: the command reports the full block UUID for recovery and leaves its initial title intact.
-When a recently focused or unique Tree is available, the command focuses the new
-block there and dispatches an ordinary open to the first eligible Detail; if
-Tree or Detail routing is unavailable, the durable Inbox block remains and the
-command reports that presentation failure. Links, backlinks, block references,
-embeds, and bounded queries therefore use the ordinary Detail projection.
-Responses remain chat-only unless the command is invoked; there is no disposable
-report slot or report pane.
+### References and transclusions
 
 Exact references use stable block IDs:
 
@@ -1136,16 +1053,19 @@ Detection never searches, creates, allocates, relates, or rewrites by itself. Th
 A normal physical block becomes a virtual branch through properties:
 
 ```text
-Queued
+Queued work
 [type::virtual-branch]
-[query::work-stage=queued]
-[create::work-stage=queued]
-[create-parent::<canonical-work-queue-id>]
+[query::type=roadmap-item work-stage=queued]
 [sort::updated]
 [direction::desc]
 [limit::20]
 [summary-properties::work-stage,priority]
 ```
+
+Roadmap stage views project existing records; create new work through
+`outliner_roadmap_create`. Ordinary content views may use `[create::key=value]`
+and `[create-parent::<canonical-parent-id>]` when the defaults and physical
+destination are unambiguous.
 
 Spaced values use the same canonical filter syntax:
 
@@ -1170,9 +1090,10 @@ descendants in root/canonical-preorder order. Unsorted branches apply persisted
 manual ranks before the limit. `[sort::created]` and `[sort::updated]` instead
 order the complete match set by timestamp before limiting; `[direction::asc]` or
 `[direction::desc]` chooses the direction and defaults to `desc`. Roots and
-context share a 1,000-row budget. Physical virtual-branch definitions reached as
-context are inert leaves. Root-query, depth, and row-budget truncation are
-reported separately, and allocation does not depend on disclosure state.
+context share a 1,000-row budget. Nested virtual branches compose through at
+most four branch boundaries, with cycle detection. Root-query, depth, and
+row-budget truncation are reported separately, and allocation does not depend
+on disclosure state.
 
 Press `Shift+V` on a virtual-branch definition in Tree or Detail to open its
 generic read-only navigator popup. The left pane uses the same projected roots,
@@ -1209,6 +1130,118 @@ remain valid. Missing or trashed targets are explicit and cannot be opened or
 revealed; `m` in the popup removes the selected bookmark record and
 chooses the deterministic adjacent row. Default record order is creation order,
 while ordinary virtual-occurrence ranks provide optional manual order.
+
+## Capture and Inbox
+
+### Quick capture Inbox
+
+Tree `c` opens the manifest-owned Herdr popup without navigating away from the selected row. The popup reuses the Detail multiline editor’s `TextBuffer`, command mapping, wrapping, cursor, selection, and row renderer. Enter adds a line and Ctrl+S explicitly saves. Text, cursor, stable request identity, and the original captured-from context are retained in one workspace-owned draft after a short debounce; Esc/Ctrl+C flush and close, while Ctrl+D requires a second press before discarding. Reopening from any pane in the same workspace resumes that draft. A failed save or stale concurrent writer leaves the full draft visible for a safe retry.
+
+`capture.create` writes one ordinary canonical child beneath the active `[system-view::inbox]` block. Tree, CLI, Pi/OMP tools/commands, and exact standalone dispatch markers are adapters over this same mutation. Captures include:
+
+```text
+Useful title [type::capture] [status::unprocessed] [capture-source::tree] [captured-at::<ISO timestamp>] [captured-from::<optional canonical block UUID>]
+Optional supporting detail on later lines.
+```
+
+The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt. Automatic Inbox editing starts after that durable save, independently of the popup.
+
+CLI accepts `--text`, explicit `--stdin`, or automatic non-TTY stdin/heredoc input. `--request-id` provides caller-controlled retry identity and `--captured-from` records optional context. Receipt JSON is written to stdout; service failure exits nonzero without a local fallback. Retry with the same text and context. New CLI and popup clients reject an incompatible service before capture; restart the service and clients together for protocol upgrades. Legacy receipts without payload evidence reject replay and identify the existing capture for manual inspection; migration preserves retained drafts rather than guessing what was submitted.
+
+The Pi extension registers `/capture` and `outliner_capture`. An exact standalone `float.dispatch(…)` input is intercepted by the Pi/OMP input hook, durably captured, acknowledged, and handled without starting an agent turn. Embedded/conversational markers are left untouched; malformed markers report a warning and continue as ordinary input.
+
+`/send-to-outline` copies the latest completed assistant Markdown from the
+current Pi/OMP session into Inbox as an ordinary agent-authored canonical
+capture with session provenance. After durable capture, the active model generates a concise plain title while the complete Markdown remains unchanged as the body. Title generation or revision conflicts never remove the original capture: the command reports the full block UUID for recovery and leaves its initial title intact.
+When a recently focused or unique Tree is available, the command focuses the new
+block there and dispatches an ordinary open to the first eligible Detail; if
+Tree or Detail routing is unavailable, the durable Inbox block remains and the
+command reports that presentation failure. Links, backlinks, block references,
+embeds, and bounded queries therefore use the ordinary Detail projection.
+Responses remain chat-only unless the command is invoked; there is no disposable
+report slot or report pane.
+
+### Automatic Inbox agent
+
+The service uses the default model and authentication already configured in Pi.
+It processes existing unprocessed Inbox notes and newly saved captures without a
+separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
+Optional `TYPESAFE_API_KEY` enables Jev comparisons of duplicate and related notes;
+the editor still works without Jev. Missing Pi configuration is visible in the
+Inbox view. Restart the service after configuring its model.
+
+Press `Shift+I` in Tree (also available in `?`). The view shows progress, results,
+links, and observed model usage. `a` switches between outstanding questions/errors
+and recent results; Left/Right page through older results. The attention count
+includes questions outside the current page. `p` pauses/resumes, `u` undoes the
+selected cleanup, and `r` reconsiders a held, failed, or undone note with optional
+direction. `Tab` selects an output/source link, `Enter` reveals it in Tree, and
+`Alt+Enter` opens it in Detail. Closing the view leaves the agent running.
+Pause and reconsideration instructions survive service restart. History and Undo
+remain available when the model is disabled or unavailable.
+
+The editor can rewrite, split, combine useful context, and file ordinary notes.
+General notes, lists, and meetings stay notes. Concrete Outliner tasks use the
+existing PIE allocator and enter Backlog; cleanup never commits or executes them.
+The original source keeps its identity and children. Clean primary notes move to
+**Filed notes**; sources whose content moved elsewhere become concise linked
+summaries in **Processed captures**. Original text is retained in internal recovery
+records, without another raw-copy block in the outline.
+
+Each cleanup and its recovery record commit together. Apply and Undo reject stale
+edits; Undo refuses to overwrite later changes to affected blocks or their children,
+or remove a new output that has since acquired references or annotations. If its
+bounded reference inspection is incomplete, Undo refuses rather than guessing.
+An undone note is held until edited or explicitly reconsidered. Questions do not
+block the remaining Inbox. Provider failures stop automatic processing and remain
+visible; Resume retries the failed note. A single note exceeding its editor budget
+needs attention without stopping unrelated notes. Jev failures are shown with the
+result; the Pi editor can still complete the cleanup. Costs are estimates from observed usage,
+not billing receipts; cancellation may interrupt final usage reporting. This is a
+single-user editorial experiment: inspect the results and use Undo when a judgment
+is wrong.
+
+### Editing AI prompts
+
+The service keeps editable prompt files in its workspace state directory:
+`~/.local/state/pi-herdr-outliner/<workspace-key>/prompts/` (or beneath the configured
+`OUTLINER_STATE_DIR`). They are seeded once from the versioned `prompts/` defaults.
+Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
+selects another complete directory; explicit directories are never populated or
+silently mixed with defaults.
+
+| File | Controls |
+| --- | --- |
+| `inbox-editor.md` | Pi's Inbox editing instructions |
+| `inbox-relationships.json` | Jev's duplicate/related and coverage questions |
+| `goto-ranking.json` | Jev's Goto scoring instructions and four score levels |
+
+Add ordinary `[file::/absolute/path/to/prompts/inbox-editor.md]` references to an
+**AI prompts** block. Open each Resource in Detail, press `e`, edit, and save with
+`Ctrl+S`. The runtime reads those same files: the block does not contain a second
+copy of the instructions. Files are on the service host, including for remote clients.
+
+Each Inbox job reads its prompt files once when it starts; each eligible Goto
+search reads its ranking file. Saving affects the next job/search without a rebuild
+or restart. Jobs already running retain their captured versions. Results record
+the exact file text, path and SHA-256 hash; Inbox shows the filenames and short
+hashes alongside model usage. Historical results keep their old snapshots after
+later edits. Routine `inbox.status` responses include only prompt paths and hashes;
+`inbox.result` with a `resultId` retrieves a receipt's full prompt snapshots. These
+are evidence, never another editable configuration source.
+
+JSON instructions and criteria are editable, while the result keys and score count
+remain the contract enforced by code. Tool permissions, mutation checks and work
+allocation are also code-owned. Empty, missing, oversized or malformed files report
+the affected path. Fix the file and Resume Inbox; Goto retries on the next search
+and retains text matches while its prompt is invalid. No stale prompt is silently
+used. The separate older-note survey remains an experiment, outside automatic Inbox processing.
+
+`bun run test:e2e:prompts` tests Resource editing and prompt reload in a private
+Herdr session using real Pi/Jev calls. It requires configured Pi authentication;
+the service environment supplies `TYPESAFE_API_KEY` for relationship judgments.
+
+
 
 ## Agent integration
 
@@ -1276,26 +1309,30 @@ one linked canonical decision, follow-up, task, or artifact.
 
 `outliner_roadmap_create` is the canonical new-work path: it fails without a partial block or consumed Work ID when queue discovery, metadata, or relationship validation fails. New work defaults to `unprioritized`. `outliner_branch_rank` updates only persisted virtual occurrence ranks; it neither moves canonical blocks nor changes `work-stage`, and ranks remain available across temporary query mismatches.
 
-Roadmap-item `status` records outcome only: `planned` while open and `complete`
-after proof. `work-stage` records scheduling and delivery position:
-`unprioritized` or `later` → `next` → `doing` → `review` → `validate` →
-`done`. `accepted` belongs to source findings and reviews, not roadmap items.
-Capability maps classify canonical items by arc or track; they do not schedule
-work. Moving an item between lanes changes `work-stage`, while ranking inside a
-lane changes only virtual occurrence order. The full intake, duplicate-search,
-transition, and completion contract lives in
-[`roadmap-items.md`](pi-extension/skills/outliner-workflow/references/roadmap-items.md).
+Roadmap items use `work-stage` as their only lifecycle field:
+`unprioritized`, `later`, `queued`, `doing`, `review`, `validate`, `done`, or
+`superseded`. They have no `status` property; other block types keep their own
+status meanings. Done means accepted delivery with proof. Superseded records
+link a replacement and do not count as shipped.
+
+One optional `work-batch` UUID on each item owns its membership in an agreed
+batch. Batch views query those references, so the commitment remains visible as
+items advance, pause, or finish. Priority, arc/track classification, dependencies,
+and branch-local ranking do not change membership. A small standalone fix can
+be queued without a batch. Scope changes and deferrals belong on the batch.
+The live **How this workboard works** block owns the operating flow; the
+[`roadmap operations reference`](pi-extension/skills/outliner-workflow/references/roadmap-items.md)
+documents creation, lifecycle, ranking, and migration.
 
 `outliner_task` persists one active roadmap block per Pi session. Starting a
-code-delivery item first transactionally ensures one canonical child
-`[type::delivery]` record, then safely attaches or creates its recorded
-Work-ID-bearing branch, and only then moves `work-stage` to `doing`. Reentry
-reuses the same repository, base branch, and work branch. Pausing returns the
-task to `next`. Completion still requires a child or `source-block` proof; when
-a delivery exists it additionally requires an observed merged PR and the
-Validate stage before moving the delivery to Complete, the task to `done`, and
-clearing the session binding. Agent lifecycle events never infer semantic
-completion.
+code-delivery item ensures its canonical `[type::delivery]` child and safely
+attaches or creates the recorded Work-ID-bearing branch before advancing work.
+Starting unprioritized, later, or queued work enters Doing; resuming Review or
+Validate preserves that stage and reuses the same delivery identity. Pausing
+Doing returns it to Queued; pausing Review or Validate only clears the session
+binding. Batch membership remains intact. Completion requires linked proof and,
+for recorded code delivery, an observed merged PR at Validate. It sets Done and
+clears the binding. Agent lifecycle events never infer semantic completion.
 
 The durable delivery block owns `delivery-key`, `repository`, `base-branch`,
 `work-branch`, `delivery-stage`, and observed pull-request facts. It never owns
@@ -1320,9 +1357,10 @@ active delivery branch. This deliberately disables the premature lifecycle gate;
 PIE-214 owns any future enforcement after repository, worktree, delivery,
 agent/subagent ownership, recovery, and publication boundaries are modeled.
 
-An exact open PR advances Doing to Review; its exact merged commit advances
-Review to Validate. Repeated sync and session reentry select the same delivery
-identity and are idempotent.
+Synchronizing the exact open PR advances the item to Review; merge advances it
+to Validate. Repeated synchronization of unchanged PR facts preserves explicit
+rework in Doing. Session reentry reuses the same delivery identity and preserves
+Review or Validate until an explicit transition.
 
 Before each agent turn, the extension uses Herdr pane-focus history to locate the most recently focused registered Outliner client, reads that client's browsing context, and injects the focused block body, breadcrumb, properties, and children. A different active task is appended as separate session context rather than replacing the user's focus. Without a focused Outliner client it falls back to the active task and then the legacy shared selection.
 
@@ -1354,10 +1392,17 @@ Herdr client identities are intentionally ephemeral and are not stored in
 Back up `outliner.sqlite` before experimenting with migrations. Do not copy a live database without also accounting for SQLite WAL files.
 
 A truly empty database receives the default Workspace roots plus one canonical
-Documentation hub. The seed is ordinary, editable workspace content and runs
-only once; restarts and package upgrades never overwrite local guide changes.
+Documentation hub. Seed version 5 keeps the agent documentation guide and adds
+**Explore the Outliner** (`[[outliner-tour]]`) for navigation, Resources, comments, Inbox and
+prompts, work stages and batches, and the combined-surface experiment. The seed
+is ordinary, editable workspace content and runs only once; restarts and package
+upgrades never overwrite local guide changes.
 The schema remains migration-owned rather than being distributed as a prebuilt
 SQLite database.
+
+`bun run test:e2e:documentation` opens that actual seed in an isolated Herdr
+session, finds the tour through Goto, reads an embedded source fragment, and
+navigates the projected example notes. It does not touch your workspace.
 
 ### Remote client mode
 

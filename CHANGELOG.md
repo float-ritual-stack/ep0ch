@@ -4,45 +4,53 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
-### Added
+### Capture and AI instructions
 
-- Durable Resource identities and Source boundaries for filesystem, web, PDF, Jira, Linear, application, and computed providers.
-- Immutable web snapshots, extracted PDF representations, dependency-aware retention, provider-specific revisions, and host-aware presentation negotiation.
-- Durable annotations for blocks and source-backed Resource text, including direct pointer selection for filesystem, web, and PDF representations.
-- Deterministic annotation reconciliation, retained resolution history, inline disclosures, and bounded agent-assisted proposals for unresolved changes.
-- Human-authored Resource references through `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` properties.
-- Tree **Show authored links** branches for Outlinks and Resources. Passive discovery is read-only; explicit activation follows or interns unresolved targets.
-- A guided Herdr plugin installer, portable runtime discovery, external editor handoff, bookmarks, attention marks, and typed outline workflows.
-- An opt-in real Herdr keyboard E2E runner with isolated projects and retained failure evidence. Its Resource-authoring scenario checks passive discovery, Detail content, and repeat activation identity.
-- Remote Tree, Detail, popup, CLI, and Pi clients over an SSH-forwarded Unix socket, with persistent client configuration and host-scoped pane routing.
+- Quick Capture retains text and cursor across closing/reopening, inserts new captures at the top of Inbox, and supports generated titles for `/send-to-outline`. Payload-bound receipts and retained uncertain submissions prevent a retry from discarding newer text. [#84](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/84), [#85](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/85), [#86](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/86), [#120](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/120)
+- A service-owned automatic Inbox editor uses the configured Pi model, with optional Jev relationship judgments. Tree `Shift+I` opens results, questions, Pause/Resume, guarded Undo, and directed reconsideration. Ordinary notes stay notes; concrete tasks enter Backlog without joining a committed batch. This is a single-user editorial experiment. [#141](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/141)
+- Inbox and Goto instructions are editable Markdown/JSON file Resources. Saved changes apply to the next job/search; running jobs keep their captured instructions. Workspace prompt files survive upgrades, and results retain their exact text, path, and hash. Invalid files produce visible errors instead of stale fallbacks. [#142](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/142)
 
-### Changed
+### Navigation and reading
 
-- The JSON-lines RPC protocol is version 54, adding client-owned remote runtime topology updates.
-- Fresh databases use workspace seed version 4. The Documentation hub now includes a Resource reference section and an authored-links example with block, page, local-file, web, SSH-application, and Jira references.
-- Detail navigation uses explicit destination routing and preserves locked panes for block targets.
-- Resource Details expose negotiated presentation, provenance, capability, revision, and retention state without creating wrapper blocks.
-- Remote endpoint selection is project-scoped by invoking workspace; explicit environment overrides still win, unconfigured projects remain local, and legacy machine-global configs now require visible migration.
-- Detail keeps a bounded 32-target in-memory block cache that paints revisits immediately and revalidates authoritative revisions without weakening optimistic writes.
+- Tree `g` opens searchable results with location context and a document preview, in a Herdr popup or inside Outliner. Optional Jev ranking scores up to 80 text-selected candidates; 30 results are shown with limits disclosed. Exact identities and ordinary search work without Jev. [#139](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/139)
+- The opt-in `open-composed` action places Tree and Detail in one pane, with local navigation, independent view state, `F6` region switching, and explicitly detached readers. The separate-pane layout remains the default. [#133](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/133)
+- Reorder appears in the action menu and keybinding registry. Defaults are now Option/Alt+Up/Down for Tree reorder and Option/Alt+Shift+Right/Down for independent Details. Locked Detail uses `🔐`; unlocked uses `🔓`. [#138](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/138), [#136](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/136)
+- Nested Tree inline previews stay occurrence-local. Bookmark mouse reports no longer trigger the keyboard removal shortcut. [#134](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/134), [#135](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/135)
+- Canonical bookmarks, virtual-branch navigation, explicit Detail destinations, attention marks, typed walkthroughs, and external editor handoff support longer reading sessions. Editor recovery preserves drafts and discovers the interactive-shell editor configuration. [#78](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/78), [#79](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/79), [#103](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/103), [#105](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/105)
 
-### Fixed
+### Resources and comments
 
-- Rapid Tree navigation stays local while browsing-context publication and the Detail event scheduler coalesce passive previews to the newest pending target; obsolete loads cannot repaint and explicit opens remain ordered.
-- Remote client routing scopes pane identities to their originating host, withdraws stale topology until Herdr resynchronizes, and uses remote-aware service probe deadlines.
-- Comment composition keeps the cursor visible after three rows and uses matching wrap widths for scrolling and rendering.
-- Filesystem Resources now support read, edit, external editor, refresh, and source-backed comments through one canonical Resource identity.
-- Cached web selections map to the retained representation before annotation creation.
-- Rendered selection validation now rejects stale pane content and changed browsing contexts.
-- Passive file previews load existing Resource annotations without creating a Source or Resource. Explicit activation and comment creation still register files when needed.
-- External editor recovery preserves large drafts and resolves the user's interactive-shell editor configuration.
+- Durable Resource UUIDs and provider-qualified Sources cover filesystem, web, PDF, Jira, Linear, application, and computed providers. Immutable snapshots and representations retain provenance and provider revisions; host negotiation and dependency-aware retention preserve the same identity across presentations. [#90](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/90), [#97](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/97), [#98](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/98), [#99](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/99), [#100](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/100), [#101](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/101)
+- Tree **Show authored links** projects Outlinks and Resources without creating targets. Detail activates authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` occurrences by exact block revision and source span; repeated references stay distinct in Properties while sharing one Resource. [#111](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/111), [#130](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/130)
+- Durable block and Resource annotations retain original evidence and append-only reconciliation history. Direct selections support filesystem text, cached web Markdown, and extracted PDF text; unresolved changes can receive bounded agent-assisted proposals. [#94](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/94), [#95](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/95), [#96](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/96), [#108](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/108), [#110](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/110)
+- Comments distinguish a Resource-wide thread from a particular authored reference and its passage. `[`/`]`, `Shift+C`, and `Shift+D` navigate, reply, and resolve/reopen in place. Stale or ambiguous anchors remain reachable under **Unpositioned comments** instead of marking unrelated text. [#129](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/129), [#131](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/131), [#132](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/132)
+- Multiline comment composition uses the actual body geometry to keep the cursor visible. [#112](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/112)
+
+### Persistence and recovery
+
+- A service acquires exclusive workspace ownership before writable startup, migrations, or recovery, so a competing launch cannot interrupt the active owner's work. [#119](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/119)
+- Normal text writes require the integer `Block.revision` from the original read. Stale writes fail atomically; sibling moves no longer invalidate unchanged text drafts. Filesystem revisions also include a hash of the original bytes. [#121](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/121), [#122](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/122)
+- Filesystem saves retain the submitted draft and displaced original, preserve competing replacements, and recover interrupted saves. Recovery directories remain available for manual inspection and cleanup. This is recoverable replacement with a brief absent-path interval, not atomic compare-and-swap. [#128](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/128)
+
+### Remote work and performance
+
+- Tree, Detail, popups, CLI, and Pi clients connect through an SSH-forwarded Unix socket. Endpoint configuration is project-scoped, pane identities are host-scoped, and remote Tree/Detail startup opens both panes before awaiting registration. [#115](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/115), [#116](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/116), [#117](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/117)
+- File previews and completion read from the canonical service host, including remote clients; passive reads create no Source or Resource. [#123](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/123)
+- Tree loads a complete compact structural index and fetches exact bodies on demand. Detail paints primary content before optional enrichment, while its 32-target revisit cache revalidates revisions and passive preview scheduling keeps the newest target. Reused virtual projections and indexed ranked queries remove repeated work without adding a persistent search index or cursor system. [#124](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/124), [#125](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/125), [#127](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/127)
+
+### Workflow and onboarding
+
+- Roadmap items use `work-stage` alone, with Queued replacing Next and Superseded separate from accepted Done. Item-side `work-batch` references preserve committed scope through progress, pause, and completion. Resume and unchanged PR synchronization preserve explicit review/rework state. [#137](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/137)
+- Fresh databases use workspace seed version 5. **Explore the Outliner** adds addressable feature guides and working reading/projection examples beside the existing agent documentation guide and authored-links example. Existing databases retain their customized content; package upgrades do not reinstall the seed.
+- The guided installer and portable runtime discovery support source-checkout installation. Actual Herdr keyboard journeys use isolated workspaces and retain failure evidence. [#82](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/82), [#83](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/83), [#114](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/114)
+- The current JSON-lines RPC protocol is **63**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
 
 ### Known limits
 
-- Resource activation does not yet show the block destination chooser when the current Detail is locked. Tracked as PIE-260.
+- Tree-generated Resource opens require an unlocked reader and do not offer a destination chooser when all readers are locked. Resource references inside Detail use its shared chooser.
 - SSH authored references are application deep links, not source-backed remote files. Tracked as PIE-261.
-- Metadata-only Resource fields cannot yet receive structured comments. Tracked as PIE-262.
-- Authored Resource properties remain plain text in Detail. Tracked as PIE-263.
-- Computed and remote-entity cached Markdown cannot yet create direct text annotations. Tracked as PIE-264.
+- Metadata-only Resource fields cannot yet receive direct Detail comments. Tracked as PIE-262.
+- Computed and remote-entity cached Markdown cannot yet create direct Detail text annotations. Tracked as PIE-264.
 
 ## [0.1.0-dogfood.1] - 2026-08-22
 
