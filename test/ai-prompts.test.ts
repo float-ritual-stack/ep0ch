@@ -1,5 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_AI_PROMPT_DIRECTORY, initializeAiPrompts, loadGotoPrompt, loadInboxPrompts } from "../src/ai-prompts";
@@ -37,6 +38,71 @@ test("oversized prompt files are rejected before entering model context", async 
   const root = await directory();
   await writeFile(join(root, "inbox-editor.md"), "x".repeat(64 * 1024 + 1));
   await expect(loadInboxPrompts(root)).rejects.toThrow("file exceeds 64 KiB");
+});
+
+test("failed seeding leaves no published directory and can be retried", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ai-prompts-seed-")); roots.push(parent);
+  const root = join(parent, "prompts");
+  const copyFile = fs.copyFile;
+  let copies = 0;
+  const copy = spyOn(fs, "copyFile").mockImplementation(async (...args) => {
+    if (++copies === 2) throw new Error("Injected copy failure");
+    await copyFile(...args);
+  });
+  try {
+    await expect(initializeAiPrompts(root)).rejects.toThrow("Injected copy failure");
+    expect(copies).toBe(2);
+    expect(await readdir(parent)).toEqual([]);
+  } finally { copy.mockRestore(); }
+  await initializeAiPrompts(root);
+  expect((await loadInboxPrompts(root)).editor).toContain("Inbox editor");
+  expect((await loadGotoPrompt(root)).ranking.criteria).toHaveLength(4);
+  expect(await readdir(parent)).toEqual(["prompts"]);
+});
+
+test("initialization preserves an existing empty directory", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ai-prompts-seed-")); roots.push(parent);
+  const root = join(parent, "prompts");
+  await mkdir(root);
+  await initializeAiPrompts(root);
+  expect(await readdir(root)).toEqual([]);
+  expect(await readdir(parent)).toEqual(["prompts"]);
+});
+
+test("initialization preserves a directory created while defaults are being copied", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ai-prompts-seed-")); roots.push(parent);
+  const root = join(parent, "prompts");
+  const copyFile = fs.copyFile;
+  let copies = 0;
+  const copy = spyOn(fs, "copyFile").mockImplementation(async (...args) => {
+    await copyFile(...args);
+    if (++copies === 1) await mkdir(root);
+  });
+  try {
+    await initializeAiPrompts(root);
+    expect(await readdir(root)).toEqual([]);
+    expect(await readdir(parent)).toEqual(["prompts"]);
+  } finally { copy.mockRestore(); }
+});
+
+test("concurrent seeders publish one complete directory and clean their staging files", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ai-prompts-seed-")); roots.push(parent);
+  const root = join(parent, "prompts");
+  const rename = fs.rename;
+  const ready = Promise.withResolvers<void>();
+  let arrivals = 0;
+  const publish = spyOn(fs, "rename").mockImplementation(async (...args) => {
+    if (++arrivals === 2) ready.resolve();
+    await ready.promise;
+    await rename(...args);
+  });
+  try {
+    await Promise.all([initializeAiPrompts(root), initializeAiPrompts(root)]);
+    expect(arrivals).toBe(2);
+    expect((await loadInboxPrompts(root)).editor).toContain("Inbox editor");
+    expect((await loadGotoPrompt(root)).ranking.criteria).toHaveLength(4);
+    expect(await readdir(parent)).toEqual(["prompts"]);
+  } finally { publish.mockRestore(); }
 });
 
 test("workspace initialization seeds once and never resets custom, invalid or removed files", async () => {

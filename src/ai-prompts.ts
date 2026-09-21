@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { copyFile, lstat, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_AI_PROMPT_DIRECTORY = fileURLToPath(new URL("../prompts/", import.meta.url));
@@ -42,14 +42,31 @@ export function aiPromptDirectory(directory?: string): string {
 
 /** Initialize a new workspace's editable files. Existing files, even invalid ones, belong to the user. */
 export async function initializeAiPrompts(directory: string): Promise<void> {
-  try { await mkdir(directory); }
-  catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") return;
-    throw error;
+  directory = resolve(directory);
+  async function exists(): Promise<boolean> {
+    try { await lstat(directory); return true; }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    }
   }
-  await Promise.all(PROMPT_FILENAMES.map(name => copyFile(
-    join(DEFAULT_AI_PROMPT_DIRECTORY, name), join(directory, name), constants.COPYFILE_EXCL,
-  )));
+  if (await exists()) return;
+  const staging = await mkdtemp(join(dirname(directory), `.${basename(directory)}-seed-`));
+  try {
+    // Finish each copy before cleanup can run on failure.
+    for (const name of PROMPT_FILENAMES) {
+      await copyFile(join(DEFAULT_AI_PROMPT_DIRECTORY, name), join(staging, name), constants.COPYFILE_EXCL);
+    }
+    if (await exists()) return;
+    try { await rename(staging, directory); }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error
+        && (error.code === "EEXIST" || error.code === "ENOTEMPTY")) return;
+      throw error;
+    }
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 
 async function readPrompt(directory: string, name: string): Promise<PromptRevision> {
