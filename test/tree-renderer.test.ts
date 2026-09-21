@@ -6,6 +6,7 @@ import {
   normalizeAttentionMark,
 } from "../src/attention";
 import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
+import { InboxController } from "../src/inbox-controller";
 import type { TreeView } from "../src/tree-controller";
 import { renderTreeFrame, treeSemanticState } from "../src/tree-renderer";
 import { composeAuthoredLinkRows, isBlockTreeRow, type TreeDisplayRow } from "../src/tree-rows";
@@ -160,6 +161,26 @@ const PANE_MENU = "\x1b]8;;pi-outliner-action:tree.menu.open\x1b\\[⋯]\x1b]8;;\
 const HEADER = `\x1b[1;36mOutliner\x1b[0m  \x1b[2m/w\x1b[0m  ${PANE_MENU}`;
 
 describe("renderTreeFrame", () => {
+  test("shows a clickable Inbox cue and the same bounded overlay in standalone and composed Tree", async () => {
+    const inbox = new InboxController({
+      async request<T>() { return { enabled: true, paused: true, state: "paused", message: "Paused by user", pending: 4, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 } as T; },
+      invalidate() {}, async open() {}, close() {},
+    });
+    await inbox.start();
+    const browse = renderTreeFrame(view([block("root")], { inboxCue: "Inbox paused · 4 pending" }), 80, 18);
+    const cue = browse.frame.split("\n").find(line => stripTerminalSequences(line).includes("Inbox paused"))!;
+    expect(getOsc8LinkAtColumn(cue, 2)).toBe("pi-outliner-action:tree.inbox.open");
+    for (const focused of [undefined, true]) {
+      const rendered = renderTreeFrame(view([block("root")], { mode: "inbox", inbox }), 60, 18, 0, { focused, clearScreen: false });
+      const lines = rendered.frame.split("\n");
+      expect(lines).toHaveLength(18);
+      expect(lines.every(line => visibleWidth(line) <= 60)).toBe(true);
+      expect(stripTerminalSequences(rendered.frame)).toContain("Paused by user");
+      expect(stripTerminalSequences(rendered.frame)).toContain("4 pending");
+      expect(rendered.mouseTargets).toEqual([]);
+    }
+  });
+
   test("renders a representative browse frame exactly", () => {
     const root = block("root", { text: "Root", displayText: "Root", hasChildren: true });
     const child = block("child", {

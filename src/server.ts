@@ -1,4 +1,7 @@
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
+import { InboxWorker } from "./inbox-worker";
+import { InboxRepository } from "./inbox-repository";
+import type { InboxModel, InboxResult, InboxStatus } from "./inbox-types";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
@@ -100,6 +103,9 @@ function annotationReconcileChanged(value: unknown): boolean {
 
 
 export class OutlinerServer {
+  private inbox: InboxWorker | undefined;
+  private readonly inboxRepository: InboxRepository;
+  private inboxUnavailable = "Automatic Inbox cleanup is not enabled for this service";
   private activeGotoRankings = 0;
   private server: Server | null = null;
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
@@ -115,6 +121,7 @@ export class OutlinerServer {
     readonly herdrRegistry?: HerdrRuntimeRegistry,
   ) {
     this.workflows = new WorkflowManager(store);
+    this.inboxRepository = new InboxRepository(store);
   }
 
   async start(): Promise<void> {
@@ -140,6 +147,7 @@ export class OutlinerServer {
   }
 
   async close(): Promise<void> {
+    await this.inbox?.stop();
     const server = this.server;
     if (!server) return;
     for (const subscriber of this.subscribers.keys()) subscriber.destroy();
@@ -153,6 +161,46 @@ export class OutlinerServer {
     await closed.promise;
     this.server = null;
     if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
+  }
+
+  enableInbox(model: InboxModel): void {
+    if (this.inbox) throw new Error("Inbox processor already started");
+    if (!this.server) throw new Error("Start the service before its Inbox processor");
+    this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), { repository: this.inboxRepository });
+    this.inbox.wake();
+  }
+
+  private inboxChanged(result?: InboxResult): void {
+    if (result?.state === "applied" || result?.state === "undone") {
+      // One transaction can touch several blocks; clients refresh their content projection.
+      this.broadcast({ id: crypto.randomUUID(), domain: "content", action: "inbox.changed", sequence: this.store.sequence });
+      for (const blockId of new Set([result.sourceId, ...result.outputIds])) this.refreshAttentionForBlock(blockId);
+    }
+    this.broadcast({ id: crypto.randomUUID(), domain: "inbox", action: "inbox.status", sequence: this.store.sequence });
+  }
+
+  setInboxUnavailable(message: string): void {
+    this.inboxUnavailable = message;
+    this.broadcast({ id: crypto.randomUUID(), domain: "inbox", action: "inbox.status", sequence: this.store.sequence });
+  }
+
+  private inboxStatus(attentionOnly = false, resultsOffset = 0): InboxStatus {
+    if (typeof attentionOnly !== "boolean") throw new Error("attentionOnly must be a boolean");
+    if (!Number.isSafeInteger(resultsOffset) || resultsOffset < 0) throw new Error("resultsOffset must be a nonnegative integer");
+    if (this.inbox) return this.inbox.status(attentionOnly, resultsOffset);
+    // Recovery and history do not depend on a currently usable model/provider.
+    const attention = this.inboxRepository.attention(31);
+    const results = attentionOnly ? attention.results : this.inboxRepository.results(31, resultsOffset);
+    return {
+      enabled: false, paused: true, state: "unavailable", message: this.inboxUnavailable,
+      pending: this.inboxRepository.pending().length, results: results.slice(0, 30), resultsTruncated: results.length > 30,
+      attentionCount: attention.total, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
+    };
+  }
+
+  private requireInbox(): InboxWorker {
+    if (!this.inbox) throw new Error(this.inboxUnavailable);
+    return this.inbox;
   }
 
   private async socketIsActive(): Promise<boolean> {
@@ -1198,6 +1246,15 @@ export class OutlinerServer {
       let result: unknown;
       const action = request.action;
       switch (action) {
+        case "inbox.status": result = this.inboxStatus(request.attentionOnly, request.resultsOffset); break;
+        case "inbox.pause": result = this.requireInbox().pause(); break;
+        case "inbox.resume": result = this.requireInbox().resume(); break;
+        case "inbox.retry": result = this.requireInbox().reconsider(request.sourceId, request.instructions); break;
+        case "inbox.undo": {
+          this.inboxChanged(this.inboxRepository.undo(request.resultId));
+          result = this.inboxStatus();
+          break;
+        }
         case "ping":
           result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION };
           break;
@@ -2176,6 +2233,7 @@ export class OutlinerServer {
     if (event?.domain === "content" && event.blockId) {
       this.refreshAttentionForBlock(event.blockId);
     }
+    if (event?.domain === "content") this.inbox?.wake();
   }
 
   private accept(socket: Socket): void {

@@ -5,6 +5,8 @@ import {
 import { emptyAttentionState } from "./attention";
 import { GotoController } from "./goto-controller";
 import { handleGotoMouse as routeGotoMouse } from "./goto-renderer";
+import { InboxController } from "./inbox-controller";
+import { inboxStatusCue } from "./inbox-renderer";
 import {
   filterCompletionTargetAtCursor,
   parsePropertyFilterExpression,
@@ -99,7 +101,7 @@ export type TreeInputMode =
   | "filter"
   | "goto"
   | "purge";
-export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | TreeInputMode;
+export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | "inbox" | TreeInputMode;
 
 export interface TreeQuickCompletionItem {
   readonly label: string;
@@ -133,6 +135,8 @@ export interface TreeView {
   readonly quickColumn: number;
   readonly quickCompletion: TreeQuickCompletion | null;
   readonly goto?: GotoController | null;
+  readonly inbox?: InboxController | null;
+  readonly inboxCue?: string;
   readonly viewerLines: readonly string[];
   readonly viewerPath: string;
   readonly viewerOffset: number;
@@ -322,6 +326,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let actionMenuOrigin: { column: number; row: number } | null = null;
   let actionMenuIndex = 0;
   let actionMenuQuery = "";
+  let actionMenuReturnMode: TreeMode = "browse";
+  let actionMenuScope = "browse";
+  let lastInboxCue = "";
   let pendingBrowsingPublication: PendingBrowsingPublication | null = null;
   let browsingPublicationPump: Promise<void> | null = null;
 
@@ -341,6 +348,33 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     },
   });
 
+  const inbox = new InboxController({
+    request: input => effects.request(input),
+    invalidate() {
+      const cue = inboxStatusCue(inbox.snapshot, inbox.error);
+      if (mode === "inbox" || cue !== lastInboxCue) effects.invalidate();
+      lastInboxCue = cue;
+    },
+    async close() {
+      mode = "browse";
+      status = "";
+      if (refreshPending) await reload();
+      effects.invalidate();
+    },
+    async open(blockId, destination) {
+      if (destination === "detail") await effects.navigation.dispatch({ kind: "block", blockId }, "open");
+      else await selectVisibleBlock(blockId, { recordNavigation: true, physicalSource: true });
+      mode = "browse";
+      status = destination === "detail" ? "Inbox result opened in Detail" : "Inbox block revealed in Tree";
+      if (refreshPending) await reload();
+      effects.invalidate();
+    },
+  });
+
+  function actionScope(): string {
+    return mode === "inbox" && inbox.steering ? "inbox-steer" : mode;
+  }
+
   async function handleGotoMouse(sequence: string): Promise<void> {
     if (mode !== "goto") return;
     await routeGotoMouse(goto, sequence, effects.terminalWidth(), effects.terminalHeight());
@@ -348,7 +382,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   function filteredActionMenuItems(): OutlinerActionMenuItem[] {
     const selected = rows[selectedIndex];
-    let items = actionKeymap.menuItems("tree", "browse");
+    let items = actionKeymap.menuItems("tree", actionMenuScope);
+    if (actionMenuScope !== "browse") return filterActionMenuItems(items
+      .filter(item => !inbox.attentionOnly || !["tree.inbox.older", "tree.inbox.newer"].includes(item.id))
+      .map(item => item.id === "tree.inbox.attention"
+      ? { ...item, label: inbox.attentionOnly ? "Show recent results" : `Show questions & errors (${inbox.snapshot?.attentionCount ?? 0})` }
+      : item), actionMenuQuery);
     if (isBlockTreeRow(selected)) {
       const hiding = authoredLinksPanel.kind === "open" &&
         authoredLinksPanel.owner.rowId === selected.rowId;
@@ -385,6 +424,19 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     return quickBuffer.lines[quickBuffer.row] ?? "";
   }
 
+  function inboxHelpText(): string | null {
+    if (mode !== "inbox") return null;
+    if (inbox.steering) return actionKeymap.helpText("tree", "inbox-steer", ["tree.cancel", "tree.inbox.retry.submit"]);
+    const main = actionKeymap.helpText("tree", "inbox", [
+      "tree.inbox.attention", "tree.cancel", "tree.inbox.pause", "tree.inbox.tree", "tree.inbox.detail", "tree.inbox.undo", "tree.inbox.reconsider",
+    ]);
+    const navigation = actionKeymap.helpText("tree", "inbox", [
+      ...inbox.attentionOnly ? [] : ["tree.inbox.older", "tree.inbox.newer"],
+      "tree.inbox.source", "tree.inbox.target", "tree.inbox.up", "tree.inbox.down", "tree.inbox.pageup", "tree.inbox.pagedown",
+    ]);
+    return `${main}\n${actionKeymap.helpText("tree", "inbox", ["tree.menu.open"])}  ${navigation}`;
+  }
+
   function view(): TreeView {
     return {
       workspaceRoot: effects.workspaceRoot,
@@ -404,6 +456,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       quickColumn: quickBuffer.column,
       quickCompletion,
       goto: mode === "goto" ? goto : null,
+      inbox: mode === "inbox" ? inbox : null,
+      inboxCue: inboxStatusCue(inbox.snapshot, inbox.error),
       viewerLines,
       viewerPath,
       viewerOffset,
@@ -411,7 +465,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       status,
       refreshPending,
       attention,
-      actionHelpText: actionKeymap.helpText("tree", mode),
+      actionHelpText: inboxHelpText() ?? actionKeymap.helpText("tree", actionScope()),
       actionMenuItems: mode === "action-menu" ? filteredActionMenuItems() : [],
       actionMenuOrigin,
       actionMenuIndex,
@@ -1470,6 +1524,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleServiceEvent(event: OutlinerEvent): Promise<void> {
+    if (event.domain === "inbox") {
+      // Progress must not queue provider/status round trips ahead of keyboard input.
+      void inbox.refresh();
+      return;
+    }
     if (event.domain === "attention") {
       if (!event.attention || event.attention.targetClientId !== effects.clientId) return;
       attention = event.attention;
@@ -1566,6 +1625,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       action: "attention.get",
       targetClientId: effects.clientId,
     });
+    await inbox.refresh();
     if (mode === "browse") {
       if (authoredLinksPanel.kind === "open") authoredLinksDirty = true;
       await reload();
@@ -1579,6 +1639,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   function handleDisconnect(): void {
     status = "Workspace service disconnected; reconnecting…";
+    inbox.disconnected();
     effects.invalidate();
   }
 
@@ -1664,6 +1725,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   ): Promise<void> {
     if (mode === "goto" && actionId === "tree.goto.detail") { await goto.accept("detail"); return; }
     if (actionId === "tree.menu.open") {
+      if (mode !== "action-menu") {
+        actionMenuReturnMode = mode;
+        actionMenuScope = actionScope();
+      }
       mode = "action-menu";
       actionMenuOrigin = origin ?? null;
       updateActionMenuQuery("");
@@ -1671,7 +1736,24 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     }
-    if (mode === "action-menu") mode = "browse";
+    if (mode === "action-menu" && actionId === "tree.cancel") {
+      mode = actionMenuReturnMode;
+      status = "";
+      effects.invalidate();
+      return;
+    }
+    if (mode === "action-menu") mode = actionMenuReturnMode;
+    if (actionId === "tree.inbox.open") {
+      if (mode !== "browse") {
+        status = "Finish or cancel the Tree editor before opening Inbox activity";
+        effects.invalidate();
+        return;
+      }
+      mode = "inbox";
+      status = "";
+      await inbox.start();
+      return;
+    }
     if (actionId === "tree.detail.right" || actionId === "tree.detail.below") {
       await createDetailPane(actionId === "tree.detail.right" ? "right" : "down");
       return;
@@ -1840,6 +1922,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   async function handlePaste(text: string): Promise<void> {
     if (mode === "goto") { goto.paste(text); return; }
+    if (mode === "inbox") { inbox.paste(text); return; }
     if (mode === "action-menu") {
       updateActionMenuQuery(actionMenuQuery + text);
     } else if (mode !== "browse" && mode !== "delete" && mode !== "viewer") {
@@ -1855,7 +1938,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     resolveAction = true,
   ): Promise<void> {
     if (resolveAction) {
-      const mapped = actionKeymap.canonicalize("tree", mode, str, key);
+      const mapped = actionKeymap.canonicalize("tree", actionScope(), str, key);
       if (mapped.suppressed) return;
       if (mapped.actionId) {
         await handleAction(mapped.actionId);
@@ -1870,6 +1953,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     if (key.ctrl && key.name === "c") {
+      if (mode === "inbox" || (mode === "action-menu" && actionMenuReturnMode === "inbox")) { await inbox.close(); return; }
       if (mode !== "browse") {
         mode = "browse";
         resetQuickEditor();
@@ -1900,7 +1984,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (mode === "action-menu") {
       const items = filteredActionMenuItems();
       if (key.name === "escape") {
-        mode = "browse";
+        mode = actionMenuReturnMode;
         status = "";
       } else if (key.name === "up") {
         actionMenuIndex = Math.max(0, actionMenuIndex - 1);
@@ -1941,6 +2025,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
 
     if (mode === "goto") { await goto.input(str, key); return; }
+    if (mode === "inbox") { await inbox.input(str, key); return; }
 
     if (mode !== "browse") {
       if (quickCompletion) {
@@ -2204,6 +2289,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   async function initialize(): Promise<void> {
     await reload();
     await publishDisplayRowSelection(rows[selectedIndex]);
+    await inbox.refresh();
   }
   return {
     view,

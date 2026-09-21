@@ -77,6 +77,7 @@ type Scenario = {
   name: string;
   layout?: "separate" | "composed";
   allowJev?: boolean;
+  allowInboxAgent?: boolean;
   prepare(projectRoot: string): Promise<void>;
   run(session: HerdrScenarioSession): Promise<void>;
 };
@@ -374,6 +375,7 @@ function makeEnvironment(options: {
     OUTLINER_STATE_DIR: options.outlinerState,
     OUTLINER_KEYBINDINGS_PATH: options.keymapPath,
     OUTLINER_DETAIL_RENDERER: "pi-tui",
+    OUTLINER_INBOX_AGENT: "0",
     // A developer's Bun .env file must not turn isolated UI journeys into API calls.
     TYPESAFE_API_KEY: "",
   };
@@ -1172,6 +1174,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       if (!process.env.TYPESAFE_API_KEY) throw new Error("The live Jev journey requires TYPESAFE_API_KEY");
       environment.TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY;
     }
+    if (scenario.allowInboxAgent) environment.OUTLINER_INBOX_AGENT = "1";
     const provenanceCommand = (args: string[]) => runCommand({
       args, cwd: pluginRoot, env: environment, artifacts, timeoutMs: 5_000, signal: abort.signal,
     });

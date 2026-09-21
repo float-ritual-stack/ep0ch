@@ -46,6 +46,32 @@ owner is running.
 
 The service logs the resolved socket and database paths after startup and handles orderly shutdown on `SIGINT`, `SIGTERM`, or `SIGHUP`.
 
+### Automatic Inbox editing
+
+`server-main.ts` starts one `InboxWorker` after socket ownership is established
+and Pi model configuration is available. Existing Inbox blocks determine pending
+work. Capture replies are sent before waking the worker; model calls never hold a
+SQLite transaction. Closing a client has no effect on processing.
+
+`inbox-model.ts` creates an isolated Pi SDK session for each note. Its only tools
+read canonical notes, search the existing Tree search projection, and submit an
+`InboxPlan`. There are no coding tools, ambient extensions, or direct model writes.
+Jev provides bounded relationship judgments over retrieved candidates. Fully read
+targets and exact revisions constrain proposed replacements.
+
+`InboxRepository` applies those concrete edits using the existing Store operations
+inside one transaction with the before-images and result identity. Its small
+internal tables retain results, pause state, reconsideration direction, and the
+source revision suppressed after a hold/failure/Undo. They do not duplicate the
+Inbox as a job queue. Source identity and child ownership survive cleanup; ordinary
+roadmap lifecycle metadata stays under the existing store contract. Undo checks the
+affected graph before restoring it and preserves reserved Work IDs.
+
+`inbox.status`, `inbox.pause`, `inbox.resume`, `inbox.retry`, and `inbox.undo` are
+service operations shared by clients. Progress emits an `inbox` event; committed
+edits emit a content event. Tree's `InboxController` owns only navigation and
+presentation. The same view runs in separate and composed Tree surfaces.
+
 The service also owns authored filesystem reads and path completion. `files.read`
 and `files.complete` use its workspace and home directory, with no client-local
 fallback. `ResourceCatalog.readFilesystemReference` applies Source read policy

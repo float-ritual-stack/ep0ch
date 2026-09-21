@@ -1,4 +1,5 @@
 import { renderGotoFrame } from "./goto-renderer";
+import { renderInboxFrame } from "./inbox-renderer";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { currentAttentionMark } from "./attention";
 import {
@@ -363,6 +364,11 @@ export function renderTreeFrame(
   const output: string[] = [options.clearScreen === false ? "" : `${ESC}H${ESC}2J`];
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 
+  if (view.mode === "inbox" && view.inbox) {
+    const lines = renderInboxFrame(view.inbox, width, height, view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "inbox"));
+    return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [] };
+  }
+
   if (view.mode === "goto" && view.goto) {
     const lines = renderGotoFrame(view.goto, width, height, view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "goto"));
     return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [] };
@@ -402,7 +408,7 @@ export function renderTreeFrame(
   const occurrenceCount = view.occurrenceRowCount;
   const returnSummary = attentionReturnSummary(view.attention, width);
   output.push(returnSummary ?? truncateToWidth(
-    `\x1b[2m${countLabel(physicalCount, "physical block")} · ${countLabel(
+    `\x1b[2m${view.inboxCue ? `${outlinerActionLink("tree.inbox.open", view.inboxCue)} · ` : ""}${countLabel(physicalCount, "physical block")} · ${countLabel(
       occurrenceCount,
       "projected occurrence",
     )}${filterLabel}\x1b[0m${truncationLabel}`,

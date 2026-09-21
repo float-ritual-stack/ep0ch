@@ -1218,6 +1218,11 @@ export interface ComputedExecutionResult {
 }
 
 export type OutlinerRequest =
+  | { id: string; action: "inbox.status"; attentionOnly?: boolean; resultsOffset?: number }
+  | { id: string; action: "inbox.pause" }
+  | { id: string; action: "inbox.resume" }
+  | { id: string; action: "inbox.retry"; sourceId: string; instructions?: string }
+  | { id: string; action: "inbox.undo"; resultId: string }
   | { id: string; action: "ping" }
   | { id: string; action: "blocks.query"; query: BlockSearchQuery }
   | { id: string; action: "blocks.authored-links"; ownerBlockId: string }
@@ -1698,6 +1703,7 @@ export interface OutlinerNavigationDispatch extends OutlinerNavigationResolution
 }
 
 export type OutlinerEventDomain =
+  | "inbox"
   | "content"
   | "resource-catalog"
   | "selection"
