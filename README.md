@@ -603,6 +603,7 @@ unchanged.
 | `.` or `Command+.` | Expand/collapse multiline block detail in Tree |
 | `Ctrl+E` or modified Enter | Explicitly edit and lock the selected block in the first unlocked Detail |
 | `g` | Search blocks with a document preview and optional Jev ranking |
+| `Shift+I` | Inspect the automatic Inbox agent, its results, Pause/Resume, Undo, and reconsideration |
 | `o` | Open the first exact `((block-id))` or symbolic `[[address]]` reference in the first unlocked Detail |
 | `R` | Reveal this row's canonical physical source, clearing filters, expanding its ancestors, and focusing this Tree |
 | `Option+Shift+R` | Reveal the first authored reference in this Tree |
@@ -965,7 +966,47 @@ Useful title [type::capture] [status::unprocessed] [capture-source::tree] [captu
 Optional supporting detail on later lines.
 ```
 
-The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt. Routing, enrichment, Inbox processing, and concrete third-party launcher integrations remain later work.
+The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt. Automatic Inbox editing starts after that durable save, independently of the popup.
+
+### Automatic Inbox agent
+
+The service uses the default model and authentication already configured in Pi.
+It processes existing unprocessed Inbox notes and newly saved captures without a
+separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
+Optional `TYPESAFE_API_KEY` enables Jev comparisons of duplicate and related notes;
+the editor still works without Jev. Missing Pi configuration is visible in the
+Inbox view. Restart the service after configuring its model.
+
+Press `Shift+I` in Tree (also available in `?`). The view shows progress, results,
+links, and observed model usage. `a` switches between outstanding questions/errors
+and recent results; Left/Right page through older results. The attention count
+includes questions outside the current page. `p` pauses/resumes, `u` undoes the
+selected cleanup, and `r` reconsiders a held, failed, or undone note with optional
+direction. `Tab` selects an output/source link, `Enter` reveals it in Tree, and
+`Alt+Enter` opens it in Detail. Closing the view leaves the agent running.
+Pause and reconsideration instructions survive service restart. History and Undo
+remain available when the model is disabled or unavailable.
+
+The editor can rewrite, split, combine useful context, and file ordinary notes.
+General notes, lists, and meetings stay notes. Concrete Outliner tasks use the
+existing PIE allocator and enter Backlog; cleanup never commits or executes them.
+The original source keeps its identity and children. Clean primary notes move to
+**Filed notes**; sources whose content moved elsewhere become concise linked
+summaries in **Processed captures**. Original text is retained in internal recovery
+records, without another raw-copy block in the outline.
+
+Each cleanup and its recovery record commit together. Apply and Undo reject stale
+edits; Undo refuses to overwrite later changes to affected blocks or their children,
+or remove a new output that has since acquired references or annotations. If its
+bounded reference inspection is incomplete, Undo refuses rather than guessing.
+An undone note is held until edited or explicitly reconsidered. Questions do not
+block the remaining Inbox. Provider failures stop automatic processing and remain
+visible; Resume retries the failed note. A single note exceeding its editor budget
+needs attention without stopping unrelated notes. Jev failures are shown with the
+result; the Pi editor can still complete the cleanup. Costs are estimates from observed usage,
+not billing receipts; cancellation may interrupt final usage reporting. This is a
+single-user editorial experiment: inspect the results and use Undo when a judgment
+is wrong.
 
 CLI accepts `--text`, explicit `--stdin`, or automatic non-TTY stdin/heredoc input. `--request-id` provides caller-controlled retry identity and `--captured-from` records optional context. Receipt JSON is written to stdout; service failure exits nonzero without a local fallback. Retry with the same text and context. New CLI and popup clients reject an incompatible service before capture; restart the service and clients together for protocol upgrades. Legacy receipts without payload evidence reject replay and identify the existing capture for manual inspection; migration preserves retained drafts rather than guessing what was submitted.
 

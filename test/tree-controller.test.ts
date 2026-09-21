@@ -12,6 +12,7 @@ import { rankBlockFocusMatches } from "../src/block-focus";
 import { resolveBlockReferencesWithStatus } from "../src/references";
 import { treeIndexFixture } from "./tree-fixtures";
 import type { RequestInput } from "../src/client";
+import type { InboxStatus } from "../src/inbox-types";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
 import {
   createTreeController,
@@ -174,6 +175,9 @@ function harness(
           } as T;
         }
         if (response === undefined && input.action === "files.complete") return [] as T;
+        if (response === undefined && input.action === "inbox.status") {
+          return { enabled: false, paused: false, state: "unavailable", message: "Inbox agent is not configured", pending: 0, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 } as T;
+        }
         if (response === undefined && input.action === "clients.list") {
           return [{
             clientId: input.role === "tree" ? clientId : "detail-test",
@@ -262,6 +266,114 @@ function lastCall(calls: readonly RequestInput[], action: RequestInput["action"]
 }
 
 describe("createTreeController", () => {
+  test("Inbox progress reads do not hold the serial event and keyboard lane", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const initial: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading", pending: 1, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
+    const held = Promise.withResolvers<InboxStatus>();
+    let delayStatus = false;
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([first, second], first);
+      if (input.action === "inbox.status") return delayStatus ? held.promise : initial;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    delayStatus = true;
+    const lane = controller.handleServiceEvent(event("inbox")).then(() => controller.handleKeypress("", { name: "down" }, "pass"));
+    try {
+      await Promise.race([lane, Bun.sleep(100).then(() => { throw new Error("Progress blocked keyboard input"); })]);
+      expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    } finally { held.resolve(initial); await lane; }
+  });
+  test("opens Inbox from the action menu and uses events while closed without reloading the Tree", async () => {
+    const first = block("first");
+    let inboxStatus: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading capture", pending: 2, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([first], first);
+      if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly ?? false };
+      if (input.action === "inbox.pause") return inboxStatus = { ...inboxStatus, paused: true, state: "paused" };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    expect(controller.view().inboxCue).toContain("working");
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.open")?.binding).toBe("⇧I");
+    await controller.handleKeypress("Inbox", { sequence: "Inbox" }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().inbox?.snapshot?.pending).toBe(2);
+    expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.inbox.undo")).toBe(true);
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")).toMatchObject({ label: "Show questions & errors (0)", binding: "a" });
+    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.add.child")).toBe(false);
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().actionHelpText).toContain("a questions/recent");
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().inbox?.attentionOnly).toBe(true);
+    expect(controller.view().actionHelpText).not.toContain("older results");
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")?.label).toBe("Show recent results");
+    await controller.handleAction("tree.inbox.attention");
+    expect(controller.view().inbox?.attentionOnly).toBe(false);
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    expect(controller.view().inbox?.snapshot?.state).toBe("paused");
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    const priorIndexReads = fake.calls.filter(input => input.action === "tree.index").length;
+    inboxStatus = { ...inboxStatus, paused: false, state: "idle", pending: 0 };
+    await controller.handleServiceEvent(event("inbox"));
+    await setImmediate();
+    expect(controller.view().inboxCue).toBe("Inbox idle");
+    expect(fake.calls.filter(input => input.action === "tree.index")).toHaveLength(priorIndexReads);
+    const priorInvalidations = fake.invalidations;
+    inboxStatus = { ...inboxStatus, message: "Another internal progress message" };
+    await controller.handleServiceEvent(event("inbox"));
+    await setImmediate();
+    expect(fake.invalidations).toBe(priorInvalidations);
+    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().inbox?.snapshot?.state).toBe("idle");
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    await controller.handlePaste("keep this draft");
+    const draft = controller.view().quickInput;
+    await controller.handleAction("tree.inbox.open");
+    expect(controller.view().mode).toBe("edit");
+    expect(controller.view().quickInput).toBe(draft);
+  });
+
+  test("Inbox key rebinding leaves reconsider input literal and opens outputs through existing Detail navigation", async () => {
+    const source = block("source-capture");
+    const output = block("created-output");
+    const inboxStatus: InboxStatus = { enabled: true, paused: false, state: "idle", message: "Ready", pending: 0, resultsTruncated: false, attentionCount: 1, attentionOnly: false, resultsOffset: 0, results: [{ id: "result-id", sourceId: source.id, sourceTitle: "Captured idea", summary: "Filed", state: "held", outputIds: [output.id], createdAt: "2026-09-20" }] };
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([source, output], source);
+      if (input.action.startsWith("inbox.")) return inboxStatus;
+    });
+    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", { "tree.inbox.pause": ["x"] }) };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    expect(fake.calls.some(input => input.action === "inbox.pause")).toBe(false);
+    await controller.handleKeypress("x", { name: "x" }, "pass");
+    expect(lastCall(fake.calls, "inbox.pause")).toEqual({ action: "inbox.pause" });
+    await controller.handleKeypress("r", { name: "r" }, "pass");
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    await controller.handlePaste("lease keep the task in this project");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(lastCall(fake.calls, "inbox.retry")).toEqual({ action: "inbox.retry", sourceId: source.id, instructions: "please keep the task in this project" });
+    await controller.handleServiceEvent(event("content"));
+    expect(controller.view().refreshPending).toBe(true);
+    await controller.handleKeypress("", { name: "return", meta: true }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({ target: { kind: "block", blockId: output.id }, intent: "open" });
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+  });
+
   test("edits the exact on-demand body with the revision from that read, not the compact preview", async () => {
     const original = block("exact-edit", { revision: 4 });
     const { text: _text, displayText: _displayText, ...metadata } = original;
@@ -1308,7 +1420,7 @@ describe("createTreeController", () => {
 
     await controller.initialize();
 
-    expect(fake.calls.at(-1)).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "first" } });
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "first" } });
   });
 
   test("clears a stale unavailable Detail status after preview routing recovers", async () => {

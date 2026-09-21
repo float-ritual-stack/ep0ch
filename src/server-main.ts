@@ -6,6 +6,7 @@ import { registerServicePaneState, removeLegacyClientPaneStates } from "./pane-c
 import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
+import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
 
 const paths = resolveServicePaths();
 mkdirSync(paths.stateDir, { recursive: true });
@@ -40,6 +41,17 @@ try {
 console.log(JSON.stringify({ status: "ready", socket: paths.socket, database: paths.database }));
 
 let stopping = false;
+// Loading provider configuration does not delay socket readiness or capture saves.
+if (process.env.OUTLINER_INBOX_AGENT !== "0") {
+  server.setInboxUnavailable("Checking Inbox agent configuration");
+  void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
+    if (stopping) return;
+    if (configuration.configured) server.enableInbox(createInboxModel({ workspaceRoot: paths.workspaceRoot }));
+    else server.setInboxUnavailable(configuration.message);
+  }).catch(() => {
+    if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");
+  });
+}
 async function stop(): Promise<void> {
   if (stopping) return;
   stopping = true;
