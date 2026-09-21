@@ -6,7 +6,7 @@ import { InboxWorker } from "../src/inbox-worker";
 import { OutlinerStore } from "../src/store";
 import { OutlinerServer } from "../src/server";
 import { OutlinerClient } from "../src/client";
-import type { InboxModel, InboxModelContext, InboxPlan, InboxStatus, InboxUsage } from "../src/inbox-types";
+import type { InboxModel, InboxModelContext, InboxPlan, InboxResult, InboxStatus, InboxUsage } from "../src/inbox-types";
 import type { CaptureReceipt } from "../src/types";
 
 const fixtures: Array<{ root: string; store: OutlinerStore; worker?: InboxWorker; server?: OutlinerServer }> = [];
@@ -61,24 +61,34 @@ test("Pause acknowledges before an uncooperative late model can commit, and Resu
   expect(store.get(source.id)?.text).toContain("The resumed result");
 });
 
-test("an intervening target edit rejects the whole cleanup and preserves the captured source", async () => {
+test("an intervening target edit rejects the whole cleanup and preserves the source and attempted prompt evidence", async () => {
   let targetId = "";
   const inspected = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const { store, worker } = fixture(async context => {
+  const prompt = { path: "/workspace/prompts/inbox-editor.md", sha256: "captured-hash", text: "Instructions used by the rejected cleanup" };
+  const returnedUsage = { ...usage, promptRevisions: [prompt] };
+  const { root, store, worker } = fixture(async context => {
     const target = context.read(targetId)!;
     inspected.resolve(); await release.promise;
-    return { plan: { ...plan("Should not be saved"), updates: [{ blockId: target.id, expectedRevision: target.revision, text: "Overwritten" }] }, usage };
+    return { plan: { ...plan("Should not be saved"), updates: [{ blockId: target.id, expectedRevision: target.revision, text: "Overwritten" }] }, usage: returnedUsage };
   });
   const target = store.create("An existing note"); targetId = target.id;
   const source = store.capture("stale", "Original captured thought", "tree").block;
   worker.wake(); await inspected.promise;
-  store.update(target.id, "Newer human edit", target.revision, { author: "user" });
+  const editedTarget = store.update(target.id, "Newer human edit", target.revision, { author: "user" });
   release.resolve();
   await until(() => worker.status().results.length === 1);
-  expect(worker.status().results[0]!.state).toBe("failed");
-  expect(store.get(source.id)?.text).toBe(source.text);
-  expect(store.get(targetId)?.text).toBe("Newer human edit");
+  const failed = worker.status().results[0]!;
+  expect(failed.state).toBe("failed");
+  expect(store.require(source.id)).toEqual(source);
+  expect(store.require(targetId)).toEqual(editedTarget);
+  expect(failed.usage?.promptRevisions).toEqual([{ path: prompt.path, sha256: prompt.sha256 }]);
+  const server = new OutlinerServer(store, join(root, "failed-receipt.sock"));
+  fixtures[fixtures.length - 1]!.server = server;
+  await server.start();
+  const receipt = await new OutlinerClient(server.socketPath).request<InboxResult>({ action: "inbox.result", resultId: failed.id });
+  expect(receipt.state).toBe("failed");
+  expect(receipt.usage).toEqual(returnedUsage);
 });
 
 test("one model failure stops provider calls instead of failing the entire Inbox", async () => {
@@ -159,10 +169,12 @@ test("a per-note size or reasoning limit holds that note and continues the pile"
 });
 
 test("history and Undo remain available after restart without a configured model", async () => {
-  const { root, store, worker } = fixture(async () => ({ plan: plan("Clean result"), usage }));
+  const prompt = { path: "/workspace/prompts/inbox-editor.md", text: "Historical editorial instructions", sha256: "historical-hash" };
+  const { root, store, worker } = fixture(async () => ({ plan: plan("Clean result"), usage: { ...usage, promptRevisions: [prompt] } }));
   const source = store.capture("offline-recovery", "Recover this original", "tree").block;
   worker.wake(); await until(() => worker.status().results.length === 1);
   const saved = worker.status().results[0]!;
+  expect(saved.usage?.promptRevisions).toEqual([{ path: prompt.path, sha256: prompt.sha256 }]);
   await worker.stop(); store.close();
   const reopened = new OutlinerStore(join(root, "outline.sqlite"));
   const server = new OutlinerServer(reopened, join(root, "offline.sock"));
@@ -172,6 +184,10 @@ test("history and Undo remain available after restart without a configured model
   const status = await client.request<InboxStatus>({ action: "inbox.status" });
   expect(status.enabled).toBe(false);
   expect(status.results[0]?.id).toBe(saved.id);
+  expect(status.results[0]?.usage?.promptRevisions).toEqual([{ path: prompt.path, sha256: prompt.sha256 }]);
+  const complete = await client.request<InboxResult>({ action: "inbox.result", resultId: saved.id });
+  expect(complete.usage?.promptRevisions).toEqual([prompt]);
+  await expect(client.request({ action: "inbox.result", resultId: "missing" })).rejects.toThrow("Inbox result not found");
   const undone = await client.request<InboxStatus>({ action: "inbox.undo", resultId: saved.id });
   expect(undone.results[0]?.state).toBe("undone");
   expect(reopened.get(source.id)?.text).toBe(source.text);

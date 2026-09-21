@@ -1,4 +1,5 @@
 import type { Block, RoadmapItemPriority } from "./types";
+import type { PromptRevision } from "./ai-prompts";
 
 /** A single editorial decision. The service applies it; models never write directly. */
 export interface InboxPlan {
@@ -22,6 +23,7 @@ export interface InboxUsage {
   jevSuccessfulCalls?: number;
   jevWarning?: string;
   elapsedMs: number;
+  promptRevisions?: PromptRevision[];
 }
 
 export interface InboxResult {
@@ -36,6 +38,13 @@ export interface InboxResult {
   usage?: InboxUsage;
 }
 
+/** Routine progress/history reads carry prompt identities, not every historical body. */
+export type InboxResultSummary = Omit<InboxResult, "usage"> & {
+  usage?: Omit<InboxUsage, "promptRevisions"> & {
+    promptRevisions?: Array<Omit<PromptRevision, "text">>;
+  };
+};
+
 export interface InboxStatus {
   enabled: boolean;
   paused: boolean;
@@ -43,7 +52,7 @@ export interface InboxStatus {
   message: string;
   pending: number;
   current?: { id: string; title: string };
-  results: InboxResult[];
+  results: InboxResultSummary[];
   resultsTruncated: boolean;
   attentionCount: number;
   attentionOnly: boolean;

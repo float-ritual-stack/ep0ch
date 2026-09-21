@@ -1,6 +1,6 @@
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { InboxWorker } from "./inbox-worker";
-import { InboxRepository } from "./inbox-repository";
+import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
 import type { InboxModel, InboxResult, InboxStatus } from "./inbox-types";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
@@ -119,6 +119,7 @@ export class OutlinerServer {
     readonly store: OutlinerStore,
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
+    private readonly promptDirectory?: string,
   ) {
     this.workflows = new WorkflowManager(store);
     this.inboxRepository = new InboxRepository(store);
@@ -193,7 +194,7 @@ export class OutlinerServer {
     const results = attentionOnly ? attention.results : this.inboxRepository.results(31, resultsOffset);
     return {
       enabled: false, paused: true, state: "unavailable", message: this.inboxUnavailable,
-      pending: this.inboxRepository.pending().length, results: results.slice(0, 30), resultsTruncated: results.length > 30,
+      pending: this.inboxRepository.pending().length, results: results.slice(0, 30).map(summarizeInboxResult), resultsTruncated: results.length > 30,
       attentionCount: attention.total, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
     };
   }
@@ -1115,7 +1116,7 @@ export class OutlinerServer {
         let result = this.store.searchTree(request.query);
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
-          try { result = await rankGotoWithJev(request.query, result); }
+          try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory }); }
           finally { this.activeGotoRankings--; }
           // A model answer cannot resurrect a deleted or edited candidate.
           result.matches = result.matches.filter(match => {
@@ -1247,6 +1248,7 @@ export class OutlinerServer {
       const action = request.action;
       switch (action) {
         case "inbox.status": result = this.inboxStatus(request.attentionOnly, request.resultsOffset); break;
+        case "inbox.result": result = this.inboxRepository.getResult(request.resultId); break;
         case "inbox.pause": result = this.requireInbox().pause(); break;
         case "inbox.resume": result = this.requireInbox().resume(); break;
         case "inbox.retry": result = this.requireInbox().reconsider(request.sourceId, request.instructions); break;

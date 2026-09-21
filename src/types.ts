@@ -1,4 +1,5 @@
 import type { AuthoredResourceReference } from "./resource-references";
+import type { PromptRevision } from "./ai-prompts";
 import type {
   ComputedExecutionReceipt,
   CreateComputedInvocationInput,
@@ -1120,6 +1121,7 @@ export interface GotoSearchCollection {
     elapsedMs?: number;
     candidateCount?: number;
     inputTokens?: number;
+    promptRevisions?: PromptRevision[];
   };
 }
 
@@ -1219,6 +1221,7 @@ export interface ComputedExecutionResult {
 
 export type OutlinerRequest =
   | { id: string; action: "inbox.status"; attentionOnly?: boolean; resultsOffset?: number }
+  | { id: string; action: "inbox.result"; resultId: string }
   | { id: string; action: "inbox.pause" }
   | { id: string; action: "inbox.resume" }
   | { id: string; action: "inbox.retry"; sourceId: string; instructions?: string }

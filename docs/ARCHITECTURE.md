@@ -59,6 +59,20 @@ read canonical notes, search the existing Tree search projection, and submit an
 Jev provides bounded relationship judgments over retrieved candidates. Fully read
 targets and exact revisions constrain proposed replacements.
 
+`ai-prompts.ts` reads and validates ordinary Markdown/JSON files at the job boundary.
+The service seeds a workspace's `stateDir/prompts` from packaged defaults once;
+subsequent starts preserve the user's files, including invalid edits. An explicit
+`OUTLINER_PROMPT_DIR` selects one directory without per-file fallbacks. Inbox takes
+one snapshot before inference, reused across Pi turns and Jev comparisons. Goto
+takes one per eligible search. Neither uses a watcher or prompt cache. Exact file
+text and SHA-256 identities accompany results as historical evidence. Routine
+Inbox status projects only filenames/paths and hashes; `inbox.result` reads one
+full receipt on demand, avoiding retransmission of prompt history on every progress
+event. Resource
+Detail edits the authoritative files through the existing filesystem write contract.
+Prompt files guide judgments; tool schemas and service mutation validators remain
+in code. The optional provenance fields are additive to existing result contracts.
+
 `InboxRepository` applies those concrete edits using the existing Store operations
 inside one transaction with the before-images and result identity. Its small
 internal tables retain results, pause state, reconsideration direction, and the
@@ -67,7 +81,7 @@ Inbox as a job queue. Source identity and child ownership survive cleanup; ordin
 roadmap lifecycle metadata stays under the existing store contract. Undo checks the
 affected graph before restoring it and preserves reserved Work IDs.
 
-`inbox.status`, `inbox.pause`, `inbox.resume`, `inbox.retry`, and `inbox.undo` are
+`inbox.status`, `inbox.result`, `inbox.pause`, `inbox.resume`, `inbox.retry`, and `inbox.undo` are
 service operations shared by clients. Progress emits an `inbox` event; committed
 edits emit a content event. Tree's `InboxController` owns only navigation and
 presentation. The same view runs in separate and composed Tree surfaces.

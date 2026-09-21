@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context, type ToolCall } from "@earendil-works/pi-ai";
 import { checkInboxModelConfiguration, createInboxModel, InboxModelUnavailableError, type InboxModelOptions } from "../src/inbox-model";
 import type { InboxModelContext, InboxPlan, InboxUsage } from "../src/inbox-types";
 import type { Block } from "../src/types";
+import { DEFAULT_AI_PROMPT_DIRECTORY, PromptFileError } from "../src/ai-prompts";
+import { InboxWorker } from "../src/inbox-worker";
+import { OutlinerStore } from "../src/store";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -67,6 +71,81 @@ async function fixture(options: Partial<InboxModelOptions> = {}, values: Partial
 }
 
 describe("Inbox editorial model", () => {
+  test("captures prompt files for the entire job and reloads them for the next job", async () => {
+    const started = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const instructions: string[] = [];
+    const systems: string[] = [];
+    let calls = 0;
+    const f = await fixture({
+      jevApiKey: "fixture",
+      fetch: async (_url, init) => {
+        const body = JSON.parse(init.body as string);
+        instructions.push(body.questions.relationship_0.instructions);
+        if (++calls === 1) { started.resolve(); await resume.promise; }
+        return Response.json({ answers: {
+          relationship_0: { type: "choice", choice: "related", confidence: 0.8, probabilities: { duplicate: 0, related: 1, unrelated: 0 } },
+          covered_0: { type: "noul", noul: 0 },
+        } });
+      },
+      stream: scripted([
+        context => { systems.push(context.systemPrompt ?? ""); return [call("search_notes", { query: "first" })]; },
+        context => { systems.push(context.systemPrompt ?? ""); return [call("search_notes", { query: "second" })]; },
+        [call("finish_cleanup", filed as unknown as Record<string, unknown>)],
+        context => { systems.push(context.systemPrompt ?? ""); return [call("search_notes", { query: "first" })]; },
+        [call("finish_cleanup", filed as unknown as Record<string, unknown>)],
+      ]),
+    }, { search: query => [block(query, `Shopping ${query}`)] });
+    const directory = join(f.root, "prompts");
+    await cp(DEFAULT_AI_PROMPT_DIRECTORY, directory, { recursive: true });
+    const editor = join(directory, "inbox-editor.md");
+    const relationships = join(directory, "inbox-relationships.json");
+    const firstEditor = "Edit ordinary notes. Prompt revision A.";
+    const secondEditor = "Edit ordinary notes. Prompt revision B.";
+    await writeFile(editor, firstEditor);
+    const firstQuestions = await readFile(relationships, "utf8");
+    const updatedQuestions = JSON.parse(firstQuestions);
+    updatedQuestions.relationship.instructions = "Use the revised relationship judgment.";
+    const secondQuestions = JSON.stringify(updatedQuestions);
+    const model = createInboxModel({ ...f.options, promptDirectory: directory });
+    const first = model(f.context);
+    await started.promise;
+    await writeFile(editor, secondEditor);
+    await writeFile(relationships, secondQuestions);
+    resume.resolve();
+    const a = await first;
+    const b = await model(f.context);
+    // Pi appends its working-directory context to the supplied system prompt.
+    expect(systems[0]).toStartWith(firstEditor + "\n");
+    expect(systems[1]).toStartWith(firstEditor + "\n");
+    expect(systems[2]).toStartWith(secondEditor + "\n");
+    expect(instructions).toHaveLength(3);
+    expect(instructions[0]).toBe(instructions[1]);
+    expect(instructions[2]).toContain("Use the revised relationship judgment.");
+    for (const [result, texts] of [[a, [firstEditor, firstQuestions]], [b, [secondEditor, secondQuestions]]] as const) {
+      expect(result.usage.promptRevisions).toEqual(texts.map((text, i) => ({
+        path: i === 0 ? editor : relationships, text, sha256: createHash("sha256").update(text).digest("hex"),
+      })));
+    }
+  });
+
+  test("an invalid prompt names the file before inference and a corrected file works without recreating the model", async () => {
+    const f = await fixture();
+    const directory = join(f.root, "prompts");
+    await cp(DEFAULT_AI_PROMPT_DIRECTORY, directory, { recursive: true });
+    const path = join(directory, "inbox-relationships.json");
+    const valid = await readFile(path, "utf8");
+    await writeFile(path, "{broken");
+    const model = createInboxModel({ ...f.options, promptDirectory: directory });
+    const failure = await rejected(model(f.context));
+    expect(failure).toBeInstanceOf(PromptFileError);
+    expect(failure.message).toContain(path);
+    expect(failure.message).toContain("invalid JSON");
+    await writeFile(path, valid);
+    // The scripted transport is still at its first step: failure made no model call.
+    expect((await model(f.context)).plan).toEqual(filed);
+  });
+
   test("runs the real SDK with only bounded note tools and no ambient files, extensions or prompts", async () => {
     const f = await fixture({ stream: scripted([
       context => {
@@ -260,5 +339,30 @@ describe("Inbox editorial model", () => {
     const f = await fixture(); await rm(join(f.agentDir, "settings.json"));
     expect(await checkInboxModelConfiguration(f.options)).toMatchObject({ configured: false, message: "Inbox needs a configured model in Pi settings" });
     await expect(f.run()).rejects.toBeInstanceOf(InboxModelUnavailableError);
+  });
+
+  test("configuration removed after startup leaves a recorded failure and the capture unchanged", async () => {
+    const f = await fixture();
+    expect(await checkInboxModelConfiguration(f.options)).toMatchObject({ configured: true });
+    const store = new OutlinerStore(join(f.root, "outline.sqlite"));
+    const finished = Promise.withResolvers<void>();
+    const worker = new InboxWorker(store, createInboxModel(f.options), () => {
+      if (worker.status().state === "unavailable") finished.resolve();
+    }, { settleMs: 1 });
+    try {
+      const capture = store.capture("configuration-failure", "Remember to return the library book", "cli").block;
+      await rm(join(f.agentDir, "settings.json"));
+      worker.wake();
+      await finished.promise;
+      const status = worker.status();
+      expect(status.message).toBe("Inbox needs a configured model in Pi settings");
+      expect(status.results).toHaveLength(1);
+      expect(status.results[0]).toMatchObject({ sourceId: capture.id, state: "failed", error: status.message });
+      expect(status.results[0]!.usage).toBeUndefined();
+      expect(store.require(capture.id)).toEqual(capture);
+    } finally {
+      await worker.stop();
+      store.close();
+    }
   });
 });

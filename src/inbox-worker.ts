@@ -1,4 +1,4 @@
-import { InboxRepository } from "./inbox-repository";
+import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
 import type { InboxModel, InboxResult, InboxStatus, InboxUsage } from "./inbox-types";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
@@ -36,7 +36,7 @@ export class InboxWorker {
       message: this.unavailable ?? (paused ? "Automatic cleanup paused" : this.message),
       pending: this.repository.pending().length,
       ...(this.current ? { current: { id: this.current.id, title: blockDisplayTitle(this.current) } } : {}),
-      results: results.slice(0, 30), resultsTruncated: results.length > 30,
+      results: results.slice(0, 30).map(summarizeInboxResult), resultsTruncated: results.length > 30,
       attentionCount: attention.total, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
     };
   }
@@ -122,6 +122,7 @@ export class InboxWorker {
       const operationId = crypto.randomUUID();
       let abortListener: (() => void) | undefined;
       let applying = false;
+      let returnedUsage: InboxUsage | undefined;
       try {
         const cancelled = new Promise<never>((_, reject) => {
           abortListener = () => reject(new Error("Inbox cleanup interrupted"));
@@ -143,6 +144,7 @@ export class InboxWorker {
         })]);
         // Pause is checked at the write boundary, even if a provider ignores cancellation.
         if (abort.signal.aborted || this.stopped || this.repository.settings().paused) return;
+        returnedUsage = answer.usage;
         applying = true;
         for (const update of answer.plan.updates) {
           const previous = observed.get(update.blockId);
@@ -157,8 +159,8 @@ export class InboxWorker {
       } catch (error) {
         if (abort.signal.aborted || this.stopped) return;
         const detail = error instanceof Error ? error.message : "Inbox cleanup failed";
-        const usage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : undefined;
-        const result = this.repository.fail(operationId, source, detail.slice(0, 500), usage);
+        const errorUsage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : undefined;
+        const result = this.repository.fail(operationId, source, detail.slice(0, 500), errorUsage ?? returnedUsage);
         this.changed(result);
         // One provider failure must not burn through every note in the Inbox.
         // A rejected stale edit is local to that note and must not block the rest.

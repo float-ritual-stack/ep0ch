@@ -3,6 +3,7 @@ import type { InboxController } from "./inbox-controller";
 import type { InboxStatus } from "./inbox-types";
 import { outlinerLinkUri } from "./outliner-links";
 import { sanitizeDynamicText } from "./terminal";
+import { basename } from "node:path";
 
 export function inboxStatusCue(snapshot: InboxStatus | null | undefined, error = ""): string {
   if (error) return "Inbox unavailable";
@@ -42,6 +43,7 @@ function detailLines(controller: InboxController, width: number): string[] {
   if (usage) {
     lines.push("");
     plain(`${usage.provider} · ${usage.model}`);
+    if (usage.promptRevisions?.length) plain(`Prompts: ${usage.promptRevisions.map(prompt => `${basename(prompt.path)} @ ${prompt.sha256.slice(0, 12)}`).join(" · ")}`);
     plain(`${usage.inputTokens.toLocaleString("en-US")} in / ${usage.outputTokens.toLocaleString("en-US")} out · estimated $${usage.cost.toFixed(4)}`);
     plain(`${usage.jevSuccessfulCalls === undefined ? `Jev ${usage.jevCalls} calls` : `Jev ${usage.jevCalls} attempted / ${usage.jevSuccessfulCalls} successful`} · ${(usage.elapsedMs / 1000).toFixed(1)}s`);
     if (usage.jevWarning) plain(usage.jevWarning);

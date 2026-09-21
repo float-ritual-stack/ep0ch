@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
@@ -36,6 +40,21 @@ const fakeFetch = (scores: number[]) => (async (_url: unknown, init?: RequestIni
   expect(body.questions.candidate_0.instructions).toContain("Candidate:");
   return Response.json({ model: "jev-test", answers: Object.fromEntries(scores.map((score, i) => [`candidate_${i}`, { type: "score", score }])), usage: { input_tokens: 123 } });
 });
+const promptDirectories: string[] = [];
+afterEach(() => { for (const directory of promptDirectories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
+function promptFixture() {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-goto-prompt-"));
+  promptDirectories.push(directory);
+  const path = join(directory, "goto-ranking.json");
+  return {
+    directory, path,
+    write(instructions: string, criteria = ["No match", "Related topic", "Relevant note", "Exact requested note"]) {
+      const text = JSON.stringify({ instructions, criteria }, null, 2) + "\n";
+      writeFileSync(path, text);
+      return { path, sha256: createHash("sha256").update(text).digest("hex"), text };
+    },
+  };
+}
 
 describe("Goto search", () => {
   test("finds descriptions with extra words, includes ancestry, and excludes Trash", () => {
@@ -64,6 +83,69 @@ describe("Goto search", () => {
     expect(result.matches[0]!.block.id).toBe(candidates.matches[1]!.block.id);
     expect(result.semantic).toMatchObject({ status: "ranked", candidateCount: 2, inputTokens: 123 });
   });
+  test("reloads edited instructions for the next search while an in-flight search retains its prompt", async () => {
+    const fixture = promptFixture();
+    const firstRevision = fixture.write("Prioritize the remembered interaction.");
+    const candidates = gotoCandidates(notes, "terminal");
+    const firstResponse = Promise.withResolvers<Response>();
+    const requests: Array<{ questions: Record<string, { instructions: string; criteria: string[] }> }> = [];
+    const fetch = async (_url: string, init: RequestInit) => {
+      requests.push(JSON.parse(init.body as string));
+      if (requests.length === 1) return firstResponse.promise;
+      return fakeFetch([0.2, 2.8])(_url, init);
+    };
+    const options = { apiKey: "fixture", promptDirectory: fixture.directory, fetch };
+    const firstSearch = rankGotoWithJev("terminal", candidates, options);
+    await until(() => requests.length === 1);
+
+    const criteria = ["Unrelated", "Mention only", "Substantive match", "Direct match"];
+    const secondRevision = fixture.write("Prioritize the note itself, not incidental mentions.", criteria);
+    const second = await rankGotoWithJev("terminal", candidates, options);
+    firstResponse.resolve(Response.json({ answers: { candidate_0: { type: "score", score: 2.8 }, candidate_1: { type: "score", score: 0.2 } } }));
+    const first = await firstSearch;
+
+    expect(requests[0]!.questions.candidate_0!.instructions).toStartWith("Prioritize the remembered interaction.\nCandidate:");
+    expect(requests[1]!.questions.candidate_0!.instructions).toStartWith("Prioritize the note itself, not incidental mentions.\nCandidate:");
+    expect(requests[1]!.questions.candidate_0!.criteria).toEqual(criteria);
+    expect(first.semantic.promptRevisions).toEqual([firstRevision]);
+    expect(second.semantic.promptRevisions).toEqual([secondRevision]);
+    expect(first.matches[0]!.block.id).toBe(candidates.matches[0]!.block.id);
+    expect(second.matches[0]!.block.id).toBe(candidates.matches[1]!.block.id);
+  });
+  test("invalid prompt JSON identifies the file and preserves text matches without calling Jev", async () => {
+    const fixture = promptFixture();
+    writeFileSync(fixture.path, "{ invalid JSON");
+    const candidates = gotoCandidates(notes, "terminal");
+    let calls = 0;
+    const result = await rankGotoWithJev("terminal", candidates, { apiKey: "fixture", promptDirectory: fixture.directory, fetch: async () => {
+      calls++;
+      throw new Error("Must not call provider");
+    } });
+    expect(calls).toBe(0);
+    expect(result.matches).toEqual(candidates.matches);
+    expect(result.semantic.status).toBe("unavailable");
+    expect(result.semantic.message).toContain("goto-ranking.json");
+    expect(result.semantic.message).toMatch(/JSON/i);
+    expect(result.semantic.promptRevisions).toBeUndefined();
+    const h = harness();
+    h.controller.matches = result.matches;
+    h.controller.semantic = result.semantic;
+    initTheme(undefined, false);
+    const visibleStatus = stripTerminalSequences(renderGotoFrame(h.controller, 80, 26, "Esc cancel")[3]!);
+    expect(visibleStatus).toContain("goto-ranking.json");
+    expect(visibleStatus).toContain("invalid JSON");
+  });
+  test("a provider failure keeps the attempted prompt revision without exposing provider text", async () => {
+    const fixture = promptFixture();
+    const revision = fixture.write("Judge relevance to the query.");
+    const candidates = gotoCandidates(notes, "terminal");
+    const result = await rankGotoWithJev("terminal", candidates, { apiKey: "fixture", promptDirectory: fixture.directory, fetch: async () => {
+      throw new Error("SECRET provider text");
+    } });
+    expect(result.matches).toEqual(candidates.matches);
+    expect(result.semantic).toMatchObject({ status: "unavailable", promptRevisions: [revision] });
+    expect(JSON.stringify(result)).not.toContain("SECRET");
+  });
   test("keeps lexical results when unconfigured, malformed, or timed out", async () => {
     const candidates = gotoCandidates(notes, "terminal");
     const cases = [
@@ -88,9 +170,14 @@ describe("Goto search", () => {
     }});
     expect(aborted).toBe(true); expect(result.matches).toEqual(candidates.matches); expect(result.semantic.status).toBe("unavailable");
   });
-  test("never calls Jev for an exact address", async () => {
-    const result = await rankGotoWithJev("river-note", gotoCandidates(notes, "river-note"), { apiKey: "fixture", fetch: (() => { throw new Error("Must not call"); }) });
-    expect(result.semantic.status).toBe("lexical");
+  test("short searches and exact addresses need neither prompt files nor Jev", async () => {
+    const fixture = promptFixture(); // Deliberately leave the prompt file absent.
+    for (const query of ["te", "river-note"]) {
+      const candidates = gotoCandidates(notes, query);
+      const result = await rankGotoWithJev(query, candidates, { apiKey: "fixture", promptDirectory: fixture.directory, fetch: (() => { throw new Error("Must not call"); }) });
+      expect(result).toBe(candidates);
+      expect(result.semantic.status).toBe("lexical");
+    }
   });
 });
 

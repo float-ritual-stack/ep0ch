@@ -7,17 +7,20 @@ import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
+import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
 const paths = resolveServicePaths();
 mkdirSync(paths.stateDir, { recursive: true });
 const paneStatePath = join(paths.stateDir, "service-pane.json");
 const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
+const promptDirectory = aiPromptDirectory(process.env.OUTLINER_PROMPT_DIR ?? join(paths.stateDir, "prompts"));
 const herdrRegistry = new HerdrRuntimeRegistry();
 const herdrSocketPath = process.env.HERDR_SOCKET_PATH;
 const herdrRunner = herdrSocketPath === undefined ? null : new HerdrRegistryRunner(herdrRegistry, herdrSocketPath);
-const server = new OutlinerServer(store, paths.socket, herdrRunner ? herdrRegistry : undefined);
+const server = new OutlinerServer(store, paths.socket, herdrRunner ? herdrRegistry : undefined, promptDirectory);
 let ownsPaneState = false;
 try {
+  if (process.env.OUTLINER_PROMPT_DIR === undefined) await initializeAiPrompts(promptDirectory);
   await server.start();
   ownsPaneState = true;
   removeLegacyClientPaneStates(paths.stateDir);
@@ -46,7 +49,7 @@ if (process.env.OUTLINER_INBOX_AGENT !== "0") {
   server.setInboxUnavailable("Checking Inbox agent configuration");
   void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
     if (stopping) return;
-    if (configuration.configured) server.enableInbox(createInboxModel({ workspaceRoot: paths.workspaceRoot }));
+    if (configuration.configured) server.enableInbox(createInboxModel({ workspaceRoot: paths.workspaceRoot, promptDirectory }));
     else server.setInboxUnavailable(configuration.message);
   }).catch(() => {
     if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");
