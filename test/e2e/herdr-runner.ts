@@ -78,6 +78,8 @@ type Scenario = {
   layout?: "separate" | "composed";
   allowJev?: boolean;
   allowInboxAgent?: boolean;
+  /** Relative to the isolated fixture; never edits a checkout's active prompt files. */
+  promptDirectory?: string;
   prepare(projectRoot: string): Promise<void>;
   run(session: HerdrScenarioSession): Promise<void>;
 };
@@ -477,6 +479,7 @@ async function readProcessEnvironment(pid: number): Promise<Record<string, strin
     "OUTLINER_STATE_DIR",
     "OUTLINER_KEYBINDINGS_PATH",
     "OUTLINER_DETAIL_RENDERER",
+    "OUTLINER_PROMPT_DIR",
     "OUTLINER_WORKSPACE_ROOT",
     "OUTLINER_REMOTE",
     "OUTLINER_SOCKET_PATH",
@@ -508,7 +511,8 @@ function environmentMatches(
     environment.XDG_CONFIG_HOME === expected.XDG_CONFIG_HOME &&
     environment.OUTLINER_STATE_DIR === expected.OUTLINER_STATE_DIR &&
     environment.OUTLINER_KEYBINDINGS_PATH === expected.OUTLINER_KEYBINDINGS_PATH &&
-    environment.OUTLINER_DETAIL_RENDERER === expected.OUTLINER_DETAIL_RENDERER;
+    environment.OUTLINER_DETAIL_RENDERER === expected.OUTLINER_DETAIL_RENDERER &&
+    environment.OUTLINER_PROMPT_DIR === expected.OUTLINER_PROMPT_DIR;
 }
 
 async function processIdentity(pid: number): Promise<ProcessIdentity | null> {
@@ -1175,6 +1179,11 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       environment.TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY;
     }
     if (scenario.allowInboxAgent) environment.OUTLINER_INBOX_AGENT = "1";
+    if (scenario.promptDirectory) {
+      const directory = resolve(projectRoot, scenario.promptDirectory);
+      if (!directory.startsWith(`${projectRoot}${sep}`)) throw new Error("Scenario prompt files must live beneath the isolated project root");
+      environment.OUTLINER_PROMPT_DIR = directory;
+    }
     const provenanceCommand = (args: string[]) => runCommand({
       args, cwd: pluginRoot, env: environment, artifacts, timeoutMs: 5_000, signal: abort.signal,
     });
@@ -1303,6 +1312,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       "OUTLINER_STATE_DIR",
       "OUTLINER_KEYBINDINGS_PATH",
       "OUTLINER_DETAIL_RENDERER",
+      "OUTLINER_PROMPT_DIR",
       "TYPESAFE_API_KEY",
     ].flatMap((key) => environment[key] === undefined ? [] : ["--env", `${key}=${environment[key]}`]);
     const workspaceOutput = await runHerdr([

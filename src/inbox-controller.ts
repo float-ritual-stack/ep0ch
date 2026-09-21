@@ -1,6 +1,6 @@
 import type { RequestInput } from "./client";
 import type { OutlinerRequester } from "./client-target";
-import type { InboxResult, InboxStatus } from "./inbox-types";
+import type { InboxResultSummary, InboxStatus } from "./inbox-types";
 import { TextBuffer } from "./text-buffer";
 import { isPrintableInput, sanitizeDynamicText, type TerminalKey } from "./terminal";
 import type { Block } from "./types";
@@ -39,10 +39,10 @@ export class InboxController {
 
   constructor(private readonly effects: InboxEffects) {}
 
-  get results(): InboxResult[] {
+  get results(): InboxResultSummary[] {
     return this.snapshot?.attentionOnly === this.attentionOnly && this.snapshot.resultsOffset === this.resultsOffset ? this.snapshot.results : [];
   }
-  get selected(): InboxResult | undefined { return this.results[this.index]; }
+  get selected(): InboxResultSummary | undefined { return this.results[this.index]; }
   get steering(): boolean { return this.reconsiderSourceId !== null; }
   get instructions(): string { return this.buffer.text; }
   get column(): number { return this.buffer.column; }

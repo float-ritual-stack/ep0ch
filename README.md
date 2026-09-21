@@ -1010,6 +1010,48 @@ is wrong.
 
 CLI accepts `--text`, explicit `--stdin`, or automatic non-TTY stdin/heredoc input. `--request-id` provides caller-controlled retry identity and `--captured-from` records optional context. Receipt JSON is written to stdout; service failure exits nonzero without a local fallback. Retry with the same text and context. New CLI and popup clients reject an incompatible service before capture; restart the service and clients together for protocol upgrades. Legacy receipts without payload evidence reject replay and identify the existing capture for manual inspection; migration preserves retained drafts rather than guessing what was submitted.
 
+### Editing AI prompts
+
+The service keeps editable prompt files in its workspace state directory:
+`~/.local/state/pi-herdr-outliner/<workspace-key>/prompts/` (or beneath the configured
+`OUTLINER_STATE_DIR`). They are seeded once from the versioned `prompts/` defaults.
+Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
+selects another complete directory; explicit directories are never populated or
+silently mixed with defaults.
+
+| File | Controls |
+| --- | --- |
+| `inbox-editor.md` | Pi's Inbox editing instructions |
+| `inbox-relationships.json` | Jev's duplicate/related and coverage questions |
+| `goto-ranking.json` | Jev's Goto scoring instructions and four score levels |
+
+Add ordinary `[file::/absolute/path/to/prompts/inbox-editor.md]` references to an
+**AI prompts** block. Open each Resource in Detail, press `e`, edit, and save with
+`Ctrl+S`. The runtime reads those same files: the block does not contain a second
+copy of the instructions. Files are on the service host, including for remote clients.
+
+Each Inbox job reads its prompt files once when it starts; each eligible Goto
+search reads its ranking file. Saving affects the next job/search without a rebuild
+or restart. Jobs already running retain their captured versions. Results record
+the exact file text, path and SHA-256 hash; Inbox shows the filenames and short
+hashes alongside model usage. Historical results keep their old snapshots after
+later edits. Routine `inbox.status` responses include only prompt paths and hashes;
+`inbox.result` with a `resultId` retrieves a receipt's full prompt snapshots. These
+are evidence, never another editable configuration source.
+
+JSON instructions and criteria are editable, while the result keys and score count
+remain the contract enforced by code. Tool permissions, mutation checks and work
+allocation are also code-owned. Empty, missing, oversized or malformed files report
+the affected path. Fix the file and Resume Inbox; Goto retries on the next search
+and retains text matches while its prompt is invalid. No stale prompt is silently
+used. The separate older-note survey remains an experiment, outside automatic Inbox processing.
+
+`bun run test:e2e:prompts` tests Resource editing and prompt reload in a private
+Herdr session using real Pi/Jev calls. It requires configured Pi authentication;
+the service environment supplies `TYPESAFE_API_KEY` for relationship judgments.
+
+
+
 The Pi extension registers `/capture` and `outliner_capture`. An exact standalone `float.dispatch(…)` input is intercepted by the Pi/OMP input hook, durably captured, acknowledged, and handled without starting an agent turn. Embedded/conversational markers are left untouched; malformed markers report a warning and continue as ordinary input.
 
 `/send-to-outline` copies the latest completed assistant Markdown from the

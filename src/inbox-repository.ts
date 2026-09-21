@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords, patchPropertyText } from "./properties";
-import type { InboxPlan, InboxResult, InboxUsage } from "./inbox-types";
+import type { InboxPlan, InboxResult, InboxResultSummary, InboxUsage } from "./inbox-types";
 import type { OutlinerStore } from "./store";
 import type { Block, BlockProperty, PropertyPatchOperation } from "./types";
 
@@ -135,6 +135,17 @@ function payloadHash(source: Block, payload: unknown): string {
   }))).digest("hex");
 }
 
+export function summarizeInboxResult(result: InboxResult): InboxResultSummary {
+  if (!result.usage?.promptRevisions) return result;
+  return {
+    ...result,
+    usage: {
+      ...result.usage,
+      promptRevisions: result.usage.promptRevisions.map(({ path, sha256 }) => ({ path, sha256 })),
+    },
+  };
+}
+
 /** Recovery receipts share the canonical service connection and commit with its normal block mutations. */
 export class InboxRepository {
   constructor(private readonly store: OutlinerStore) {
@@ -196,6 +207,14 @@ export class InboxRepository {
     const rows = this.store.database.query("SELECT result_json FROM inbox_agent_results ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?")
       .all(limit, offset) as Array<{ result_json: string }>;
     return rows.map(row => JSON.parse(row.result_json) as InboxResult);
+  }
+
+  getResult(id: string): InboxResult {
+    text(id, "Inbox result ID");
+    const row = this.store.database.query("SELECT result_json FROM inbox_agent_results WHERE id = ?")
+      .get(id) as { result_json: string } | null;
+    if (!row) throw new Error(`Inbox result not found: ${id}`);
+    return JSON.parse(row.result_json) as InboxResult;
   }
 
   attention(limit = 30): { results: InboxResult[]; total: number } {
