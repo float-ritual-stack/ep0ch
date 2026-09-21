@@ -1,3 +1,4 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { serviceTreeNavigation } from "./navigation-routes";
 import { emitKeypressEvents } from "node:readline";
 import { PassThrough } from "node:stream";
@@ -15,6 +16,7 @@ import {
   currentPaneRuntime,
   focusCurrentPane,
   openDetailPane,
+  openGotoPopup,
   openCapturePopup as openHerdrCapturePopup,
   openVirtualBranchNavigatorPopup,
   outlinerRightClickOwnership,
@@ -37,6 +39,7 @@ import {
 import { renderTreeFrame } from "./tree-renderer";
 import { OUTLINER_PROTOCOL_VERSION, type OutlinerServiceStatus } from "./types";
 
+initTheme(undefined, false);
 const paths = resolveClientPaths();
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
@@ -105,6 +108,9 @@ const controller = createTreeController({
   browsingContextId,
   workspaceRoot: paths.workspaceRoot,
   actionKeymap,
+  ...(process.env.HERDR_ENV === "1" ? {
+    openGotoPopup: () => openGotoPopup({ workspaceRoot: paths.workspaceRoot, sourceClientId: clientId }),
+  } : {}),
   request<T>(input: RequestInput): Promise<T> {
     return client.request<T>(input);
   },
@@ -177,6 +183,7 @@ function handleRawInput(data: string | Buffer): void {
 }
 
 function handleMouseSequence(sequence: string): void {
+  if (controller.view().mode === "goto") { enqueueWork(() => controller.handleGotoMouse(sequence)); return; }
   const secondaryClick = parseTreeSecondaryClick(sequence);
   if (secondaryClick && rightClickOwnership === "outliner") {
     enqueueWork(() => controller.handleAction("tree.menu.open", secondaryClick));

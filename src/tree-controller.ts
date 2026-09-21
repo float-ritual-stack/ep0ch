@@ -3,10 +3,8 @@ import {
   decodeAuthoredLinksSnapshot,
 } from "./authored-links";
 import { emptyAttentionState } from "./attention";
-import {
-  formatBlockFocusMatch,
-  uniqueBlockFocusIdentifier,
-} from "./block-focus";
+import { GotoController } from "./goto-controller";
+import { handleGotoMouse as routeGotoMouse } from "./goto-renderer";
 import {
   filterCompletionTargetAtCursor,
   parsePropertyFilterExpression,
@@ -68,7 +66,6 @@ import type {
   PropertyCatalogItem,
   TreeIndexBlock,
   TreeIndexCollection,
-  TreeFocusCollection,
   TreeIndexSnapshot,
   ResolvedBlockReferences,
 } from "./types";
@@ -135,6 +132,7 @@ export interface TreeView {
   readonly quickInput: string;
   readonly quickColumn: number;
   readonly quickCompletion: TreeQuickCompletion | null;
+  readonly goto?: GotoController | null;
   readonly viewerLines: readonly string[];
   readonly viewerPath: string;
   readonly viewerOffset: number;
@@ -157,6 +155,7 @@ export interface TreeControllerEffects {
   request<T>(input: RequestInput): Promise<T>;
   createDetailPane(blockId: string, direction?: "right" | "down"): Promise<void>;
   openCapturePopup(capturedFromBlockId: string): Promise<void>;
+  openGotoPopup?(): void | Promise<void>;
   openVirtualBranchNavigator(viewId: string, adapter?: "bookmark"): void | Promise<void>;
   focusSelf(): void;
   terminalWidth(): number;
@@ -172,6 +171,7 @@ export interface TreeController {
   initialize(): Promise<void>;
   handleKeypress(str: string, key: TerminalKey, inputAction: TerminalInputAction): Promise<void>;
   handlePaste(text: string): Promise<void>;
+  handleGotoMouse(sequence: string): Promise<void>;
   handleDisclosure(rowId: string): Promise<void>;
   handleRowClick(rowId: string, activate?: boolean): Promise<void>;
   handleAction(actionId: string, origin?: { column: number; row: number }): Promise<void>;
@@ -201,7 +201,6 @@ interface PendingBrowsingPublication {
 }
 const MAX_TREE_HISTORY_ENTRIES = 200;
 
-const GOTO_PROMPT = "Type a block ID, short prefix, or fuzzy text";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -309,8 +308,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let mode: TreeMode = "browse";
   let quickBuffer = new TextBuffer();
   let quickCompletion: MutableQuickCompletion | null = null;
-  let gotoSearch: Promise<void> | null = null;
-  let gotoSearchPending = false;
+
   let viewerLines: string[] = [];
   let viewerPath = "";
   let viewerOffset = 0;
@@ -326,6 +324,27 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let actionMenuQuery = "";
   let pendingBrowsingPublication: PendingBrowsingPublication | null = null;
   let browsingPublicationPump: Promise<void> | null = null;
+
+  const goto = new GotoController({
+    request: input => effects.request(input),
+    invalidate: () => effects.invalidate(),
+    async close() {
+      mode = "browse"; status = "";
+      if (refreshPending) await reload();
+      effects.invalidate();
+    },
+    async open(blockId, destination) {
+      if (destination === "detail") await effects.navigation.dispatch({ kind: "block", blockId }, "open");
+      else await selectVisibleBlock(blockId, { recordNavigation: true });
+      mode = "browse"; status = destination === "detail" ? "Opened in Detail" : "Focused selected result";
+      if (refreshPending) await reload();
+    },
+  });
+
+  async function handleGotoMouse(sequence: string): Promise<void> {
+    if (mode !== "goto") return;
+    await routeGotoMouse(goto, sequence, effects.terminalWidth(), effects.terminalHeight());
+  }
 
   function filteredActionMenuItems(): OutlinerActionMenuItem[] {
     const selected = rows[selectedIndex];
@@ -381,9 +400,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       selectedIndex,
       activeFilter,
       mode,
-      quickInput: quickInputText(),
+      quickInput: mode === "goto" ? goto.query : quickInputText(),
       quickColumn: quickBuffer.column,
       quickCompletion,
+      goto: mode === "goto" ? goto : null,
       viewerLines,
       viewerPath,
       viewerOffset,
@@ -694,7 +714,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     quickBuffer = new TextBuffer();
     quickEditSource = null;
     quickCompletion = null;
-    gotoSearchPending = false;
+    goto.dispose();
   }
 
 
@@ -733,6 +753,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function beginInput(nextMode: TreeInputMode, initial = ""): Promise<void> {
+    if (nextMode === "goto" && effects.openGotoPopup) {
+      await effects.openGotoPopup();
+      return;
+    }
     const selected = rows[selectedIndex];
     if (
       !isBlockTreeRow(selected) &&
@@ -747,85 +771,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await reload(selected.rowId);
     }
     mode = nextMode;
+    if (nextMode === "goto") { goto.start(); return; }
     quickBuffer = new TextBuffer(initial);
     quickBuffer.moveEnd();
     quickCompletion = null;
     effects.invalidate();
   }
-
-  function queueGotoCompletion(): void {
-    quickCompletion = null;
-    status = quickInputText().trim() ? "Searching…" : GOTO_PROMPT;
-    gotoSearchPending = true;
-    if (gotoSearch) return;
-    gotoSearch = (async () => {
-      while (gotoSearchPending && mode === "goto") {
-        gotoSearchPending = false;
-        try {
-          await refreshGotoCompletion();
-        } catch (error) {
-          if (mode === "goto" && !gotoSearchPending) handleError(error);
-        }
-      }
-    })().finally(() => {
-      gotoSearch = null;
-      if (gotoSearchPending && mode === "goto") queueGotoCompletion();
-      effects.invalidate();
-    });
-  }
-
-  async function finishGotoCompletion(): Promise<void> {
-    if (!quickCompletion && !gotoSearch) queueGotoCompletion();
-    while (gotoSearch) await gotoSearch;
-  }
-
-  async function refreshGotoCompletion(): Promise<void> {
-    const query = quickInputText().trim();
-    if (!query) {
-      quickCompletion = null;
-      status = GOTO_PROMPT;
-      return;
-    }
-    quickCompletion = null;
-    const { matches, completeness } = await effects.request<TreeFocusCollection>({ action: "tree.focus", query });
-    if (mode !== "goto" || quickInputText().trim() !== query) return;
-    if (matches.length === 0) {
-      quickCompletion = null;
-      status = `No block matches: ${query}`;
-      return;
-    }
-    quickCompletion = {
-      start: 0,
-      end: quickInputText().length,
-      index: 0,
-      items: matches.map((match) => ({
-        label: formatBlockFocusMatch(
-          match,
-          uniqueBlockFocusIdentifier(match.block.id, matches),
-        ),
-        insertion: match.block.id,
-        blockId: match.block.id,
-      })),
-      truncatedLimit: completeness.kind === "truncated" ? completeness.limit : null,
-    };
-    status = "";
-  }
-
-  async function acceptGotoCompletion(): Promise<void> {
-    const item = quickCompletion?.items[quickCompletion.index];
-    if (!item?.blockId) {
-      status = "No matching block selected";
-      return;
-    }
-    const blockId = item.blockId;
-    const label = item.label;
-    mode = "browse";
-    resetQuickEditor();
-    await selectVisibleBlock(blockId, { recordNavigation: true });
-    status = `Focused ${label}`;
-    effects.invalidate();
-  }
-
 
   async function commitQuickBlock(): Promise<string | null> {
     const selected = rows[selectedIndex];
@@ -1711,6 +1662,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     actionId: string,
     origin?: { column: number; row: number },
   ): Promise<void> {
+    if (mode === "goto" && actionId === "tree.goto.detail") { await goto.accept("detail"); return; }
     if (actionId === "tree.menu.open") {
       mode = "action-menu";
       actionMenuOrigin = origin ?? null;
@@ -1887,11 +1839,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handlePaste(text: string): Promise<void> {
+    if (mode === "goto") { goto.paste(text); return; }
     if (mode === "action-menu") {
       updateActionMenuQuery(actionMenuQuery + text);
     } else if (mode !== "browse" && mode !== "delete" && mode !== "viewer") {
       quickBuffer.insert(text);
-      if (mode === "goto") queueGotoCompletion();
     }
     effects.invalidate();
   }
@@ -1988,30 +1940,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
 
 
-    if (mode === "goto") {
-      if (key.name === "escape") {
-        mode = "browse";
-        resetQuickEditor();
-        status = "";
-        if (refreshPending) await reload();
-      } else if (key.name === "up") {
-        moveQuickCompletion(-1);
-      } else if (key.name === "down") {
-        moveQuickCompletion(1);
-      } else if (key.name === "tab") {
-        if (!quickCompletion) await finishGotoCompletion();
-        else moveQuickCompletion(key.shift ? -1 : 1, true);
-      } else if (key.name === "return") {
-        if (!quickCompletion) await finishGotoCompletion();
-        if (quickCompletion) await acceptGotoCompletion();
-        return;
-      } else {
-        const queryChanged = updateQuickBuffer(str, key);
-        if (queryChanged) queueGotoCompletion();
-      }
-      effects.invalidate();
-      return;
-    }
+    if (mode === "goto") { await goto.input(str, key); return; }
 
     if (mode !== "browse") {
       if (quickCompletion) {
@@ -2086,7 +2015,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       } else if (key.name === "pageup" || key.name === "pagedown" || isDetailToggle(str, key)) {
         status = "Authored-link rows are single-line";
       } else if (str === "g") {
-        status = GOTO_PROMPT;
         await beginInput("goto");
         return;
       } else if (str === "/") {
@@ -2247,7 +2175,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         return;
       }
     } else if (str === "g") {
-      status = GOTO_PROMPT;
       await beginInput("goto");
       return;
     } else if (str === "/") {
@@ -2289,6 +2216,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     initialize,
     handleKeypress,
     handlePaste,
+    handleGotoMouse,
     handleDisclosure,
     handleRowClick,
     handleAction,
