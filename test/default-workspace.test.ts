@@ -7,6 +7,7 @@ import {
   AGENT_DOCUMENTATION_SYSTEM_DOC,
   AUTHORED_LINKS_EXAMPLE_SYSTEM_DOC,
   DEFAULT_WORKSPACE_SEED_VERSION,
+  FEATURE_TOUR_SYSTEM_DOC,
 } from "../src/default-workspace";
 import { getProperty } from "../src/properties";
 import { OutlinerStore } from "../src/store";
@@ -26,7 +27,7 @@ const EXPECTED_GUIDE_SECTIONS = [
   "completion",
 ];
 
-test("seeds and preserves an agent-readable documentation workspace", async () => {
+test("seeds working documentation tours and preserves local edits on restart", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-default-workspace-"));
   const path = join(directory, "outliner.sqlite");
   let store: OutlinerStore | null = new OutlinerStore(path);
@@ -51,6 +52,36 @@ test("seeds and preserves an agent-readable documentation workspace", async () =
       kind: "page",
       block: { id: guide.id },
     });
+    const tours = store.queryBlocks({
+      filters: [{ key: "system-doc", value: FEATURE_TOUR_SYSTEM_DOC }], limit: 2,
+    });
+    expect(tours.completeness).toEqual({ kind: "complete" });
+    expect(tours.blocks).toHaveLength(1);
+    const tour = tours.blocks[0]!;
+    expect(store.resolvePageAddress("outliner-tour")).toMatchObject({
+      status: "resolved", kind: "page", block: { id: tour.id },
+    });
+    const tourChildren = store.children(tour.id);
+    const tourSections = tourChildren.filter(block => getProperty(block.properties, "tour-section"));
+    expect(tourSections.map(block => getProperty(block.properties, "tour-section"))).toEqual([
+      "navigation", "capture-inbox", "prompts", "reading-comments", "resources", "workboard", "surfaces",
+    ]);
+    expect([...tour.text.matchAll(/!\(\(([0-9a-f-]+)\)\)/g)].map(match => match[1]))
+      .toEqual(tourSections.map(block => block.id));
+    for (const section of tourSections) {
+      expect(store.resolvePageAddress(getProperty(section.properties, "page")!)).toMatchObject({
+        status: "resolved", block: { id: section.id },
+      });
+    }
+    const source = tourChildren.find(block => getProperty(block.properties, "demo-kind") === "source")!;
+    const reader = tourChildren.find(block => getProperty(block.properties, "demo-kind") === "reader")!;
+    const examplesView = tourChildren.find(block => getProperty(block.properties, "type") === "virtual-branch")!;
+    const readerLinks = readAuthoredLinks(store, reader.id);
+    if (readerLinks.kind !== "ready") throw new Error(`Expected ready reader, got ${readerLinks.kind}`);
+    expect(readerLinks.outlinks.entries.map(entry => entry.resolution)).toEqual([
+      expect.objectContaining({ kind: "ready", target: { kind: "block", blockId: source.id } }),
+      expect.objectContaining({ kind: "ready", target: { kind: "block", blockId: source.id, fragmentId: "context" } }),
+    ]);
     const authoredLinksExamples = store.queryBlocks({
       filters: [{ key: "system-doc", value: AUTHORED_LINKS_EXAMPLE_SYSTEM_DOC }],
       limit: 2,
@@ -147,7 +178,7 @@ test("seeds and preserves an agent-readable documentation workspace", async () =
     );
     expect(projection.branchStates.get(branch!.id)).toMatchObject({
       completeness: { kind: "complete" },
-      count: 1,
+      count: 2,
       queryError: null,
       truncation: { rootQuery: false, depth: false, budget: false },
     });
@@ -156,7 +187,14 @@ test("seeds and preserves an agent-readable documentation workspace", async () =
         .filter(isVirtualBranchOccurrence)
         .filter((row) => row.viewId === branch!.id && row.relativeDepth === 0)
         .map((row) => row.canonicalId),
-    ).toEqual([guide.id]);
+    ).toEqual([guide.id, tour.id]);
+    expect(projection.branchStates.get(examplesView.id)).toMatchObject({
+      completeness: { kind: "complete" }, count: 2, queryError: null,
+      truncation: { rootQuery: false, depth: false, budget: false },
+    });
+    expect(projection.rows.filter(isVirtualBranchOccurrence)
+      .filter(row => row.parentRowId === examplesView.id && row.relativeDepth === 0)
+      .map(row => row.canonicalId)).toEqual([source.id, reader.id]);
 
     const beforeRestartIds = store.traversePreorder({}).map((block) => block.id);
     const locallyEdited = store.update(
@@ -165,6 +203,7 @@ test("seeds and preserves an agent-readable documentation workspace", async () =
       guide.revision,
       { author: "user" },
     );
+    const editedTour = store.update(tour.id, `${tour.text}\n\nMy own tour notes.`, tour.revision, { author: "user" });
     store.close();
     store = new OutlinerStore(path);
 
@@ -174,6 +213,7 @@ test("seeds and preserves an agent-readable documentation workspace", async () =
       text: locallyEdited.text,
       updatedAt: locallyEdited.updatedAt,
     });
+    expect(store.get(tour.id)).toMatchObject({ text: editedTour.text, revision: editedTour.revision });
     expect(store.queryBlocks({
       filters: [{ key: "system-doc", value: AGENT_DOCUMENTATION_SYSTEM_DOC }],
       limit: 2,

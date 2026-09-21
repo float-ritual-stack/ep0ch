@@ -1,6 +1,7 @@
-export const DEFAULT_WORKSPACE_SEED_VERSION = 4;
+export const DEFAULT_WORKSPACE_SEED_VERSION = 5;
 export const AGENT_DOCUMENTATION_SYSTEM_DOC = "agent-documentation-guide";
 export const AUTHORED_LINKS_EXAMPLE_SYSTEM_DOC = "authored-links-example";
+export const FEATURE_TOUR_SYSTEM_DOC = "feature-tour";
 
 interface SeedBlock {
   readonly id: string;
@@ -83,7 +84,9 @@ const DOCUMENTATION_SECTIONS = [
       "",
       "Showing authored Resource rows and moving selection are read-only. Press Enter to resolve or intern an unregistered Resource only when navigating.",
       "",
-      "Filesystem text, cached web Markdown, and extracted PDF text support source-backed comments. Application Resources expose metadata and external-open behavior but do not fabricate local content.",
+      "Filesystem text and cached web/PDF text support source-backed comments. Direct Detail comments on metadata fields or computed/remote-entity Markdown are not available yet. Application Resources expose metadata and external-open behavior but do not fabricate local content.",
+      "",
+      "Authored Resource properties are actionable in Detail. Each reference occurrence has its own context and annotations, even when several references share the same Resource. Removing a reference leaves its annotations recoverable instead of assigning them to another mention.",
     ],
   },
   {
@@ -134,6 +137,94 @@ const DOCUMENTATION_SECTIONS = [
       "- Post-write queries are complete and the published subtree has the intended order without duplicate siblings.",
       "",
       "Only then report the documentation update complete.",
+    ],
+  },
+] as const;
+
+const FEATURE_TOUR_SECTIONS = [
+  {
+    key: "navigation", title: "Find and keep your place",
+    lines: [
+      "These are default keys. Press `?` for the actions and configured bindings available in the current mode.",
+      "",
+      "- In Tree, `g` opens searchable Goto with a selected-result preview. Try `outliner-tour` or words from a note; a UUID is not required.",
+      "- Goto: arrows choose a result, Enter reveals it in Tree, Alt+Enter opens Detail, and Esc cancels without changing your place. Jev optionally ranks a bounded set of text candidates; text search still works without it.",
+      "- Tree cursor movement previews in an unlocked Detail. `L` in Detail toggles the distinct 🔓 / 🔐 lock states; a locked reader keeps its target.",
+      "- `.` expands the selected Tree occurrence's inline preview. Other appearances of the same block keep their own expansion state.",
+      "- `m` bookmarks a block and `Shift+M` opens the bookmark navigator. A pointer click selects; deletion is an explicit action.",
+      "- Option/Alt+Up and Down reorder eligible siblings or unsorted virtual-branch roots. Option/Alt+Shift+Right and Down open independent Details.",
+    ],
+  },
+  {
+    key: "capture-inbox", title: "Capture first, organize in the background",
+    lines: [
+      "Quick Capture saves an ordinary note into Inbox. In its popup, Enter inserts a newline, Ctrl+S saves, and Esc retains the draft. Pi/OMP also provides `/capture` and `/send-to-outline`; the latter saves the last completed response as canonical Markdown.",
+      "",
+      "When the service's Pi model is configured, the automatic Inbox editor processes eligible captures. It can clean prose, split mixed ideas, consolidate duplicates and link context. Lists, meetings and personal thoughts remain notes. Actual Outliner work uses the allocator and starts in Backlog; cleanup does not commit it to a batch.",
+      "",
+      "Press Shift+I in Tree: `p` pauses/resumes, `a` switches questions/errors and recent results, Left/Right pages history, `u` undoes an eligible result, and `r` gives direction for reconsideration. Closing the view leaves processing running. Undo refuses to overwrite later edits or references.",
+      "",
+      "This is an exploratory editorial agent, not a guarantee of correct classification. Results, source/output links, errors and model usage remain inspectable. Without model configuration, capture, history and recovery remain available.",
+    ],
+  },
+  {
+    key: "prompts", title: "Tune the AI instructions",
+    lines: [
+      "The service seeds editable `prompts/inbox-editor.md`, `prompts/inbox-relationships.json` and `prompts/goto-ranking.json` beneath this workspace's state directory. `OUTLINER_PROMPT_DIR` can select a different complete directory.",
+      "",
+      "Create ordinary file Resource references to those runtime files, open in Detail, press e, and save with Ctrl+S. Use the service host's paths, including when the client is remote. Packaged defaults in a source checkout are not the live workspace configuration.",
+      "",
+      "Saving changes the next Inbox job or eligible Goto search without rebuilding or restarting. A running job retains its captured prompts. New Inbox results show prompt hashes and keep the full instructions used; agents retrieve a full receipt with `inbox.result`.",
+      "",
+      "Edit the wording, keeping the JSON keys and four Goto score levels. Invalid files show their name and cause instead of using stale instructions. Fix the file, then Resume Inbox or run another search. App upgrades preserve existing prompt files.",
+    ],
+  },
+  {
+    key: "reading-comments", title: "Read, edit and annotate canonical content",
+    lines: [
+      "References `((UUID|label))` and `[[address]]` point to existing canonical content; `!((UUID))` embeds a read-only presentation. A label changes display, not identity. An exact reference can also address a stable `^fragment`.",
+      "",
+      "In Detail, e edits the current document. Ctrl+S saves with the revision originally read; Esc cancels the editing session. Ctrl+E hands off to your configured external editor. A stale draft is rejected instead of replacing someone else's edit.",
+      "",
+      "Drag a rendered passage and press c to comment on that source range. The keyboard v path begins source-line selection. A comment without a positioned range remains inspectable as an unpositioned comment; these entry points have not been unified. Existing threads support replies, resolution/reopening and source navigation.",
+      "",
+      "Several mentions of the same file share a Resource target but can retain distinct occurrence annotations. Removed or ambiguous occurrences stay recoverable rather than silently moving a comment to the next mention.",
+    ],
+  },
+  {
+    key: "resources", title: "Follow files and external Resources",
+    lines: [
+      "From Tree's ? menu, Show authored links reveals Outlinks and Resources for the selected occurrence. It has no default key; configure one if useful. Enumeration is read-only; Enter on an unresolved authored target follows or registers it.",
+      "",
+      "Filesystem Resources support preview, edit/save, refresh, external editing and source-backed comments through the service's files. Cached web/PDF text also supports comments. Computed and remote-entity views expose retained representations and revision information, but direct Detail comments on their text or metadata fields are not available yet.",
+      "",
+      "Opening cached Web content does not fetch the network; refresh is explicit. Provider credentials, Source configuration and capabilities determine available actions. SSH-style file references are application links, not an SSH file provider.",
+      "",
+      "A locked Detail is an anchor. Detail's authored Resource links can use its destination chooser. Tree-generated Resource activation does not yet offer that chooser. Closing a view does not delete its Resource or annotations.",
+    ],
+  },
+  {
+    key: "workboard", title: "Separate possible work, commitment and delivery",
+    lines: [
+      "Backlog contains candidates; Later is an explicit deferral. The next agreed block of work is batch membership, not a promise to execute the visible list in order.",
+      "",
+      "A roadmap item's work-stage records queued → doing → review → validate → done, with superseded for retired work. Review means an implementation awaits review; Validate means it is merged and awaits acceptance. Roadmap items do not also carry a competing lifecycle status.",
+      "",
+      "One work-batch reference retains commitment while stages change. Rank guides order; dependencies constrain it. Newly discovered work stays outside the commitment until chosen. Small standalone fixes need no batch ceremony.",
+      "",
+      "Agents use the roadmap allocator and delivery operations rather than guessing Work IDs. Establish the project's work queue and read its live workboard contract first; this tour does not create a project backlog or reserve a prefix for you.",
+    ],
+  },
+  {
+    key: "surfaces", title: "Use linked panes or the combined-surface experiment",
+    lines: [
+      "Normal Tree and Detail are separate Herdr panes. A project-scoped SSH socket configuration lets them use a remote service while other projects stay local; start the tunnel before opening that remote workspace.",
+      "",
+      "The opt-in Herdr action `open-composed` places Tree and Detail in one application-owned surface. F6 switches regions; q returns from Detail to Tree. Selection, history, scroll, drafts and lock state remain distinct for each region.",
+      "",
+      "Independent references and editors can still open in Herdr panes. The combined layout is a fixed split experiment: orientation switching, interactive resizing and multiple embedded Details are not shipped. Browser pane prototypes are separate experiments, not an installed web UI.",
+      "",
+      "Closing a pane closes a view. It never means deleting the underlying block, file, Resource or annotation. Save or cancel active drafts before closing.",
     ],
   },
 ] as const;
@@ -191,6 +282,36 @@ export function seedDefaultWorkspace(writer: DefaultWorkspaceSeedWriter): void {
     "",
     "The local file must exist before activation. The SSH example is an external application link, and the Jira example requires one configured Source for project `EXAMPLE`.",
   ].join("\n"), documentation.id);
+
+  const tourTitle = `Explore the Outliner [type::project-doc] [system-doc::${FEATURE_TOUR_SYSTEM_DOC}] [seed-version::${DEFAULT_WORKSPACE_SEED_VERSION}] [page::outliner-tour]`;
+  const tour = writer.create(tourTitle, documentation.id);
+  const tourSections = FEATURE_TOUR_SECTIONS.map(section => writer.create([
+    `${section.title} [type::project-doc-section] [tour-section::${section.key}] [page::outliner-tour-${section.key}]`,
+    "", ...section.lines,
+  ].join("\n"), tour.id));
+  const example = writer.create([
+    "A canonical source note [type::example] [demo-set::feature-tour] [demo-kind::source] [page::outliner-tour-example]",
+    "", "## Shared context ^context", "",
+    "This is one ordinary editable note. References, embeds and the ranked example view below point here rather than maintaining another copy.",
+  ].join("\n"), tour.id);
+  const reader = writer.create([
+    "A reader with two references [type::example] [demo-set::feature-tour] [demo-kind::reader]",
+    "", `Read ((${example.id}|the canonical note)) or just its ((${example.id}^context|shared context)).`,
+    "", `!((${example.id}^context))`,
+  ].join("\n"), tour.id);
+  const exampleView = writer.create([
+    "Ranked example notes [type::virtual-branch] [query::demo-set=feature-tour] [limit::10]",
+    "[summary-properties::demo-kind]",
+  ].join("\n"), tour.id);
+  writer.update(tour, [
+    tourTitle, "",
+    "Start here for the current interaction model. Press g in Tree and search outliner-tour to return. Expand this block for individual guides and working examples; ? shows your current actions and bindings.",
+    "",
+    `Try ((${example.id}|a source)), ((${reader.id}|its composed reader)), and ((${exampleView.id}|the ranked projection)). Move an unsorted projected root with Option/Alt+Up or Down; the source keeps its physical parent. These example notes are not roadmap tasks or Inbox jobs.`,
+    "",
+    `For agent documentation ownership, read ((${guide.id}|Managing project documentation)).`,
+    "", ...tourSections.flatMap(block => [`!((${block.id}))`, ""]),
+  ].join("\n").trimEnd());
 
   writer.create([
     "Project documentation [type::virtual-branch]",

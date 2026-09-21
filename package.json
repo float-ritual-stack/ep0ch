@@ -22,6 +22,7 @@
     "test:e2e:goto": "bun run test/e2e/goto-search.ts && bun run test/e2e/goto-search.ts --composed",
     "test:e2e:inbox": "bun run test/e2e/inbox-agent.ts",
     "test:e2e:prompts": "bun run test/e2e/ai-prompts.ts",
+    "test:e2e:documentation": "bun run test/e2e/documentation.ts",
     "test:e2e:ownership": "bun run test/e2e/workspace-ownership.ts",
     "test:e2e:capture": "bun run test/e2e/capture-retry.ts",
     "test:e2e:edit-conflicts": "bun run test/e2e/edit-conflicts.ts",

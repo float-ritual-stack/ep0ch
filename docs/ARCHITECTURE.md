@@ -480,11 +480,15 @@ Scope classification is structural. After leading blank lines, the first nonblan
 
 After migrations, an empty `blocks` table is populated transactionally through
 `seedDefaultWorkspace`. The seed creates the ordinary Workspace roots, a
-Documentation hub, one `[system-doc::agent-documentation-guide]` reader
-composed from addressable canonical section blocks, and a writable bounded
-virtual branch over `[type::project-doc]`. Seed-local references use the UUIDs
-returned during that transaction; the database schema is never distributed as
-a binary content template.
+Documentation hub, an agent documentation guide, and an **Explore the Outliner**
+tour at `[page::outliner-tour]` / `[system-doc::feature-tour]`. Both readers compose
+addressable canonical section blocks. The tour covers navigation, Inbox, editable
+prompts, Resources and comments, workboard flow, and the combined-surface
+experiment. Working source/fragment references and an unsorted ranked projection
+demonstrate reuse without creating sample roadmap work or Inbox jobs. A writable
+bounded virtual branch collects `[type::project-doc]`. Seed-local references use
+the UUIDs returned during that transaction; the database schema is never
+distributed as a binary content template.
 
 The seed runs only for a truly empty block graph. Its blocks are ordinary
 editable canonical content after creation, so reopening or upgrading the
