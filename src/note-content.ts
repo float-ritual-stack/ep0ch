@@ -18,15 +18,27 @@ export function requestPassages(text: string): string[] {
   const content = contentOfText(text);
   const code = protectedCodeRanges(content);
   let offset = 0;
-  return content.split("\n").flatMap(line => {
+  const passages: string[] = [];
+  let prose = "";
+  const flush = () => {
+    passages.push(...[...sentences.segment(prose)].map(value => value.segment.trim()).filter(Boolean));
+    prose = "";
+  };
+  for (const line of content.split("\n")) {
     const start = offset + line.length - line.trimStart().length;
     const end = offset + line.trimEnd().length;
     offset += line.length + 1;
     // Preserve inline code inside prose: "list `type` values" and "do `not`
     // deploy" must retain their meaning. Quoted/code-only lines are context only.
-    if (/^\s*>/.test(line) || code.some(range => range.start <= start && range.end >= end)) return [];
-    return [...sentences.segment(line)].map(value => value.segment.trim()).filter(Boolean);
-  });
+    if (!line.trim() || /^\s*>/.test(line) || code.some(range => range.start <= start && range.end >= end)) {
+      flush();
+      continue;
+    }
+    // Segmenter treats newlines as sentence boundaries, so unfold soft wraps first.
+    prose += `${line.trim()} `;
+  }
+  flush();
+  return passages;
 }
 
 export function passageKey(text: string): string {

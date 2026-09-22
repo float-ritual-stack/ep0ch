@@ -122,6 +122,32 @@ test("a fresh inventory request reads authoritative counts and writes a dated co
   expect(f.inventoryCalls).toEqual(["type"]);
 });
 
+test("soft-wrapped requests stay complete and rewrapping does not make them fresh", async () => {
+  const request = "Please list all distinct `type` values currently used in this outline.";
+  const wrapped = "Please list all distinct\n`type` values currently used in this outline.";
+  const f = await fixture(`Type inventory\n\n${wrapped}`, { request: "property-inventory", paragraph: request, key: "type" });
+  const model = createNoteModel(f.options);
+  const result = await model(f.context);
+  expect(f.requests[0]!.state.context.eligibleRequestPassages).toEqual(["Type inventory", request]);
+  expect(result.plan.fulfillment?.operation).toBe("property-inventory");
+  expect(f.inventoryCalls).toEqual(["type"]);
+
+  f.context.candidate.seenRequestPassages = requestPassages(f.context.candidate.source.text).map(passageKey);
+  f.context.candidate.source = block(`Type inventory\n\n${request}`);
+  expect((await model(f.context)).plan.fulfillment).toBeUndefined();
+  expect(f.requests[1]!.questions.request).toBeUndefined();
+  expect(f.inventoryCalls).toEqual(["type"]);
+});
+
+test("blank, quoted and code-only lines end prose runs without joining separate requests", () => {
+  for (const separator of ["", "> Quoted context", "```text\nCode context\n```", "`Code context`", "\n    Indented code\n"]) {
+    expect(requestPassages(`List all\ntype values\n${separator}\nSummarize our\nnavigation notes`)).toEqual([
+      "List all type values", "Summarize our navigation notes",
+    ]);
+  }
+  expect(requestPassages("List `type` values.\nDo `not` deploy.")).toEqual(["List `type` values.", "Do `not` deploy."]);
+});
+
 test("inventory values remain literal data after canonical note application", async () => {
   const request = "List all distinct tag values.";
   const f = await fixture(`Tag inventory\n\n${request}`, { request: "property-inventory", paragraph: request, key: "tag" });
