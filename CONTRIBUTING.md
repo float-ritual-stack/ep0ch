@@ -79,6 +79,16 @@ Use the running service's CLI/RPC for workboard writes. If access remains
 blocked, record the endpoint, execution context, and exact error. Service
 restarts, socket removal, and writable database access are not connection probes.
 
+If a Herdr launch fails, Outliner reports the cause with a Herdr notification
+(when notification delivery is enabled) and retains the most recent failure in
+`service-startup-error.log` or `open-startup-error.log` in the resolved workspace
+state directory. These files include a timestamp; an old error is not evidence
+that the current process failed. Action output is also available through
+`herdr plugin log list --plugin float.pi-outliner --limit 3`.
+
+Bookmarks query, limit and summary columns are editable view preferences.
+They do not change bookmark ownership and must not prevent service startup.
+
 ### Task status
 
 Before planning, changing roadmap state or reporting delivery, read the live

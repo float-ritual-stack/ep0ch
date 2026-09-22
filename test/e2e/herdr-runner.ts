@@ -893,7 +893,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         return runCommand({
           args: [process.execPath, "run", join(pluginRoot, "src/server-main.ts")],
           cwd: pluginRoot,
-          env: { ...environment, OUTLINER_WORKSPACE_ROOT: projectRoot },
+          env: { ...environment, OUTLINER_WORKSPACE_ROOT: projectRoot, HERDR_SOCKET_PATH: herdrStatus!.socket },
           artifacts,
           signal: abort.signal,
           expectedExitCode: 1,

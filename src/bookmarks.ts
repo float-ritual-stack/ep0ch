@@ -35,15 +35,10 @@ export function parseBookmarksRoot(block: Block): BookmarksRoot {
   const kind = "Bookmarks root";
   const type = exactlyOne(block, "type", kind).toLowerCase();
   const systemView = exactlyOne(block, "system-view", kind).toLowerCase();
-  const query = exactlyOne(block, "query", kind).toLowerCase();
-  const limit = exactlyOne(block, "limit", kind);
-  const summaryProperties = exactlyOne(block, "summary-properties", kind).toLowerCase();
+  // Queries, row limits, and summary columns describe the projection, not its records.
   if (
     type !== "virtual-branch" ||
-    systemView !== BOOKMARKS_SYSTEM_VIEW ||
-    query !== "type=bookmark" ||
-    limit !== "1000" ||
-    summaryProperties !== "target,bookmark-created"
+    systemView !== BOOKMARKS_SYSTEM_VIEW
   ) {
     throw new Error(`Bookmarks root ${block.id} has invalid reserved configuration`);
   }

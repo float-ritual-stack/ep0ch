@@ -10,93 +10,97 @@ import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
 import { createNoteModel } from "./note-assistance-model";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
-const paths = resolveServicePaths();
-reportCurrentPaneWorkspace(paths.workspaceRoot);
-mkdirSync(paths.stateDir, { recursive: true });
-const paneStatePath = join(paths.stateDir, "service-pane.json");
-const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
-const promptDirectory = aiPromptDirectory(process.env.OUTLINER_PROMPT_DIR ?? join(paths.stateDir, "prompts"));
-const herdrRegistry = new HerdrRuntimeRegistry();
-const herdrSocketPath = process.env.HERDR_SOCKET_PATH;
-const herdrRunner = herdrSocketPath === undefined ? null : new HerdrRegistryRunner(herdrRegistry, herdrSocketPath);
-const server = new OutlinerServer(store, paths.socket, herdrRunner ? herdrRegistry : undefined, promptDirectory);
-let ownsPaneState = false;
-try {
-  if (process.env.OUTLINER_PROMPT_DIR === undefined) await initializeAiPrompts(promptDirectory);
-  await server.start();
-  ownsPaneState = true;
-  removeLegacyClientPaneStates(paths.stateDir);
-  registerServicePaneState(paths.stateDir, paths.workspaceRoot);
-  herdrRunner?.start();
-} catch (error) {
-  try {
-    await server.close();
-  } catch (closeError) {
-    console.error(`Failed to close outliner service after startup error: ${String(closeError)}`);
-  }
-  try {
-    if (ownsPaneState) rmSync(paneStatePath, { force: true });
-  } catch (cleanupError) {
-    console.error(`Failed to remove outliner service pane state after startup error: ${String(cleanupError)}`);
-  } finally {
-    store.close();
-  }
-  throw error;
-}
-console.log(JSON.stringify({ status: "ready", socket: paths.socket, database: paths.database }));
+import { reportStartupErrors } from "./startup-error";
 
-let stopping = false;
-// Loading provider configuration does not delay socket readiness or capture saves.
-if (process.env.OUTLINER_INBOX_AGENT !== "0") {
-  server.setInboxUnavailable("Checking Inbox agent configuration");
-  void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
-    if (stopping) return;
-    if (configuration.configured) {
-      const options = { workspaceRoot: paths.workspaceRoot, promptDirectory };
-      server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
-        ? createNoteModel(options) : undefined);
-    }
-    else server.setInboxUnavailable(configuration.message);
-  }).catch(() => {
-    if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");
-  });
-}
-async function stop(): Promise<void> {
-  if (stopping) return;
-  stopping = true;
-  let exitCode = 0;
-  if (herdrRunner !== null) {
-    try {
-      await herdrRunner.stop();
-    } catch (error) {
-      exitCode = 1;
-      console.error(`Failed to stop Herdr registry: ${String(error)}`);
-    }
-  }
+await reportStartupErrors("service", async () => {
+  const paths = resolveServicePaths();
+  reportCurrentPaneWorkspace(paths.workspaceRoot);
+  mkdirSync(paths.stateDir, { recursive: true });
+  const paneStatePath = join(paths.stateDir, "service-pane.json");
+  const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
+  const promptDirectory = aiPromptDirectory(process.env.OUTLINER_PROMPT_DIR ?? join(paths.stateDir, "prompts"));
+  const herdrRegistry = new HerdrRuntimeRegistry();
+  const herdrSocketPath = process.env.HERDR_SOCKET_PATH;
+  const herdrRunner = herdrSocketPath === undefined ? null : new HerdrRegistryRunner(herdrRegistry, herdrSocketPath);
+  const server = new OutlinerServer(store, paths.socket, herdrRunner ? herdrRegistry : undefined, promptDirectory);
+  let ownsPaneState = false;
   try {
-    await server.close();
+    if (process.env.OUTLINER_PROMPT_DIR === undefined) await initializeAiPrompts(promptDirectory);
+    await server.start();
+    ownsPaneState = true;
+    removeLegacyClientPaneStates(paths.stateDir);
+    registerServicePaneState(paths.stateDir, paths.workspaceRoot);
+    herdrRunner?.start();
   } catch (error) {
-    exitCode = 1;
-    console.error(`Failed to close outliner service: ${String(error)}`);
-  } finally {
     try {
-      rmSync(paneStatePath, { force: true });
-    } catch (error) {
-      exitCode = 1;
-      console.error(`Failed to remove outliner service pane state: ${String(error)}`);
+      await server.close();
+    } catch (closeError) {
+      console.error(`Failed to close outliner service after startup error: ${String(closeError)}`);
+    }
+    try {
+      if (ownsPaneState) rmSync(paneStatePath, { force: true });
+    } catch (cleanupError) {
+      console.error(`Failed to remove outliner service pane state after startup error: ${String(cleanupError)}`);
     } finally {
+      store.close();
+    }
+    throw error;
+  }
+  console.log(JSON.stringify({ status: "ready", socket: paths.socket, database: paths.database }));
+
+  let stopping = false;
+  // Loading provider configuration does not delay socket readiness or capture saves.
+  if (process.env.OUTLINER_INBOX_AGENT !== "0") {
+    server.setInboxUnavailable("Checking Inbox agent configuration");
+    void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
+      if (stopping) return;
+      if (configuration.configured) {
+        const options = { workspaceRoot: paths.workspaceRoot, promptDirectory };
+        server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
+          ? createNoteModel(options) : undefined);
+      }
+      else server.setInboxUnavailable(configuration.message);
+    }).catch(() => {
+      if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");
+    });
+  }
+  async function stop(): Promise<void> {
+    if (stopping) return;
+    stopping = true;
+    let exitCode = 0;
+    if (herdrRunner !== null) {
       try {
-        store.close();
+        await herdrRunner.stop();
       } catch (error) {
         exitCode = 1;
-        console.error(`Failed to close outliner store: ${String(error)}`);
+        console.error(`Failed to stop Herdr registry: ${String(error)}`);
+      }
+    }
+    try {
+      await server.close();
+    } catch (error) {
+      exitCode = 1;
+      console.error(`Failed to close outliner service: ${String(error)}`);
+    } finally {
+      try {
+        rmSync(paneStatePath, { force: true });
+      } catch (error) {
+        exitCode = 1;
+        console.error(`Failed to remove outliner service pane state: ${String(error)}`);
       } finally {
-        process.exit(exitCode);
+        try {
+          store.close();
+        } catch (error) {
+          exitCode = 1;
+          console.error(`Failed to close outliner store: ${String(error)}`);
+        } finally {
+          process.exit(exitCode);
+        }
       }
     }
   }
-}
 
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
-process.on("SIGHUP", stop);
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  process.on("SIGHUP", stop);
+});
