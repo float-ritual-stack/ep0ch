@@ -43,6 +43,7 @@ function harness(respond?: (request: RequestInput) => unknown | Promise<unknown>
     },
     invalidate() { invalidations++; },
     async open(id, destination) { opened.push({ id, destination }); },
+    async openResource(id) { opened.push({ id, destination: "resource" }); },
     close() { closed++; },
   });
   return { controller, requests, opened, get closed() { return closed; }, get invalidations() { return invalidations; } };
@@ -54,6 +55,25 @@ async function startRecent(controller: InboxController): Promise<void> {
 }
 
 describe("Inbox controls", () => {
+  test("opens a saved session through the service Resource API rather than the client's filesystem", async () => {
+    const sessionPath = "/service-only/state/assistant-sessions/attempt.jsonl";
+    const receipt = result("with-session", {usage:{
+      provider:"pi", model:"fixture", inputTokens:0, outputTokens:0, cost:0, jevCalls:0, elapsedMs:10,
+      piSessions:[{id:"session-id",path:sessionPath,startedAt:"2026-09-22",finishedAt:"2026-09-22",phase:"Tool: search_notes",outcome:"failed"}],
+    }});
+    const h = harness(request => {
+      if(request.action === "inbox.status")return status({attentionCount:0,attentionOnly:request.attentionOnly===true,results:request.attentionOnly?[]:[receipt]});
+      if(request.action === "resources.intern-filesystem"){
+        expect(request.input.path).toBe(sessionPath);
+        return {resource:{id:"server-owned-resource"}};
+      }
+    });
+    await startRecent(h.controller);
+    await h.controller.input("t",{name:"t"});
+    expect(h.opened).toEqual([{id:"server-owned-resource",destination:"resource"}]);
+    expect(h.requests.filter(r=>r.action==="resources.intern-filesystem")).toHaveLength(1);
+  });
+
   test("opening with no outstanding items shows recent results", async () => {
     const h = harness(request => request.action === "inbox.status" ? status({
       attentionCount: 0, attentionOnly: request.attentionOnly === true,

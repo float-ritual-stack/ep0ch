@@ -55,9 +55,11 @@ test("Pause acknowledges before an uncooperative late model can commit, and Resu
   late.resolve({ plan: plan("Late unwanted result"), usage });
   await until(() => !worker.status().current);
   expect(store.get(source.id)?.text).toBe(source.text);
-  expect(worker.status().results).toHaveLength(0);
+  expect(worker.status().results).toHaveLength(1);
+  expect(worker.status().results[0]!.state).toBe("canceled");
+  expect(worker.status().attentionCount).toBe(0);
   worker.resume();
-  await until(() => worker.status().results.length === 1);
+  await until(() => worker.status().results.some(result => result.state === "applied"));
   expect(store.get(source.id)?.text).toContain("The resumed result");
 });
 
@@ -132,7 +134,7 @@ test("new direction invalidates an in-flight decision before it can consume that
   worker.wake(); await first.promise;
   worker.reconsider(source.id, "Keep this as one personal note");
   late.resolve({ plan: plan("Obsolete decision"), usage });
-  await until(() => worker.status().results.length === 1);
+  await until(() => worker.status().results.some(result => result.state === "applied"));
   expect(store.get(source.id)?.text).toContain("Keep this as one personal note");
   expect(directions).toEqual([undefined, "Keep this as one personal note"]);
 });

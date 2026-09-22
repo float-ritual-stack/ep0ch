@@ -1166,6 +1166,25 @@ embeds, and bounded queries therefore use the ordinary Detail projection.
 Responses remain chat-only unless the command is invoked; there is no disposable
 report slot or report pane.
 
+### Inspecting assistant sessions
+
+Inbox editing and bounded note answers retain a separate native Pi JSONL session
+for each attempt under the workspace state directory's `assistant-sessions/`.
+Open Tree's Inbox activity with `Shift+I`, select a result, then press `t` to open
+its session as a file Resource in Detail. Tab/Enter also follows the session links
+in the result. Files are resolved by the service, including for remote clients.
+Jev-only classifications have no Pi session.
+
+Results retain the session identity, outcome, last phase and start/end timestamps.
+Completed assistant messages and tool calls/results are inspectable with Pi's
+native session tools. If interrupted before Pi's first assistant message, the
+result points to a clearly labelled snapshot of the SDK entries available then;
+partial streamed output is not promised. Each retry starts a new session. Opening
+a transcript does not resume the attempt or replay writes. Canceled attempts stay
+in recent activity without consuming the pending note or becoming failures that
+pause unrelated work. Protocol 65 adds this canceled result state; restart the
+service and clients together when upgrading.
+
 ### Automatic Inbox agent
 
 The service uses the default model and authentication already configured in Pi.

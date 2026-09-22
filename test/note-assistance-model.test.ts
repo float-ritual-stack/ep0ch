@@ -69,7 +69,7 @@ async function fixture(text: string, judgments: Judgments = {}) {
   const requests: JevRequest[] = [];
   const inventoryCalls: string[] = [];
   const options: InboxModelOptions = {
-    workspaceRoot: root, agentDir, promptDirectory, jevApiKey: "fixture-not-a-live-key",
+    workspaceRoot: root, agentDir, promptDirectory, sessionDirectory: join(root, "sessions"), jevApiKey: "fixture-not-a-live-key",
     fetch: async (_url, init) => {
       const body = JSON.parse(init.body as string) as JevRequest; requests.push(body);
       return Response.json(response(body, judgments));

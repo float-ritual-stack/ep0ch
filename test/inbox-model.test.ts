@@ -10,6 +10,7 @@ import type { Block } from "../src/types";
 import { DEFAULT_AI_PROMPT_DIRECTORY, PromptFileError } from "../src/ai-prompts";
 import { InboxWorker } from "../src/inbox-worker";
 import { OutlinerStore } from "../src/store";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -63,7 +64,7 @@ async function fixture(options: Partial<InboxModelOptions> = {}, values: Partial
   // A local fixture credential satisfies discovery. Every provider stream is replaced below.
   await writeFile(join(agentDir, "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "inbox-test-not-a-real-key" } }));
   const modelOptions: InboxModelOptions = {
-    workspaceRoot: root, agentDir, jevApiKey: "", stream: scripted([[call("search_notes", { query: "shopping" })], [call("finish_cleanup", filed as unknown as Record<string, unknown>)]]),
+    workspaceRoot: root, agentDir, sessionDirectory: join(root, "sessions"), jevApiKey: "", stream: scripted([[call("search_notes", { query: "shopping" })], [call("finish_cleanup", filed as unknown as Record<string, unknown>)]]),
     ...options,
   };
   const context: InboxModelContext = { source, read: () => null, search: () => [], signal: new AbortController().signal, progress() {}, ...values };
@@ -71,6 +72,65 @@ async function fixture(options: Partial<InboxModelOptions> = {}, values: Partial
 }
 
 describe("Inbox editorial model", () => {
+  test("retains distinct native sessions and reopens completed turns in another process", async () => {
+    const f = await fixture();
+    const first = await f.run();
+    // Each attempt creates its own SDK/session, even for the same source revision.
+    const second = await createInboxModel({ ...f.options, stream: scripted([
+      [call("search_notes", { query: "shopping" })],
+      [call("finish_cleanup", filed as unknown as Record<string, unknown>)],
+    ]) })(f.context);
+    const a = first.usage.piSessions![0]!;
+    const b = second.usage.piSessions![0]!;
+    expect(a.outcome).toBe("completed");
+    expect(a.id).not.toBe(b.id);
+    expect(a.path).not.toBe(b.path);
+    const child = Bun.spawn([process.execPath, "-e", `
+      import {SessionManager} from "@earendil-works/pi-coding-agent";
+      const session=SessionManager.open(process.argv[1]);
+      console.log(JSON.stringify({id:session.getSessionId(),entries:session.getEntries()}));
+    `, a.path!], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+    const reopened = JSON.parse(await new Response(child.stdout).text());
+    expect(await child.exited).toBe(0);
+    expect(reopened.id).toBe(a.id);
+    const messages = reopened.entries.filter((entry: {type:string}) => entry.type === "message");
+    expect(messages.some((entry: {message:{role:string}}) => entry.message.role === "user")).toBe(true);
+    expect(messages.filter((entry: {message:{role:string}}) => entry.message.role === "assistant")).toHaveLength(2);
+    expect(messages.some((entry: {message:{role:string;toolName:string}}) => entry.message.role === "toolResult" && entry.message.toolName === "search_notes")).toBe(true);
+  });
+
+  test("a deadline before the first reply preserves only actual native entries", async () => {
+    const f = await fixture({ timeoutMs: 80, stream: () => createAssistantMessageEventStream() });
+    const failure = await rejected(f.run());
+    expect(failure.message).toContain("timed out");
+    const retained = failure.usage!.piSessions![0]!;
+    expect(retained).toMatchObject({ outcome: "failed", snapshot: true });
+    const entries = SessionManager.open(retained.path!).getEntries();
+    expect(entries.some(entry => entry.type === "message" && entry.message.role === "user")).toBe(true);
+    expect(entries.some(entry => entry.type === "message" && entry.message.role === "assistant")).toBe(false);
+    expect(retained.warning).toContain("partial streamed output");
+    expect(f.context.source.text).toBe(source.text);
+  });
+
+  test("cancellation after a tool preserves its completed transcript and reports it before returning", async () => {
+    const abort = new AbortController();
+    let reported: InboxUsage | undefined;
+    let turn = 0;
+    const f = await fixture({ stream: () => {
+      if (++turn === 1) return streamMessage(message([call("search_notes", {query:"shopping"})]));
+      abort.abort();
+      return createAssistantMessageEventStream();
+    } }, {signal:abort.signal, reportUsage: value => { reported = value; }});
+    const failure = await rejected(f.run());
+    expect(failure.message).toContain("canceled");
+    const retained = failure.usage!.piSessions![0]!;
+    expect(reported?.piSessions?.[0]).toEqual(retained);
+    expect(retained.outcome).toBe("canceled");
+    const entries = SessionManager.open(retained.path!).getEntries();
+    expect(entries.some(entry => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "search_notes")).toBe(true);
+    expect(f.context.source.text).toBe(source.text);
+  });
+
   test("captures prompt files for the entire job and reloads them for the next job", async () => {
     const started = Promise.withResolvers<void>();
     const resume = Promise.withResolvers<void>();
