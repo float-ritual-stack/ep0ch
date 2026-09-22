@@ -1,5 +1,6 @@
 import type { Block, PropertyInventory, RoadmapItemPriority } from "./types";
 import type { PromptRevision } from "./ai-prompts";
+import type { AssistantSessionEvidence } from "./assistant-session";
 
 /** A single editorial decision. The service applies it; models never write directly. */
 export interface InboxPlan {
@@ -24,6 +25,7 @@ export interface InboxUsage {
   jevWarning?: string;
   elapsedMs: number;
   promptRevisions?: PromptRevision[];
+  piSessions?: AssistantSessionEvidence[];
 }
 
 export interface InboxResult {
@@ -32,7 +34,7 @@ export interface InboxResult {
   sourceId: string;
   sourceTitle: string;
   summary: string;
-  state: "applied" | "held" | "failed" | "undone";
+  state: "applied" | "held" | "failed" | "undone" | "canceled";
   outputIds: string[];
   createdAt: string;
   error?: string;
@@ -72,6 +74,8 @@ export interface InboxModelContext {
   instructions?: string;
   signal: AbortSignal;
   progress: (message: string) => void;
+  /** Retain available attempt evidence even when the worker's cancellation wins. */
+  reportUsage?: (usage: InboxUsage) => void;
 }
 
 export type InboxModel = (context: InboxModelContext) => Promise<{ plan: InboxPlan; usage: InboxUsage }>;

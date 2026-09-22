@@ -154,6 +154,7 @@ const ACTION_SPECS = [
   { id: "tree.inbox.undo", surface: "tree", modes: ["inbox"], label: "undo", description: "Undo the selected applied result when its blocks are unchanged", defaultChords: ["u"], helpPriority: 96, menuGroup: "Edit" },
   { id: "tree.inbox.reconsider", surface: "tree", modes: ["inbox"], label: "reconsider", description: "Reconsider a held, failed, or undone source with optional instructions", defaultChords: ["r"], helpPriority: 95, menuGroup: "Edit" },
   { id: "tree.inbox.source", surface: "tree", modes: ["inbox"], label: "source", description: "Reveal the selected capture in Tree", defaultChords: ["s"], helpPriority: 75, menuGroup: "Navigate" },
+  { id: "tree.inbox.session", surface: "tree", modes: ["inbox"], label: "Pi session", description: "Inspect the selected result's saved Pi session through the service", defaultChords: ["t"], helpPriority: 94, menuGroup: "Navigate" },
   { id: "tree.inbox.up", surface: "tree", modes: ["inbox"], label: "previous result", description: "Select the previous Inbox result", defaultChords: ["ArrowUp"], helpPriority: 70, menuGroup: "Navigate" },
   { id: "tree.inbox.down", surface: "tree", modes: ["inbox"], label: "next result", description: "Select the next Inbox result", defaultChords: ["ArrowDown"], helpPriority: 70, menuGroup: "Navigate" },
   { id: "tree.inbox.target", surface: "tree", modes: ["inbox"], label: "next link", description: "Choose the next output or source link", defaultChords: ["Tab"], helpPriority: 65, menuGroup: "Navigate" },

@@ -1,3 +1,4 @@
+import { combinedInboxUsage } from "./inbox-usage";
 import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
 import type { InboxModel, InboxPlan, InboxResult, InboxStatus, InboxUsage } from "./inbox-types";
 import { isNoteAssistanceEligible, NoteAssistanceRepository } from "./note-assistance-repository";
@@ -63,20 +64,6 @@ export function completePropertyInventory(store: OutlinerStore, key: string): Pr
     result.complete = true;
     return result;
   })();
-}
-
-function combinedUsage(first: InboxUsage, second: InboxUsage): InboxUsage {
-  const revisions = [...first.promptRevisions ?? [], ...second.promptRevisions ?? []];
-  return {
-    provider: `${first.provider} + ${second.provider}`, model: `${first.model} + ${second.model}`,
-    inputTokens: first.inputTokens + second.inputTokens, outputTokens: first.outputTokens + second.outputTokens,
-    cost: first.cost + second.cost, elapsedMs: first.elapsedMs + second.elapsedMs,
-    jevCalls: first.jevCalls + second.jevCalls,
-    jevSuccessfulCalls: (first.jevSuccessfulCalls ?? 0) + (second.jevSuccessfulCalls ?? 0),
-    ...first.jevWarning || second.jevWarning ? { jevWarning: [first.jevWarning, second.jevWarning].filter(Boolean).join("; ") } : {},
-    promptRevisions: revisions.filter((revision, index) => revisions.findIndex(other =>
-      other.path === revision.path && other.sha256 === revision.sha256) === index),
-  };
 }
 
 /** One workspace-owned loop, with Inbox editing and note assistance as explicit operations. */
@@ -223,6 +210,7 @@ export class InboxWorker {
       let abortListener: (() => void) | undefined;
       let applying = false;
       let returnedUsage: InboxUsage | undefined;
+      let reportedUsage: InboxUsage | undefined;
       let inventorySequence: number | undefined;
       try {
         const cancelled = new Promise<never>((_, reject) => {
@@ -232,6 +220,7 @@ export class InboxWorker {
         const noteCandidate = candidate ?? (this.noteModel ? this.notes!.candidateFor(source.id) : undefined);
         const inspectNote = () => this.noteModel!({
           candidate: noteCandidate!, read, search, progress, signal: abort.signal,
+          reportUsage: usage => { reportedUsage = usage; },
           tags: this.store.propertyCatalog("tag", "", 100).map(item => item.value),
           propertyKeys: this.store.propertyCatalog(undefined, "", 100).map(item => item.key),
           inventory: key => {
@@ -262,10 +251,11 @@ export class InboxWorker {
             // An unsupported action can still be useful backlog input. Let the
             // editor record or file it without claiming the request was executed.
             const editorial = await this.model({ source, read, search, progress, signal: abort.signal,
+              reportUsage: usage => { reportedUsage = usage; },
               instructions: this.repository.instructions(source.id),
             });
             plan = editorial.plan;
-            usage = assistance ? combinedUsage(assistance.usage, editorial.usage) : editorial.usage;
+            usage = assistance ? combinedInboxUsage(assistance.usage, editorial.usage) : editorial.usage;
           }
           return { usage, apply: () => this.store.database.transaction(() => {
             for (const update of plan.updates) {
@@ -293,14 +283,17 @@ export class InboxWorker {
         }
         this.changed(answer.apply());
       } catch (error) {
-        if (abort.signal.aborted || this.stopped) return;
-        const detail = error instanceof Error ? error.message : "Assistant work failed";
-        const errorUsage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : undefined;
-        const failureUsage = returnedUsage && errorUsage ? combinedUsage(returnedUsage, errorUsage) : errorUsage ?? returnedUsage;
+        const canceled = abort.signal.aborted || this.stopped;
+        const detail = canceled ? "Assistant work canceled; the source is unchanged" : error instanceof Error ? error.message : "Assistant work failed";
+        const errorUsage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : reportedUsage;
+        // Once applying, returnedUsage already includes every inference stage.
+        // reportUsage is a snapshot of that attempt, not another model call.
+        const failureUsage = applying ? returnedUsage
+          : returnedUsage && errorUsage ? combinedInboxUsage(returnedUsage, errorUsage) : errorUsage ?? returnedUsage;
         this.changed(candidate
-          ? this.notes!.fail(operationId, candidate, detail.slice(0, 500), failureUsage)
-          : this.repository.fail(operationId, source, detail.slice(0, 500), failureUsage));
-        if (!applying && !(error instanceof Error && error.name === "InboxNoteError")) {
+          ? this.notes!.fail(operationId, candidate, detail.slice(0, 500), failureUsage, canceled ? "canceled" : "failed")
+          : this.repository.fail(operationId, source, detail.slice(0, 500), failureUsage, canceled ? "canceled" : "failed"));
+        if (!canceled && !applying && !(error instanceof Error && error.name === "InboxNoteError")) {
           this.unavailable = detail.slice(0, 500);
           this.repository.setPaused(true);
         }

@@ -171,6 +171,7 @@ describe("renderTreeFrame", () => {
   });
   test("shows a clickable Inbox cue and the same bounded overlay in standalone and composed Tree", async () => {
     const inbox = new InboxController({
+      async openResource() {},
       async request<T>() { return { enabled: true, paused: true, state: "paused", message: "Paused by user", pending: 4, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 } as T; },
       invalidate() {}, async open() {}, close() {},
     });
