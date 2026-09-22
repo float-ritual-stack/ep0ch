@@ -13,17 +13,17 @@ const result=await runHerdrScenario({
     const q=await create("PIE303 Nested query\n[type::virtual-branch] [query::fixture=match] [fixture::query]",a.id);
     const b=await create("PIE303 Projected hub\n[type::virtual-branch] [query::fixture=query]");
     const match=await create("PIE303 Nested result\n[fixture::match]");
-    await session.setKeybindings({"tree.root.focus":["F4"],"tree.root.right":["F5"],"tree.root.workspace":["F6"]});
+    await session.setKeybindings({"tree.root.focus":["Alt+F"],"tree.root.right":["Alt+T"],"tree.root.workspace":["Alt+W"]});
     await session.keys(tree,"ctrl+r");
     await session.waitVisible(tree,"Outliner keymap reloaded");
     await session.revealTree(tree,a.id);
     await session.keys(tree,"space");
-    await session.revealTree(tree,b.id);await session.keys(tree,"f4");
+    await session.revealTree(tree,b.id);await session.keys(tree,"alt+f");
     await session.waitVisible(tree,"← Workspace · PIE303 Projected hub");
     await session.waitVisible(tree,"PIE303 Nested result");
     await session.checkpoint("01-collapsed-source-keeps-nested-query");
     // Focus the nested occurrence, not its canonical source.
-    await session.keys(tree,"down","f4");
+    await session.keys(tree,"down","alt+f");
     await session.waitVisible(tree,"← Workspace · PIE303 Nested query");
     await session.keys(tree,"shift+left");
     await session.waitFor("nested root folded",()=>session.visible(tree),text=>!text.includes("PIE303 Nested result"));
@@ -39,7 +39,7 @@ const result=await runHerdrScenario({
       const view=await create(`PIE303 ${stage} board\n[type::virtual-branch] [query::fixture=card work-stage=${stage}]`);
       await session.revealTree(tree,view.id);
       const before=new Set((await session.registrations()).map(r=>r.clientId));
-      await session.keys(tree,"f5");
+      await session.keys(tree,"alt+t");
       const registration=await session.waitFor("new rooted Tree",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
       const added=registration.find(r=>r.role === "tree" && !before.has(r.clientId))!;
       const pane=await session.adoptDetached(added.clientId,"tree");

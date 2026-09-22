@@ -302,6 +302,15 @@ describe("createTreeController", () => {
     expect(controller.view().rows.some(row=>row.rowId === "x11")).toBe(false);
   });
 
+  test("expanding an uneven frontier leaves already-visible descendants expanded", async () => {
+    const blocks=[block("x",{hasChildren:true}),block("a",{parentId:"x",depth:1,hasChildren:true}),block("a1",{parentId:"a",depth:2}),block("b",{parentId:"x",depth:1,hasChildren:true}),block("b1",{parentId:"b",depth:2,hasChildren:true}),block("b11",{parentId:"b1",depth:3})];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+    const controller=createTreeController(fake.effects);await controller.initialize();
+    await controller.handleDisclosure("a");await controller.handleRowClick("x");
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","a","a1","b","b1","b11"]);
+  });
+
   test("Inbox progress reads do not hold the serial event and keyboard lane", async () => {
     const first = block("first");
     const second = block("second", { position: 1 });

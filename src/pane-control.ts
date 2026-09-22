@@ -356,7 +356,7 @@ export function openTreePane(options: {
   if(process.env.HERDR_ENV !== "1") throw new Error("Creating a Tree pane requires Herdr");
   const sourcePaneId = currentPaneIdentity(herdr)?.paneId;
   if(!sourcePaneId) throw new Error("Target Herdr pane identity is unavailable");
-  const args = ["plugin","pane","open","tree","--plugin","float.pi-outliner",
+  const args = ["plugin","pane","open","--entrypoint","tree","--plugin",OUTLINER_PLUGIN_ID,
     "--env",`OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
     "--env",`OUTLINER_BROWSING_CONTEXT_ID=${crypto.randomUUID()}`,
     "--env",`OUTLINER_TREE_ROOT=${encodeURIComponent(JSON.stringify(options.root))}`];

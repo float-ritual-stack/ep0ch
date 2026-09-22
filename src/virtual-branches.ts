@@ -566,14 +566,13 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
   }
 
   const rows: VirtualBranchOccurrenceRow<T>[] = [];
-  function appendVisible(row: VirtualBranchOccurrenceRow<T>): void {
+  function appendAllocated(row: VirtualBranchOccurrenceRow<T>): void {
     rows.push(row);
-    if (row.collapsed) return;
-    for (const child of childrenByParentRowId.get(row.rowId) ?? []) appendVisible(child);
+    for (const child of childrenByParentRowId.get(row.rowId) ?? []) appendAllocated(child);
   }
   for (const root of allocatedRoots) {
     const row = rowById.get(root.rowId);
-    if (row) appendVisible(row);
+    if (row) appendAllocated(row);
   }
   return {
     rows,

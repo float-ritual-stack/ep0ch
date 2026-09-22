@@ -1719,6 +1719,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
       return result;
     };
+    const previouslyVisible = new Set(branch().map(row=>row.rowId));
     const candidates = branch().filter(row=>row.hasChildren && row.collapsed === expand);
     if(!candidates.length) return;
     const depth = expand ? Math.min(...candidates.map(row=>row.depth)) : Math.max(...candidates.map(row=>row.depth));
@@ -1726,7 +1727,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await reload(selected.rowId,{exactRowIdOnly:true});
     if(expand) {
       // A newly exposed child starts closed even if it was expanded before hiding.
-      for(const row of branch()) if(row.depth === depth+1 && row.hasChildren) setCollapsed(row,true);
+      for(const row of branch()) if(row.depth === depth+1 && row.hasChildren && !previouslyVisible.has(row.rowId)) setCollapsed(row,true);
       await reload(selected.rowId,{exactRowIdOnly:true});
     }
     status = expand ? "Expanded one layer" : "Collapsed one layer";
