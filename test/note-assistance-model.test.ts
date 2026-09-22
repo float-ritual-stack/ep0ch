@@ -418,6 +418,9 @@ test("generic answers run the real Pi tools and receive explicit reconsideration
   expect(result.plan.fulfillment).toMatchObject({ operation: "answer", text: finalText });
   expect(result.usage.provider).toBe("typesafe + openai");
   expect(result.usage.inputTokens).toBeGreaterThan(120);
+  expect(result.usage.piSessions).toHaveLength(1);
+  expect(result.usage.piSessions![0]!.outcome).toBe("completed");
+  expect(await Bun.file(result.usage.piSessions![0]!.path!).exists()).toBe(true);
 });
 
 test("the answer uses captured prompt bytes during a job and reloads the next job", async () => {

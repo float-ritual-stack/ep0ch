@@ -131,6 +131,27 @@ describe("Inbox editorial model", () => {
     expect(f.context.source.text).toBe(source.text);
   });
 
+  test("the worker retains an early canceled session without suppressing the pending capture", async () => {
+    const entered = Promise.withResolvers<void>();
+    const f = await fixture({ stream: () => { entered.resolve(); return createAssistantMessageEventStream(); } });
+    const store = new OutlinerStore(join(f.root, "worker.sqlite"), {workspaceRoot:f.root});
+    const worker = new InboxWorker(store,createInboxModel(f.options),()=>{},{settleMs:1});
+    try {
+      const captured = store.capture("early-cancel", "Keep this original", "cli").block;
+      worker.wake(); await entered.promise; worker.pause();
+      for(let i=0;i<100 && worker.status().current;i++)await Bun.sleep(5);
+      const status=worker.status();
+      expect(status.current).toBeUndefined();
+      expect(status.results[0]!.state).toBe("canceled");
+      const session=status.results[0]!.usage!.piSessions![0]!;
+      expect(session.outcome).toBe("canceled");
+      expect(await Bun.file(session.path!).exists()).toBe(true);
+      expect(status.pending).toBe(1);
+      expect(status.attentionCount).toBe(0);
+      expect(store.require(captured.id)).toEqual(captured);
+    } finally {await worker.stop();store.close();}
+  });
+
   test("captures prompt files for the entire job and reloads them for the next job", async () => {
     const started = Promise.withResolvers<void>();
     const resume = Promise.withResolvers<void>();
