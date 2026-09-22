@@ -286,7 +286,10 @@ export class InboxWorker {
         const canceled = abort.signal.aborted || this.stopped;
         const detail = canceled ? "Assistant work canceled; the source is unchanged" : error instanceof Error ? error.message : "Assistant work failed";
         const errorUsage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : reportedUsage;
-        const failureUsage = returnedUsage && errorUsage ? combinedInboxUsage(returnedUsage, errorUsage) : errorUsage ?? returnedUsage;
+        // Once applying, returnedUsage already includes every inference stage.
+        // reportUsage is a snapshot of that attempt, not another model call.
+        const failureUsage = applying ? returnedUsage
+          : returnedUsage && errorUsage ? combinedInboxUsage(returnedUsage, errorUsage) : errorUsage ?? returnedUsage;
         this.changed(candidate
           ? this.notes!.fail(operationId, candidate, detail.slice(0, 500), failureUsage, canceled ? "canceled" : "failed")
           : this.repository.fail(operationId, source, detail.slice(0, 500), failureUsage, canceled ? "canceled" : "failed"));

@@ -68,10 +68,13 @@ test("an intervening target edit rejects the whole cleanup and preserves the sou
   const inspected = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const prompt = { path: "/workspace/prompts/inbox-editor.md", sha256: "captured-hash", text: "Instructions used by the rejected cleanup" };
-  const returnedUsage = { ...usage, promptRevisions: [prompt] };
+  const returnedUsage: InboxUsage = { ...usage, cost:0.25, promptRevisions: [prompt], piSessions:[{
+    id:"one-attempt",path:"/workspace/sessions/one.jsonl",startedAt:"2026-09-22T00:00:00Z",phase:"Editing",outcome:"completed",
+  }] };
   const { root, store, worker } = fixture(async context => {
     const target = context.read(targetId)!;
     inspected.resolve(); await release.promise;
+    context.reportUsage?.(returnedUsage);
     return { plan: { ...plan("Should not be saved"), updates: [{ blockId: target.id, expectedRevision: target.revision, text: "Overwritten" }] }, usage: returnedUsage };
   });
   const target = store.create("An existing note"); targetId = target.id;
