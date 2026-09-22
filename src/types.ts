@@ -1215,7 +1215,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 63;
+export const OUTLINER_PROTOCOL_VERSION = 64;
 
 
 export interface OutlinerServiceStatus {

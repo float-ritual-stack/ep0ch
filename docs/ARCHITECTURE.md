@@ -572,6 +572,11 @@ bytes and provenance remain unknown rather than being synthesized.
 
 The current protocol version is `OUTLINER_PROTOCOL_VERSION`, defined in [`src/types.ts`](../src/types.ts). Requests and responses are newline-delimited JSON over the workspace Unix socket.
 
+Protocol 64 includes hashtags in property records and their positional ordinals.
+Protocol 63 clients can address a different property for the same text and revision;
+restart the service and all clients together, including SSH-connected clients.
+Do not leave older editors running across this upgrade.
+
 ### Important request families
 
 - health: `ping`
