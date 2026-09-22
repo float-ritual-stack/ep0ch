@@ -66,6 +66,24 @@ const result = await runHerdrScenario({
     assert.deepEqual(await contexts(), beforeContexts);
     await terminal.write("\x1b[200~printf 'CAPTURE_%s\\n' RETURNED_TO_SHELL\x1b[201~\r");
     await session.waitVisible(session.panes.launcher, "CAPTURE_RETURNED_TO_SHELL");
+    // Entry points load from the plugin checkout but global actions must use
+    // the displayed workspace. Exercise both UI origins, not only a shell.
+    for (const role of ["tree", "detail"] as const) {
+      await session.focus(session.panes[role]);
+      await open();
+      await terminal.write(`\x1b[200~Capture from ${role}\x1b[201~`);
+      await terminal.write("\x1b");
+      await closed();
+      assert.equal((await draft())?.text, `Capture from ${role}`);
+      await open();
+      await screenContains(`Capture from ${role}`);
+      await terminal.write("\x13");
+      await closed();
+      await session.waitFor("saved draft cleared", draft, value => value === null);
+      await session.checkpoint(`03-capture-from-${role}`);
+    }
+    assert.deepEqual(await session.client.request({ action: "selection.get" }), before);
+    assert.deepEqual(await contexts(), beforeContexts);
     await session.record("capture-shortcut", { captures, beforeContexts, retained });
     await session.checkpoint("02-saved-and-returned");
   },

@@ -30,7 +30,7 @@ import {
 } from "./navigation-routes";
 import { openExternalUrl } from "./open-external";
 import { TUI_RESOURCE_PRESENTATION_CONTEXT } from "./resource-presentation";
-import {
+import { reportCurrentPaneWorkspace,
   currentPaneRuntime,
   detailTargetFromEnvironment,
   focusCurrentPane,
@@ -74,6 +74,7 @@ import {
 const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
 const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;

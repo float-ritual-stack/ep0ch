@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
 import type { OutlinerRegion, OutlinerClientRuntime, OutlinerNavigationTarget } from "./types";
@@ -133,6 +134,13 @@ const PaneLayoutResponseSchema = Type.Object({
 const SERVICE_PANE_LABEL = "Outliner Service";
 const HERDR_COMMAND_TIMEOUT_MS = 2_000;
 const OUTLINER_PLUGIN_ID = "float.pi-outliner";
+
+/** Herdr derives action context from terminal cwd; imports still run from the plugin checkout. */
+export function reportCurrentPaneWorkspace(workspaceRoot: string): void {
+  if (process.env.HERDR_ENV === "1" && process.stdout.isTTY) {
+    process.stdout.write(`\x1b]7;${pathToFileURL(workspaceRoot).href}\x07`);
+  }
+}
 
 interface HerdrPluginContext {
   clicked_url?: string;

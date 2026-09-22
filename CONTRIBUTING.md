@@ -15,6 +15,9 @@ bun test
 dependencies in the checkout first. Plugin pane entrypoints execute from the
 linked plugin root; pass the target project through `OUTLINER_WORKSPACE_ROOT`
 rather than overriding `herdr plugin pane open --cwd`.
+Outliner terminals report that project through OSC 7 so Herdr's global actions
+resolve its connection. This terminal metadata does not change the process cwd
+or the base used by relative configuration paths.
 
 Open the live topology from a Herdr-managed pane:
 

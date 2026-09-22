@@ -74,7 +74,7 @@ import {
   editTextInExternalEditor,
   resolveExternalEditorConfiguration,
 } from "./external-editor";
-import {
+import { reportCurrentPaneWorkspace,
   configureCurrentPaneRightClick,
   detailTargetFromEnvironment,
   currentPaneRuntime,
@@ -181,6 +181,7 @@ const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
 const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
 const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;

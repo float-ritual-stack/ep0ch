@@ -1,3 +1,4 @@
+import { reportCurrentPaneWorkspace } from "./pane-control";
 import { emitKeypressEvents } from "node:readline";
 import { createOutlinerClient } from "./client";
 import {
@@ -18,6 +19,7 @@ if (process.env.HERDR_ENV !== "1") {
 }
 
 const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 await client.requireCompatibleService();
 const requestId = process.env.OUTLINER_CAPTURE_REQUEST_ID?.trim() || crypto.randomUUID();

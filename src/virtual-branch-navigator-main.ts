@@ -6,7 +6,7 @@ import { createOutlinerClient } from "./client";
 import { listLiveClients } from "./client-target";
 import { loadDetailReadPreview } from "./detail-read-preview";
 import { OutlinerActionKeymap } from "./outliner-actions";
-import { currentPaneRuntime, openDetailPane } from "./pane-control";
+import { reportCurrentPaneWorkspace, currentPaneRuntime, openDetailPane } from "./pane-control";
 import { resolveClientPaths } from "./paths";
 import { ALL_DETAILS_LOCKED_ERROR } from "./navigation-routes";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
@@ -71,6 +71,7 @@ function parseLaunch(): VirtualBranchNavigatorLaunch {
 
 const launch = parseLaunch();
 const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const actionKeymap = OutlinerActionKeymap.load();
 const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
