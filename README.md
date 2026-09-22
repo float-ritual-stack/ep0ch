@@ -1695,3 +1695,11 @@ Existing threads and an agent reply are seeded through public APIs.
 - Treating projected occurrences as duplicated canonical blocks.
 - Hiding query truncation or persistence failures behind silent fallbacks.
 - Creating symbolic page stubs merely because unresolved `[[text]]` was typed; accepted design creates a stub only when that link is followed.
+
+### Focused Tree views
+
+Use the Tree actions menu (`?`) to **focus branch**, **return to workspace**, or open **Tree right/below**. A focused Tree shows that exact occurrence as its root, including nested queries. New Tree splits have their own root, selection, disclosure, scroll and navigation history, and do not create another Detail automatically. Closing a view never deletes its blocks.
+
+`Shift+Right` reveals one additional hierarchy layer under the selected occurrence. `Shift+Left` folds its deepest expanded layer. These leave other branches and inline note previews alone; the shortcuts can be changed in the keybindings configuration. Existing `Alt+Shift+Right/Down` still create Details. Goto or Reveal Source can deliberately leave the current root; Back returns to the earlier root and viewport.
+
+Collapsed source folders no longer empty a query displayed through another projection. Missing or no-longer-visible roots retain a **return to workspace** action. This is local navigation state, not another database or a smaller network payload.
