@@ -407,7 +407,7 @@ export function renderTreeFrame(
   const physicalCount = view.physicalRowCount;
   const occurrenceCount = view.occurrenceRowCount;
   const returnSummary = attentionReturnSummary(view.attention, width);
-  output.push(returnSummary ?? truncateToWidth(
+  output.push((view.root ? outlinerActionLink("tree.root.workspace", `← Workspace · ${view.root.label}`) : returnSummary) ?? truncateToWidth(
     `\x1b[2m${view.inboxCue ? `${outlinerActionLink("tree.inbox.open", view.inboxCue)} · ` : ""}${countLabel(physicalCount, "physical block")} · ${countLabel(
       occurrenceCount,
       "projected occurrence",

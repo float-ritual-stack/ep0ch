@@ -43,7 +43,7 @@ export interface HerdrScenarioSession {
   readonly client: OutlinerClient;
   setKeybindings(bindings: Record<string, string[]>): Promise<void>;
   setRegistryUnavailable(unavailable: boolean): Promise<void>;
-  adoptDetached(clientId: string): Promise<string>;
+  adoptDetached(clientId: string, role?: "tree" | "detail"): Promise<string>;
   moveDetachedToNewTab(paneId: string): Promise<void>;
   closeDetached(paneId: string): Promise<void>;
   rejectCompetingService(): Promise<CommandResult>;
@@ -860,12 +860,12 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         // This checks the live CLI path after the registry-only connection fault.
         parseResult((await runHerdr(["api", "snapshot"])).stdout, "session_snapshot", "registry fault CLI check");
       },
-      async adoptDetached(clientId) {
+      async adoptDetached(clientId, role = "detail") {
         const registrations = await getRegistrations();
         const primary = registrations.find(value => value.runtime?.paneId === ownedPanes.tree);
         const detached = registrations.find(value => value.clientId === clientId);
-        if (detached?.role !== "detail" || !detached.runtime?.paneId || !primary?.runtime || detached.runtime.workspaceId !== primary.runtime.workspaceId || owned.has(detached.runtime.paneId)) {
-          throw new Error("Detached client is not a new Detail in the owned workspace");
+        if (detached?.role !== role || !detached.runtime?.paneId || !primary?.runtime || detached.runtime.workspaceId !== primary.runtime.workspaceId || owned.has(detached.runtime.paneId)) {
+          throw new Error("Detached client is not a new requested view in the owned workspace");
         }
         const pane = parsePane(parseResult((await runHerdr(["pane", "get", detached.runtime.paneId])).stdout, "pane_info", "adopt detached").pane, "adopt detached pane");
         if (pane.workspaceId !== primary.runtime.workspaceId) throw new Error("Detached pane escaped the private workspace");

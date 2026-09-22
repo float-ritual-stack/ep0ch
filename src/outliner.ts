@@ -16,6 +16,7 @@ import { reportCurrentPaneWorkspace,
   currentPaneRuntime,
   focusCurrentPane,
   openDetailPane,
+  openTreePane,
   openGotoPopup,
   openCapturePopup as openHerdrCapturePopup,
   openVirtualBranchNavigatorPopup,
@@ -61,7 +62,6 @@ let watcher: OutlinerWatcher | null = null;
 let runtimeSync: ClientRuntimeSync | null = null;
 let stopping = false;
 let workQueue = Promise.resolve();
-let scrollStartEntryIndex = 0;
 let renderedFrameLines: string[] = [];
 let renderedMouseTargets: readonly (TreeMouseTarget | null | undefined)[] = [];
 
@@ -74,12 +74,12 @@ function draw(): void {
     controller.view(),
     process.stdout.columns ?? 100,
     process.stdout.rows ?? 30,
-    scrollStartEntryIndex,
+    controller.view().scrollStartEntryIndex ?? 0,
     { propertyKeys: propertySummaryKeys },
   );
   renderedFrameLines = result.frame.split("\n");
   renderedMouseTargets = result.mouseTargets;
-  scrollStartEntryIndex = result.scrollStartEntryIndex;
+  controller.setViewportStart(result.scrollStartEntryIndex);
   process.stdout.write(result.frame);
 }
 
@@ -103,7 +103,13 @@ function stop(): void {
   process.exit(0);
 }
 
+const initialRoot = process.env.OUTLINER_TREE_ROOT ? JSON.parse(decodeURIComponent(process.env.OUTLINER_TREE_ROOT)) : undefined;
+if(initialRoot && ![initialRoot.rowId,initialRoot.canonicalId,initialRoot.label].every(value=>typeof value === "string" && value.length)) {
+  throw new Error("OUTLINER_TREE_ROOT must identify a Tree occurrence");
+}
 const controller = createTreeController({
+  initialRoot,
+  async createTreePane(root,direction) { openTreePane({workspaceRoot:paths.workspaceRoot,root,direction}); },
   navigation: serviceTreeNavigation(client, clientId, browsingContextId),
   clientId,
   browsingContextId,

@@ -347,13 +347,30 @@ export function openDetailPane(
       `OUTLINER_DETAIL_TARGET=${encodeURIComponent(JSON.stringify(options.initialTarget))}`,
     );
   }
+  return openPaneSplit(args, sourcePaneId, options.direction ?? "down", herdr);
+}
+
+export function openTreePane(options: {
+  workspaceRoot: string; root: {rowId:string;canonicalId:string;label:string}; direction: "right" | "down";
+}, herdr = process.env.HERDR_BIN_PATH ?? "herdr"): string {
+  if(process.env.HERDR_ENV !== "1") throw new Error("Creating a Tree pane requires Herdr");
+  const sourcePaneId = currentPaneIdentity(herdr)?.paneId;
+  if(!sourcePaneId) throw new Error("Target Herdr pane identity is unavailable");
+  const args = ["plugin","pane","open","tree","--plugin","float.pi-outliner",
+    "--env",`OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",`OUTLINER_BROWSING_CONTEXT_ID=${crypto.randomUUID()}`,
+    "--env",`OUTLINER_TREE_ROOT=${encodeURIComponent(JSON.stringify(options.root))}`];
+  return openPaneSplit(args,sourcePaneId,options.direction,herdr);
+}
+
+function openPaneSplit(args: string[], sourcePaneId: string, direction: "right" | "down", herdr: string): string {
   args.push(
     "--placement",
     "split",
     "--target-pane",
     sourcePaneId,
     "--direction",
-    options.direction ?? "down",
+    direction,
     "--no-focus",
   );
   for (const name of [

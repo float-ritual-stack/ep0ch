@@ -266,6 +266,42 @@ function lastCall(calls: readonly RequestInput[], action: RequestInput["action"]
 }
 
 describe("createTreeController", () => {
+  test("focus and navigation history retain occurrence root and viewport independently", async () => {
+    const x=block("x",{hasChildren:true}), child=block("child",{parentId:"x",depth:1,hasChildren:true}), leaf=block("leaf",{parentId:"child",depth:2}), other=block("other");
+    const blocks=[x,child,leaf,other];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,x) : undefined);
+    const first=createTreeController(fake.effects), second=createTreeController({...fake.effects,clientId:"other-tree"});
+    await first.initialize();await second.initialize();
+    await first.handleRowClick("child");first.setViewportStart(1);
+    await first.handleAction("tree.root.focus");
+    expect(first.view().rows.map(row=>[row.rowId,row.depth])).toEqual([["child",0],["leaf",1]]);
+    expect(second.view().root).toBeNull();expect(second.view().rows).toHaveLength(4);
+    await first.handleKeypress("",{name:"left",meta:true},"pass");
+    expect(first.view().root).toBeNull();expect(selectedBlockRow(first).rowId).toBe("child");expect(first.view().scrollStartEntryIndex).toBe(1);
+    await first.handleKeypress("",{name:"right",meta:true},"pass");
+    expect(first.view().root?.rowId).toBe("child");
+    await first.revealBlock("other");expect(first.view().root).toBeNull();expect(selectedBlockRow(first).canonicalId).toBe("other");
+    await first.handleKeypress("",{name:"left",meta:true},"pass");expect(first.view().root?.rowId).toBe("child");
+  });
+
+  test("depth actions reveal one new layer and fold deepest layers only under the anchor", async () => {
+    const blocks=[block("x",{hasChildren:true}),block("x1",{parentId:"x",depth:1,hasChildren:true}),block("x11",{parentId:"x1",depth:2,hasChildren:true}),block("x111",{parentId:"x11",depth:3}),block("x2",{parentId:"x",depth:1,hasChildren:true}),block("x21",{parentId:"x2",depth:2}),block("other",{hasChildren:true}),block("other-child",{parentId:"other",depth:1})];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+    const controller=createTreeController(fake.effects);await controller.initialize();
+    await controller.handleDisclosure("x"); // hide descendants that were expanded
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x2","other","other-child"]);
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x11","x2","x21","other","other-child"]);
+    await controller.handleAction("tree.depth.expand");expect(controller.view().rows.some(row=>row.rowId === "x111")).toBe(true);
+    await controller.handleAction("tree.depth.collapse");expect(controller.view().rows.some(row=>row.rowId === "x111")).toBe(false);
+    await controller.handleAction("tree.depth.collapse");expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x2","other","other-child"]);
+    expect(selectedBlockRow(controller).rowId).toBe("x");
+    await controller.handleRowClick("x2");await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.some(row=>row.rowId === "x21")).toBe(true);
+    expect(controller.view().rows.some(row=>row.rowId === "x11")).toBe(false);
+  });
+
   test("Inbox progress reads do not hold the serial event and keyboard lane", async () => {
     const first = block("first");
     const second = block("second", { position: 1 });
