@@ -95,6 +95,13 @@ contexts = ["workspace", "tab", "pane"]
 command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "open-composed"]
 
 [[actions]]
+id = "capture"
+title = "Outliner: Quick Capture"
+description = "Open the existing Inbox capture popup from this project's current pane."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-capture.ts"]
+
+[[actions]]
 id = "comment-selection"
 title = "Outliner: comment on selection"
 description = "Open the invoking Detail composer with Herdr's revision-validated rendered selection."

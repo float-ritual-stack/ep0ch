@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { firstLineWithoutPropertyTokens, parsePropertyRecords, patchPropertyText } from "./properties";
+import { prepareNoteEdit } from "./note-assistance-repository";
+import type { NoteCandidate, NotePlan } from "./note-assistance-types";
+import { NOTE_TYPES } from "./note-kinds";
+import { firstLineWithoutPropertyTokens, parseProperties, parsePropertyRecords, patchPropertyText } from "./properties";
 import type { InboxPlan, InboxResult, InboxResultSummary, InboxUsage } from "./inbox-types";
 import type { OutlinerStore } from "./store";
 import type { Block, BlockProperty, PropertyPatchOperation } from "./types";
@@ -28,7 +31,7 @@ interface Recovery {
 }
 
 const mutation = { author: "agent" as const, actorId: "inbox-agent" };
-const ordinaryTypes = new Set(["capture", "note", "idea", "finding", "reference", "learning", "decision", "question"]);
+const ordinaryTypes = new Set<string>([...NOTE_TYPES, "capture", "learning", "question"]);
 const protectedKeys = new Set([
   "type", "status", "system-view", "system-doc", "page", "alias", "source-block",
   "parent-annotation", "promoted-block", "superseded-by",
@@ -65,6 +68,14 @@ function preserveProperties(block: Block, draft: string, processed = false): str
     .map(property => ({ op: "remove", ordinal: property.ordinal }));
   const cleaned = patchPropertyText(draft, operations).trim();
   return patchPropertyText(cleaned, properties.map(property => ({ op: "append", ...property })));
+}
+
+function preserveTags(block: Block, draft: string): string {
+  const normalize = (value: string) => value.replace(/^#/, "").toLowerCase();
+  const present = new Set(parseProperties(draft).filter(property => property.key === "tag").map(property => normalize(property.value)));
+  return patchPropertyText(draft, block.properties
+    .filter(property => property.key === "tag" && !present.has(normalize(property.value)))
+    .map(property => ({ op: "append", ...property })));
 }
 
 function validateNote(value: string): void {
@@ -201,6 +212,13 @@ export class InboxRepository {
     })();
   }
 
+  /** Filing owns eligible direct Inbox sources, including held and undone captures. */
+  sourceIds(): Set<string> {
+    const rows = this.store.database.query("SELECT id FROM blocks WHERE parent_id = ? AND effective_deleted_root_id IS NULL")
+      .all(this.inbox().id) as Array<{ id: string }>;
+    return new Set(rows.map(row => this.store.require(row.id)).filter(block => this.eligible(block)).map(block => block.id));
+  }
+
   results(limit = 30, offset = 0): InboxResult[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error("Inbox result limit must be between 1 and 1000");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Inbox result offset must be a nonnegative integer");
@@ -223,9 +241,10 @@ export class InboxRepository {
       const rows = this.store.database.query(`
         SELECT r.result_json, COUNT(*) OVER() AS total
         FROM inbox_agent_results r JOIN blocks b ON b.id = r.source_id
-        WHERE b.parent_id = ? AND b.effective_deleted_root_id IS NULL
+        WHERE b.effective_deleted_root_id IS NULL
           AND r.suppressed_revision = b.revision
-          AND json_extract(r.result_json, '$.state') IN ('held', 'failed')
+          AND ((b.parent_id = ? AND json_extract(r.result_json, '$.state') IN ('held', 'failed')) OR
+            (json_extract(r.result_json, '$.state') = 'applied' AND json_extract(r.result_json, '$.kind') = 'unfulfilled'))
           AND r.rowid = (
             SELECT MAX(latest.rowid) FROM inbox_agent_results latest
             WHERE latest.source_id = b.id AND latest.suppressed_revision = b.revision
@@ -236,12 +255,17 @@ export class InboxRepository {
     })();
   }
 
-  apply(id: string, source: Block, plan: InboxPlan, usage?: InboxUsage): InboxResult {
+  apply(id: string, source: Block, plan: InboxPlan, usage?: InboxUsage, assistance?: { candidate: NoteCandidate; plan: NotePlan }): InboxResult {
     text(id, "Inbox operation ID");
     revision(source.revision);
     validatePlan(plan);
     validateUsage(usage);
-    const hash = payloadHash(source, { kind: "apply", plan });
+    if (assistance && (assistance.candidate.source.id !== source.id || assistance.candidate.source.revision !== source.revision ||
+      assistance.candidate.source.text !== source.text || assistance.candidate.source.parentId !== source.parentId)) {
+      throw new Error("Inbox assistance must describe the original source revision");
+    }
+    const prepared = assistance ? prepareNoteEdit(assistance.candidate, assistance.plan) : undefined;
+    const hash = payloadHash(source, { kind: "apply", plan, assistance });
     return this.store.database.transaction(() => {
       const previous = this.replay(id, hash);
       if (previous) return previous;
@@ -254,6 +278,11 @@ export class InboxRepository {
         .get(source.id, source.revision)) throw new Error("Inbox source is held; reconsider it before retrying");
 
       const result = this.result(id, current, plan.source.disposition === "hold" ? plan.source.reason! : plan.summary, usage);
+      if (prepared && (plan.source.disposition !== "hold" || prepared.kind === "unfulfilled")) {
+        result.kind = prepared.kind;
+        result.summary = prepared.kind === "organized" ? `Organized: ${plan.summary}`
+          : prepared.kind === "unfulfilled" && plan.source.disposition !== "hold" ? `${prepared.summary}\n\n${plan.summary}` : prepared.summary;
+      }
       if (plan.source.disposition === "hold") {
         result.state = "held";
         this.save(result, hash, current.revision);
@@ -296,7 +325,12 @@ export class InboxRepository {
       const sourceText = plan.source.disposition === "archive"
         ? `${plan.source.text.trim()}${result.outputIds.length ? `\n\nProcessed into: ${result.outputIds.map(outputId => `((${outputId}))`).join(", ")}` : ""}`
         : plan.source.text;
-      this.store.update(current.id, preserveProperties(current, sourceText, true), current.revision, mutation);
+      let finalText = preserveProperties(current, sourceText, true);
+      if (assistance) {
+        finalText = preserveTags(current, finalText);
+        finalText = prepareNoteEdit(assistance.candidate, assistance.plan, finalText).text;
+      }
+      this.store.update(current.id, finalText, current.revision, mutation);
       this.store.move(current.id, destination.id);
       const recovery: Recovery = {
         before, createdIds,
@@ -327,7 +361,7 @@ export class InboxRepository {
     })();
   }
 
-  undo(id: string): InboxResult {
+  undo(id: string, checkpointRestored?: (blocks: Block[]) => void): InboxResult {
     return this.store.database.transaction(() => {
       const row = this.row(id);
       if (!row) throw new Error(`Inbox result not found: ${id}`);
@@ -367,6 +401,7 @@ export class InboxRepository {
         if (current && !current.effectiveDeletedRootId && current.revision === root.revision &&
           current.parentId === root.parentId && this.store.children(root.id).length === 0) this.store.delete(root.id);
       }
+      checkpointRestored?.(recovery.before.map(before => this.store.requireActive(before.id)));
       result.state = "undone";
       this.store.database.query("UPDATE inbox_agent_results SET result_json = ?, suppressed_revision = ? WHERE id = ?")
         .run(JSON.stringify(result), this.store.require(result.sourceId).revision, id);

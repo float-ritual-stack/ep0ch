@@ -1,12 +1,89 @@
 import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
-import type { InboxModel, InboxResult, InboxStatus, InboxUsage } from "./inbox-types";
+import type { InboxModel, InboxPlan, InboxResult, InboxStatus, InboxUsage } from "./inbox-types";
+import { isNoteAssistanceEligible, NoteAssistanceRepository } from "./note-assistance-repository";
+import type { NoteModel } from "./note-assistance-model";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
-import type { Block } from "./types";
+import type { Block, PropertyInventory } from "./types";
 
-/** One workspace-owned loop. Pending work is the Inbox itself, not a second queue. */
+/** Both operation histories, with one global page; receipts remain with their operations. */
+export function assistantActivity(store: OutlinerStore, inbox: InboxRepository, notes?: NoteAssistanceRepository,
+  attentionOnly = false, offset = 0): { results: InboxResult[]; attentionCount: number } {
+  if (!notes) {
+    const attention = inbox.attention(31);
+    return { results: attentionOnly ? attention.results : inbox.results(31, offset), attentionCount: attention.total };
+  }
+  // Attention belongs to the latest operation on a note, even when that note
+  // moves from Inbox editing to workspace assistance without changing revision.
+  const attentionRows = store.database.query(`
+    WITH operations AS (
+      SELECT source_id, suppressed_revision AS revision, NULL AS parent_id,
+        result_json, created_at, 0 AS origin, rowid AS ordinal FROM inbox_agent_results
+      UNION ALL
+      SELECT source_id, source_revision, source_parent_id,
+        result_json, created_at, 1 AS origin, rowid AS ordinal FROM note_assistance_results
+    ), latest AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY created_at DESC, origin DESC, ordinal DESC) AS rank
+      FROM operations
+    )
+    SELECT r.source_id, r.origin, r.result_json FROM latest r JOIN blocks b ON b.id = r.source_id
+    WHERE r.rank = 1 AND r.revision = b.revision AND b.effective_deleted_root_id IS NULL
+      AND (r.origin = 0 OR r.parent_id IS b.parent_id)
+      AND (
+        (json_extract(r.result_json, '$.state') = 'applied' AND json_extract(r.result_json, '$.kind') = 'unfulfilled')
+        OR (json_extract(r.result_json, '$.state') IN ('held', 'failed') AND (r.origin = 1 OR b.parent_id IN (
+          SELECT block_id FROM block_properties WHERE key = 'system-view' AND LOWER(value) = 'inbox' AND scope = 'block'
+        )))
+      )
+    ORDER BY r.created_at, r.origin, r.ordinal
+  `).all() as Array<{ source_id: string; origin: number; result_json: string }>;
+  const attention = attentionRows.filter(row => row.origin === 0 || isNoteAssistanceEligible(store.require(row.source_id)))
+    .map(row => JSON.parse(row.result_json) as InboxResult);
+  const attentionCount = attention.length;
+  if (attentionOnly) return { results: attention.slice(0, 31), attentionCount };
+  const rows = store.database.query(`
+    SELECT result_json FROM (
+      SELECT result_json, created_at, 0 AS origin, rowid AS ordinal FROM inbox_agent_results
+      UNION ALL
+      SELECT result_json, created_at, 1 AS origin, rowid AS ordinal FROM note_assistance_results
+    ) ORDER BY created_at DESC, origin DESC, ordinal DESC LIMIT 31 OFFSET ?
+  `).all(offset) as Array<{ result_json: string }>;
+  return { results: rows.map(row => JSON.parse(row.result_json) as InboxResult), attentionCount };
+}
+
+/** Pages are consumed in the same read transaction: one complete observation, not mixed snapshots. */
+export function completePropertyInventory(store: OutlinerStore, key: string): PropertyInventory {
+  return store.database.transaction(() => {
+    const result = store.propertyInventory({ key });
+    while (result.nextOffset !== null) {
+      const page = store.propertyInventory({ key, offset: result.nextOffset });
+      result.items.push(...page.items);
+      result.nextOffset = page.nextOffset;
+    }
+    result.complete = true;
+    return result;
+  })();
+}
+
+function combinedUsage(first: InboxUsage, second: InboxUsage): InboxUsage {
+  const revisions = [...first.promptRevisions ?? [], ...second.promptRevisions ?? []];
+  return {
+    provider: `${first.provider} + ${second.provider}`, model: `${first.model} + ${second.model}`,
+    inputTokens: first.inputTokens + second.inputTokens, outputTokens: first.outputTokens + second.outputTokens,
+    cost: first.cost + second.cost, elapsedMs: first.elapsedMs + second.elapsedMs,
+    jevCalls: first.jevCalls + second.jevCalls,
+    jevSuccessfulCalls: (first.jevSuccessfulCalls ?? 0) + (second.jevSuccessfulCalls ?? 0),
+    ...first.jevWarning || second.jevWarning ? { jevWarning: [first.jevWarning, second.jevWarning].filter(Boolean).join("; ") } : {},
+    promptRevisions: revisions.filter((revision, index) => revisions.findIndex(other =>
+      other.path === revision.path && other.sha256 === revision.sha256) === index),
+  };
+}
+
+/** One workspace-owned loop, with Inbox editing and note assistance as explicit operations. */
 export class InboxWorker {
   readonly repository: InboxRepository;
+  readonly notes: NoteAssistanceRepository | undefined;
+  private readonly noteModel: NoteModel | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> | undefined;
   private active: AbortController | undefined;
@@ -20,34 +97,35 @@ export class InboxWorker {
     private readonly store: OutlinerStore,
     private readonly model: InboxModel,
     private readonly changed: (result?: InboxResult) => void,
-    options: { settleMs?: number; repository?: InboxRepository } = {},
+    options: { settleMs?: number; repository?: InboxRepository; notes?: NoteAssistanceRepository; noteModel?: NoteModel } = {},
   ) {
     this.repository = options.repository ?? new InboxRepository(store);
+    this.noteModel = options.noteModel;
+    this.notes = options.notes ?? (this.noteModel ? new NoteAssistanceRepository(store) : undefined);
+    this.notes?.initialize();
     this.settleMs = options.settleMs ?? 750;
   }
 
   status(attentionOnly = false, resultsOffset = 0): InboxStatus {
     const paused = this.repository.settings().paused;
-    const attention = this.repository.attention(31);
-    const results = attentionOnly ? attention.results : this.repository.results(31, resultsOffset);
+    const { results, attentionCount } = assistantActivity(this.store, this.repository, this.notes, attentionOnly, resultsOffset);
     return {
       enabled: true, paused,
       state: this.unavailable ? "unavailable" : paused ? "paused" : this.current ? "working" : "idle",
       message: this.unavailable ?? (paused ? "Automatic cleanup paused" : this.message),
-      pending: this.repository.pending().length,
+      pending: this.pendingCount(),
       ...(this.current ? { current: { id: this.current.id, title: blockDisplayTitle(this.current) } } : {}),
       results: results.slice(0, 30).map(summarizeInboxResult), resultsTruncated: results.length > 30,
-      attentionCount: attention.total, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
+      attentionCount, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
     };
   }
 
   wake(): void {
     if (this.stopped || this.running || this.timer || this.unavailable || this.repository.settings().paused) return;
-    // This also ensures capture replies leave the service before model work starts.
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.running = this.drain().catch(() => {
-        this.unavailable = "Inbox recovery could not be saved; automatic cleanup stopped";
+        this.unavailable = "Assistant recovery could not be saved; automatic cleanup stopped";
         this.changed();
       }).finally(() => { this.running = undefined; this.wakeIfPending(); });
     }, this.settleMs);
@@ -65,8 +143,11 @@ export class InboxWorker {
 
   resume(): InboxStatus {
     if (this.stopped) throw new Error("Inbox processor is stopping");
-    const latest = this.repository.results(1)[0];
-    if (latest?.state === "failed") this.repository.reconsider(latest.sourceId, this.repository.instructions(latest.sourceId));
+    const latest = assistantActivity(this.store, this.repository, this.notes).results[0];
+    if (latest?.state === "failed") {
+      this.repository.reconsider(latest.sourceId, this.repository.instructions(latest.sourceId));
+      this.notes?.reconsider(latest.sourceId);
+    }
     this.unavailable = undefined;
     this.repository.setPaused(false);
     this.message = "Automatic cleanup resumed";
@@ -80,8 +161,9 @@ export class InboxWorker {
     if (instructions !== undefined && (typeof instructions !== "string" || instructions.length > 2000)) {
       throw new Error("Steering instructions must be at most 2000 characters");
     }
-    if (!this.repository.reconsider(sourceId, instructions?.trim())) throw new Error("This note is no longer an unprocessed Inbox note");
-    // A previous decision must not consume direction supplied while it was thinking.
+    const editorial = this.repository.reconsider(sourceId, instructions?.trim());
+    const note = this.noteModel && this.notes?.reconsider(sourceId, instructions?.trim());
+    if (!editorial && !note) throw new Error("This block is not an eligible note");
     if (this.current?.id === sourceId) this.active?.abort();
     this.unavailable = undefined;
     this.message = "Note ready for reconsideration";
@@ -98,16 +180,23 @@ export class InboxWorker {
     await this.running;
   }
 
+  private pendingCount(): number {
+    const inbox = this.repository.pending();
+    return inbox.length + (this.noteModel ? this.notes!.pending(this.repository.sourceIds()).length : 0);
+  }
+
   private wakeIfPending(): void {
-    if (!this.stopped && !this.unavailable && !this.repository.settings().paused && this.repository.pending().length) this.wake();
+    if (!this.stopped && !this.unavailable && !this.repository.settings().paused && this.pendingCount()) this.wake();
   }
 
   private async drain(): Promise<void> {
     while (!this.stopped && !this.repository.settings().paused && !this.unavailable) {
-      const source = this.repository.pending()[0];
-      if (!source) { this.message = "Inbox is caught up"; this.changed(); return; }
+      const inbox = this.repository.pending();
+      const candidate = !inbox.length && this.noteModel ? this.notes!.pending(this.repository.sourceIds())[0] : undefined;
+      const source = inbox[0] ?? candidate?.source;
+      if (!source) { this.message = this.noteModel ? "Inbox and notes are caught up" : "Inbox is caught up"; this.changed(); return; }
       this.current = source;
-      this.message = "Reading and finding related notes";
+      this.message = candidate ? "Organizing note and checking for a request" : "Reading and finding related notes";
       this.changed();
       const abort = new AbortController();
       this.active = abort;
@@ -116,54 +205,101 @@ export class InboxWorker {
         abort.signal.throwIfAborted();
         const block = this.store.get(id);
         if (!block || block.effectiveDeletedRootId || block.deletedAt) return null;
-        observed.set(id, block);
+        // Keep the first observation. Reading again cannot erase a conflict.
+        if (!observed.has(id)) observed.set(id, block);
         return block;
+      };
+      const search = (query: string): Block[] => {
+        abort.signal.throwIfAborted();
+        return this.store.searchTree(query).matches.slice(0, 20)
+          .filter(match => match.block.id !== source.id)
+          .map(match => read(match.block.id)).filter((block): block is Block => block !== null);
+      };
+      const progress = (message: string): void => {
+        if (abort.signal.aborted || this.stopped) return;
+        this.message = message.slice(0, 200); this.changed();
       };
       const operationId = crypto.randomUUID();
       let abortListener: (() => void) | undefined;
       let applying = false;
       let returnedUsage: InboxUsage | undefined;
+      let inventorySequence: number | undefined;
       try {
         const cancelled = new Promise<never>((_, reject) => {
-          abortListener = () => reject(new Error("Inbox cleanup interrupted"));
+          abortListener = () => reject(new Error("Assistant work interrupted"));
           abort.signal.addEventListener("abort", abortListener, { once: true });
         });
-        const answer = await Promise.race([cancelled, this.model({
-          source, read,
-          search: query => {
+        const noteCandidate = candidate ?? (this.noteModel ? this.notes!.candidateFor(source.id) : undefined);
+        const inspectNote = () => this.noteModel!({
+          candidate: noteCandidate!, read, search, progress, signal: abort.signal,
+          tags: this.store.propertyCatalog("tag", "", 100).map(item => item.value),
+          propertyKeys: this.store.propertyCatalog(undefined, "", 100).map(item => item.key),
+          inventory: key => {
             abort.signal.throwIfAborted();
-            return this.store.searchTree(query).matches.slice(0, 20)
-              .filter(match => match.block.id !== source.id)
-              .map(match => read(match.block.id)).filter((block): block is Block => block !== null);
+            const result = completePropertyInventory(this.store, key);
+            if (inventorySequence !== undefined && inventorySequence !== result.sequence) {
+              throw new Error("The workspace changed between property reads; assistance was not applied");
+            }
+            inventorySequence = result.sequence;
+            return result;
           },
-          instructions: this.repository.instructions(source.id), signal: abort.signal,
-          progress: message => {
-            if (abort.signal.aborted || this.stopped) return;
-            this.message = message.slice(0, 200); this.changed();
-          },
-        })]);
-        // Pause is checked at the write boundary, even if a provider ignores cancellation.
+        });
+        const operation = candidate ? inspectNote().then(answer => ({ usage: answer.usage, apply: () =>
+          this.notes!.apply(operationId, candidate, answer.plan, answer.usage),
+        })) : (async () => {
+          // Classify the original user intent before editorial rewriting. The final
+          // answer/metadata and filing share one receipt; there is no second pass.
+          const assistance = noteCandidate ? await inspectNote() : undefined;
+          returnedUsage = assistance?.usage;
+          let plan: InboxPlan;
+          let usage: InboxUsage;
+          const empty = { notes: [], tasks: [], updates: [] };
+          if (assistance?.plan.fulfillment) {
+            plan = { ...empty, summary: assistance.plan.fulfillment.summary,
+              source: { disposition: "file", text: assistance.plan.fulfillment.text } };
+            usage = assistance.usage;
+          } else {
+            // An unsupported action can still be useful backlog input. Let the
+            // editor record or file it without claiming the request was executed.
+            const editorial = await this.model({ source, read, search, progress, signal: abort.signal,
+              instructions: this.repository.instructions(source.id),
+            });
+            plan = editorial.plan;
+            usage = assistance ? combinedUsage(assistance.usage, editorial.usage) : editorial.usage;
+          }
+          return { usage, apply: () => this.store.database.transaction(() => {
+            for (const update of plan.updates) {
+              const before = observed.get(update.blockId);
+              if (!before || before.revision !== update.expectedRevision) throw new Error("A target changed or was not read; cleanup was not applied");
+            }
+            const result = this.repository.apply(operationId, source, plan, usage,
+              assistance && noteCandidate ? { candidate: noteCandidate, plan: assistance.plan } : undefined);
+            this.notes?.checkpointEditorial(result, noteCandidate, assistance?.plan);
+            return result;
+          })() };
+        })();
+        const answer = await Promise.race([cancelled, operation]);
         if (abort.signal.aborted || this.stopped || this.repository.settings().paused) return;
         returnedUsage = answer.usage;
         applying = true;
-        for (const update of answer.plan.updates) {
-          const previous = observed.get(update.blockId);
-          const current = this.store.get(update.blockId);
-          if (!previous || previous.revision !== update.expectedRevision || !current ||
-              current.revision !== previous.revision || current.parentId !== previous.parentId) {
-            throw new Error("A target changed or was not read; cleanup was not applied");
+        if (inventorySequence !== undefined && this.store.sequence !== inventorySequence) {
+          throw new Error("The property inventory changed while answering; assistance was not applied");
+        }
+        for (const before of observed.values()) {
+          const current = this.store.get(before.id);
+          if (!current || current.effectiveDeletedRootId || current.revision !== before.revision || current.parentId !== before.parentId) {
+            throw new Error("A note used by this answer changed; assistance was not applied");
           }
         }
-        const result = this.repository.apply(operationId, source, answer.plan, answer.usage);
-        this.changed(result);
+        this.changed(answer.apply());
       } catch (error) {
         if (abort.signal.aborted || this.stopped) return;
-        const detail = error instanceof Error ? error.message : "Inbox cleanup failed";
+        const detail = error instanceof Error ? error.message : "Assistant work failed";
         const errorUsage = error instanceof Error && "usage" in error ? error.usage as InboxUsage : undefined;
-        const result = this.repository.fail(operationId, source, detail.slice(0, 500), errorUsage ?? returnedUsage);
-        this.changed(result);
-        // One provider failure must not burn through every note in the Inbox.
-        // A rejected stale edit is local to that note and must not block the rest.
+        const failureUsage = returnedUsage && errorUsage ? combinedUsage(returnedUsage, errorUsage) : errorUsage ?? returnedUsage;
+        this.changed(candidate
+          ? this.notes!.fail(operationId, candidate, detail.slice(0, 500), failureUsage)
+          : this.repository.fail(operationId, source, detail.slice(0, 500), failureUsage));
         if (!applying && !(error instanceof Error && error.name === "InboxNoteError")) {
           this.unavailable = detail.slice(0, 500);
           this.repository.setPaused(true);

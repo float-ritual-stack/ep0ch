@@ -1,4 +1,4 @@
-import type { Block, RoadmapItemPriority } from "./types";
+import type { Block, PropertyInventory, RoadmapItemPriority } from "./types";
 import type { PromptRevision } from "./ai-prompts";
 
 /** A single editorial decision. The service applies it; models never write directly. */
@@ -28,6 +28,7 @@ export interface InboxUsage {
 
 export interface InboxResult {
   id: string;
+  kind?: "organized" | "fulfilled" | "unfulfilled";
   sourceId: string;
   sourceTitle: string;
   summary: string;
@@ -64,6 +65,10 @@ export interface InboxModelContext {
   /** Read and search only. Read results are tracked for commit-time freshness. */
   read: (blockId: string) => Block | null;
   search: (query: string) => Block[];
+  purpose?: "edit" | "answer";
+  requestText?: string;
+  answerPrompt?: { text: string; revision: PromptRevision };
+  inventory?: (key: string) => PropertyInventory;
   instructions?: string;
   signal: AbortSignal;
   progress: (message: string) => void;

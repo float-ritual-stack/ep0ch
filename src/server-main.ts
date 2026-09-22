@@ -2,17 +2,19 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { HerdrRuntimeRegistry } from "./herdr-registry";
 import { HerdrRegistryRunner } from "./herdr-runtime";
-import { registerServicePaneState, removeLegacyClientPaneStates } from "./pane-control";
+import { reportCurrentPaneWorkspace, registerServicePaneState, removeLegacyClientPaneStates } from "./pane-control";
 import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
+import { createNoteModel } from "./note-assistance-model";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
 import { reportStartupErrors } from "./startup-error";
 
 await reportStartupErrors("service", async () => {
   const paths = resolveServicePaths();
+  reportCurrentPaneWorkspace(paths.workspaceRoot);
   mkdirSync(paths.stateDir, { recursive: true });
   const paneStatePath = join(paths.stateDir, "service-pane.json");
   const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
@@ -52,7 +54,11 @@ await reportStartupErrors("service", async () => {
     server.setInboxUnavailable("Checking Inbox agent configuration");
     void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
       if (stopping) return;
-      if (configuration.configured) server.enableInbox(createInboxModel({ workspaceRoot: paths.workspaceRoot, promptDirectory }));
+      if (configuration.configured) {
+        const options = { workspaceRoot: paths.workspaceRoot, promptDirectory };
+        server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
+          ? createNoteModel(options) : undefined);
+      }
       else server.setInboxUnavailable(configuration.message);
     }).catch(() => {
       if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");

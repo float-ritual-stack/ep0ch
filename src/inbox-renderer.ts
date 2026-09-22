@@ -28,7 +28,7 @@ function detailLines(controller: InboxController, width: number): string[] {
     .flatMap(line => wrapTextWithAnsi(line, width));
   const lines: string[] = [];
   const plain = (text: string) => lines.push(...wrapTextWithAnsi(sanitizeDynamicText(text, true), width));
-  plain(`${result.state.toUpperCase()} · ${result.createdAt.replace("T", " ").slice(0, 19)}`);
+  plain(`${(result.state === "applied" ? result.kind ?? result.state : result.state).toUpperCase()} · ${result.createdAt.replace("T", " ").slice(0, 19)}`);
   plain(result.sourceTitle);
   lines.push("");
   plain(result.summary);
@@ -75,7 +75,7 @@ export function renderInboxFrame(controller: InboxController, width: number, hei
   const list: string[] = [];
   for (const [offset, result] of results.slice(start, start + slots).entries()) {
     const selected = start + offset === controller.index;
-    const line = fit(`${selected ? "›" : " "} ${result.state} · ${sanitizeDynamicText(result.sourceTitle)}`, listWidth);
+    const line = fit(`${selected ? "›" : " "} ${result.state === "applied" ? result.kind ?? result.state : result.state} · ${sanitizeDynamicText(result.sourceTitle)}`, listWidth);
     list.push(selected ? `\x1b[48;5;238m\x1b[1m${line}\x1b[0m` : line);
     list.push(fit(`  \x1b[2m${sanitizeDynamicText(result.summary)}\x1b[0m`, listWidth));
   }

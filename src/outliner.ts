@@ -11,7 +11,7 @@ import {
 } from "./client-runtime-sync";
 import { OutlinerActionKeymap } from "./outliner-actions";
 import { navigateOutlinerLink } from "./outliner-links";
-import {
+import { reportCurrentPaneWorkspace,
   configureCurrentPaneRightClick,
   currentPaneRuntime,
   focusCurrentPane,
@@ -41,6 +41,7 @@ import { OUTLINER_PROTOCOL_VERSION, type OutlinerServiceStatus } from "./types";
 
 initTheme(undefined, false);
 const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;

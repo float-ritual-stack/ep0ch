@@ -269,13 +269,18 @@ uses its styled status, input, confirmation, and summary surfaces. No extra
 flag is required. Use `--plain` to force the minimal interface; `--yes` stays
 plain and non-interactive for automation.
 
-The default shortcuts are `prefix+u` for a new Tree + Detail and
-`prefix+shift+c` for commenting on retained Detail text. Press Enter to accept
-them, type alternatives at the prompts, or pass them explicitly:
+The default shortcuts are `prefix+u` for a new Tree + Detail,
+`prefix+shift+a` for commenting on retained Detail text, and `prefix+shift+c`
+for Quick Capture from any pane. With Herdr's default prefix, capture is
+Ctrl+B, then Shift+C. The helper moves the old default comment binding from
+Shift+C to Shift+A when Capture takes that key; custom bindings remain defaults.
+Capture uses the invoking project's running Outliner service,
+including its configured remote connection. Press Enter to accept the keys,
+type alternatives at the prompts, or pass them explicitly:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/pi-herdr-outliner/main/install.sh |
-  sh -s -- --open-key prefix+y --comment-key prefix+shift+y
+  sh -s -- --open-key prefix+y --comment-key prefix+shift+y --capture-key prefix+shift+c
 ```
 
 Use `--yes` for a non-interactive install with existing or default shortcuts,
@@ -1203,6 +1208,42 @@ not billing receipts; cancellation may interrupt final usage reporting. This is 
 single-user editorial experiment: inspect the results and use Undo when a judgment
 is wrong.
 
+### Automatic note organization and requests
+
+With Pi configured and `TYPESAFE_API_KEY` available, the same service worker also
+assists new or meaningfully edited ordinary notes throughout the workspace.
+Captures get one combined filing/assistance operation and one Undo receipt.
+Jev chooses a useful content type and a few retrieval tags;
+authored prose, manual types and tags, and the note's identity stay intact.
+Removing an inferred tag or changing its type is a remembered correction, including
+after restart. Managed records such as tickets, batches, annotations and generated
+sections keep their existing contracts. Historical types are not bulk-renamed.
+
+Ordinary categories are `note`, `idea`, `design-note`, `decision`, `finding`,
+`feedback`, `review`, `implementation-proof`, `progress`, `reference`, `synthesis`,
+and `hub`. Topics such as rabbit holes belong in tags rather than new categories.
+Write `#rabbit-hole` or `#y2026/q1` anywhere in prose: these use the same property
+index as `[tag::rabbit-hole]`. Hashtags remain visible. Code, link destinations,
+escaped hashes, headings and numeric references such as `#134` are not tags.
+Tag queries match the complete value; `y2026` does not imply every descendant tag.
+Suggested calendar tags come from the content's stated period, not its import date.
+
+A fresh direct request can be fulfilled in the same note. Complete property
+inventories use the indexed `properties.inventory` operation, independently of
+autocomplete's 100-value limit. Prose answers use Pi with read-only Outliner
+tools. A successful answer records `request-status::fulfilled`; unsupported or
+unanswered requests stay open. Answering cannot run shell commands, change tickets,
+or send messages. Inbox triage can still record a bug or feature as backlog work;
+its receipt distinguishes that filing from actually executing the request.
+Activity distinguishes **organized**, **fulfilled**, and
+**unfulfilled**, with the existing Pause, Undo and Reconsider controls.
+
+The first startup checkpoints existing notes without executing old instructions.
+To opt an older note in, select it in Tree and choose **Assist this note** from
+`?`. New notes need no invocation. Set `OUTLINER_NOTE_ASSISTANCE=0` to disable this
+part while keeping Inbox filing, or `OUTLINER_INBOX_AGENT=0` to disable both.
+`bun run test:e2e:notes` exercises real Jev and Pi inside a private Herdr instance.
+
 ### Editing AI prompts
 
 The service keeps editable prompt files in its workspace state directory:
@@ -1211,12 +1252,16 @@ The service keeps editable prompt files in its workspace state directory:
 Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
 selects another complete directory; explicit directories are never populated or
 silently mixed with defaults.
+An existing default installation gains the two note-assistance files once during
+upgrade; later removal or edits are preserved.
 
 | File | Controls |
 | --- | --- |
 | `inbox-editor.md` | Pi's Inbox editing instructions |
 | `inbox-relationships.json` | Jev's duplicate/related and coverage questions |
 | `goto-ranking.json` | Jev's Goto scoring instructions and four score levels |
+| `note-assistance.json` | Jev's ordinary types, tag relevance, request classification and confidence thresholds |
+| `note-answer.md` | Pi's bounded read-only answer instructions |
 
 Add ordinary `[file::/absolute/path/to/prompts/inbox-editor.md]` references to an
 **AI prompts** block. Open each Resource in Detail, press `e`, edit, and save with

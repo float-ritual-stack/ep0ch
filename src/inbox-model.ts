@@ -5,7 +5,7 @@ import {
   SessionManager, SettingsManager, type AgentSession, type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { loadInboxPrompts, PromptFileError, type InboxPrompts } from "./ai-prompts";
+import { loadInboxPrompts, loadNotePrompts, PromptFileError, type InboxPrompts } from "./ai-prompts";
 import type { InboxModel, InboxModelContext, InboxPlan, InboxUsage } from "./inbox-types";
 import type { Block } from "./types";
 
@@ -228,8 +228,13 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
     try {
       assertActive();
       if (source.text.length > MAX_SOURCE_CHARS) throw new Error("Inbox note exceeds the editor's 60,000-character input limit");
-      const prompts = await loadInboxPrompts(options.promptDirectory);
-      usage.promptRevisions = prompts.revisions;
+      const prompts = context.purpose === "answer" ? undefined : await loadInboxPrompts(options.promptDirectory);
+      let answerPrompt = context.purpose === "answer" ? context.answerPrompt : undefined;
+      if (context.purpose === "answer" && !answerPrompt) {
+        const captured = await loadNotePrompts(options.promptDirectory);
+        answerPrompt = { text: captured.answer, revision: captured.revisions[1]! };
+      }
+      usage.promptRevisions = answerPrompt ? [answerPrompt.revision] : prompts!.revisions;
       const config = await configuration(options, signal);
       assertActive(); usage.provider = config.model.provider; usage.model = config.model.id;
       const customTools = [
@@ -256,7 +261,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
             const candidates = context.search(params.query).filter(b => live(b) && b.id !== source.id).slice(0, SEARCH_LIMIT);
             let status = "unavailable";
             const missing = candidates.filter(b => !relationshipCache.has(`${b.id}:${b.revision}`));
-            if (usage.jevCalls < 4 && missing.length && (options.jevApiKey ?? process.env.TYPESAFE_API_KEY)) {
+            if (prompts && usage.jevCalls < 4 && missing.length && (options.jevApiKey ?? process.env.TYPESAFE_API_KEY)) {
               usage.jevCalls++; context.progress("Jev is comparing duplicate and related notes");
               try {
                 const stats = session?.getSessionStats();
@@ -290,7 +295,10 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           parameters: planSchema,
           async execute(_call, proposed) {
             assertActive();
-            if (!searches && proposed.source.disposition !== "hold") throw new Error("Search prior notes before finishing");
+            if (context.purpose === "answer" && (proposed.notes.length || proposed.tasks.length || proposed.updates.length || proposed.source.disposition === "archive")) {
+              throw new Error("Answer requests can only update their own source note");
+            }
+            if (context.purpose !== "answer" && !searches && proposed.source.disposition !== "hold") throw new Error("Search prior notes before finishing");
             if (proposed.source.disposition === "hold" && (!proposed.source.reason || proposed.notes.length || proposed.tasks.length || proposed.updates.length || proposed.source.text !== source.text)) {
               throw new Error("A held note needs a specific reason, unchanged source text, and no other changes");
             }
@@ -308,10 +316,15 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           },
         }),
       ];
+      if (context.inventory) customTools.push(defineTool({
+        name: "property_inventory", label: "Property inventory", description: "Read exact property values and block counts from the service. Completeness is explicit; a truncated page is not a complete inventory.",
+        parameters: Type.Object({ key: text(100) }, { additionalProperties: false }),
+        async execute(_call, params) { assertActive(); return result(context.inventory!(params.key)); },
+      }) as typeof customTools[number]);
       const created = await createAgentSession({
         cwd: options.workspaceRoot ?? process.cwd(), agentDir: config.agentDir, model: config.model,
         modelRuntime: config.runtime, thinkingLevel: config.thinkingLevel,
-        tools: TOOL_NAMES, noTools: "builtin", customTools, resourceLoader: isolatedResources(prompts.editor),
+        tools: [...TOOL_NAMES, ...(context.inventory ? ["property_inventory"] : [])], noTools: "builtin", customTools, resourceLoader: isolatedResources(answerPrompt?.text ?? prompts!.editor),
         sessionManager: SessionManager.inMemory(options.workspaceRoot ?? process.cwd()),
         settingsManager: SettingsManager.inMemory({
           compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: options.timeoutMs ?? 120_000 } },
@@ -354,8 +367,9 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       try {
         await Promise.race([
           session.prompt(JSON.stringify({
-            instruction: "Edit and organize this Inbox capture. Search existing notes, then submit the useful result with finish_cleanup.",
+            instruction: context.purpose === "answer" ? "Fulfill this current request in its own note. Read evidence and submit the answer with finish_cleanup." : "Edit and organize this Inbox capture. Search existing notes, then submit the useful result with finish_cleanup.",
             source: evidence(source, 0, MAX_SOURCE_CHARS),
+            ...(context.requestText ? { currentRequest: context.requestText } : {}),
             ...(context.instructions ? { userPreferences: context.instructions.slice(0, 12_000) } : {}),
           }), { expandPromptTemplates: false }), aborted,
         ]);

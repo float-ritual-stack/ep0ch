@@ -86,6 +86,34 @@ service operations shared by clients. Progress emits an `inbox` event; committed
 edits emit a content event. Tree's `InboxController` owns only navigation and
 presentation. The same view runs in separate and composed Tree surfaces.
 
+The same worker also runs `note-assistance-model.ts` for ordinary notes throughout
+the workspace. `NoteAssistanceRepository` checkpoints block revisions rather than copying
+the note graph into a queue. Startup baselines existing records, including Trash;
+subsequent text changes and newly authored notes are eligible. The checkpoint
+retains inferred metadata, user corrections, explicit reconsideration and the last
+fulfilled request identity. A successful edit, receipt and post-edit checkpoint
+commit together, so assistant output does not trigger itself. Editorially eligible
+Inbox captures, including held/undone captures, remain owned by the editorial path.
+Their original intent is classified before rewriting; answers and final metadata
+join filing in one transaction and recovery receipt. The final source and outputs
+are checkpointed in that transaction, avoiding a second automatic write that would
+invalidate filing's Undo. Ordinary agent notes rejected by editorial eligibility
+remain eligible for workspace assistance even beneath Inbox.
+
+Jev selects ordinary categories, candidate tags and a bounded request operation.
+`properties.inventory` returns distinct indexed values with counts, pagination and
+a sequence; the worker consumes pages in one read transaction for a complete
+inventory. Prose answers reuse Pi's isolated read-only runtime and commit only to
+their source note. Read dependencies and the original source revision/parent are
+checked before commit. Unsupported requests remain open and appear in attention.
+The two operation histories are combined only at read time for global pagination;
+there is one pause flag, one worker and no reconciliation process.
+
+Hashtags are parsed by the existing property parser into block-scoped `tag`
+records, with authored offsets and syntax retained. They stay visible in prose.
+Parser version 3 rebuilds the derived property table for this syntax without
+changing authored revisions; it does not migrate historical type values.
+
 The service also owns authored filesystem reads and path completion. `files.read`
 and `files.complete` use its workspace and home directory, with no client-local
 fallback. `ResourceCatalog.readFilesystemReference` applies Source read policy
@@ -543,6 +571,11 @@ bytes and provenance remain unknown rather than being synthesized.
 ## Protocol
 
 The current protocol version is `OUTLINER_PROTOCOL_VERSION`, defined in [`src/types.ts`](../src/types.ts). Requests and responses are newline-delimited JSON over the workspace Unix socket.
+
+Protocol 64 includes hashtags in property records and their positional ordinals.
+Protocol 63 clients can address a different property for the same text and revision;
+restart the service and all clients together, including SSH-connected clients.
+Do not leave older editors running across this upgrade.
 
 ### Important request families
 
