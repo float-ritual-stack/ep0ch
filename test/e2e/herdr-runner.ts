@@ -75,6 +75,7 @@ export interface HerdrScenarioSession {
 
 type Scenario = {
   name: string;
+  commandKeys?: ReadonlyArray<{ key: string; command: string }>;
   layout?: "separate" | "composed";
   allowJev?: boolean;
   allowInboxAgent?: boolean;
@@ -1156,7 +1157,10 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       mkdir(join(runRoot, "tmp"), { recursive: true }),
     ]);
     await Promise.all([
-      writeFile(join(configHome, "herdr", "config.toml"), "onboarding = false\n"),
+      writeFile(join(configHome, "herdr", "config.toml"), "onboarding = false\n" +
+        (scenario.commandKeys ?? []).map(binding =>
+          `\n[[keys.command]]\nkey = ${JSON.stringify(binding.key)}\ntype = "plugin_action"\ncommand = ${JSON.stringify(binding.command)}\n`
+        ).join("")),
       writeFile(keymapPath, "{}\n"),
     ]);
 

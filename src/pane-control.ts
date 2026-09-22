@@ -481,7 +481,7 @@ export function openVirtualBranchNavigatorPopup(
 
 export interface OpenCapturePopupOptions {
   workspaceRoot: string;
-  capturedFromBlockId: string;
+  capturedFromBlockId?: string;
 }
 
 export function openGotoPopup(
@@ -519,11 +519,12 @@ export function openCapturePopup(
     "--env",
     `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
     "--env",
-    `OUTLINER_CAPTURE_FROM_BLOCK_ID=${options.capturedFromBlockId}`,
-    "--env",
     `OUTLINER_CAPTURE_REQUEST_ID=${crypto.randomUUID()}`,
     "--focus",
   ];
+  if (options.capturedFromBlockId) {
+    args.push("--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${options.capturedFromBlockId}`);
+  }
   for (const name of [
     "OUTLINER_STATE_DIR",
     "OUTLINER_CONFIG_PATH",

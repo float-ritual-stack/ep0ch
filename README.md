@@ -269,13 +269,18 @@ uses its styled status, input, confirmation, and summary surfaces. No extra
 flag is required. Use `--plain` to force the minimal interface; `--yes` stays
 plain and non-interactive for automation.
 
-The default shortcuts are `prefix+u` for a new Tree + Detail and
-`prefix+shift+c` for commenting on retained Detail text. Press Enter to accept
-them, type alternatives at the prompts, or pass them explicitly:
+The default shortcuts are `prefix+u` for a new Tree + Detail,
+`prefix+shift+a` for commenting on retained Detail text, and `prefix+shift+c`
+for Quick Capture from any pane. With Herdr's default prefix, capture is
+Ctrl+B, then Shift+C. The helper moves the old default comment binding from
+Shift+C to Shift+A when Capture takes that key; custom bindings remain defaults.
+Capture uses the invoking project's running Outliner service,
+including its configured remote connection. Press Enter to accept the keys,
+type alternatives at the prompts, or pass them explicitly:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/pi-herdr-outliner/main/install.sh |
-  sh -s -- --open-key prefix+y --comment-key prefix+shift+y
+  sh -s -- --open-key prefix+y --comment-key prefix+shift+y --capture-key prefix+shift+c
 ```
 
 Use `--yes` for a non-interactive install with existing or default shortcuts,
