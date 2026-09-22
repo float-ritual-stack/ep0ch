@@ -351,6 +351,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   const inbox = new InboxController({
     request: input => effects.request(input),
+    async openResource(resourceId) {
+      await effects.navigation.dispatch({ kind: "resource", resourceId }, "open");
+      mode = "browse";
+      status = "Pi session opened in Detail";
+      if (refreshPending) await reload();
+      effects.invalidate();
+    },
     invalidate() {
       const cue = inboxStatusCue(inbox.snapshot, inbox.error);
       if (mode === "inbox" || cue !== lastInboxCue) effects.invalidate();

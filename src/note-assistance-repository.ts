@@ -321,20 +321,20 @@ export class NoteAssistanceRepository {
     })();
   }
 
-  fail(id: string, candidate: NoteCandidate, error: string, usage?: InboxUsage): InboxResult {
+  fail(id: string, candidate: NoteCandidate, error: string, usage?: InboxUsage, outcome: "failed" | "canceled" = "failed"): InboxResult {
     this.requireInitialized();
     nonempty(id, "Note operation ID");
     nonempty(error, "Note assistance error");
     validateUsage(usage);
-    const hash = payloadHash(candidate, { kind: "fail", error });
+    const hash = payloadHash(candidate, { kind: outcome, error });
     return this.store.database.transaction(() => {
       const replay = this.replay(id, hash);
       if (replay) return replay;
-      const result = this.result(id, candidate.source, "Note assistance failed; the note is unchanged.", usage);
-      result.state = "failed";
+      const result = this.result(id, candidate.source, outcome === "canceled" ? "Note assistance canceled; the note is unchanged." : "Note assistance failed; the note is unchanged.", usage);
+      result.state = outcome;
       result.error = error;
       const current = this.store.get(candidate.source.id);
-      if (current && !current.effectiveDeletedRootId && current.revision === candidate.source.revision && current.parentId === candidate.source.parentId) {
+      if (outcome !== "canceled" && current && !current.effectiveDeletedRootId && current.revision === candidate.source.revision && current.parentId === candidate.source.parentId) {
         const previous = this.state(current.id);
         const state = this.observe(current, previous);
         const pending = this.candidate(current, state, previous);

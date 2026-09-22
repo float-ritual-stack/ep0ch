@@ -55,7 +55,7 @@ await reportStartupErrors("service", async () => {
     void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
       if (stopping) return;
       if (configuration.configured) {
-        const options = { workspaceRoot: paths.workspaceRoot, promptDirectory };
+        const options = { workspaceRoot: paths.workspaceRoot, promptDirectory, sessionDirectory: join(paths.stateDir, "assistant-sessions") };
         server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
           ? createNoteModel(options) : undefined);
       }

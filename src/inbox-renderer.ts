@@ -32,16 +32,22 @@ function detailLines(controller: InboxController, width: number): string[] {
   plain(result.sourceTitle);
   lines.push("");
   plain(result.summary);
-  if (result.error) { lines.push(""); plain(`Needs attention: ${result.error}`); }
+  if (result.error) { lines.push(""); plain(`${result.state === "canceled" ? "Canceled" : "Needs attention"}: ${result.error}`); }
   if (result.state === "held") plain("Reconsider to answer or give direction.");
   lines.push("");
   controller.targets.forEach((target, index) => {
     const marker = index === controller.targetIndex ? "›" : " ";
-    lines.push(truncateToWidth(linkedTarget(target.id, `${marker} ${target.label} · ${target.id.slice(0, 8)}`), width));
+    const label = `${marker} ${target.label} · ${target.id.slice(0, 8)}`;
+    lines.push(truncateToWidth(target.sessionPath ? sanitizeDynamicText(label) : linkedTarget(target.id, label), width));
   });
   const usage = result.usage;
   if (usage) {
     lines.push("");
+    for (const session of usage.piSessions ?? []) {
+      plain(`Pi ${session.outcome} · ${session.phase}`);
+      if (session.path) plain(`Service session: ${session.path}`);
+      if (session.warning) plain(session.warning);
+    }
     plain(`${usage.provider} · ${usage.model}`);
     if (usage.promptRevisions?.length) plain(`Prompts: ${usage.promptRevisions.map(prompt => `${basename(prompt.path)} @ ${prompt.sha256.slice(0, 12)}`).join(" · ")}`);
     plain(`${usage.inputTokens.toLocaleString("en-US")} in / ${usage.outputTokens.toLocaleString("en-US")} out · estimated $${usage.cost.toFixed(4)}`);

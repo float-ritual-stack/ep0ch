@@ -1,3 +1,4 @@
+import { combinedInboxUsage } from "./inbox-usage";
 import { createHash } from "node:crypto";
 import { loadNotePrompts } from "./ai-prompts";
 import { createInboxModel, type InboxModelOptions } from "./inbox-model";
@@ -15,6 +16,7 @@ export interface NoteModelContext {
   inventory: (key: string) => PropertyInventory;
   signal: AbortSignal;
   progress: (message: string) => void;
+  reportUsage?: (usage: InboxUsage) => void;
 }
 
 export type NoteModel = (context: NoteModelContext) => Promise<{ plan: NotePlan; usage: InboxUsage }>;
@@ -126,13 +128,7 @@ export function createNoteModel(options: InboxModelOptions = {}): NoteModel {
     const tokens = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
     const usage: InboxUsage = { provider: "typesafe", model: MODEL, inputTokens: tokens(raw.usage?.input_tokens), outputTokens: tokens(raw.usage?.output_tokens),
       cost: tokens(raw.usage?.input_tokens) * 0.042 / 1_000_000, jevCalls: 1, jevSuccessfulCalls: 1, elapsedMs: Math.round(performance.now() - started), promptRevisions: prompts.revisions };
-    const addAnswerUsage = (additional: InboxUsage) => {
-      usage.inputTokens += additional.inputTokens; usage.outputTokens += additional.outputTokens; usage.cost += additional.cost;
-      usage.jevCalls += additional.jevCalls; usage.jevSuccessfulCalls! += additional.jevSuccessfulCalls ?? 0;
-      if (additional.provider) usage.provider += ` + ${additional.provider}`;
-      if (additional.model) usage.model += ` + ${additional.model}`;
-      usage.promptRevisions!.push(...(additional.promptRevisions ?? []));
-    };
+    const addAnswerUsage = (additional: InboxUsage) => Object.assign(usage, combinedInboxUsage(usage, additional));
     if (mayRequest) {
       const request = choice("request", Object.keys(prompts.request.criteria));
       if (request.value === "none" || request.confidence < prompts.thresholds.request) return { plan, usage };
@@ -161,7 +157,9 @@ export function createNoteModel(options: InboxModelOptions = {}): NoteModel {
               result = await answer({ source, purpose: "answer", requestText, read: context.read, search: context.search, inventory: context.inventory,
                 instructions: context.candidate.instructions,
                 answerPrompt: { text: prompts.answer, revision: prompts.revisions.find(revision => revision.path.endsWith("note-answer.md"))! },
-                signal: context.signal, progress: context.progress });
+                signal: context.signal, progress: context.progress,
+                reportUsage: additional => context.reportUsage?.(combinedInboxUsage(usage, additional)),
+              });
             } catch (error) {
               const failure = error instanceof Error ? error : new Error("Note answer failed");
               const additional = (failure as Error & { usage?: InboxUsage }).usage;
