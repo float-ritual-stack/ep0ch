@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { navigationDestinationItems } from "../src/navigation-destination-menu";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -64,4 +65,15 @@ test("explicit logical links fan in, never forward receipt, preserve one-off cho
     for (const watcher of watchers) await watcher.stop();
     await server.close(); store.close(); rmSync(root, {recursive: true, force: true});
   }
+});
+
+test("destination menu renders untrusted labels and protection as inert text", () => {
+  const escape = "\x1b[2J\x1b]52;c;c2VjcmV0\x07";
+  const items = navigationDestinationItems({
+    source: {clientId: "source", region: "tree"}, destination: null,
+    destinations: [{view: {clientId: `target${escape}`, region: "detail"}, label: `Detail${escape}`, protection: `Draft${escape}\r\n` }],
+  }, false);
+  expect(items[0]!.label).toBe("Detail");
+  expect(items[0]!.description).toContain("target / detail · protected: Draft");
+  expect(items[0]!.description).not.toMatch(/[\x00-\x1f\x7f]/);
 });

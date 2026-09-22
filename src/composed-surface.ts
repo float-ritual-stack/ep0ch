@@ -123,7 +123,7 @@ export class ComposedTree implements Component {
       workspaceRoot: options.workspaceRoot, navigation: options.navigation,
       actionKeymap: options.actionKeymap, request: input => options.client.request(input),
       ...(process.env.HERDR_ENV === "1" ? {
-        openGotoPopup: () => openGotoPopup({ workspaceRoot: options.workspaceRoot, sourceClientId: options.clientId }),
+        openGotoPopup: () => openGotoPopup({ workspaceRoot: options.workspaceRoot, sourceClientId: options.clientId, sourceRegion: "tree" }),
       } : {}),
       createDetailPane: (blockId, direction = "right") => options.detach({kind: "block", blockId}, direction),
       async openCapturePopup(capturedFromBlockId) { openCapturePopup({workspaceRoot: options.workspaceRoot, capturedFromBlockId}); },

@@ -110,7 +110,7 @@ const controller = createTreeController({
   workspaceRoot: paths.workspaceRoot,
   actionKeymap,
   ...(process.env.HERDR_ENV === "1" ? {
-    openGotoPopup: () => openGotoPopup({ workspaceRoot: paths.workspaceRoot, sourceClientId: clientId }),
+    openGotoPopup: () => openGotoPopup({ workspaceRoot: paths.workspaceRoot, sourceClientId: clientId, sourceRegion: "tree" }),
   } : {}),
   request<T>(input: RequestInput): Promise<T> {
     return client.request<T>(input);
