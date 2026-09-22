@@ -34,6 +34,7 @@ const result = await runHerdrScenario({
     const open = async () => {
       await closed();
       await prefixKey("C");
+      await session.waitForPluginAction("capture");
       await screenContains("Quick capture");
     };
     await open();

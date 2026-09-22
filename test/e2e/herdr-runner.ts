@@ -49,6 +49,7 @@ export interface HerdrScenarioSession {
   rejectCompetingService(): Promise<CommandResult>;
   attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
+  waitForPluginAction(actionId: string): Promise<void>;
   openRemoteBrowsingContext(options?: { renderer?: "pi-tui" | "ansi"; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
   forwardedTreeRequests(): readonly ForwardedRequest[];
   forwardedDetailRequests(): readonly ForwardedRequest[];
@@ -835,6 +836,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const readonlyDatabase = resources.database;
     const ownedPanes = panes;
     const owned = new Set(Object.values(ownedPanes));
+    const observedActionLogs = new Set<string>();
     const requireOwned = (paneId: string): void => {
       if (!owned.has(paneId)) throw new Error(`Pane ${JSON.stringify(paneId)} is not owned by this scenario`);
     };
@@ -1050,6 +1052,27 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           "--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${blockId}`,
           "--env", "OUTLINER_REMOTE=1",
           "--env", `OUTLINER_SOCKET_PATH=${socketPath}`]);
+      },
+      async waitForPluginAction(actionId) {
+        const log = await poll({
+          label: `successful ${actionId} plugin action`,
+          timeoutMs: STARTUP_TIMEOUT_MS,
+          signal: abort.signal,
+          artifacts,
+          read: async () => {
+            const output = await runHerdr(["plugin", "log", "list", "--plugin", PLUGIN_ID, "--limit", "50"]);
+            const result = parseResult(output.stdout, "plugin_log_list", "plugin log list");
+            return arrayValue(result, "logs", "plugin log list.result")
+              .map((value, index) => recordValue(value, `plugin log list.result.logs[${index}]`))
+              .find(log => log.plugin_id === PLUGIN_ID && log.action_id === actionId &&
+                log.status === "succeeded" && log.exit_code === 0 &&
+                !observedActionLogs.has(stringValue(log, "log_id", "plugin action log")));
+          },
+          accept: log => log !== undefined,
+        });
+        if (!log) throw new Error(`No successful ${actionId} plugin action`);
+        observedActionLogs.add(stringValue(log, "log_id", "plugin action log"));
+        await artifacts.record(`plugin-action-${safeName(actionId)}`, log);
       },
       async focus(paneId) {
         requireOwned(paneId);
