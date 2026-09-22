@@ -27,6 +27,10 @@ command = "float.pi-outliner.comment-selection"
 [[keys.command]]
 key = "prefix+alt+k"
 command = "some-other-action"
+[[keys.command]]
+key = "prefix+shift+u"
+type = "plugin_action"
+command = "float.pi-outliner.open-composed"
 `;
   await writeFile(config, original);
   const run = async (...args: string[]) => {
@@ -47,6 +51,7 @@ command = "some-other-action"
     ]);
     expect(keys.find(k => k.command === "float.pi-outliner.comment-selection")?.key).toBe("prefix+shift+a");
     expect(keys.find(k => k.command === "some-other-action")?.key).toBe("prefix+alt+k");
+    expect(keys.find(k => k.command === "float.pi-outliner.open-composed")?.key).toBe("prefix+shift+u");
     expect((await run()).exitCode).toBe(0);
     expect(await readFile(config, "utf8")).toBe(first);
 

@@ -69,6 +69,7 @@ export interface HerdrScenarioSession {
     timeoutMs?: number,
   ): Promise<T>;
   registrations(): Promise<OutlinerClientRegistration[]>;
+  pluginActionLogs(): Promise<Array<{ logId: string; actionId: string; status: string; exitCode?: number }>>;
   checkpoint(name: string): Promise<void>;
   record(name: string, value: unknown): Promise<void>;
 }
@@ -1133,6 +1134,19 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         return poll({ label, read, accept, timeoutMs, signal: abort.signal, artifacts });
       },
       registrations: getRegistrations,
+      async pluginActionLogs() {
+        const output = await runHerdr(["plugin", "log", "list", "--plugin", PLUGIN_ID, "--limit", "50"]);
+        const result = parseResult(output.stdout, "plugin_log_list", "plugin action logs");
+        return arrayValue(result, "logs", "plugin action logs").map((value, index) => {
+          const label = `plugin action logs[${index}]`;
+          const log = recordValue(value, label);
+          if (log.plugin_id !== PLUGIN_ID) throw new Error(`${label} belongs to a different plugin`);
+          return {
+            logId: stringValue(log, "log_id", label), actionId: stringValue(log, "action_id", label),
+            status: stringValue(log, "status", label), exitCode: optionalInteger(log, "exit_code", label),
+          };
+        });
+      },
       checkpoint: captureCheckpoint,
       record: (name, value) => {
         if (!name.trim()) return Promise.reject(new Error("record requires a name"));

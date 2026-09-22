@@ -33,7 +33,15 @@ const result = await runHerdrScenario({
       () => terminal.visible(), screen => !screen.includes("Quick capture"));
     const open = async () => {
       await closed();
+      const previousLogs = new Set((await session.pluginActionLogs()).map(log => log.logId));
       await prefixKey("C");
+      const dispatched = await session.waitFor("new Capture plugin action completed", async () =>
+        (await session.pluginActionLogs()).filter(log => log.actionId === "capture" && !previousLogs.has(log.logId)),
+      logs => logs.some(log => log.status === "succeeded" || log.status === "failed"));
+      assert.equal(dispatched.length, 1, "Each shortcut must dispatch exactly one new Capture action");
+      assert.equal(dispatched[0]!.status, "succeeded");
+      assert.equal(dispatched[0]!.exitCode, 0);
+      await session.record("capture-action-dispatched", dispatched[0]);
       await screenContains("Quick capture");
     };
     await open();

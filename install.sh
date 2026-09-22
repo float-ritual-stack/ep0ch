@@ -488,7 +488,8 @@ rewrite_config() {
       drop = command == open_action || command == comment_action || command == capture_action;
       obsolete = index(command, "float.pi-outliner.") == 1 &&
         command != open_action && command != comment_action && command != capture_action &&
-        command != supported_open && command != supported_detail;
+        command != supported_open && command != supported_detail &&
+        command != "float.pi-outliner.open-composed";
       if (!drop && !obsolete) printf "%s", block;
       block = ""; command = ""; in_command = 0;
     }
