@@ -14,6 +14,7 @@ COMMENT_ACTION="$PLUGIN_ID.comment-selection"
 CAPTURE_ACTION="$PLUGIN_ID.capture"
 SUPPORTED_EXTRA_OPEN_ACTION="$PLUGIN_ID.open"
 SUPPORTED_ENSURE_DETAIL_ACTION="$PLUGIN_ID.ensure-detail"
+SUPPORTED_COMPOSED_OPEN_ACTION="$PLUGIN_ID.open-composed"
 CONFIG_PATH="${HERDR_CONFIG_PATH:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/herdr/config.toml}"
 PLUGIN_REF="main"
 OPEN_KEY=""
@@ -387,7 +388,8 @@ config_owner_for_key() {
     -v wanted="$wanted_key" \
     -v plugin="$PLUGIN_ID." \
     -v supported_open="$SUPPORTED_EXTRA_OPEN_ACTION" \
-    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" '
+    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" \
+    -v supported_composed="$SUPPORTED_COMPOSED_OPEN_ACTION" '
     function value_of(line, value, quote) {
       value = line;
       sub(/^[^=]*=[[:space:]]*/, "", value);
@@ -402,7 +404,7 @@ config_owner_for_key() {
       return value;
     }
     function check_command() {
-      preserved_outliner = command == supported_open || command == supported_detail;
+      preserved_outliner = command == supported_open || command == supported_detail || command == supported_composed;
       if (!found && in_command && key == wanted &&
           (index(command, plugin) != 1 || preserved_outliner)) {
         print command; found = 1;
@@ -469,7 +471,8 @@ rewrite_config() {
     -v comment_action="$COMMENT_ACTION" \
     -v capture_action="$CAPTURE_ACTION" \
     -v supported_open="$SUPPORTED_EXTRA_OPEN_ACTION" \
-    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" '
+    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" \
+    -v supported_composed="$SUPPORTED_COMPOSED_OPEN_ACTION" '
     function command_value(line, value, quote, closing) {
       value = line;
       sub(/^[^=]*=[[:space:]]*/, "", value);
@@ -488,8 +491,7 @@ rewrite_config() {
       drop = command == open_action || command == comment_action || command == capture_action;
       obsolete = index(command, "float.pi-outliner.") == 1 &&
         command != open_action && command != comment_action && command != capture_action &&
-        command != supported_open && command != supported_detail &&
-        command != "float.pi-outliner.open-composed";
+        command != supported_open && command != supported_detail && command != supported_composed;
       if (!drop && !obsolete) printf "%s", block;
       block = ""; command = ""; in_command = 0;
     }

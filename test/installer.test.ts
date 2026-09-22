@@ -28,9 +28,13 @@ command = "float.pi-outliner.comment-selection"
 key = "prefix+alt+k"
 command = "some-other-action"
 [[keys.command]]
-key = "prefix+shift+u"
+key = "prefix+alt+o"
 type = "plugin_action"
 command = "float.pi-outliner.open-composed"
+[[keys.command]]
+key = "prefix+alt+x"
+type = "plugin_action"
+command = "float.pi-outliner.obsolete"
 `;
   await writeFile(config, original);
   const run = async (...args: string[]) => {
@@ -51,7 +55,8 @@ command = "float.pi-outliner.open-composed"
     ]);
     expect(keys.find(k => k.command === "float.pi-outliner.comment-selection")?.key).toBe("prefix+shift+a");
     expect(keys.find(k => k.command === "some-other-action")?.key).toBe("prefix+alt+k");
-    expect(keys.find(k => k.command === "float.pi-outliner.open-composed")?.key).toBe("prefix+shift+u");
+    expect(keys.find(k => k.command === "float.pi-outliner.open-composed")?.key).toBe("prefix+alt+o");
+    expect(keys.some(k => k.command === "float.pi-outliner.obsolete")).toBe(false);
     expect((await run()).exitCode).toBe(0);
     expect(await readFile(config, "utf8")).toBe(first);
 
@@ -62,6 +67,10 @@ command = "float.pi-outliner.open-composed"
     const occupied = await run("--capture-key", "prefix+alt+k");
     expect(occupied.exitCode).not.toBe(0);
     expect(occupied.stderr).toContain("already used");
+    expect(await readFile(config, "utf8")).toBe(first);
+    const composedConflict = await run("--capture-key", "prefix+alt+o");
+    expect(composedConflict.exitCode).not.toBe(0);
+    expect(composedConflict.stderr).toContain("already used by float.pi-outliner.open-composed");
     expect(await readFile(config, "utf8")).toBe(first);
 
     expect((await run("--capture-key", "prefix+shift+c", "--comment-key", "prefix+shift+y")).exitCode).toBe(0);
