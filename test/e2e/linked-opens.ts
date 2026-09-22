@@ -21,6 +21,7 @@ const result = await runHerdrScenario({
     const b = at(second.tree, "tree"), c = at(third.tree, "tree"), y = at(second.detail, "detail");
     assert.ok(a && b && c && x && y);
     const leaf = await session.client.request<Block>({action: "create", text: "LINKED Y TARGET\n\nY changes only on explicit Open"});
+    const yInitial = await session.client.request<Block>({action: "create", text: "UNRELATED Y START"});
     const docs: Block[] = [];
     for (const name of ["A", "B", "C"]) docs.push(await session.client.request<Block>({action: "create", text: `LINKED ${name} DOCUMENT\n\n((${leaf.id}))`}));
     const current = async (id: string) => (await session.registrations()).find(c => c.clientId === id)?.currentTarget;
@@ -39,8 +40,8 @@ const result = await runHerdrScenario({
     await session.text(session.panes.detail, y.runtime!.paneId!); await session.keys(session.panes.detail, "enter");
     await session.waitFor("Detail link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}}), state => state.destination?.clientId === y.clientId);
     // Old passive reader pool remains separate until the Preview cutover; hold Y against it.
-    await session.client.request({action: "ui.command.send", command: {targetClientId: y.clientId, command: "replace", target: {kind: "block", blockId: leaf.id}}});
-    await session.waitVisible(second.detail, "Y changes only");
+    await session.client.request({action: "ui.command.send", command: {targetClientId: y.clientId, command: "replace", target: {kind: "block", blockId: yInitial.id}}});
+    await session.waitVisible(second.detail, "UNRELATED Y START");
     await session.focus(second.detail); await session.keys(second.detail, "L");
     for (const [index, pane] of [session.panes.tree, second.tree, third.tree].entries()) {
       await session.revealTree(pane, docs[index]!.id);

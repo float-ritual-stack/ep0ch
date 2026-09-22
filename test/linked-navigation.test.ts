@@ -13,6 +13,7 @@ test("explicit logical links fan in, never forward receipt, preserve one-off cho
   await server.start();
   const client = new OutlinerClient(join(root, "app.sock"));
   const events: OutlinerEvent[] = [];
+  const yReceived = Promise.withResolvers<void>();
   const watchers = [];
   const view = (clientId: string, region: "tree" | "detail" = "detail"): OutlinerViewAddress => ({clientId, region});
   const source = view("A", "tree");
@@ -24,7 +25,7 @@ test("explicit logical links fan in, never forward receipt, preserve one-off cho
   try {
     for (const registration of registrations) {
       const connected = Promise.withResolvers<void>();
-      watchers.push(client.watch({client: registration, onConnect: connected.resolve, onError: connected.reject, onEvent: event => { if (registration.clientId === "A") events.push(event); }}));
+      watchers.push(client.watch({client: registration, onConnect: connected.resolve, onError: connected.reject, onEvent: event => { events.push(event); if (event.command?.targetClientId === "Y") yReceived.resolve(); }}));
       await connected.promise;
     }
     const block = store.create("Target");
@@ -36,6 +37,8 @@ test("explicit logical links fan in, never forward receipt, preserve one-off cho
     for (const clientId of ["A", "B", "C"]) expect((await open(clientId)).targetClientId).toBe("X");
     expect(events.filter(e => e.command?.targetClientId === "Y")).toHaveLength(0);
     expect((await open("X")).targetClientId).toBe("Y");
+    await yReceived.promise;
+    expect(events.filter(e => e.command?.targetClientId === "Y")).toHaveLength(1);
     expect((await open("A", {destination: view("Y")})).resolution).toBe("chosen");
     expect((await client.request<NavigationLinkState>({action: "navigation.link.get", source})).destination).toEqual(view("X"));
     await client.request({action: "clients.update", clientId: "X", runtime: {paneX: 999, tabId: "moved"}, locked: true});
