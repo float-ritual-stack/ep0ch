@@ -29,8 +29,10 @@ const result = await runHerdrScenario({
         stream(_model, context) {
           const stream = createAssistantMessageEventStream();
           const user = context.messages.find(message => message.role === "user");
-          assert.ok(user?.role === "user" && typeof user.content === "string");
-          const source = JSON.parse(user.content).source;
+          assert.ok(user?.role === "user");
+          const text = typeof user.content === "string" ? user.content
+            : user.content.filter(part => part.type === "text").map(part => part.text).join("");
+          const source = JSON.parse(text).source;
           const last = context.messages.at(-1)!;
           if (last.role === "toolResult" && source.text.includes("PIE311 timeout")) return stream;
           const tool: ToolCall = { type: "toolCall", id: crypto.randomUUID(),
@@ -51,7 +53,10 @@ const result = await runHerdrScenario({
         let settled = false;
         for (let attempt = 0; attempt < 200; attempt++) {
           const status = await client.request<InboxStatus>({action:"inbox.status"});
-          if (!status.current && status.results.length === index + 1) { settled = true; break; }
+          if (!status.current && status.results.length === index + 1) {
+            assert.equal(status.results[0]!.state,index === 0 ? "applied" : "failed",JSON.stringify(status.results[0]));
+            settled = true; break;
+          }
           await Bun.sleep(25);
         }
         assert.ok(settled, "SDK fixture did not settle");

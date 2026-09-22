@@ -14,4 +14,3 @@ export function combinedInboxUsage(first: InboxUsage, second: InboxUsage): Inbox
       other.path === revision.path && other.sha256 === revision.sha256) === index),
   };
 }
-
