@@ -6,7 +6,7 @@ import { reportCurrentPaneWorkspace, registerServicePaneState, removeLegacyClien
 import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
-import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
+import { createInboxModel, checkInboxModelConfiguration, inboxEditingBudget } from "./inbox-model";
 import { createNoteModel } from "./note-assistance-model";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
@@ -55,7 +55,10 @@ await reportStartupErrors("service", async () => {
     void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
       if (stopping) return;
       if (configuration.configured) {
-        const options = { workspaceRoot: paths.workspaceRoot, promptDirectory, sessionDirectory: join(paths.stateDir, "assistant-sessions") };
+        let timeoutMs: number;
+        try { timeoutMs = inboxEditingBudget(); }
+        catch (error) { server.setInboxUnavailable((error as Error).message); return; }
+        const options = { timeoutMs, workspaceRoot: paths.workspaceRoot, promptDirectory, sessionDirectory: join(paths.stateDir, "assistant-sessions") };
         server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
           ? createNoteModel(options) : undefined);
       }

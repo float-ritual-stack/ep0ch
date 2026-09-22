@@ -180,10 +180,22 @@ function safeTokens(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
+/** Total editing run, including every Pi turn and tool call. Never resets on progress. */
+export function inboxEditingBudget(env: Record<string, string | undefined> = process.env): number {
+  const value = env.OUTLINER_INBOX_TIMEOUT_MS;
+  if (value === undefined) return 300_000;
+  const budget = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(budget) || budget < 1 || budget > 1_800_000) {
+    throw new Error("OUTLINER_INBOX_TIMEOUT_MS must be an integer from 1 to 1800000 (milliseconds)");
+  }
+  return budget;
+}
+
 export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
+  const timeoutMs = options.timeoutMs ?? inboxEditingBudget();
   return async (context: InboxModelContext) => {
     const started = performance.now();
-    const deadline = AbortSignal.timeout(options.timeoutMs ?? 120_000);
+    const deadline = AbortSignal.timeout(timeoutMs);
     const signal = AbortSignal.any([context.signal, deadline]);
     const maxTurns = options.maxTurns ?? 10;
     // This is cumulative across Pi turns (including cached input) and Jev requests,
@@ -211,8 +223,10 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       usage.elapsedMs = Math.round(performance.now() - started);
       return { ...usage };
     };
+    const interruption = () => context.signal.aborted ? new Error("Inbox cleanup canceled")
+      : new InboxNoteError(`Inbox cleanup timed out after ${timeoutMs} ms`);
     const assertActive = () => {
-      if (signal.aborted) throw new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) throw interruption();
       if (stopped) throw stopped;
       if (plan) throw new Error("Inbox cleanup plan is already complete");
     };
@@ -343,7 +357,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
         tools: [...TOOL_NAMES, ...(context.inventory ? ["property_inventory"] : [])], noTools: "builtin", customTools, resourceLoader: isolatedResources(answerPrompt?.text ?? prompts!.editor),
         sessionManager: trace.manager,
         settingsManager: SettingsManager.inMemory({
-          compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: options.timeoutMs ?? 120_000 } },
+          compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: timeoutMs } },
           enableSkillCommands: false, enableAnalytics: false, enableInstallTelemetry: false,
         }),
       });
@@ -380,7 +394,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       });
       let rejectAbort: (() => void) | undefined;
       const aborted = new Promise<never>((_resolve, reject) => {
-        rejectAbort = () => { session?.agent.abort(); reject(new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled")); };
+        rejectAbort = () => { session?.agent.abort(); reject(interruption()); };
         signal.addEventListener("abort", rejectAbort, { once: true });
       });
       try {
@@ -393,7 +407,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           }), { expandPromptTemplates: false }), aborted,
         ]);
       } finally { if (rejectAbort) signal.removeEventListener("abort", rejectAbort); }
-      if (signal.aborted) throw new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) throw interruption();
       if (stopped) throw stopped;
       if (providerFailed) throw new InboxModelUnavailableError();
       if (!plan) throw new Error("Inbox editor did not return a cleanup plan");
@@ -403,7 +417,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       return { plan, usage: snapshotUsage() };
     } catch (error) {
       let failure: Error;
-      if (signal.aborted) failure = new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) failure = interruption();
       else if (stopped) failure = new InboxNoteError(stopped.message);
       else if (error instanceof PromptFileError) failure = error;
       else if (error instanceof InboxModelUnavailableError) failure = error;
