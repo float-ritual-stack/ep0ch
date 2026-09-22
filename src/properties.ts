@@ -1,16 +1,17 @@
+import { protectedCodeRanges } from "./markdown-code-ranges";
 import type {
   BlockProperty,
   PropertyFilter,
   PropertyPatchOperation,
-  PropertyPlacement,
   PropertyQueryScope,
   PropertyRecord,
 } from "./types";
 
 const PROPERTY_PATTERN = /\[([A-Za-z][A-Za-z0-9_.-]*)::([^\]\r\n]+)\]/g;
 const PROPERTY_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+const HASHTAG_VALUE_PATTERN = /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*(?:\/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*)*/u;
 
-export const PROPERTY_PARSER_VERSION = 2;
+export const PROPERTY_PARSER_VERSION = 3;
 
 interface SourceRange {
   start: number;
@@ -234,6 +235,53 @@ function parseBarePropertyCandidate(
   };
 }
 
+function hashtagCandidates(
+  text: string,
+  lines: readonly SourceLine[],
+  literalRanges: readonly SourceRange[],
+  properties: readonly PropertyCandidate[],
+): PropertyCandidate[] {
+  if (!text.includes("#")) return [];
+  // Tags are prose, not the fragments or labels inside a link. Property values
+  // already have an owner; a hash inside one must not create another property.
+  const excluded = [...literalRanges, ...protectedCodeRanges(text), ...properties];
+  for (const pattern of [
+    createPropertyPattern(),
+    /\[\[[^\]\r\n]*\]\]/g,
+    /\(\((?:(?!\)\))[\s\S])*\)\)/g,
+    /!?\[[^\]\r\n]*\]\((?:\\.|[^\\)\r\n])*\)/g,
+    /^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*/gm,
+    /\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi,
+  ]) {
+    for (const match of text.matchAll(pattern)) {
+      excluded.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+
+  const candidates: PropertyCandidate[] = [];
+  let lineIndex = 0;
+  for (const match of text.matchAll(new RegExp(`#(${HASHTAG_VALUE_PATTERN.source})`, "gu"))) {
+    const start = match.index;
+    if (!/\p{L}/u.test(match[1]!) || hasOddBackslashEscape(text, start) || offsetInRanges(start, excluded)) continue;
+    let boundary = start;
+    while (boundary > 0 && text[boundary - 1] === "\\") boundary -= 1;
+    if (boundary > 0 && !/[\s([{"'“‘]/u.test(text[boundary - 1]!)) continue;
+    while (lineIndex + 1 < lines.length && lines[lineIndex]!.end <= start) lineIndex += 1;
+    candidates.push({
+      key: "tag",
+      value: match[1]!,
+      raw: match[0],
+      start,
+      end: start + match[0].length,
+      line: lineIndex,
+      column: start - lines[lineIndex]!.start,
+      placement: "inline",
+      syntax: "hashtag",
+    });
+  }
+  return candidates;
+}
+
 export function parsePropertyRecords(text: string): PropertyRecord[] {
   const literalRanges = scanPropertyLiteralRanges(text);
   const matches: PropertyMatch[] = [];
@@ -259,31 +307,9 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     }
     if (lineMatches.length === 0) continue;
 
-    const trailingMetadata = new Array<boolean>(lineMatches.length);
-    const lastMatch = lineMatches[lineMatches.length - 1];
-    let hasContentOutsideProperties = containsNonWhitespace(
-      text,
-      lastMatch.start + lastMatch.match[0].length,
-      line.contentEnd,
-    );
-    for (let index = lineMatches.length - 1; index >= 0; index -= 1) {
-      trailingMetadata[index] = !hasContentOutsideProperties;
-      const gapStart =
-        index === 0
-          ? line.start
-          : lineMatches[index - 1].start + lineMatches[index - 1].match[0].length;
-      if (!hasContentOutsideProperties) {
-        hasContentOutsideProperties = containsNonWhitespace(text, gapStart, lineMatches[index].start);
-      }
-    }
-    const metadataLine = !hasContentOutsideProperties;
-
     for (let index = 0; index < lineMatches.length; index += 1) {
       const { match, start } = lineMatches[index];
       const raw = match[0];
-      let placement: PropertyPlacement = "inline";
-      if (metadataLine) placement = "metadata-line";
-      else if (trailingMetadata[index]) placement = "trailing-metadata";
       bracketCandidates.push({
         key: match[1].toLowerCase(),
         value: match[2].trim(),
@@ -292,7 +318,7 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
         end: start + raw.length,
         line: lineIndex,
         column: start - line.start,
-        placement,
+        placement: "inline",
         syntax: "bracket",
       });
     }
@@ -309,7 +335,11 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     );
     return candidate ? [candidate] : [];
   });
-  const candidates = [...bracketCandidates, ...bareCandidates].sort(
+  const explicitCandidates = [...bracketCandidates, ...bareCandidates];
+  const candidates = [
+    ...explicitCandidates,
+    ...hashtagCandidates(text, lines, literalRanges, explicitCandidates),
+  ].sort(
     (left, right) => left.start - right.start,
   );
   const candidatesByLine = propertyCandidateLines(candidates);
@@ -317,6 +347,20 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
   for (const [lineIndex, lineCandidates] of candidatesByLine) {
     if (lineContainsOnlyProperties(text, lines[lineIndex], lineCandidates)) {
       purePropertyLines.add(lineIndex);
+    }
+    const metadataLine = lineContainsOnlyProperties(
+      text, lines[lineIndex]!, lineCandidates.filter(candidate => candidate.syntax !== "bare"),
+    );
+    let trailing = true;
+    let end = lines[lineIndex]!.contentEnd;
+    for (let index = lineCandidates.length - 1; index >= 0; index -= 1) {
+      const candidate = lineCandidates[index]!;
+      trailing &&= !containsNonWhitespace(text, candidate.end, end);
+      if (candidate.syntax !== "bare") {
+        candidate.placement = metadataLine ? "metadata-line"
+          : trailing ? "trailing-metadata" : "inline";
+      }
+      end = candidate.start;
     }
   }
 
@@ -348,7 +392,9 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
 
   return candidates.map((candidate, ordinal) => {
     let scope: PropertyRecord["scope"];
-    if (
+    if (candidate.syntax === "hashtag") {
+      scope = "block";
+    } else if (
       preambleStart >= 0 &&
       candidate.line >= preambleStart &&
       candidate.line <= preambleEnd
@@ -373,11 +419,11 @@ export function parseProperties(text: string): BlockProperty[] {
     .map(({ key, value }) => ({ key, value }));
 }
 export function stripPropertyTokens(text: string): string {
-  return removeRanges(text, parsePropertyRecords(text));
+  return removeRanges(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
 }
 
 export function firstLineWithoutPropertyTokens(text: string): string | undefined {
-  const tokens = parsePropertyRecords(text);
+  const tokens = parsePropertyRecords(text).filter(property => property.syntax !== "hashtag");
   let tokenIndex = 0;
   for (const line of sourceLines(text)) {
     const firstLineToken = tokenIndex;
@@ -449,9 +495,18 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
       const key = "key" in tokenOperation ? tokenOperation.key ?? token.key : token.key;
       const value = "value" in tokenOperation ? tokenOperation.value : token.value;
       const validated = validateProperty(key, value);
-      replacement = token.syntax === "bare"
-        ? `${validated.key}:: ${validated.value}`
-        : formatProperty(validated);
+      const hashtagValue = validated.value.match(HASHTAG_VALUE_PATTERN)?.[0];
+      if (token.syntax === "hashtag") {
+        if (validated.key === "tag" && hashtagValue === validated.value && /\p{L}/u.test(validated.value)) {
+          replacement = `#${validated.value}`;
+        } else {
+          // Explicit properties in body prose are inline-scoped. Move a value
+          // that cannot use hashtag syntax to the preamble to retain its scope.
+          appends.push(validated);
+        }
+      } else {
+        replacement = token.syntax === "bare" ? `${validated.key}:: ${validated.value}` : formatProperty(validated);
+      }
     }
     mutations.push({ start: token.start, end: token.end, replacement });
   }
@@ -464,7 +519,7 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
 
   const appendedText = appends.map(formatProperty).join(" ");
   const metadataToken = parsePropertyRecords(patched).find(
-    (token) => token.scope === "block" && token.placement === "metadata-line",
+    (token) => token.scope === "block" && token.placement === "metadata-line" && token.syntax !== "hashtag",
   );
   if (metadataToken) {
     const lineEnd = patched.indexOf("\n", metadataToken.end);

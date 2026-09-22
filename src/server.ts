@@ -1,6 +1,8 @@
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
-import { InboxWorker } from "./inbox-worker";
+import { InboxWorker, assistantActivity } from "./inbox-worker";
 import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
+import { NoteAssistanceRepository } from "./note-assistance-repository";
+import type { NoteModel } from "./note-assistance-model";
 import type { InboxModel, InboxResult, InboxStatus } from "./inbox-types";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
@@ -105,6 +107,7 @@ function annotationReconcileChanged(value: unknown): boolean {
 export class OutlinerServer {
   private inbox: InboxWorker | undefined;
   private readonly inboxRepository: InboxRepository;
+  private readonly noteRepository: NoteAssistanceRepository;
   private inboxUnavailable = "Automatic Inbox cleanup is not enabled for this service";
   private activeGotoRankings = 0;
   private server: Server | null = null;
@@ -123,6 +126,9 @@ export class OutlinerServer {
   ) {
     this.workflows = new WorkflowManager(store);
     this.inboxRepository = new InboxRepository(store);
+    this.noteRepository = new NoteAssistanceRepository(store);
+    // Baseline before accepting edits or awaiting provider configuration.
+    this.noteRepository.initialize();
   }
 
   async start(): Promise<void> {
@@ -164,10 +170,12 @@ export class OutlinerServer {
     if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
   }
 
-  enableInbox(model: InboxModel): void {
+  enableInbox(model: InboxModel, noteModel?: NoteModel): void {
     if (this.inbox) throw new Error("Inbox processor already started");
     if (!this.server) throw new Error("Start the service before its Inbox processor");
-    this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), { repository: this.inboxRepository });
+    this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), {
+      repository: this.inboxRepository, notes: this.noteRepository, noteModel,
+    });
     this.inbox.wake();
   }
 
@@ -190,12 +198,11 @@ export class OutlinerServer {
     if (!Number.isSafeInteger(resultsOffset) || resultsOffset < 0) throw new Error("resultsOffset must be a nonnegative integer");
     if (this.inbox) return this.inbox.status(attentionOnly, resultsOffset);
     // Recovery and history do not depend on a currently usable model/provider.
-    const attention = this.inboxRepository.attention(31);
-    const results = attentionOnly ? attention.results : this.inboxRepository.results(31, resultsOffset);
+    const { results, attentionCount } = assistantActivity(this.store, this.inboxRepository, this.noteRepository, attentionOnly, resultsOffset);
     return {
       enabled: false, paused: true, state: "unavailable", message: this.inboxUnavailable,
       pending: this.inboxRepository.pending().length, results: results.slice(0, 30).map(summarizeInboxResult), resultsTruncated: results.length > 30,
-      attentionCount: attention.total, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
+      attentionCount, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
     };
   }
 
@@ -1248,12 +1255,15 @@ export class OutlinerServer {
       const action = request.action;
       switch (action) {
         case "inbox.status": result = this.inboxStatus(request.attentionOnly, request.resultsOffset); break;
-        case "inbox.result": result = this.inboxRepository.getResult(request.resultId); break;
+        case "inbox.result": result = this.noteRepository.hasResult(request.resultId)
+          ? this.noteRepository.getResult(request.resultId) : this.inboxRepository.getResult(request.resultId); break;
         case "inbox.pause": result = this.requireInbox().pause(); break;
         case "inbox.resume": result = this.requireInbox().resume(); break;
         case "inbox.retry": result = this.requireInbox().reconsider(request.sourceId, request.instructions); break;
         case "inbox.undo": {
-          this.inboxChanged(this.inboxRepository.undo(request.resultId));
+          this.inboxChanged(this.noteRepository.hasResult(request.resultId)
+            ? this.noteRepository.undo(request.resultId)
+            : this.inboxRepository.undo(request.resultId, blocks => this.noteRepository.checkpointRestored(blocks)));
           result = this.inboxStatus();
           break;
         }
@@ -1855,6 +1865,9 @@ export class OutlinerServer {
             request.limit,
             request.propertyScope,
           );
+          break;
+        case "properties.inventory":
+          result = this.store.propertyInventory(request);
           break;
         case "selection.get":
           result = this.store.getSelection();

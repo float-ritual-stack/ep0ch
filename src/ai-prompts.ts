@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { copyFile, lstat, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NOTE_TYPES } from "./note-kinds";
 
 export const DEFAULT_AI_PROMPT_DIRECTORY = fileURLToPath(new URL("../prompts/", import.meta.url));
 const MAX_PROMPT_BYTES = 64 * 1024;
 const PROMPT_FILENAMES = ["inbox-editor.md", "inbox-relationships.json", "goto-ranking.json"];
+const NOTE_PROMPT_FILENAMES = ["note-assistance.json", "note-answer.md"];
+const NOTE_PROMPT_UPGRADE = ".note-assistance-v1";
 
 /** Evidence of the bytes used by a job, not an editable second prompt authority. */
 export interface PromptRevision {
@@ -36,6 +39,45 @@ export interface InboxPrompts {
   revisions: PromptRevision[];
 }
 
+export interface NotePrompts {
+  type: Question<Record<string, string>>;
+  tag: { instructions: string };
+  request: Question<Record<string, string>>;
+  requestParagraph: string;
+  inventoryKey: string;
+  thresholds: { type: number; tag: number; request: number };
+  answer: string;
+  revisions: PromptRevision[];
+}
+
+export async function loadNotePrompts(directory?: string): Promise<NotePrompts> {
+  const path = aiPromptDirectory(directory);
+  const revision = await readPrompt(path, "note-assistance.json");
+  const answer = await readPrompt(path, "note-answer.md");
+  const data = object(json(revision), revision.path, ["type", "tag", "request", "requestParagraph", "inventoryKey", "thresholds"], "document");
+  const question = (name: "type" | "request", keys: readonly string[]): Question<Record<string, string>> => {
+    const value = object(data[name], revision.path, ["instructions", "criteria"], name);
+    const criteria = object(value.criteria, revision.path, [...keys], `${name}.criteria`);
+    return { instructions: nonempty(value.instructions, revision.path, `${name}.instructions`),
+      criteria: Object.fromEntries(keys.map(key => [key, nonempty(criteria[key], revision.path, `${name}.criteria.${key}`)])) };
+  };
+  const tag = object(data.tag, revision.path, ["instructions"], "tag");
+  const limits = object(data.thresholds, revision.path, ["type", "tag", "request"], "thresholds");
+  const threshold = (key: string): number => {
+    const value = limits[key];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new PromptFileError(revision.path, `thresholds.${key} must be between 0 and 1`);
+    return value;
+  };
+  return {
+    type: question("type", NOTE_TYPES), request: question("request", ["none", "property-inventory", "answer", "unsupported"]),
+    tag: { instructions: nonempty(tag.instructions, revision.path, "tag.instructions") },
+    requestParagraph: nonempty(data.requestParagraph, revision.path, "requestParagraph"),
+    inventoryKey: nonempty(data.inventoryKey, revision.path, "inventoryKey"),
+    thresholds: { type: threshold("type"), tag: threshold("tag"), request: threshold("request") },
+    answer: answer.text, revisions: [revision, answer],
+  };
+}
+
 export function aiPromptDirectory(directory?: string): string {
   return resolve(directory ?? process.env.OUTLINER_PROMPT_DIR ?? DEFAULT_AI_PROMPT_DIRECTORY);
 }
@@ -43,20 +85,34 @@ export function aiPromptDirectory(directory?: string): string {
 /** Initialize a new workspace's editable files. Existing files, even invalid ones, belong to the user. */
 export async function initializeAiPrompts(directory: string): Promise<void> {
   directory = resolve(directory);
-  async function exists(): Promise<boolean> {
-    try { await lstat(directory); return true; }
+  async function exists(path = directory): Promise<boolean> {
+    try { await lstat(path); return true; }
     catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return false;
       throw error;
     }
   }
-  if (await exists()) return;
+  if (await exists()) {
+    // Upgrade a recognized installation once. Empty/custom directories and deliberate
+    // deletions after this upgrade stay owned by the user.
+    if (await exists(join(directory, NOTE_PROMPT_UPGRADE)) ||
+      !(await Promise.all(PROMPT_FILENAMES.map(name => exists(join(directory, name))))).every(Boolean)) return;
+    for (const name of NOTE_PROMPT_FILENAMES) {
+      try { await copyFile(join(DEFAULT_AI_PROMPT_DIRECTORY, name), join(directory, name), constants.COPYFILE_EXCL); }
+      catch (error) { if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error; }
+    }
+    await writeFile(join(directory, NOTE_PROMPT_UPGRADE), "1\n", { flag: "wx" }).catch(error => {
+      if (error?.code !== "EEXIST") throw error;
+    });
+    return;
+  }
   const staging = await mkdtemp(join(dirname(directory), `.${basename(directory)}-seed-`));
   try {
     // Finish each copy before cleanup can run on failure.
-    for (const name of PROMPT_FILENAMES) {
+    for (const name of [...PROMPT_FILENAMES, ...NOTE_PROMPT_FILENAMES]) {
       await copyFile(join(DEFAULT_AI_PROMPT_DIRECTORY, name), join(staging, name), constants.COPYFILE_EXCL);
     }
+    await writeFile(join(staging, NOTE_PROMPT_UPGRADE), "1\n", { flag: "wx" });
     if (await exists()) return;
     try { await rename(staging, directory); }
     catch (error) {

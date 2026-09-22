@@ -78,6 +78,7 @@ type Scenario = {
   layout?: "separate" | "composed";
   allowJev?: boolean;
   allowInboxAgent?: boolean;
+  allowNoteAssistance?: boolean;
   /** Relative to the isolated fixture; never edits a checkout's active prompt files. */
   promptDirectory?: string;
   prepare(projectRoot: string, paths: OutlinerPaths): Promise<void>;
@@ -1179,6 +1180,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       environment.TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY;
     }
     if (scenario.allowInboxAgent) environment.OUTLINER_INBOX_AGENT = "1";
+    environment.OUTLINER_NOTE_ASSISTANCE = scenario.allowNoteAssistance ? "1" : "0";
     if (scenario.promptDirectory) {
       const directory = resolve(projectRoot, scenario.promptDirectory);
       if (!directory.startsWith(`${projectRoot}${sep}`)) throw new Error("Scenario prompt files must live beneath the isolated project root");
@@ -1313,6 +1315,8 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       "OUTLINER_KEYBINDINGS_PATH",
       "OUTLINER_DETAIL_RENDERER",
       "OUTLINER_PROMPT_DIR",
+      "OUTLINER_INBOX_AGENT",
+      "OUTLINER_NOTE_ASSISTANCE",
       "TYPESAFE_API_KEY",
     ].flatMap((key) => environment[key] === undefined ? [] : ["--env", `${key}=${environment[key]}`]);
     const workspaceOutput = await runHerdr([

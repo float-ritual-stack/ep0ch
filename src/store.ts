@@ -492,7 +492,7 @@ function compactTreeBlock(
     title = parts.join("");
   };
   if (metadata.properties.length) {
-    replaceRanges(parsePropertyRecords(title), "");
+    replaceRanges(parsePropertyRecords(title).filter(record => record.syntax !== "hashtag"), "");
     let lineStart = 0;
     for (const line of title.split("\n")) {
       if (line.trim()) {
@@ -1520,6 +1520,33 @@ export class OutlinerStore {
         `SELECT property.key, property.value, COUNT(*) AS count FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND SUBSTR(property.key, 1, LENGTH(?)) = ? ${scopeClause} GROUP BY property.key, property.value ORDER BY count DESC, property.key, LOWER(property.value), property.value LIMIT ?`,
       )
       .all(normalizedPrefix, normalizedPrefix, ...scopeParameters, limit) as PropertyCatalogItem[];
+  }
+
+  propertyInventory(input: { key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }): import("./types").PropertyInventory {
+    const key = typeof input.key === "string" ? input.key.trim().toLowerCase() : "";
+    if (!/^[a-z][a-z0-9_.-]*$/.test(key)) throw new Error("Inventory requires one property key");
+    const propertyScope = input.propertyScope ?? "block";
+    if (!["block", "line", "inline", "all"].includes(propertyScope)) throw new Error("Invalid inventory property scope");
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? 1000;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Inventory offset must be a nonnegative integer");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Inventory limit must be between 1 and 1000");
+    return this.database.transaction(() => {
+      const scopeClause = propertyScope === "all" ? "" : "AND property.scope = ?";
+      const parameters = propertyScope === "all" ? [key] : [key, propertyScope];
+      const from = `FROM block_properties property JOIN blocks block ON block.id = property.block_id
+        WHERE block.effective_deleted_root_id IS NULL AND property.key = ? ${scopeClause}`;
+      const counts = this.database.query(`SELECT COUNT(DISTINCT property.value) AS totalValues,
+        COUNT(DISTINCT property.block_id) AS matchedBlocks ${from}`).get(...parameters) as { totalValues: number; matchedBlocks: number };
+      const { totalBlocks } = this.database.query("SELECT COUNT(*) AS totalBlocks FROM blocks WHERE effective_deleted_root_id IS NULL")
+        .get() as { totalBlocks: number };
+      const items = this.database.query(`SELECT property.key, property.value, COUNT(DISTINCT property.block_id) AS count
+        ${from} GROUP BY property.key, property.value ORDER BY LOWER(property.value), property.value LIMIT ? OFFSET ?`)
+        .all(...parameters, limit, offset) as PropertyCatalogItem[];
+      const nextOffset = offset + items.length < counts.totalValues ? offset + items.length : null;
+      return { key, propertyScope, items, ...counts, totalBlocks, offset, nextOffset,
+        complete: offset === 0 && nextOffset === null, sequence: this.sequence };
+    })();
   }
 
   move(id: string, parentId: string | null, requestedPosition?: number): Block {
@@ -2697,7 +2724,7 @@ export class OutlinerStore {
         column INTEGER NOT NULL,
         placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
         scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
-        syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare')),
+        syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
         PRIMARY KEY (block_id, ordinal)
       );
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -2933,7 +2960,8 @@ export class OutlinerStore {
         id: string;
         text: string;
       }>;
-      if (!schemaCurrent) {
+      // Parser v3 adds hashtag to the syntax CHECK constraint, not just rows.
+      if (!schemaCurrent || storedVersion < 3) {
         this.database.exec(`
           DROP TABLE block_properties;
           CREATE TABLE block_properties (
@@ -2948,7 +2976,7 @@ export class OutlinerStore {
             column INTEGER NOT NULL,
             placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
             scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
-            syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare')),
+            syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
             PRIMARY KEY (block_id, ordinal)
           );
         `);

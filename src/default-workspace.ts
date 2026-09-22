@@ -161,6 +161,7 @@ const FEATURE_TOUR_SECTIONS = [
       "Quick Capture saves an ordinary note into Inbox. In its popup, Enter inserts a newline, Ctrl+S saves, and Esc retains the draft. Pi/OMP also provides `/capture` and `/send-to-outline`; the latter saves the last completed response as canonical Markdown.",
       "",
       "When the service's Pi model is configured, the automatic Inbox editor processes eligible captures. It can clean prose, split mixed ideas, consolidate duplicates and link context. Lists, meetings and personal thoughts remain notes. Actual Outliner work uses the allocator and starts in Backlog; cleanup does not commit it to a batch.",
+      "With Jev configured, new and meaningfully edited ordinary notes also receive type/tag assistance. Fresh supported questions can be answered in their own note. Hashtags such as `#rabbit-hole` and `#y2026/q1` use the property index; semantic dates follow the content, not its import time. Older requests require the Tree action Assist this note. Activity distinguishes organization from fulfillment.",
       "",
       "Press Shift+I in Tree. It opens on Needs attention when questions or errors remain, otherwise on Recent results. `a` switches those views; the footer shows the destination and your configured key. `p` pauses/resumes, Left/Right pages history, `u` undoes an eligible result, and `r` gives direction for reconsideration. Closing the view leaves processing running. Undo refuses to overwrite later edits or references.",
       "",
@@ -170,7 +171,7 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "prompts", title: "Tune the AI instructions",
     lines: [
-      "The service seeds editable `prompts/inbox-editor.md`, `prompts/inbox-relationships.json` and `prompts/goto-ranking.json` beneath this workspace's state directory. `OUTLINER_PROMPT_DIR` can select a different complete directory.",
+      "The service seeds editable `prompts/inbox-editor.md`, `prompts/inbox-relationships.json`, `prompts/goto-ranking.json`, `prompts/note-assistance.json` and `prompts/note-answer.md` beneath this workspace's state directory. `OUTLINER_PROMPT_DIR` can select a different complete directory.",
       "",
       "Create ordinary file Resource references to those runtime files, open in Detail, press e, and save with Ctrl+S. Use the service host's paths, including when the client is remote. Packaged defaults in a source checkout are not the live workspace configuration.",
       "",

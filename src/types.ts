@@ -139,7 +139,7 @@ export interface BlockProperty {
 export type PropertyPlacement = "inline" | "trailing-metadata" | "metadata-line";
 export type PropertyScope = "block" | "line" | "inline";
 export type PropertyQueryScope = PropertyScope | "all";
-export type PropertySyntax = "bracket" | "bare";
+export type PropertySyntax = "bracket" | "bare" | "hashtag";
 
 export interface PropertyRecord extends BlockProperty {
   ordinal: number;
@@ -171,6 +171,20 @@ export interface PropertyCatalogItem {
   key: string;
   value: string;
   count: number;
+}
+
+export interface PropertyInventory {
+  key: string;
+  propertyScope: PropertyQueryScope;
+  items: PropertyCatalogItem[];
+  totalValues: number;
+  totalBlocks: number;
+  matchedBlocks: number;
+  offset: number;
+  nextOffset: number | null;
+  /** This response contains every matching value, rather than one page. */
+  complete: boolean;
+  sequence: number;
 }
 
 export interface Block {
@@ -1220,6 +1234,7 @@ export interface ComputedExecutionResult {
 }
 
 export type OutlinerRequest =
+  | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
   | { id: string; action: "inbox.status"; attentionOnly?: boolean; resultsOffset?: number }
   | { id: string; action: "inbox.result"; resultId: string }
   | { id: string; action: "inbox.pause" }
