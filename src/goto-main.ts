@@ -1,3 +1,4 @@
+import { reportCurrentPaneWorkspace } from "./pane-control";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, ProcessTerminal } from "@earendil-works/pi-tui";
 import { createOutlinerClient } from "./client";
@@ -12,7 +13,9 @@ if (process.env.HERDR_ENV !== "1") throw new Error("Goto popup requires Herdr");
 const sourceClientId = process.env.OUTLINER_GOTO_SOURCE_CLIENT_ID?.trim();
 if (!sourceClientId) throw new Error("OUTLINER_GOTO_SOURCE_CLIENT_ID is required");
 
-const client = createOutlinerClient(resolveClientPaths());
+const paths = resolveClientPaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
+const client = createOutlinerClient(paths);
 await client.requireCompatibleService();
 const keymap = OutlinerActionKeymap.load();
 const terminal = new ProcessTerminal();

@@ -7,15 +7,19 @@ INSTALLER_SCHEMA="1"
 MIN_BUN_VERSION="1.3.0"
 MIN_HERDR_VERSION="0.9.0"
 DEFAULT_OPEN_KEY="prefix+u"
-DEFAULT_COMMENT_KEY="prefix+shift+c"
+DEFAULT_COMMENT_KEY="prefix+shift+a"
+DEFAULT_CAPTURE_KEY="prefix+shift+c"
 OPEN_ACTION="$PLUGIN_ID.open-here"
 COMMENT_ACTION="$PLUGIN_ID.comment-selection"
+CAPTURE_ACTION="$PLUGIN_ID.capture"
 SUPPORTED_EXTRA_OPEN_ACTION="$PLUGIN_ID.open"
 SUPPORTED_ENSURE_DETAIL_ACTION="$PLUGIN_ID.ensure-detail"
+SUPPORTED_COMPOSED_OPEN_ACTION="$PLUGIN_ID.open-composed"
 CONFIG_PATH="${HERDR_CONFIG_PATH:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/herdr/config.toml}"
 PLUGIN_REF="main"
 OPEN_KEY=""
 COMMENT_KEY=""
+CAPTURE_KEY=""
 ASSUME_YES=0
 CONFIGURE_KEYS=1
 PLAIN_UI=0
@@ -82,7 +86,8 @@ show_summary() {
         --padding "0 2" \
         "Pi Outliner is ready" \
         "Open Tree + Detail: $OPEN_KEY" \
-        "Comment on selection: $COMMENT_KEY"
+        "Comment on selection: $COMMENT_KEY" \
+        "Quick Capture: $CAPTURE_KEY"
     else
       gum style \
         --border rounded \
@@ -107,6 +112,8 @@ Usage: install.sh [options]
 Options:
   --open-key CHORD       Herdr key for a new Tree + Detail (default: prefix+u)
   --comment-key CHORD    Herdr key for commenting on retained selection
+                         (default: prefix+shift+a)
+  --capture-key CHORD    Herdr key for Quick Capture from any pane
                          (default: prefix+shift+c)
   --ref REF              Git ref to install (default: main)
   --config PATH          Herdr config.toml path
@@ -138,6 +145,11 @@ while [ "$#" -gt 0 ]; do
     --comment-key)
       [ "$#" -ge 2 ] || fail "--comment-key requires a chord"
       COMMENT_KEY=$2
+      shift 2
+      ;;
+    --capture-key)
+      [ "$#" -ge 2 ] || fail "--capture-key requires a chord"
+      CAPTURE_KEY=$2
       shift 2
       ;;
     --ref)
@@ -376,7 +388,8 @@ config_owner_for_key() {
     -v wanted="$wanted_key" \
     -v plugin="$PLUGIN_ID." \
     -v supported_open="$SUPPORTED_EXTRA_OPEN_ACTION" \
-    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" '
+    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" \
+    -v supported_composed="$SUPPORTED_COMPOSED_OPEN_ACTION" '
     function value_of(line, value, quote) {
       value = line;
       sub(/^[^=]*=[[:space:]]*/, "", value);
@@ -391,7 +404,7 @@ config_owner_for_key() {
       return value;
     }
     function check_command() {
-      preserved_outliner = command == supported_open || command == supported_detail;
+      preserved_outliner = command == supported_open || command == supported_detail || command == supported_composed;
       if (!found && in_command && key == wanted &&
           (index(command, plugin) != 1 || preserved_outliner)) {
         print command; found = 1;
@@ -456,8 +469,10 @@ rewrite_config() {
     -v end="# END pi-herdr-outliner installer" \
     -v open_action="$OPEN_ACTION" \
     -v comment_action="$COMMENT_ACTION" \
+    -v capture_action="$CAPTURE_ACTION" \
     -v supported_open="$SUPPORTED_EXTRA_OPEN_ACTION" \
-    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" '
+    -v supported_detail="$SUPPORTED_ENSURE_DETAIL_ACTION" \
+    -v supported_composed="$SUPPORTED_COMPOSED_OPEN_ACTION" '
     function command_value(line, value, quote, closing) {
       value = line;
       sub(/^[^=]*=[[:space:]]*/, "", value);
@@ -473,10 +488,10 @@ rewrite_config() {
     }
     function flush_command() {
       if (!in_command) return;
-      drop = command == open_action || command == comment_action;
+      drop = command == open_action || command == comment_action || command == capture_action;
       obsolete = index(command, "float.pi-outliner.") == 1 &&
-        command != open_action && command != comment_action &&
-        command != supported_open && command != supported_detail;
+        command != open_action && command != comment_action && command != capture_action &&
+        command != supported_open && command != supported_detail && command != supported_composed;
       if (!drop && !obsolete) printf "%s", block;
       block = ""; command = ""; in_command = 0;
     }
@@ -507,18 +522,30 @@ if [ "$CONFIGURE_KEYS" -eq 1 ]; then
 
   existing_open_key=$(config_key_for_action "$CONFIG_PATH" "$OPEN_ACTION")
   existing_comment_key=$(config_key_for_action "$CONFIG_PATH" "$COMMENT_ACTION")
+  existing_capture_key=$(config_key_for_action "$CONFIG_PATH" "$CAPTURE_ACTION")
   open_default=${existing_open_key:-$DEFAULT_OPEN_KEY}
   comment_default=${existing_comment_key:-$DEFAULT_COMMENT_KEY}
+  capture_default=${existing_capture_key:-$DEFAULT_CAPTURE_KEY}
 
   if [ -z "$OPEN_KEY" ]; then
     OPEN_KEY=$(prompt_key "Open Tree + Detail key" "$open_default")
   fi
+  if [ -z "$CAPTURE_KEY" ]; then
+    CAPTURE_KEY=$(prompt_key "Quick Capture key" "$capture_default")
+  fi
   if [ -z "$COMMENT_KEY" ]; then
+    if [ "$comment_default" = "prefix+shift+c" ] && [ "$CAPTURE_KEY" = "$comment_default" ]; then
+      say "Moving the previous default comment shortcut to $DEFAULT_COMMENT_KEY for Quick Capture"
+      comment_default=$DEFAULT_COMMENT_KEY
+    fi
     COMMENT_KEY=$(prompt_key "Comment on retained selection key" "$comment_default")
   fi
   OPEN_KEY=$(choose_available_key "Open key" "$OPEN_KEY")
   COMMENT_KEY=$(choose_available_key "Comment key" "$COMMENT_KEY")
+  CAPTURE_KEY=$(choose_available_key "Capture key" "$CAPTURE_KEY")
   [ "$OPEN_KEY" != "$COMMENT_KEY" ] || fail "open and comment keys must be different"
+  [ "$CAPTURE_KEY" != "$OPEN_KEY" ] && [ "$CAPTURE_KEY" != "$COMMENT_KEY" ] ||
+    fail "capture, open, and comment keys must be different"
 fi
 
 plugin_metadata=$(herdr plugin list --plugin "$PLUGIN_ID" --json 2>/dev/null || true)
@@ -560,6 +587,12 @@ key = "$COMMENT_KEY"
 type = "plugin_action"
 command = "$COMMENT_ACTION"
 description = "Comment on retained Outliner Detail selection"
+
+[[keys.command]]
+key = "$CAPTURE_KEY"
+type = "plugin_action"
+command = "$CAPTURE_ACTION"
+description = "Quick Capture to the Outliner Inbox"
 # END pi-herdr-outliner installer
 EOF
 
@@ -584,6 +617,7 @@ EOF
   if [ "$GUM_ENABLED" -eq 0 ]; then
     say "Open Tree + Detail: $OPEN_KEY"
     say "Comment on retained selection: $COMMENT_KEY"
+    say "Quick Capture: $CAPTURE_KEY"
   fi
 fi
 

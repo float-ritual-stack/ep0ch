@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { HerdrRuntimeRegistry } from "./herdr-registry";
 import { HerdrRegistryRunner } from "./herdr-runtime";
-import { registerServicePaneState, removeLegacyClientPaneStates } from "./pane-control";
+import { reportCurrentPaneWorkspace, registerServicePaneState, removeLegacyClientPaneStates } from "./pane-control";
 import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
@@ -11,6 +11,7 @@ import { createNoteModel } from "./note-assistance-model";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
 const paths = resolveServicePaths();
+reportCurrentPaneWorkspace(paths.workspaceRoot);
 mkdirSync(paths.stateDir, { recursive: true });
 const paneStatePath = join(paths.stateDir, "service-pane.json");
 const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
