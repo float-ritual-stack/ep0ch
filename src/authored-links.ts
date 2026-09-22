@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { isFragmentId, resolveFragment } from "./fragments";
+import { protectedCodeRanges } from "./markdown-code-ranges";
 import {
   outlinerReferenceOccurrences,
-  protectedCodeRanges,
   rangesOverlap,
   type OutlinerReferenceOccurrence,
 } from "./reference-occurrences";

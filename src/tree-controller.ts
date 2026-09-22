@@ -1756,6 +1756,18 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await inbox.start();
       return;
     }
+    if (actionId === "tree.note.assist") {
+      const selected = rows[selectedIndex];
+      if (!isBlockTreeRow(selected)) status = "Select a note to assist";
+      else {
+        try {
+          await effects.request({ action: "inbox.retry", sourceId: selected.canonicalId });
+          status = "Note queued for assistance; open Inbox activity to inspect the result";
+        } catch (error) { status = error instanceof Error ? error.message : "Note assistance unavailable"; }
+      }
+      effects.invalidate();
+      return;
+    }
     if (actionId === "tree.detail.right" || actionId === "tree.detail.below") {
       await createDetailPane(actionId === "tree.detail.right" ? "right" : "down");
       return;

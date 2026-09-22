@@ -47,7 +47,7 @@ test("changed write entrypoints reject an incompatible service before touching d
   }
 });
 
-test("composed clients reject published protocol 60 before attempting unsupported registration", async () => {
+test.each([60, 63])("clients reject published protocol %i before using incompatible UI/property semantics", async protocolVersion => {
   const root = mkdtempSync(join(tmpdir(), "composed-old-service-"));
   const socketPath = join(root, "old.sock");
   const actions: string[] = [];
@@ -58,13 +58,13 @@ test("composed clients reject published protocol 60 before attempting unsupporte
       if (!text.includes("\n")) return;
       const request = JSON.parse(text.slice(0, text.indexOf("\n")));
       actions.push(request.action);
-      // This released protocol supports occurrence context, but has no composed role.
-      socket.end(`${JSON.stringify({id: request.id, ok: true, result: {status: "ready", protocolVersion: 60}})}\n`);
+      // 60 predates composed views; 63 predates hashtags in property ordinals.
+      socket.end(`${JSON.stringify({id: request.id, ok: true, result: {status: "ready", protocolVersion}})}\n`);
     });
   });
   await new Promise<void>(resolve => server.listen(socketPath, resolve));
   try {
-    await expect(new OutlinerClient(socketPath).requireCompatibleService()).rejects.toThrow("incompatible Outliner protocol 60");
+    await expect(new OutlinerClient(socketPath).requireCompatibleService()).rejects.toThrow(`incompatible Outliner protocol ${protocolVersion}`);
     expect(actions).toEqual(["ping"]);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));

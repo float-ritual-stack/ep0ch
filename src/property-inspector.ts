@@ -143,9 +143,10 @@ export function createPropertyInspectorModel(
 /**
  * Removes block-scoped metadata from the authored preview without changing the
  * canonical block text. Inline and line-scoped properties remain in context.
+ * Hashtags stay visible in prose even though they classify the whole block.
  */
 export function propertyInspectorAuthoredText(canonicalText: string): string {
-  const records = parsePropertyRecords(canonicalText).filter((record) => record.scope === "block");
+  const records = parsePropertyRecords(canonicalText).filter((record) => record.scope === "block" && record.syntax !== "hashtag");
   if (records.length === 0) return canonicalText;
 
   let stripped = canonicalText;

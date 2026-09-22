@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { annotationSourceHash, createAnnotationReferenceContext, createTextQuoteAnchor } from "../src/annotations";
 import { InboxRepository } from "../src/inbox-repository";
 import type { InboxPlan, InboxUsage } from "../src/inbox-types";
+import { NoteAssistanceRepository } from "../src/note-assistance-repository";
+import type { NotePlan } from "../src/note-assistance-types";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 
@@ -124,6 +126,253 @@ describe("InboxRepository", () => {
     expect(outputs[1]!.text).toContain(`((${source.id}))`);
     expect(store.sequence).toBeGreaterThan(sequence);
     expect(repository.pending()).toEqual([]);
+  });
+
+  test("combined filing and organization survives restart with one receipt and one complete Undo", () => {
+    let { store, repository, inbox } = fixture();
+    let notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store, "Rough #Rabbit-Hole thought [tag::y2026/q3]\n\nOriginal author wording.");
+    const originalChild = store.create("Attached context", source.id);
+    const sourceCandidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "Grouped a navigation idea", type: "idea", tags: ["navigation"] };
+    const editorial = plan({ notes: [{ text: "A supporting design [type::design-note]" }] });
+    const result = store.database.transaction(() => {
+      const result = repository.apply("combined", source, editorial, usage, { candidate: sourceCandidate, plan: assistance });
+      notes.checkpointEditorial(result, sourceCandidate, assistance);
+      return result;
+    })();
+    const filed = store.require(source.id);
+    expect(filed.properties).toContainEqual({ key: "type", value: "idea" });
+    expect(filed.properties).toContainEqual({ key: "status", value: "processed" });
+    expect(filed.properties).toContainEqual({ key: "tag", value: "Rabbit-Hole" });
+    expect(filed.properties).toContainEqual({ key: "tag", value: "y2026/q3" });
+    expect(filed.properties).toContainEqual({ key: "tag", value: "navigation" });
+    expect(store.require(originalChild.id)).toEqual(originalChild);
+    expect(result.kind).toBe("organized");
+    expect(result.summary).toBe("Organized: Filed a clearer note.");
+    expect(repository.results()).toHaveLength(1);
+    expect(notes.results()).toEqual([]);
+    expect(notes.pending(repository.sourceIds()).map(value => value.source.id)).not.toContain(source.id);
+    expect(notes.pending(repository.sourceIds()).map(value => value.source.id)).not.toContain(result.outputIds[0]);
+    expect(notes.candidateFor(source.id)?.inferredTags).toEqual(["navigation"]);
+    ({ store, repository } = restart(store));
+    notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    expect(notes.pending(repository.sourceIds()).map(value => value.source.id)).not.toContain(source.id);
+    expect(repository.undo(result.id)).toMatchObject({ state: "undone", kind: "organized" });
+    expect(store.require(source.id)).toMatchObject({ text: source.text, parentId: inbox.id });
+    expect(store.require(result.outputIds[0]!).effectiveDeletedRootId).not.toBeNull();
+    expect(notes.pending(repository.sourceIds()).map(value => value.source.id)).not.toContain(source.id);
+  });
+
+  test("fulfillment is filed into the original source before recovery is captured, preserving status and request identity", () => {
+    const { store, repository } = fixture();
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store, "List note types [tag::reference]");
+    const sourceCandidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "Inventory request", type: "reference", tags: ["inventory"], fulfillment: {
+      key: "type-inventory", operation: "property-inventory", text: "Note types\n\n- note: 3", summary: "Listed all note types.",
+    } };
+    const editorial = plan({ source: { disposition: "file", text: assistance.fulfillment!.text } });
+    const result = store.database.transaction(() => {
+      const result = repository.apply("answer-inbox", source, editorial, undefined, { candidate: sourceCandidate, plan: assistance });
+      notes.checkpointEditorial(result, sourceCandidate, assistance);
+      return result;
+    })();
+    expect(result).toMatchObject({ kind: "fulfilled", summary: "Fulfilled: Listed all note types.", outputIds: [] });
+    const final = store.require(source.id);
+    expect(final.text).toContain("- note: 3");
+    expect(final.properties).toContainEqual({ key: "status", value: "processed" });
+    expect(final.properties).toContainEqual({ key: "request-status", value: "fulfilled" });
+    expect(notes.candidateFor(source.id)).toMatchObject({ lastRequestKey: "type-inventory", requestAllowed: false, inferredType: "reference", inferredTags: ["inventory"] });
+    expect(() => repository.apply("answer-inbox", source, editorial, undefined, { candidate: sourceCandidate, plan: { ...assistance, tags: [] } }))
+      .toThrow("different source revision or plan");
+    expect(repository.undo(result.id).state).toBe("undone");
+    expect(store.require(source.id).text).toBe(source.text);
+  });
+
+  test("editor tags cannot override a rejection after Undo, and new editor tags remain inferred across restart", () => {
+    let { store, repository } = fixture();
+    let notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store, "A rough thought #Authored");
+    const organize: NotePlan = { summary: "Grouped the note", type: "note", tags: ["navigation"] };
+    let candidate = notes.candidateFor(source.id)!;
+    const first = store.database.transaction(() => {
+      const result = repository.apply("first-tags", source, plan(), undefined, { candidate, plan: organize });
+      notes.checkpointEditorial(result, candidate, organize);
+      return result;
+    })();
+    repository.undo(first.id, restored => notes.checkpointRestored(restored));
+    let current = store.require(source.id);
+    expect(notes.candidateFor(source.id)?.rejectedTags).toEqual(["navigation"]);
+    current = store.update(current.id, `${current.text}\n\nA new human sentence.`, current.revision, { author: "user" });
+    candidate = notes.candidateFor(source.id)!;
+    const retry: NotePlan = { summary: "Grouped again", type: "note", tags: [] };
+    store.database.transaction(() => {
+      const result = repository.apply("retry-tags", current, plan({ source: {
+        disposition: "file", text: "A cleaned note on #Authored [tag::navigation] [tag::editor-only]\n\nUseful explanation.",
+      } }), undefined, { candidate, plan: retry });
+      notes.checkpointEditorial(result, candidate, retry);
+    })();
+    current = store.require(source.id);
+    expect(current.properties).not.toContainEqual({ key: "tag", value: "navigation" });
+    expect(current.properties).toContainEqual({ key: "tag", value: "Authored" });
+    expect(current.text).toContain("A cleaned note on #Authored");
+    expect(current.text).not.toContain("[tag::Authored]");
+    expect(current.properties).toContainEqual({ key: "tag", value: "editor-only" });
+    expect(notes.candidateFor(source.id)).toMatchObject({ rejectedTags: ["navigation"], inferredTags: ["editor-only"] });
+    store.update(current.id, current.text.replace("[tag::editor-only]", ""), current.revision, { author: "user" });
+    expect(notes.pending()).toEqual([]);
+    ({ store, repository } = restart(store));
+    notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    current = store.require(source.id);
+    store.update(current.id, `${current.text}\n\nA later human addition.`, current.revision, { author: "user" });
+    candidate = notes.candidateFor(source.id)!;
+    expect(candidate.rejectedTags).toEqual(["navigation", "editor-only"]);
+    notes.apply("respect-editor-correction", candidate, { ...organize, tags: ["navigation", "editor-only", "fresh"] });
+    expect(store.require(source.id).properties.filter(property => property.key === "tag")).toEqual([
+      { key: "tag", value: "Authored" }, { key: "tag", value: "fresh" },
+    ]);
+  });
+
+  test("an editorial hold checkpoints assistance without changing source text or retaining one-shot direction", () => {
+    const { store, repository } = fixture();
+    const source = capture(store, "Please carry out a remote deployment.");
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    notes.reconsider(source.id, "Try this request again.");
+    const sourceCandidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "Unsupported request", tags: ["operations"], unfulfilledRequest: { key: "deploy", reason: "Remote deployment is outside note assistance." } };
+    const result = store.database.transaction(() => {
+      const result = repository.apply("hold-assisted", source, plan({ source: { disposition: "hold", text: source.text, reason: assistance.unfulfilledRequest!.reason } }), undefined,
+        { candidate: sourceCandidate, plan: assistance });
+      notes.checkpointEditorial(result, sourceCandidate, assistance);
+      return result;
+    })();
+    expect(result).toMatchObject({ state: "held", kind: "unfulfilled" });
+    expect(store.require(source.id)).toEqual(source);
+    expect(notes.candidateFor(source.id)).toMatchObject({ requestAllowed: false, explicitReconsideration: false });
+    expect(notes.candidateFor(source.id)?.instructions).toBeUndefined();
+    expect(repository.sourceIds().has(source.id)).toBe(true);
+    expect(notes.pending(repository.sourceIds())).toEqual([]);
+    expect(notes.results()).toEqual([]);
+    expect(repository.attention().results.map(result => result.id)).toEqual(["hold-assisted"]);
+  });
+
+  test("checkpoint failure rolls back the entire combined Inbox operation and retry remains undoable", () => {
+    const { store, repository } = fixture();
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store);
+    const sourceCandidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "An idea", type: "idea", tags: ["navigation"] };
+    const beforeSequence = store.sequence;
+    const beforeIds = store.traversePreorder({}).map(block => block.id).sort();
+    const run = () => store.database.transaction(() => {
+      const result = repository.apply("atomic-combined", source, plan({ notes: [{ text: "A supporting note" }] }), undefined, { candidate: sourceCandidate, plan: assistance });
+      notes.checkpointEditorial(result, sourceCandidate, assistance);
+      return result;
+    })();
+    store.database.exec("CREATE TRIGGER fail_note_checkpoint BEFORE INSERT ON note_assistance_state BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;");
+    expect(run).toThrow("injected checkpoint failure");
+    expect(store.require(source.id)).toEqual(source);
+    expect(store.sequence).toBe(beforeSequence);
+    expect(store.traversePreorder({}).map(block => block.id).sort()).toEqual(beforeIds);
+    expect(repository.results()).toEqual([]);
+    expect(notes.results()).toEqual([]);
+    expect(notes.candidateFor(source.id)?.inferredTags).toEqual([]);
+    store.database.exec("DROP TRIGGER fail_note_checkpoint");
+    const result = run();
+    expect(repository.undo(result.id).state).toBe("undone");
+    expect(store.require(source.id).text).toBe(source.text);
+  });
+
+  test("a classifier result cannot hide an editorial hold reason or claim the source was organized", () => {
+    const { store, repository } = fixture();
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store);
+    const sourceCandidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "Looks like a navigation idea", type: "idea", tags: ["navigation"] };
+    const reason = "Two possible targets need a choice.";
+    const result = store.database.transaction(() => {
+      const result = repository.apply("editorial-hold", source, plan({ source: { disposition: "hold", text: source.text, reason } }), undefined,
+        { candidate: sourceCandidate, plan: assistance });
+      notes.checkpointEditorial(result, sourceCandidate, assistance);
+      return result;
+    })();
+    expect(result).toMatchObject({ state: "held", summary: reason });
+    expect(result.kind).toBeUndefined();
+    expect(store.require(source.id)).toEqual(source);
+    expect(notes.pending(repository.sourceIds())).toEqual([]);
+  });
+
+  test("Undo atomically checkpoints restored existing targets without forgetting corrections or replaying old requests", () => {
+    const { store, repository } = fixture();
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    let target = store.create("Please list the type values.");
+    notes.apply("old-request", notes.candidateFor(target.id)!, { summary: "An inventory", type: "note", tags: ["navigation"], fulfillment: {
+      key: "old-types", operation: "property-inventory", text: `${target.text}\n\nOriginal answer.`, summary: "Answered.",
+    } });
+    target = store.require(target.id);
+    target = store.update(target.id, target.text.replace("[tag::navigation]", "").replace("[type::note]", "[type::decision]"), target.revision, { author: "user" });
+    expect(notes.pending()).toEqual([]);
+    const source = capture(store, "More context for the existing note.");
+    const candidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "Related context", type: "note", tags: [] };
+    const result = store.database.transaction(() => {
+      const result = repository.apply("update-existing", source, plan({ updates: [{ blockId: target.id, expectedRevision: target.revision,
+        text: `${target.text}\n\nContext supplied by this capture.`,
+      }] }), undefined, { candidate, plan: assistance });
+      notes.checkpointEditorial(result, candidate, assistance);
+      return result;
+    })();
+    const afterTarget = store.require(target.id);
+    const afterSource = store.require(source.id);
+    const afterSequence = store.sequence;
+    const undo = () => repository.undo(result.id, restored => notes.checkpointRestored(restored));
+    store.database.exec("CREATE TRIGGER fail_undo_checkpoint BEFORE UPDATE ON note_assistance_state BEGIN SELECT RAISE(ABORT, 'injected undo checkpoint failure'); END;");
+    expect(undo).toThrow("injected undo checkpoint failure");
+    expect(store.require(target.id)).toEqual(afterTarget);
+    expect(store.require(source.id)).toEqual(afterSource);
+    expect(store.sequence).toBe(afterSequence);
+    expect(repository.getResult(result.id).state).toBe("applied");
+    store.database.exec("DROP TRIGGER fail_undo_checkpoint");
+    expect(undo().state).toBe("undone");
+    expect(store.require(target.id).text).toBe(target.text);
+    expect(notes.pending(repository.sourceIds())).toEqual([]);
+    expect(notes.candidateFor(target.id)).toMatchObject({ typeLocked: true, rejectedTags: ["navigation"], lastRequestKey: "old-types", requestAllowed: false });
+  });
+
+  test("a filed unsupported request retains its task-triage summary and appears in attention until changed or undone", () => {
+    const { store, repository, inbox } = fixture();
+    const notes = new NoteAssistanceRepository(store);
+    notes.initialize();
+    const source = capture(store, "Fix the bookmark bug.");
+    const candidate = notes.candidateFor(source.id)!;
+    const assistance: NotePlan = { summary: "A code request", type: "note", tags: [], unfulfilledRequest: {
+      key: "bookmark-fix", reason: "Note assistance does not execute code changes.",
+    } };
+    const result = store.database.transaction(() => {
+      const result = repository.apply("record-request", source, plan({ summary: "Recorded the bookmark bug as a Backlog task.", tasks: [task] }), undefined,
+        { candidate, plan: assistance });
+      notes.checkpointEditorial(result, candidate, assistance);
+      return result;
+    })();
+    expect(result).toMatchObject({ state: "applied", kind: "unfulfilled" });
+    expect(result.summary).toContain("Unfulfilled: Note assistance does not execute code changes.");
+    expect(result.summary).toContain("Recorded the bookmark bug as a Backlog task.");
+    expect(store.require(source.id).parentId).not.toBe(inbox.id);
+    expect(store.require(source.id).properties).toContainEqual({ key: "request-status", value: "open" });
+    expect(repository.attention()).toMatchObject({ total: 1, results: [{ id: result.id }] });
+    repository.undo(result.id, restored => notes.checkpointRestored(restored));
+    expect(repository.attention()).toEqual({ results: [], total: 0 });
+    expect(notes.pending(repository.sourceIds())).toEqual([]);
   });
 
   test("archives a concise linked source and keeps original text only in recovery", () => {

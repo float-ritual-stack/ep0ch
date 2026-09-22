@@ -7,6 +7,7 @@ import { resolveServicePaths } from "./paths";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import { createInboxModel, checkInboxModelConfiguration } from "./inbox-model";
+import { createNoteModel } from "./note-assistance-model";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 
 const paths = resolveServicePaths();
@@ -49,7 +50,11 @@ if (process.env.OUTLINER_INBOX_AGENT !== "0") {
   server.setInboxUnavailable("Checking Inbox agent configuration");
   void checkInboxModelConfiguration({ workspaceRoot: paths.workspaceRoot }).then(configuration => {
     if (stopping) return;
-    if (configuration.configured) server.enableInbox(createInboxModel({ workspaceRoot: paths.workspaceRoot, promptDirectory }));
+    if (configuration.configured) {
+      const options = { workspaceRoot: paths.workspaceRoot, promptDirectory };
+      server.enableInbox(createInboxModel(options), process.env.TYPESAFE_API_KEY && process.env.OUTLINER_NOTE_ASSISTANCE !== "0"
+        ? createNoteModel(options) : undefined);
+    }
     else server.setInboxUnavailable(configuration.message);
   }).catch(() => {
     if (!stopping) server.setInboxUnavailable("Inbox model configuration could not be loaded");

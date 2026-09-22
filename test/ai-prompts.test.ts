@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_AI_PROMPT_DIRECTORY, initializeAiPrompts, loadGotoPrompt, loadInboxPrompts } from "../src/ai-prompts";
+import { DEFAULT_AI_PROMPT_DIRECTORY, initializeAiPrompts, loadGotoPrompt, loadInboxPrompts, loadNotePrompts } from "../src/ai-prompts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -120,4 +120,20 @@ test("workspace initialization seeds once and never resets custom, invalid or re
   await rm(editor);
   await initializeAiPrompts(root);
   await expect(loadInboxPrompts(root)).rejects.toThrow("cannot read file");
+});
+
+test("existing prompt installations gain note assistance once without replacing authored prompts", async () => {
+  const root = await directory();
+  await rm(join(root, "note-answer.md"));
+  await rm(join(root, "note-assistance.json"));
+  await writeFile(join(root, "inbox-editor.md"), "Authored Inbox instructions");
+  await initializeAiPrompts(root);
+  expect((await loadInboxPrompts(root)).editor).toBe("Authored Inbox instructions");
+  expect((await loadNotePrompts(root)).request.criteria).toHaveProperty("property-inventory");
+  await writeFile(join(root, "note-answer.md"), "Authored answer instructions");
+  await initializeAiPrompts(root);
+  expect((await loadNotePrompts(root)).answer).toBe("Authored answer instructions");
+  await rm(join(root, "note-answer.md"));
+  await initializeAiPrompts(root);
+  await expect(loadNotePrompts(root)).rejects.toThrow("cannot read file");
 });
