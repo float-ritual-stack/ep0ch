@@ -48,13 +48,13 @@ const result = await runHerdrScenario({
           stream.push({type:"done",reason:"toolUse",message});stream.end();return stream;
         },
       }));
-      for (const [index, title] of ["PIE311 success", "PIE311 timeout"].entries()) {
+      for (const [index, title] of ["PIE311 timeout", "PIE311 success"].entries()) {
         await client.request({action:"capture.create",requestId:title,source:"cli",text:`${title}\nRetain these words.`});
         let settled = false;
         for (let attempt = 0; attempt < 200; attempt++) {
           const status = await client.request<InboxStatus>({action:"inbox.status"});
           if (!status.current && status.results.length === index + 1) {
-            assert.equal(status.results[0]!.state,index === 0 ? "applied" : "failed",JSON.stringify(status.results[0]));
+            assert.equal(status.results[0]!.state,index === 0 ? "failed" : "applied",JSON.stringify(status.results[0]));
             settled = true; break;
           }
           await Bun.sleep(25);
@@ -62,8 +62,14 @@ const result = await runHerdrScenario({
         assert.ok(settled, "SDK fixture did not settle");
       }
       const status = await client.request<InboxStatus>({action:"inbox.status"});
-      assert.equal(status.results[0]!.state,"failed");
-      assert.equal(status.results[1]!.state,"applied");
+      assert.equal(status.results[0]!.state,"applied");
+      assert.equal(status.results[1]!.state,"failed");
+      assert.equal(status.paused,false,"One deadline must not pause the worker");
+      assert.equal(status.state,"idle");
+      assert.equal(status.attentionCount,1);
+      const failed = store.require(status.results[1]!.sourceId);
+      assert.ok(failed.text.includes("Retain these words."));
+      assert.equal(failed.revision,1);
       for (const receipt of status.results) assert.ok(receipt.usage?.piSessions?.[0]?.path);
     } finally { await server.close();store.close(); }
   },
@@ -93,7 +99,6 @@ const result = await runHerdrScenario({
     await session.waitVisible(tree,"Inbox agent");
     await session.keys(tree,"a");
     await session.waitVisible(tree,"Recent results: 1–2");
-    await session.keys(tree,"down");
     await session.waitVisible(tree,"› applied · PIE311 success");
     await session.keys(tree,"t");
     const successful=status.results.find(r=>r.state==="applied")!.usage!.piSessions![0]!;
