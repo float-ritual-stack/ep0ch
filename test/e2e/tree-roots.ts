@@ -14,6 +14,8 @@ const result=await runHerdrScenario({
     const b=await create("PIE303 Projected hub\n[type::virtual-branch] [query::fixture=query]");
     const match=await create("PIE303 Nested result\n[fixture::match]");
     await session.setKeybindings({"tree.root.focus":["F4"],"tree.root.right":["F5"],"tree.root.workspace":["F6"]});
+    await session.keys(tree,"ctrl+r");
+    await session.waitVisible(tree,"Outliner keymap reloaded");
     await session.revealTree(tree,a.id);
     await session.keys(tree,"space");
     await session.revealTree(tree,b.id);await session.keys(tree,"f4");
