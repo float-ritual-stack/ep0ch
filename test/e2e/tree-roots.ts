@@ -42,7 +42,7 @@ const result=await runHerdrScenario({
       if(stage === "queued") continue;
       await session.revealTree(tree,view.id);
       const before=new Set((await session.registrations()).map(r=>r.clientId));
-      await session.keys(tree,"alt+t");
+      await session.keys(tree,process.argv.includes("--composed") ? "alt+y" : "alt+t");
       const registration=await session.waitFor("new rooted Tree",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
       const added=registration.find(r=>r.role === "tree" && !before.has(r.clientId))!;
       const pane=await session.adoptDetached(added.clientId,"tree");
