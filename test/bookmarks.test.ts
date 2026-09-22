@@ -22,6 +22,35 @@ afterEach(() => {
 });
 
 describe("canonical bookmarks", () => {
+  test("editing the Bookmarks view presentation preserves bookmarks and service restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pi-outliner-bookmark-presentation-"));
+    const path = join(directory, "outliner.sqlite");
+    let store = new OutlinerStore(path);
+    try {
+      const target = store.create("Still bookmarked");
+      const bookmark = store.toggleBookmark(target.id, null).record;
+      const root = store.bookmarksRoot();
+      const edited = store.update(root.id,
+        "Bookmarks [type::virtual-branch] [system-view::bookmarks] [query::type=bookmark] [limit::1000] [summary-properties::target]",
+        root.revision, { author: "user", actorId: "test" });
+      expect(store.bookmarkStatus(target.id).record?.id).toBe(bookmark.id);
+      store.close();
+      store = new OutlinerStore(path);
+      expect(store.bookmarksRoot().text).toBe(edited.text);
+      expect(store.bookmarkStatus(target.id).record?.revision).toBe(bookmark.revision);
+      const compact = store.update(root.id,
+        "Bookmarks [type::virtual-branch] [system-view::bookmarks] [query::type=bookmark bookmark-label=Favorite] [limit::10]",
+        edited.revision, { author: "user", actorId: "test" });
+      store.close();
+      store = new OutlinerStore(path);
+      expect(store.bookmarksRoot().text).toBe(compact.text);
+      expect(store.bookmarkStatus(target.id).record?.id).toBe(bookmark.id);
+    } finally {
+      store.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("seeds one virtual Bookmarks root and persists it across restart", () => {
     const directory = mkdtempSync(join(tmpdir(), "pi-outliner-bookmark-root-"));
     const path = join(directory, "outliner.sqlite");
