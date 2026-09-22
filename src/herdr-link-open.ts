@@ -43,6 +43,7 @@ if (!clickedUrl) {
   if (!source) throw new Error("The source Outliner pane is not registered");
   const navigation = await navigateOutlinerLink(client, clickedUrl, {
     sourceClientId: source.clientId,
+    ...(source.role === "composed" ? {sourceRegion: source.focusedRegion ?? "tree"} : {}),
     intent: "open",
   });
   process.stdout.write(`${JSON.stringify({

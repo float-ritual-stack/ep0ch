@@ -483,7 +483,7 @@ describe("createTreeController", () => {
       target: { kind: "block", blockId: first.id },
       intent: "open",
     });
-    expect(controller.view().status).toBe("Reader opened in first unlocked Detail");
+    expect(controller.view().status).toBe("Reader opened in linked Detail");
   });
   test("keeps generated links on their exact owner occurrence and opens typed targets explicitly", async () => {
     const definition = block("view0001", {
@@ -941,7 +941,7 @@ describe("createTreeController", () => {
     await controller.handleKeypress("o", { name: "o" }, "pass");
     expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
     expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: target.id }, intent: "open", });
-    expect(controller.view().status).toBe("Opened Target in first unlocked Detail");
+    expect(controller.view().status).toBe("Opened Target in linked Detail");
 
     await controller.handleKeypress("R", { name: "r", shift: true }, "pass");
     expect(fake.calls.filter((call) => call.action === "navigation.dispatch")).toEqual([
@@ -1019,7 +1019,7 @@ describe("createTreeController", () => {
       address: "Future Page",
     });
     expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
-    expect(controller.view().status).toBe("Created and opened Future Page in first unlocked Detail");
+    expect(controller.view().status).toBe("Created and opened Future Page in linked Detail");
   });
 
   test("follows a bare Work ID for the configured project prefix", async () => {
@@ -1854,10 +1854,10 @@ describe("createTreeController", () => {
       position: 0,
     });
     expect(controller.view().mode).toBe("browse");
-    expect(controller.view().status).toBe("Multiline editor opened and locked in first unlocked Detail");
+    expect(controller.view().status).toBe("Multiline editor opened and locked in linked Detail");
   });
 
-  test("Enter opens the first unlocked Detail while e explicitly edits and locks", async () => {
+  test("Enter opens the linked Detail while e explicitly edits and locks", async () => {
     const selected = block("selected", {
       text: "First line\nSecond line",
       displayText: "First line\nSecond line",
@@ -1871,7 +1871,7 @@ describe("createTreeController", () => {
     await controller.handleKeypress("", { name: "return" }, "pass");
     expect(controller.view().mode).toBe("browse");
     expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: selected.id }, intent: "open", });
-    expect(controller.view().status).toBe("Reader opened in first unlocked Detail");
+    expect(controller.view().status).toBe("Reader opened in linked Detail");
 
     await controller.handleKeypress("e", { name: "e" }, "pass");
     expect(lastCall(fake.calls, "ui.command.send")).toEqual({
@@ -1879,7 +1879,7 @@ describe("createTreeController", () => {
       command: { targetClientId: "detail-test", command: "edit", targetRegion: "detail", target: { kind: "block", blockId: selected.id } },
     });
     expect(controller.view().status).toBe(
-      "Multiline editor opened and locked in first unlocked Detail",
+      "Multiline editor opened and locked in linked Detail",
     );
   });
 

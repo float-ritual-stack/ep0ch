@@ -1,7 +1,7 @@
 import { HStack, type Component } from "@earendil-works/pi-tui";
 import type { OutlinerRequester } from "./client-target";
 import { PiDetailInputStreamDecoder } from "./detail-pi-input";
-import { PRIMARY_DETAIL_LOCKED_ERROR, type TreeNavigation } from "./navigation-routes";
+import { PRIMARY_DETAIL_LOCKED_ERROR, dispatchNavigation, resolveNavigationDestination, type TreeNavigation } from "./navigation-routes";
 import type { createDetailController, DetailViewport } from "./detail-controller";
 import type { OutlinerActionKeymap } from "./outliner-actions";
 import { navigateOutlinerLink } from "./outliner-links";
@@ -29,14 +29,15 @@ export function composedTreeNavigation(options: {
 }): TreeNavigation {
   const {client, clientId, contextId, detail} = options;
   // Tree's source is its own occurrence, not the primary Detail's document.
-  const resolve: TreeNavigation["resolve"] = async (intent) => {
+  const resolve: TreeNavigation["resolve"] = async (intent, routeOptions) => {
+    if (intent === "open") return resolveNavigationDestination(client, clientId, intent, {...routeOptions, sourceRegion: "tree"});
     if (intent !== "reveal" && detail.state.connectionMode === "locked") {
       throw new Error(PRIMARY_DETAIL_LOCKED_ERROR);
     }
     return {sourceClientId: clientId, targetClientId: clientId, intent, resolution: "context", targetRegion: intent === "reveal" ? "tree" : "detail"};
   };
   return {
-    readerLabel: "primary Detail",
+    readerLabel: "linked Detail",
     async publish(target, previewTarget, rowId) {
       const publication = await client.request<BrowsingContextPublication>({action: "browsing-context.publish", sourceClientId: clientId, contextId, target, dispatchPreview: false});
       await client.request({action: "clients.update", clientId, treeSelection: target && rowId ? {target, rowId} : null});
@@ -48,7 +49,8 @@ export function composedTreeNavigation(options: {
       return publication;
     },
     resolve,
-    async dispatch(target, intent) {
+    async dispatch(target, intent, routeOptions) {
+      if (intent === "open") return dispatchNavigation(client, clientId, target, intent, {...routeOptions, sourceRegion: "tree"});
       const destination = await resolve(intent);
       let command: OutlinerUiCommand;
       if (intent === "reveal") {
@@ -62,8 +64,8 @@ export function composedTreeNavigation(options: {
       return {...destination, command};
     },
     async edit(blockId) {
-      await resolve("open");
-      await detail.handleUiCommand({command: "edit", targetClientId: clientId, targetRegion: "detail", target: {kind: "block", blockId}}, options.viewport());
+      const route = await resolve("open");
+      await client.request({action: "ui.command.send", command: {command: "edit", targetClientId: route.targetClientId, targetRegion: "detail", target: {kind: "block", blockId}}});
     },
   };
 }

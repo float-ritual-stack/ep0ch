@@ -1,5 +1,5 @@
 import { ComposedLayout, ComposedTree, composedTreeNavigation, composedPointer, composedWidths } from "./composed-surface";
-import type { NavigationRouteOptions } from "./navigation-routes";
+import { navigationDestinationItems } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
@@ -118,8 +118,8 @@ import {
   type BookmarkStatus,
   type BookmarkToggleReceipt,
   type BrowsingContextState,
-  type OutlinerNavigationIntent,
-  type OutlinerNavigationResolution,
+  type NavigationLinkState,
+  type OutlinerViewAddress,
   type OutlinerRegion,
   type InternResourceReceipt,
   type PageAddressCollection,
@@ -265,6 +265,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     const capture = await capturePromise;
     if (generation === directSelectionGeneration) {
       latestDirectSelection = capture;
+      await effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : capture ? "active source selection" : null);
       pendingDirectSelection = null;
       pendingResourceSelectionRange = null;
     }
@@ -413,6 +414,21 @@ const effects: DetailEffects = {
       ),
     };
   },
+  async chooseDestination(purpose) {
+    const state = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId, region: "detail"}});
+    return new Promise<OutlinerViewAddress | null | undefined>(resolve => {
+      showActionMenu(navigationDestinationItems(state, purpose === "link"), async id => {
+        resolve(id === "destination:unlink" ? null : state.destinations[Number(id.slice(12))]?.view);
+      }, undefined, () => resolve(undefined));
+    });
+  },
+  async setDestination(destination) {
+    await client.request({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+  },
+  isSourceSelectionActive: () => latestDirectSelection !== null || pendingDirectSelection !== null,
+  async setNavigationProtection(navigationProtection) {
+    await client.request({action: "clients.update", clientId, navigationProtection});
+  },
   async setLocked(locked) {
     await client.request({ action: "clients.update", clientId, locked });
   },
@@ -420,10 +436,10 @@ const effects: DetailEffects = {
     await client.request({ action: "clients.update", clientId, currentTarget });
   },
   dispatchNavigation(target, intent, options) {
-    return composed && !options?.preserveSource ? localNavigation.dispatch(target, intent) : dispatchNavigation(client, clientId, target, intent, options);
+    return dispatchNavigation(client, clientId, target, intent, {...options, sourceRegion: "detail"});
   },
   resolveNavigation(intent, options) {
-    return composed ? localResolution(intent, options) : resolveNavigationDestination(client, clientId, intent, options);
+    return resolveNavigationDestination(client, clientId, intent, {...options, sourceRegion: "detail"});
   },
   async resolveReferences(text) {
     return client.request<ResolvedBlockReferences>({ action: "references.resolve", text });
@@ -660,7 +676,7 @@ const controller = createDetailController(
       ? "dedicated"
       : "inline",
     destinationTimeoutMs,
-    ...(composed ? {readerLabel: "primary Detail"} : {}),
+    readerLabel: "linked Detail",
     initialTarget,
     actionKeymap,
   },
@@ -682,10 +698,6 @@ function requestStop(): void {
   void stop();
 }
 
-async function localResolution(intent: OutlinerNavigationIntent, options: NavigationRouteOptions = {}): Promise<OutlinerNavigationResolution> {
-  if (options.preserveSource) return resolveNavigationDestination(client, clientId, intent, options);
-  return localNavigation.resolve(intent);
-}
 const localNavigation = composedTreeNavigation({
   client, clientId, contextId: browsingContextId, detail: controller, viewport,
   revealBlock: (blockId) => composedTree!.controller.revealBlock(blockId),
@@ -906,14 +918,17 @@ function showActionMenu(
   items: readonly OutlinerActionMenuItem[],
   invoke: (actionId: string) => Promise<void>,
   origin?: TreeMouseClick,
+  cancelled?: () => void,
 ): void {
   closeActionMenu();
   const menu = new FuzzyActionMenu(items, 13);
   menu.onSelect = (actionId) => {
     closeActionMenu();
-    serviceEventScheduler.scheduleWork(() => invoke(actionId));
+    if (cancelled) void invoke(actionId);
+    else serviceEventScheduler.scheduleWork(() => invoke(actionId));
   };
   menu.onCancel = () => {
+    cancelled?.();
     closeActionMenu();
     tui.requestRender();
   };
@@ -1133,6 +1148,7 @@ async function handleDetailMouse(data: string): Promise<boolean> {
 }
 
 function shouldPassDetailInputToTui(data: string): boolean {
+  if (actionMenuHandle) return true;
   const linkClick = piDetailLinkClick(data);
   if (linkClick) pendingLinkClick = linkClick;
   const pointer = parseTreePrimaryPointer(data);
@@ -1141,6 +1157,7 @@ function shouldPassDetailInputToTui(data: string): boolean {
       directSelectionGeneration += 1;
       latestDirectSelection = null;
       pendingDirectSelection = null;
+      if (runtimeInitialized) void effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : null);
       pendingResourceSelectionRange = null;
     }
     if (

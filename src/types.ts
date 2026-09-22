@@ -951,11 +951,23 @@ export interface OutlinerClientRuntime {
   visible?: boolean;
 }
 
+export interface OutlinerViewAddress {
+  clientId: string;
+  region: OutlinerRegion;
+}
+
+export interface NavigationLinkState {
+  source: OutlinerViewAddress;
+  destination: OutlinerViewAddress | null;
+  destinations: Array<{ view: OutlinerViewAddress; label: string; protection?: string }>;
+}
+
 export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
   locked?: boolean;
+  navigationProtection?: string | null;
   currentTarget?: OutlinerNavigationTarget;
   runtime?: OutlinerClientRuntime;
   resourcePresentation?: ResourcePresentationContext;
@@ -1215,7 +1227,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 64;
+export const OUTLINER_PROTOCOL_VERSION = 66;
 
 
 export interface OutlinerServiceStatus {
@@ -1260,6 +1272,7 @@ export type OutlinerRequest =
       action: "clients.update";
       clientId: string;
       locked?: boolean;
+      navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
       runtime?: OutlinerClientRuntime | null;
       focusedRegion?: OutlinerRegion;
@@ -1376,11 +1389,15 @@ export type OutlinerRequest =
       target: OutlinerNavigationTarget | null;
       dispatchPreview?: boolean;
     }
+  | { id: string; action: "navigation.link.get"; source: OutlinerViewAddress }
+  | { id: string; action: "navigation.link.set"; source: OutlinerViewAddress; destination: OutlinerViewAddress | null }
   | {
       id: string;
       action: "navigation.resolve";
       sourceClientId: string;
       intent: OutlinerNavigationIntent;
+      sourceRegion?: OutlinerRegion;
+      destination?: OutlinerViewAddress;
       preserveSource?: boolean;
     }
   | {
@@ -1389,6 +1406,8 @@ export type OutlinerRequest =
       sourceClientId: string;
       target: OutlinerNavigationTarget;
       intent: OutlinerNavigationIntent;
+      sourceRegion?: OutlinerRegion;
+      destination?: OutlinerViewAddress;
       preserveSource?: boolean;
       focusTarget?: boolean;
     }
@@ -1712,7 +1731,7 @@ export interface OutlinerNavigationResolution {
   sourceClientId: string;
   targetClientId: string;
   intent: OutlinerNavigationIntent;
-  resolution: "unlocked" | "self" | "context" | "same-tab";
+  resolution: "unlocked" | "self" | "context" | "same-tab" | "linked" | "chosen";
   targetRegion?: OutlinerRegion;
 }
 

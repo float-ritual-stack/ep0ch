@@ -100,19 +100,19 @@ describe("open destination chooser", () => {
     expect(state.chooser.state.active).toBe(false);
   });
 
-  test("falls back to a right split only for the default choice", async () => {
+  test("keeps the choice explicit when no linked destination is available", async () => {
     const fallback = harness({ firstUnlocked: false });
     fallback.chooser.open(target);
     await fallback.chooser.handleKeypress("", { name: "return" });
-    expect(fallback.calls).toContain("split:right:target-1");
-    expect(fallback.chooser.state.active).toBe(false);
+    expect(fallback.calls).not.toContain("split:right:target-1");
+    expect(fallback.chooser.state.active).toBe(true);
 
     const explicitFirst = harness({ firstUnlocked: false });
     explicitFirst.chooser.open(target);
     await choose("first-unlocked", explicitFirst.chooser);
     expect(explicitFirst.calls).not.toContain("split:right:target-1");
     expect(explicitFirst.chooser.state.active).toBe(true);
-    expect(explicitFirst.chooser.state.status).toContain("No unlocked Detail");
+    expect(explicitFirst.chooser.state.status).toContain("No linked destination");
   });
 
   test("dispatches every explicit destination through one key model", async () => {

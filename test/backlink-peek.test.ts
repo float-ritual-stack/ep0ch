@@ -205,8 +205,8 @@ describe("backlink peek controller", () => {
     expect(state.calls.openedFirst).toEqual([]);
     expect(state.calls.closes).toBe(0);
     const chooserFrame = renderBacklinkPeekFrame(state.controller, 100, 12, plainMarkdownTheme);
-    expect(chooserFrame).toContain("f first unlocked");
-    expect(chooserFrame).toContain("Enter default");
+    expect(chooserFrame).toContain("f linked destination");
+    expect(chooserFrame).toContain("Enter: linked destination");
 
     await state.controller.handleKeypress("\r", { name: "return" }, "pass", 20);
 
@@ -215,7 +215,7 @@ describe("backlink peek controller", () => {
     expect(state.calls.closes).toBe(1);
   });
 
-  test("the default falls back to a right split when every Detail is locked", async () => {
+  test("the default keeps the chooser open when no linked destination exists", async () => {
     const state = harness();
     state.setFirstUnlockedAvailable(false);
     await state.controller.initialize();
@@ -224,8 +224,8 @@ describe("backlink peek controller", () => {
     await state.controller.handleKeypress("\r", { name: "return" }, "pass", 20);
 
     expect(state.calls.openedFirst).toEqual(["two"]);
-    expect(state.calls.openedNew).toEqual([{ sourceBlockId: "two", direction: "right" }]);
-    expect(state.calls.closes).toBe(1);
+    expect(state.calls.openedNew).toEqual([]);
+    expect(state.calls.closes).toBe(0);
   });
 
   test("routes replace and split destination keys without an Enter modifier", async () => {
@@ -304,7 +304,7 @@ describe("backlink peek controller", () => {
     expect(state.calls.restored).toEqual(["two"]);
     expect(state.calls.openedFirst).toEqual(["two"]);
     expect(state.controller.status).toBe(
-      "No unlocked Detail is available · choose replace or a split direction",
+      "No linked destination · choose once, replace here, or a split direction",
     );
     expect(state.calls.closes).toBe(0);
 

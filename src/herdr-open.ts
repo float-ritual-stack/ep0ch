@@ -230,14 +230,14 @@ await reportStartupErrors("open", async () => {
   async function waitForClientPane(
     paneId: string,
     role: "tree" | "detail" | "composed",
-  ): Promise<void> {
+  ): Promise<OutlinerClientRegistration> {
     const client = createOutlinerClient(paths);
     const deadline = Date.now() + (paths.mode === "remote" ? 60_000 : 5_000);
     while (Date.now() < deadline) {
       try {
         const registration = localHerdrClients(await listLiveClients(client, role))
           .find((candidate) => candidate.runtime?.paneId === paneId);
-        if (registration) return;
+        if (registration) return registration;
       } catch {
         // Retry until the pane has initialized and registered.
       }
@@ -273,10 +273,11 @@ await reportStartupErrors("open", async () => {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
-    await Promise.all([
+    const [treeView, detailView] = await Promise.all([
       waitForClientPane(outlinerPane, "tree"),
       waitForClientPane(detailPane, "detail"),
     ]);
+    await createOutlinerClient(paths).request({action: "navigation.link.set", source: {clientId: treeView.clientId, region: "tree"}, destination: {clientId: detailView.clientId, region: "detail"}});
     execFileSync(herdr, ["plugin", "pane", "focus", outlinerPane], {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
@@ -288,7 +289,8 @@ await reportStartupErrors("open", async () => {
     if (!currentPaneId) throw new Error("open-composed requires Herdr invocation pane context");
     const browsingContextId = crypto.randomUUID();
     const pane = openPane("composed", {placement: "split", targetPane: currentPaneId, direction: "right", env: {OUTLINER_BROWSING_CONTEXT_ID: browsingContextId}});
-    await waitForClientPane(pane, "composed");
+    const view = await waitForClientPane(pane, "composed");
+    await createOutlinerClient(paths).request({action: "navigation.link.set", source: {clientId: view.clientId, region: "tree"}, destination: {clientId: view.clientId, region: "detail"}});
     execFileSync(herdr, ["plugin", "pane", "focus", pane], {stdio: "ignore", timeout: HERDR_SYNC_TIMEOUT_MS});
     return {servicePane, outlinerPane: pane, detailPane: pane, browsingContextId, workspaceRoot};
   }
@@ -346,6 +348,8 @@ await reportStartupErrors("open", async () => {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
+    const detailView = await waitForClientPane(detailPane, "detail");
+    await createOutlinerClient(paths).request({action: "navigation.link.set", source: {clientId: tree.clientId, region: "tree"}, destination: {clientId: detailView.clientId, region: "detail"}});
     return {
       servicePane,
       treePane,

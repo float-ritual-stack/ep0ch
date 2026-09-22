@@ -1409,6 +1409,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     await client.request({
       action: "navigation.dispatch",
       sourceClientId: target.clientId,
+      sourceRegion: "tree",
       target: { kind: "block", blockId },
       intent: "open",
     });

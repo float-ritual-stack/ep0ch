@@ -1668,3 +1668,11 @@ Existing threads and an agent reply are seeded through public APIs.
 - Treating projected occurrences as duplicated canonical blocks.
 - Hiding query truncation or persistence failures behind silent fallbacks.
 - Creating symbolic page stubs merely because unresolved `[[text]]` was typed; accepted design creates a stub only when that link is followed.
+
+### Linked explicit opens
+
+Each live Tree or Detail region can link to one Detail destination. Several sources may share a destination; receiving a document does not follow the receiver's own link. Moving panes leaves these links unchanged. New Tree/Detail pairs start linked; independent Trees use **? → Link destination**. Detail has the same action. The menu marks the current link.
+
+Tree **? → Open once in…** and Detail's reference destination chooser (**c**) choose an existing Detail for one action without changing its link. The chooser also offers **R** to replace here and **r/d** to create a right/down split. Cancelling never resolves an authored Resource or refreshes its provider. An unlinked or closed destination produces an explicit recovery message, with no automatic destination or split. Drafts and active source selections reject replacement.
+
+Agent RPCs use `navigation.link.get` / `navigation.link.set` with `{source: {clientId, region}, destination: {clientId, region: "detail"} | null}`. `navigation.resolve` and `navigation.dispatch` accept `sourceRegion` (required for composed clients) and a one-off `destination`. Runtime links are cleared when either client disconnects; they are not saved pane IDs. Passive preview remains a separate operation.
