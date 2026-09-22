@@ -13,7 +13,7 @@ const result=await runHerdrScenario({
     const q=await create("PIE303 Nested query\n[type::virtual-branch] [query::fixture=match] [fixture::query]",a.id);
     const b=await create("PIE303 Projected hub\n[type::virtual-branch] [query::fixture=query]");
     const match=await create("PIE303 Nested result\n[fixture::match]");
-    await session.setKeybindings({"tree.root.focus":["Alt+F"],"tree.root.right":["Alt+T"],"tree.root.workspace":["Alt+W"]});
+    await session.setKeybindings({"tree.root.focus":["Alt+F"],"tree.root.right":["Alt+T"],"tree.root.workspace":["Alt+W"],"tree.root.below":["Alt+Y"]});
     await session.keys(tree,"ctrl+r");
     await session.waitVisible(tree,"Outliner keymap reloaded");
     await session.revealTree(tree,a.id);
@@ -33,29 +33,38 @@ const result=await runHerdrScenario({
     await session.client.request({action:"update",mutation:{author:"agent",actorId:"PIE303-fixture"},blockId:fresh.id,expectedRevision:fresh.revision,text:fresh.text.replace("Nested result","Refreshed result")});
     await session.waitVisible(tree,"PIE303 Refreshed result");
     await session.checkpoint("02-occurrence-focus-depth-and-refresh");
-    const task=await create("PIE303 Stage card\n[fixture::card] [work-stage::queued]");
-    const roots:string[]=[];
+    const task=await create("Stage card\n[fixture::card] [work-stage::queued]");
+    const roots:string[]=[tree];
+    const views=[];
     for(const stage of ["queued","doing","done"]){
-      const view=await create(`PIE303 ${stage} board\n[type::virtual-branch] [query::fixture=card work-stage=${stage}]`);
+      const view=await create(`303 ${stage}\n[type::virtual-branch] [query::fixture=card work-stage=${stage}]`);
+      views.push(view);
+      if(stage === "queued") continue;
       await session.revealTree(tree,view.id);
       const before=new Set((await session.registrations()).map(r=>r.clientId));
       await session.keys(tree,"alt+t");
       const registration=await session.waitFor("new rooted Tree",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
       const added=registration.find(r=>r.role === "tree" && !before.has(r.clientId))!;
       const pane=await session.adoptDetached(added.clientId,"tree");
-      await session.waitVisible(pane,`← Workspace · PIE303 ${stage} board`);
+      await session.waitVisible(pane,`← Workspace · 303 ${stage}`);
       roots.push(pane);
     }
-    await session.waitVisible(roots[0]!,"PIE303 Stage card");
+    await session.revealTree(tree,views[0]!.id);await session.keys(tree,"alt+f");
+    await session.waitVisible(roots[0]!,"Stage card");
     await session.client.request({action:"properties.patch",mutation:{author:"agent",actorId:"PIE303-fixture"},blockId:task.id,expectedRevision:task.revision,operations:[{op:"replace",ordinal:1,value:"doing"}]});
-    await session.waitVisible(roots[1]!,"PIE303 Stage card");
-    await session.waitFor("queued Tree updates independently",()=>session.visible(roots[0]!),text=>!text.includes("PIE303 Stage card"));
-    await session.waitVisible(roots[2]!,"PIE303 done board");
+    await session.waitVisible(roots[1]!,"Stage card");
+    await session.waitFor("queued Tree updates independently",()=>session.visible(roots[0]!),text=>!text.includes("Stage card"));
+    await session.waitVisible(roots[2]!,"303 done");
     await session.checkpoint("03-three-rooted-trees-follow-canonical-change");
-    await session.closeDetached(roots[0]!);
+    await session.closeDetached(roots[2]!);
     assert.equal((await session.client.request<Block>({action:"get",blockId:task.id})).properties.find(p=>p.key === "work-stage")?.value,"doing");
-    await session.waitVisible(roots[1]!,"PIE303 Stage card");
-    await session.closeDetached(roots[1]!);await session.closeDetached(roots[2]!);
+    await session.waitVisible(roots[1]!,"Stage card");
+    await session.closeDetached(roots[1]!);
+    const before=new Set((await session.registrations()).map(r=>r.clientId));
+    await session.keys(tree,"alt+y");
+    const added=await session.waitFor("rooted Tree below",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
+    const below=await session.adoptDetached(added.find(r=>r.role === "tree" && !before.has(r.clientId))!.clientId,"tree");
+    await session.waitVisible(below,"← Workspace · 303 queued");await session.closeDetached(below);
     await session.checkpoint("04-close-view-keeps-data");
     assert.equal((await session.client.request<Block>({action:"get",blockId:q.id})).parentId,a.id);
   },

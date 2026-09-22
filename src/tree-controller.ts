@@ -639,10 +639,17 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       presentation,
     );
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
-    const scope = root ? rootIndex < 0 ? [] : projection.rows.slice(rootIndex,
-      projection.rows.findIndex((row, index) => index > rootIndex && row.depth <= projection.rows[rootIndex]!.depth) < 0
-        ? undefined : projection.rows.findIndex((row, index) => index > rootIndex && row.depth <= projection.rows[rootIndex]!.depth))
-      .map(row => ({...row, depth: row.depth - projection.rows[rootIndex]!.depth})) : projection.rows;
+    let scope = projection.rows;
+    if(root) {
+      const anchor = projection.rows[rootIndex];
+      if(!anchor) scope = [];
+      else {
+        root = {...root,label:anchor.block.preview};
+        let end = rootIndex+1;
+        while(end<projection.rows.length && projection.rows[end]!.depth>anchor.depth) end++;
+        scope = projection.rows.slice(rootIndex,end).map(row=>({...row,depth:row.depth-anchor.depth}));
+      }
+    }
     if(root && rootIndex < 0) status = "Focused occurrence is no longer visible · return to workspace from actions";
     const expanded = new Map(scope.filter(row => row.multilineExpanded).map(row => [row.canonicalId, row.block]));
     const loaded = new Map<string, ExpandedTreeDocument>();
@@ -1637,7 +1644,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
 
     root = target.root;
-    await selectVisibleBlock(canonical.id, { preferredRowId: target.rowId });
+    if(root) {
+      await reload(target.rowId,{exactRowIdOnly:true});
+      await publishDisplayRowSelection(rows[selectedIndex]);
+    } else await selectVisibleBlock(canonical.id, { preferredRowId: target.rowId });
     scrollStartEntryIndex = target.scrollStartEntryIndex;
     status = direction === "back" ? "Navigation back" : "Navigation forward";
   }
