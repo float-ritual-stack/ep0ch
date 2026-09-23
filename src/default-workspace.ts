@@ -149,7 +149,7 @@ const FEATURE_TOUR_SECTIONS = [
       "",
       "- In Tree, `g` opens searchable Goto with a selected-result preview. Try `outliner-tour` or words from a note; a UUID is not required.",
       "- Goto: arrows choose a result, Enter reveals it in Tree, Alt+Enter opens Detail, and Esc cancels without changing your place. Jev optionally ranks a bounded set of text candidates; text search still works without it.",
-      "- Tree cursor movement updates local Preview while Current keeps your place. `F7` switches Current/Preview, `Shift+F7` closes Preview, and `Alt+Enter` keeps it. Explicit Open uses your saved Detail link; use ? → Link destination to choose it.",
+      "- Tree cursor movement updates local Preview while Current keeps your place. `F7` switches Current/Preview, `Shift+F7` closes Preview, and `Alt+Enter` keeps it. Explicit Open uses your saved Detail link; use Alt+L in Tree or Detail (or ? → Link destination) to choose it.",
       "- `.` expands the selected Tree occurrence's inline preview. Other appearances of the same block keep their own expansion state.",
       "- `m` bookmarks a block and `Shift+M` opens the bookmark navigator. A pointer click selects; deletion is an explicit action.",
       "- Option/Alt+Up and Down reorder eligible siblings or unsorted virtual-branch roots. Option/Alt+Shift+Right and Down open independent Details.",
