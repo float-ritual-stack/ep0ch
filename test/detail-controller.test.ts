@@ -5305,7 +5305,7 @@ test("protected local Open preserves its failure instead of reporting success", 
   await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
   const draft = current.controller.state.buffer.text;
   const intent = {type: "reference.open" as const, target: {kind: "block" as const, value: "linked-target"}};
-  await expect(preview.controller.dispatch({...intent, routing: "first-unlocked"}, viewport)).rejects.toThrow("Finish or cancel the Current draft");
+  await expect(preview.controller.dispatch({...intent, routing: "linked"}, viewport)).rejects.toThrow("Finish or cancel the Current draft");
   expect(preview.controller.state.status).toContain("Finish or cancel the Current draft");
   expect(preview.controller.state.status).not.toContain("Opened");
   expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained-current"});
