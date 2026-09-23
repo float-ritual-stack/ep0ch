@@ -22,7 +22,7 @@ afterEach(() => {
   }
 });
 
-test("remote Herdr startup opens both client panes before waiting for registration", async () => {
+for (const mode of ["focus-or-open", "open-tree"] as const) test(`remote Herdr ${mode} preserves connection overrides and opens only its required panes`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-herdr-"));
   temporaryDirectories.push(directory);
   const workspaceRoot = join(directory, "workspace");
@@ -117,10 +117,10 @@ if (args[0] === "pane" && args[1] === "get") {
       // Neither client can become ready until both panes have been opened.
       if (
         calls.includes('"--entrypoint","outliner"') &&
-        calls.includes('"--entrypoint","detail"')
+        (mode === 'open-tree' || calls.includes('"--entrypoint","detail"'))
       ) {
         register("tree", "workspace:outliner");
-        register("detail", "workspace:detail");
+        if (mode !== "open-tree") register("detail", "workspace:detail");
         return watchers;
       }
       await Bun.sleep(10);
@@ -132,7 +132,7 @@ if (args[0] === "pane" && args[1] === "get") {
     const child = Bun.spawn([
       "bun",
       "run",
-      "src/herdr-open.ts",
+      "src/herdr-open.ts", "--mode", mode,
     ], {
       cwd: process.cwd(),
       env: {
@@ -161,7 +161,7 @@ if (args[0] === "pane" && args[1] === "get") {
     const result = JSON.parse(stdout) as Record<string, unknown>;
     expect(result.servicePane).toBeNull();
     expect(result.outlinerPane).toBe("workspace:outliner");
-    expect(result.detailPane).toBe("workspace:detail");
+    expect(result.detailPane).toBe(mode === "open-tree" ? undefined : "workspace:detail");
 
     const calls = readFileSync(logPath, "utf8").trim().split("\n").map(
       (line) => JSON.parse(line) as string[],
@@ -169,7 +169,7 @@ if (args[0] === "pane" && args[1] === "get") {
     const openedEntrypoints = calls
       .filter((args) => args[0] === "plugin" && args[1] === "pane" && args[2] === "open")
       .map((args) => args[args.indexOf("--entrypoint") + 1]);
-    expect(openedEntrypoints).toEqual(["outliner", "detail"]);
+    expect(openedEntrypoints).toEqual(mode === "open-tree" ? ["outliner"] : ["outliner", "detail"]);
     for (const args of calls.filter((call) => call.includes("--entrypoint"))) {
       expect(args).toContain(`OUTLINER_CONFIG_PATH=${configPath}`);
       expect(args).not.toContain("OUTLINER_REMOTE=1");
