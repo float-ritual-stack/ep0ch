@@ -45,6 +45,7 @@ import { reportCurrentPaneWorkspace,
   focusCurrentPane,
   openBacklinkPeekPopup,
   openDetailPane,
+  openTreePane,
   openVirtualBranchNavigatorPopup,
 } from "./pane-control";
 import { resolveClientPaths } from "./paths";
@@ -675,8 +676,8 @@ function stop(): void {
   process.exit(0);
 }
 
-const handleKeypress = createDetailKeyHandler({ controller, viewport: () => viewport(controller), stop, actionKeymap, openKeyInspector: () => keyInspector.open() });
-const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap, openKeyInspector: () => keyInspector.open()});
+const handleKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); }, controller, viewport: () => viewport(controller), stop, actionKeymap, openKeyInspector: () => keyInspector.open() });
+const inspectionKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); },controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap, openKeyInspector: () => keyInspector.open()});
 
 async function initialize(): Promise<void> {
   await waitForService();

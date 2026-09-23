@@ -60,6 +60,10 @@ command = "float.pi-outliner.obsolete"
     expect((await run()).exitCode).toBe(0);
     expect(await readFile(config, "utf8")).toBe(first);
 
+    expect(keys.find(k => k.command === "float.pi-outliner.open-tree")?.key).toBe("prefix+shift+u");
+    expect((await run("--tree-key", "prefix+u")).exitCode).not.toBe(0);
+    expect((await run("--tree-key", "prefix+alt+k")).exitCode).not.toBe(0);
+    expect(await readFile(config, "utf8")).toBe(first);
     const conflict = await run("--capture-key", "prefix+shift+a");
     expect(conflict.exitCode).not.toBe(0);
     expect(conflict.stderr).toContain("keys must be different");
@@ -73,7 +77,7 @@ command = "float.pi-outliner.obsolete"
     expect(composedConflict.stderr).toContain("already used by float.pi-outliner.open-composed");
     expect(await readFile(config, "utf8")).toBe(first);
 
-    expect((await run("--capture-key", "prefix+shift+c", "--comment-key", "prefix+shift+y")).exitCode).toBe(0);
+    expect((await run("--capture-key", "prefix+shift+c", "--comment-key", "prefix+shift+y", "--tree-key", "prefix+alt+j")).exitCode).toBe(0);
     const configured = await readFile(config, "utf8");
     expect((await run()).exitCode).toBe(0);
     expect(await readFile(config, "utf8")).toBe(configured);

@@ -174,7 +174,7 @@ export interface TreeView {
 
 export interface TreeControllerEffects {
   readonly initialRoot?: TreeRoot;
-  createTreePane?(root: TreeRoot, direction: "right" | "down"): Promise<void>;
+  createTreePane?(root: TreeRoot | null, direction: "right" | "down"): Promise<void>;
   readonly workspaceRoot: string;
   readonly navigation: TreeNavigation;
   readonly clientId: string;
@@ -2065,6 +2065,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       breadcrumbStart=Math.max(0,Math.min(path.length-1,(breadcrumbStart ?? 0)+(actionId.endsWith("left") ? -1 : 1)));
       breadcrumbRowId=rows[selectedIndex]?.rowId;
       effects.invalidate();return;
+    }
+    if (actionId === "tree.pane.new") {
+      try { if (!effects.createTreePane) throw new Error("Creating a Tree pane is unavailable in this host");
+        await effects.createTreePane(null, "right"); status = "Opened new workspace Tree";
+      } catch (error) { status = errorMessage(error); }
+      effects.invalidate(); return;
     }
     if(actionId === "tree.root.parent") {
       const path=breadcrumbs();
