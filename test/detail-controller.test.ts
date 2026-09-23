@@ -5387,3 +5387,49 @@ test("Preview native thread actions promote safely and save the exact reply buff
   expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "resolved"}]);
   expect(current.calls.updates).toEqual([]);
 });
+
+
+test("protected local Open preserves its failure instead of reporting success", async () => {
+  const current = createHarness(makeBlock({id: "retained-current", text: "Current draft"}));
+  let surface: DetailReadingSurface;
+  const preview = createHarness(makeBlock({id: "inspection"}), null, undefined, undefined, {
+    openHere: target => surface.openHere(target, viewport),
+  });
+  surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  await current.controller.initialize();
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "inspection"}}, viewport);
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  const intent = {type: "reference.open" as const, target: {kind: "block" as const, value: "linked-target"}};
+  await expect(preview.controller.dispatch({...intent, routing: "first-unlocked"}, viewport)).rejects.toThrow("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).toContain("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).not.toContain("Opened");
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained-current"});
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(surface.previewVisible).toBe(true);
+  await preview.controller.dispatch(intent, viewport);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "return"});
+  expect(preview.controller.state.destinationChooser.status).toContain("Open failed: Finish or cancel the Current draft");
+  expect(current.controller.state.buffer.text).toBe(draft);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "escape"});
+});
+
+test("targeted focus navigates while protected focus preserves the Current draft", async () => {
+  const harness = createHarness(makeBlock({id: "original"}));
+  await harness.controller.initialize();
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "focused-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.calls.selfFocuses).toBe(1);
+  await harness.controller.dispatch({type: "edit.begin"}, viewport);
+  await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = harness.controller.state.buffer.text;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "rejected-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.controller.state.buffer.text).toBe(draft);
+  expect(harness.controller.state.status).toContain("Open rejected");
+  const focuses = harness.calls.selfFocuses;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+  expect(harness.calls.selfFocuses).toBe(focuses + 1);
+  expect(harness.controller.state.buffer.text).toBe(draft);
+});

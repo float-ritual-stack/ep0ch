@@ -2154,9 +2154,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   ): Promise<void> {
     if (inputAction !== "suppress" && mode === "browse" && key.name === "f7") {
       if (key.shift) {
-        localPreviewGeneration += 1;
-        localPreview = null;
-        await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: null});
+        if (localPreview) {
+          localPreviewGeneration += 1;
+          localPreview = null;
+          await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: null});
+        }
       } else if (localPreview) localPreview = {...localPreview, focused: !localPreview.focused};
       effects.invalidate();
       return;

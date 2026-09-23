@@ -3391,6 +3391,7 @@ test("an unpaired independent Tree inspects locally without creating a Detail", 
   expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({action: "navigation.dispatch", sourceClientId: "tree-test", intent: "open", target: {kind: "block", blockId: "local-b"}});
   await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
   expect(controller.view().localPreview).toBeNull();
+  expect(lastCall(fake.calls, "clients.update")).toEqual({action: "clients.update", clientId: "tree-test", previewTarget: null});
   expect(fake.createdDetails).toEqual([]);
 });
 
@@ -3444,4 +3445,16 @@ test("paging uses the reflowed breadcrumb viewport without skipping numbered lin
     await controller.handleKeypress("",{name:"pagedown"},"pass");
   }
   expect([...seen].sort((a,b)=>a-b)).toEqual(Array.from({length:25},(_,i)=>i+1));
+});
+
+
+test("Tree close Preview leaves the composed Detail retention alone when no local Preview exists", async () => {
+  const first = block("paired-selection");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([first], first) : undefined);
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  expect(controller.view().localPreview).toBeNull();
+  fake.calls.length = 0;
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(fake.calls.filter(call => call.action === "clients.update")).toEqual([]);
 });
