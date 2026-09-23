@@ -33,6 +33,11 @@ export class TreePreviewInput {
         if (pointer.phase === 'up') this.resizing = undefined;
         this.selection.clear(); return true;
       }
+      // A drag begun in content owns its release even above the toolbar.
+      if (pointer.phase !== 'down') {
+        const result = this.selection.pointer(pointer,frame?.content??{x:0,y:0,width:0,height:0},this.lines);
+        if (result.consumed) { if(result.copy)copy(result.copy); redraw(); return true; }
+      }
       const button = frame?.controls?.find(control=>pointInPreview(control.rect,pointer.column,pointer.row));
       if (button) {
         if (pointer.phase === 'down') void controller.handleAction(button.action);
