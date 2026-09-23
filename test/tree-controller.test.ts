@@ -3539,7 +3539,7 @@ test("Alt+L is available while local Preview owns focus, and Escape closes Previ
 });
 
 
-import {TreePreviewInput} from "../src/tree-preview-input";
+import {DocumentPreviewInput} from "../src/document-preview-input";
 import {parseTreeWheel} from "../src/tree-mouse";
 test("wheel over Tree does not scroll adjacent focused Preview",async()=>{
  const a=block("preview-review",{text:Array.from({length:100},(_,i)=>`Line ${i}`).join("\n")});
@@ -3552,9 +3552,9 @@ test("wheel over Tree does not scroll adjacent focused Preview",async()=>{
  for(let i=0;i<50&&controller.view().localPreview?.document.canonicalText.startsWith("Loading");i++)await Promise.resolve();
  await controller.handleKeypress("",{name:"p",meta:true},"pass");
  const view=controller.view(),rendered=renderTreeFrame(view,120,30);
- const input=new TreePreviewInput();input.render(rendered.frame.split("\n"),rendered.preview,view.localPreview);
+ const input=new DocumentPreviewInput();input.render(rendered.frame.split("\n"),rendered.preview,view.localPreview);
  const wheel="\x1b[<65;5;5M";
- expect(input.handle(wheel,controller,()=>{},()=>{})).toBe(false);
+ expect(input.handle(wheel,{focus:v=>controller.focusLocalPreview(v),scroll:d=>controller.scrollLocalPreview(d),resize:f=>controller.resizeLocalPreview(f),invoke:id=>controller.handleAction(id)},()=>{},()=>{})).toBe(false);
  const before=controller.view().localPreview!.offset;
  await controller.handleTreeWheel(parseTreeWheel(wheel)!);
  expect(controller.view().localPreview!.offset).toBe(before);
@@ -3667,6 +3667,8 @@ test('Inbox destination chooser retains selection, cancel returns to Inbox and o
   if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'detail-test',region:'detail'},label:'Reader'}]};
  });
  const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
+ await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.source');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(note.id);
+ await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.output');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(output.id);
  await c.handleKeypress('',{name:'return',meta:true},'pass');expect(c.view().mode).toBe('action-menu');
  await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
  await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
