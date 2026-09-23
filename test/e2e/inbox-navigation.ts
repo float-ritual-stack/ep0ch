@@ -92,7 +92,7 @@ const result = await runHerdrScenario({
     await session.checkpoint("03-configured-shortcut");
     const tree=(await session.registrations()).find(c=>c.runtime?.paneId===pane&&c.role==='tree')!;
     await session.client.request({action:'navigation.link.set',source:{clientId:tree.clientId,region:'tree'},destination:null});
-    await session.keys(pane,'alt+enter');await session.waitVisible(pane,'Choose');
+    await session.keys(pane,'alt+enter');await session.waitVisible(pane,'Find:');
     await session.keys(pane,'esc');await session.waitVisible(pane,'Inbox agent');
     // Pointer action uses the same chooser as Alt+L.
     await session.focus(pane);
@@ -100,8 +100,8 @@ const result = await runHerdrScenario({
     const rows=frame.split('\n'), row=rows.findIndex(l=>l.includes('[Link destination]'));
     const column=rows[row]!.indexOf('[Link destination]')+3;
     await terminal.write(`\x1b[<0;${column};${row+1}M\x1b[<0;${column};${row+1}m`);
-    await session.waitVisible(pane,'Choose');await session.keys(pane,'esc');await session.waitVisible(pane,'Inbox agent');
-    await session.keys(pane,'alt+l');await session.waitVisible(pane,'Choose');
+    await session.waitVisible(pane,'Find:');await session.keys(pane,'esc');await session.waitVisible(pane,'Inbox agent');
+    await session.keys(pane,'alt+l');await session.waitVisible(pane,'Find:');
     // Select the existing Detail by its title in the searchable destination menu.
     await session.text(pane,'Workspace');await session.keys(pane,'enter');
     await session.waitVisible(pane,'Inbox agent');
