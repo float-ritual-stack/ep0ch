@@ -33,7 +33,6 @@ import {
 } from "./outliner-actions";
 import { navigationDestinationItems } from "./navigation-destination-menu";
 import type { TreeNavigation, NavigationRouteOptions } from "./navigation-routes";
-import { layoutExpandedBlock } from "./tree-layout";
 import {
   historyNavigationDirection,
   isDetailToggle,
@@ -76,7 +75,6 @@ import type {
 } from "./types";
 import {
   buildVirtualBranchCreationText,
-  decorateVirtualBranchDefinitionText,
   isVirtualBranchOccurrence,
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
@@ -124,6 +122,8 @@ export interface TreeRoot { readonly rowId: string; readonly canonicalId: string
 
 export interface TreeView {
   readonly root?: TreeRoot | null;
+  readonly breadcrumbs?: readonly (TreeRoot & {kind:"physical"|"occurrence"})[];
+  readonly breadcrumbStart?: number | null;
   readonly scrollStartEntryIndex?: number;
   readonly workspaceRoot: string;
   readonly rows: readonly TreeDisplayRow[];
@@ -178,8 +178,16 @@ export interface TreeControllerEffects {
   readonly actionKeymap?: OutlinerActionKeymap;
 }
 
+export interface TreeExpandedPage {
+  readonly rowId: string;
+  readonly pageSize: number;
+  readonly totalRows: number;
+  readonly offset: number;
+}
+
 export interface TreeController {
-  setViewportStart(index: number): void;
+  setViewportStart(index: number, expandedPage?: TreeExpandedPage | null): void;
+  setBreadcrumbStart(index: number): void;
   view(): TreeView;
   revealBlock(blockId: string): Promise<void>;
   initialize(): Promise<void>;
@@ -299,6 +307,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let baseRows: TreeRow[] = [];
   let rows: TreeDisplayRow[] = [];
   let root: TreeRoot | null = effects.initialRoot ?? null;
+  let expandedPage: TreeExpandedPage | null = null;
+  let fullRowsById = new Map<string,TreeRow>();
+  let breadcrumbRowId: string | undefined;
+  let breadcrumbStart: number | null = null;
   let scrollStartEntryIndex = 0;
   let physicalBlocksById = new Map<string, TreeIndexBlock>();
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
@@ -462,10 +474,25 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     return `${toggle}  ${main}\n${actionKeymap.helpText("tree", "inbox", ["tree.menu.open"])}  ${navigation}`;
   }
 
+  function breadcrumbs(): Array<TreeRoot & {kind:"physical"|"occurrence"}> {
+    const selected=rows[selectedIndex];
+    const path: Array<TreeRoot & {kind:"physical"|"occurrence"}> = [];
+    let row=fullRowsById.get(isBlockTreeRow(selected) ? selected.rowId : selected?.owner.rowId ?? "");
+    const seen=new Set<string>();
+    while(row && !seen.has(row.rowId)) {
+      seen.add(row.rowId);
+      path.unshift({rowId:row.rowId,canonicalId:row.canonicalId,label:row.block.preview,kind:row.kind});
+      row=fullRowsById.get(row.kind === "occurrence" ? row.parentRowId : row.block.parentId ?? "");
+    }
+    return path;
+  }
+
   function view(): TreeView {
     return {
       workspaceRoot: effects.workspaceRoot,
       root, scrollStartEntryIndex,
+      breadcrumbs:breadcrumbs(),
+      breadcrumbStart:breadcrumbRowId === rows[selectedIndex]?.rowId ? breadcrumbStart : null,
       rows,
       physicalBlocksById,
       expandedDocuments,
@@ -650,6 +677,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       snapshot.virtualOccurrenceRanks,
       presentation,
     );
+    fullRowsById = new Map(projection.rows.map(row=>[row.rowId,row]));
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
     let scope = projection.rows;
     if(root) {
@@ -757,20 +785,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     return rows.length > 0;
   }
 
-  function expandedBlockRowCount(row: TreeRow): number {
-    let marker = row.kind === "occurrence" ? "◇" : "•";
-    if (row.hasChildren) marker = row.collapsed ? "▸" : "▾";
-    const branchState = row.kind === "physical" ? branchStates.get(row.canonicalId) : undefined;
-    const displayText = decorateVirtualBranchDefinitionText(expandedDocuments.get(row.canonicalId)?.resolved.text ?? row.block.preview, branchState);
-    return layoutExpandedBlock({
-      text: displayText,
-      width: effects.terminalWidth(),
-      depth: row.depth,
-      marker,
-      author: " ",
-    }).length;
-  }
-
   function scrollSelectedExpandedBlock(direction: "pageup" | "pagedown"): void {
     const selected = rows[selectedIndex];
     if (!isBlockTreeRow(selected) || !selected.multilineExpanded) {
@@ -780,8 +794,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         : "Authored-link rows are single-line";
       return;
     }
-    const totalRows = expandedBlockRowCount(selected);
-    const pageSize = Math.max(1, effects.terminalHeight() - 6);
+    if (!expandedPage || expandedPage.rowId !== selected.rowId) {
+      status = "Waiting for expanded block layout";
+      return;
+    }
+    const { totalRows, pageSize } = expandedPage;
     const maxOffset = Math.max(0, totalRows - pageSize);
     if (maxOffset === 0) {
       expandedBlockOffset = 0;
@@ -1881,6 +1898,26 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     }
+    if(actionId.startsWith("tree.breadcrumb.focus:")) {
+      let id: string;
+      try { id=decodeURIComponent(actionId.slice("tree.breadcrumb.focus:".length)); }
+      catch { return; }
+      const target=breadcrumbs().find(crumb=>crumb.rowId === id);
+      if(target) await focusRoot(target);
+      effects.invalidate();return;
+    }
+    if(actionId === "tree.breadcrumb.left" || actionId === "tree.breadcrumb.right") {
+      const path=breadcrumbs();
+      breadcrumbStart=Math.max(0,Math.min(path.length-1,(breadcrumbStart ?? 0)+(actionId.endsWith("left") ? -1 : 1)));
+      breadcrumbRowId=rows[selectedIndex]?.rowId;
+      effects.invalidate();return;
+    }
+    if(actionId === "tree.root.parent") {
+      const path=breadcrumbs();
+      if(path.length>1) await focusRoot(path[path.length-2]!);
+      else await focusRoot(null);
+      effects.invalidate();return;
+    }
     if (["tree.root.focus","tree.root.workspace","tree.root.right","tree.root.below","tree.depth.expand","tree.depth.collapse"].includes(actionId)) {
       const row=rows[selectedIndex];
       if(actionId === "tree.root.workspace") await focusRoot(null);
@@ -2431,7 +2468,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await inbox.refresh();
   }
   return {
-    setViewportStart(index) { scrollStartEntryIndex = index; },
+    setViewportStart(index, page) {
+      scrollStartEntryIndex = index;
+      expandedPage = page ?? null;
+      if (page) expandedBlockOffset = page.offset;
+    },
+    setBreadcrumbStart(index) { breadcrumbStart=index;breadcrumbRowId=rows[selectedIndex]?.rowId; },
     view,
     async revealBlock(blockId) {
       if (mode !== "browse") throw new Error("Finish or cancel the Tree editor before navigating");

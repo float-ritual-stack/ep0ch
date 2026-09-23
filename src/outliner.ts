@@ -79,7 +79,8 @@ function draw(): void {
   );
   renderedFrameLines = result.frame.split("\n");
   renderedMouseTargets = result.mouseTargets;
-  controller.setViewportStart(result.scrollStartEntryIndex);
+  controller.setViewportStart(result.scrollStartEntryIndex, result.expandedPage);
+  if(result.breadcrumbStart !== undefined) controller.setBreadcrumbStart(result.breadcrumbStart);
   process.stdout.write(result.frame);
 }
 

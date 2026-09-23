@@ -1710,3 +1710,9 @@ Use the Tree actions menu (`?`) to **focus branch**, **return to workspace**, or
 `Shift+Right` reveals one additional hierarchy layer under the selected occurrence. `Shift+Left` folds its deepest expanded layer. These leave other branches and inline note previews alone; the shortcuts can be changed in the keybindings configuration. Existing `Alt+Shift+Right/Down` still create Details. Goto or Reveal Source can deliberately leave the current root; Back returns to the earlier root and viewport.
 
 Collapsed source folders no longer empty a query displayed through another projection. Missing or no-longer-visible roots retain a **return to workspace** action. This is local navigation state, not another database or a smaller network payload.
+
+### Sticky Tree breadcrumbs
+
+The sticky path follows the selected occurrence, including the query through which you reached it. A `◇` marks a projected path segment. Click an ancestor to focus that branch; **Back** restores your former root, selection and vertical viewport. `⌂` returns to the workspace. The `<` / `>` controls scroll only the path, with configurable `Alt+[` / `Alt+]` equivalents. **? → Focus parent branch** provides keyboard ancestor navigation.
+
+As ancestors leave the vertical viewport, Tree reclaims their common indentation. Rows keep their relative depth; moving selection within that viewport does not shift the content sideways. This is presentation, not a change to the stored hierarchy.
