@@ -3,7 +3,7 @@ import {renderNavigationDestinationPreview} from './navigation-destination-menu'
 import {treePreviewFrame} from './tree-preview';
 import { renderGotoFrame } from "./goto-renderer";
 import { renderInboxFrame } from "./inbox-renderer";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { getOsc8LinkAtColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { currentAttentionMark } from "./attention";
 import {
   attentionReturnSummary,
@@ -407,6 +407,16 @@ export function renderTreeFrame(
     });
     else if(preview.placement==='below') lines=[...treeLines,'─'.repeat(width),...preview.lines];
     else {lines=view.localPreview.focused?preview.lines:treeLines;if(!view.localPreview.focused)lines[height-1]=truncateToWidth('Preview available · '+(view.previewHelp??'Alt+P focus · Esc close'),width);}
+    if (view.recoveryHelp && preview.placement === 'compact') {
+      lines[height-2] = truncateToWidth(sanitizeDynamicText(view.recoveryStatus ?? ''), width);
+      lines[height-1] = truncateToWidth(view.recoveryHelp, width);
+      preview.content.height = Math.max(0,Math.min(preview.content.height,height-2-preview.content.y));
+      preview.controls ??= [];
+      for(let column=0;column<width;column++){
+        const uri=getOsc8LinkAtColumn(lines[height-1]!,column);
+        if(uri?.startsWith('pi-outliner-action:'))preview.controls.push({rect:{x:column,y:height-1,width:1,height:1},action:uri.slice('pi-outliner-action:'.length)});
+      }
+    }
     const mouseTargets=preview.placement==='compact'&&view.localPreview.focused?[]:tree.mouseTargets.map(target=>target?{...target,minColumn:0,maxColumn:preview.treeWidth-1}:target);
     return{...tree,preview,mouseTargets,frame:`${options.clearScreen===false?'':`${ESC}H${ESC}2J`}${lines.slice(0,height).join("\n")}`};
   }
@@ -439,7 +449,7 @@ export function renderTreeFrame(
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 
   if (view.mode === "inbox" && view.inbox) {
-    const lines = renderInboxFrame(view.inbox, width, height, view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "inbox"));
+    const lines = renderInboxFrame(view.inbox, width, height, view.recoveryHelp ? `${view.recoveryHelp}\n${view.recoveryStatus}` : view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "inbox"));
     return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [], preview:undefined };
   }
 
@@ -853,14 +863,14 @@ export function renderTreeFrame(
     }
   } else {
     const contextualStatus =
-      view.status ||
+      view.recoveryStatus || view.status ||
       expandedStatus ||
       (selectedBranchState ? branchStatusText(selectedBranchState) : "");
     output.push(truncate(contextualStatus, width));
   }
-  const help = view.actionHelpText ??
+  const help = view.recoveryHelp ?? view.actionHelpText ??
     DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", view.mode);
-  output.push(`\x1b[2m${truncate(options.focused === undefined ? help : `F6 Detail  ${help}`, width)}\x1b[0m`);
+  output.push(`\x1b[2m${(view.recoveryHelp ? truncateToWidth : truncate)(options.focused === undefined ? help : `F6 Detail  ${help}`, width)}\x1b[0m`);
   return { frame: output.join("\n"), scrollStartEntryIndex, mouseTargets, breadcrumbStart:breadcrumb?.start,
     expandedPage: selectedInfo && isBlockTreeRow(selectedRow) && selectedRow.multilineExpanded
       ? {rowId:selectedRow.rowId,pageSize:bodyHeight,totalRows:selectedInfo.total,offset:selectedInfo.offset} : null,
