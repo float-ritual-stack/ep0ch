@@ -3571,22 +3571,22 @@ test("a Tree-directed Preview stays local even while linked Details exist", asyn
   expect(fake.calls.some(c=>c.action==='navigation.dispatch')).toBe(false);
 });
 
-test("Tree creates a Detail beside the chosen anchor without changing its saved link", async () => {
+test("Tree links a new Detail beside the chosen anchor", async () => {
   const note=block('placement-source'); const created: unknown[][]=[];
   const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{
     source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[
       {view:{clientId:'remote',region:'detail'},label:'Remote',otherLocation:true},
       {view:{clientId:'anchor',region:'detail'},label:'My Reference',placementPaneId:'w1:p9'}
     ]}:undefined);
-  fake.effects.createDetailPane=async(...args)=>{created.push(args);};
+  fake.effects.createDetailDestination=async(...args)=>{created.push(args);return {clientId:"created",region:"detail"};};
   const c=createTreeController(fake.effects); await c.initialize();
   await c.handleAction('tree.navigation.link'); await c.handleAction('destination:place-right');
   expect(c.view().destinationPurpose).toBe('place');
   expect(c.view().actionMenuItems?.map(i=>i.id)).toEqual(['placement:1','placement:back']);
   await c.handleAction('placement:1');
-  expect(created).toEqual([[note.id,'right','w1:p9']]);
+  expect(created).toEqual([[note.id,{kind:'split',direction:'right',targetPaneId:'w1:p9'}]]);
   expect(c.view().mode).toBe('browse');
-  expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+  expect(fake.calls.filter(i=>i.action==='navigation.link.set')).toEqual([{action:'navigation.link.set',source:{clientId:'tree-test',region:'tree'},destination:{clientId:'created',region:'detail'}}]);
 });
 
 test('Tree link controls explain active filters without discarding their text', async () => {
@@ -3600,13 +3600,13 @@ test('Tree link controls explain active filters without discarding their text', 
  await c.handleKeypress('L',{name:'l',shift:true},'pass');expect(c.view().quickInput).toBe('my filterL');
 });
 
-test('Tree sidebar actions retain scope and side without changing the saved link',async()=>{
+test('Tree sidebar choices link the exact newly created destination',async()=>{
  for(const scope of ['outliner','tab'] as const) for(const side of ['left','right'] as const){
  const note=block('sidebar-source');const calls:unknown[][]=[];
  const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[]}:undefined);
- fake.effects.createDetailSidebar=async(...args)=>{calls.push(args);};
+ fake.effects.createDetailDestination=async(...args)=>{calls.push(args);return {clientId:"created",region:"detail"};};
  const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.navigation.link');await c.handleAction(`destination:sidebar-${scope}-${side}`);
- expect(calls).toEqual([[note.id,scope,side]]);expect(c.view().mode).toBe('browse');expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+ expect(calls).toEqual([[note.id,{kind:'sidebar',scope,side}]]);expect(c.view().mode).toBe('browse');expect(fake.calls.filter(i=>i.action==='navigation.link.set')).toEqual([{action:'navigation.link.set',source:{clientId:'tree-test',region:'tree'},destination:{clientId:'created',region:'detail'}}]);
  }
 });
 
@@ -3616,4 +3616,33 @@ test('Tree key inspector opens from the menu without changing the selected docum
  await c.handleAction('tree.menu.open');await c.handleAction('tree.debug.keys');
  expect(opened).toBe(1);expect(c.view().mode).toBe('browse');const row=c.view().rows[c.view().selectedIndex];expect(isBlockTreeRow(row) && row.canonicalId).toBe(note.id);
  expect(fake.calls.some(i=>['update','navigation.link.set','ui.command.send'].includes(i.action))).toBe(false);
+});
+
+test('failed destination creation leaves the Tree link unchanged',async()=>{
+ const note=block('failed-sidebar');
+ const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{source:{clientId:'tree-test',region:'tree'},destination:{clientId:'existing',region:'detail'},destinations:[]}:undefined);
+ fake.effects.createDetailDestination=async()=>{throw new Error('Creation failed; layout restored');};
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.navigation.link');await c.handleAction('destination:sidebar-outliner-left');
+ expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+ expect(c.view().status).toContain('layout restored');
+});
+
+test('ordinary Tree split does not change its linked destination',async()=>{
+ const note=block('ordinary-split');const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.detail.right');
+ expect(fake.createdDetails).toEqual([note.id]);
+ expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+});
+
+test('late publication preview events cannot reload or replace the latest local Preview',async()=>{
+ const a=block('preview-a',{text:'Older preview'}),b=block('preview-b',{text:'Newest preview'});
+ const fake=harness(input=>input.action==='tree.index'?snapshot([a,b],a):input.action==='browsing-context.publish'?{contextId:'tree-test-context',target:input.target,preview:{sourceClientId:'tree-test',targetClientId:'tree-test',targetRegion:'tree',intent:'preview',resolution:'self',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:input.target}}}:undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleRowClick(b.id);await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
+ const reads=fake.calls.filter(i=>i.action==='get').length;
+ await c.handleServiceEvent({id:'stale-publication',sequence:20,domain:'ui',action:'browsing-context.publish',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:{kind:'block',blockId:a.id}}});await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
+ expect(fake.calls.filter(i=>i.action==='get').length).toBe(reads);
+ await c.handleServiceEvent({id:'explicit-preview',sequence:21,domain:'ui',action:'navigation.dispatch',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:{kind:'block',blockId:a.id}}});await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:a.id});
 });
