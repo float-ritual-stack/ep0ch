@@ -66,6 +66,7 @@ test("Herdr link action delegates an exact block URI to shared focus and reveal"
   });
   await Promise.all([sourceConnected.promise, detailConnected.promise]);
 
+  await new OutlinerClient(paths.socket).request({action: "navigation.link.set", source: {clientId: "herdr-link-tree", region: "tree"}, destination: {clientId: "herdr-link-detail", region: "detail"}});
   try {
     const clickedUrl = outlinerLinkUri("block", target.id);
     const processHandle = Bun.spawn(
@@ -101,7 +102,7 @@ test("Herdr link action delegates an exact block URI to shared focus and reveal"
       id: target.id,
       title: "Clickable target",
       destinationClientId: "herdr-link-detail",
-      resolution: "unlocked",
+      resolution: "linked",
     });
     await opened.promise;
     expect(store.getSelection().selected?.id).toBe(initialSelectionId);

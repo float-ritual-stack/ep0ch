@@ -30,14 +30,15 @@ test("a composed client has one registration and independently addressable Tree 
     expect(await client.request({action: "clients.list", role: "tree"})).toHaveLength(1);
     expect(await client.request({action: "clients.list", role: "detail"})).toHaveLength(1);
     await expect(client.request({action: "ui.command.send", command: {targetClientId: "primary", command: "focus"}})).rejects.toThrow(/region/);
-    const opened = await client.request<OutlinerNavigationDispatch>({action: "navigation.dispatch", sourceClientId: "primary", target: {kind: "block", blockId: detailBlock.id}, intent: "open"});
+    await client.request({action: "navigation.link.set", source: {clientId: "primary", region: "tree"}, destination: {clientId: "primary", region: "detail"}});
+    const opened = await client.request<OutlinerNavigationDispatch>({action: "navigation.dispatch", sourceClientId: "primary", sourceRegion: "tree", target: {kind: "block", blockId: detailBlock.id}, intent: "open"});
     expect(opened.command).toMatchObject({targetClientId: "primary", targetRegion: "detail", command: "open"});
-    const revealed = await client.request<OutlinerNavigationDispatch>({action: "navigation.dispatch", sourceClientId: "primary", target: {kind: "block", blockId: treeBlock.id}, intent: "reveal"});
+    const revealed = await client.request<OutlinerNavigationDispatch>({action: "navigation.dispatch", sourceClientId: "primary", sourceRegion: "tree", target: {kind: "block", blockId: treeBlock.id}, intent: "reveal"});
     expect(revealed.command).toMatchObject({targetClientId: "primary", targetRegion: "tree", command: "reveal"});
     await expect(client.request({action: "attention.mark", input: {markId: "ambiguous", targetClientId: "primary", target: {kind: "block", sourceBlockId: treeBlock.id}, tone: "current", sender: "test", reveal: true}})).rejects.toThrow(/region/);
     await client.request({action: "attention.mark", input: {markId: "explicit", targetClientId: "primary", targetRegion: "tree", target: {kind: "block", sourceBlockId: treeBlock.id}, tone: "current", sender: "test", reveal: true}});
-    await client.request({action: "clients.update", clientId: "primary", locked: true});
-    await expect(client.request({action: "navigation.dispatch", sourceClientId: "primary", target: {kind: "block", blockId: treeBlock.id}, intent: "open"})).rejects.toThrow(/locked/);
+    await client.request({action: "clients.update", clientId: "primary", navigationProtection: "active draft"});
+    await expect(client.request({action: "navigation.dispatch", sourceClientId: "primary", sourceRegion: "tree", target: {kind: "block", blockId: treeBlock.id}, intent: "open"})).rejects.toThrow(/protected/);
   } finally {
     await watcher.stop(); await server.close(); store.close(); rmSync(root, {recursive: true, force: true});
   }

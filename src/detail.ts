@@ -176,6 +176,9 @@ const effects: DetailEffects = {
       ),
     };
   },
+  async setNavigationProtection(navigationProtection) {
+    await client.request({action: "clients.update", clientId, navigationProtection});
+  },
   async setLocked(locked) {
     await client.request({ action: "clients.update", clientId, locked });
   },

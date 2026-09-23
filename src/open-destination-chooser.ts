@@ -12,6 +12,7 @@ const MAX_OPEN_DESTINATION_TIMEOUT_MS = 60_000;
 
 export type OpenDestination =
   | "default"
+  | "chosen"
   | "replace"
   | "first-unlocked"
   | "split-right"
@@ -37,6 +38,7 @@ export interface OpenDestinationChooserState {
 
 export interface OpenDestinationChooserEffects {
   beforeOpen?(target: OpenDestinationTarget, destination: OpenDestination): void | Promise<void>;
+  openChosen?(target: OpenDestinationTarget): boolean | Promise<boolean>;
   replace(target: OpenDestinationTarget): void | Promise<void>;
   openFirstUnlocked(target: OpenDestinationTarget): boolean | Promise<boolean>;
   openNewDetail(
@@ -81,11 +83,11 @@ export function createOpenDestinationChooserState(): OpenDestinationChooserState
 
 export function openDestinationChooserHelp(
   actionKeymap: OutlinerActionKeymap = DEFAULT_OUTLINER_ACTION_KEYMAP,
-  readerLabel = "first unlocked",
+  readerLabel = "linked destination",
 ): string {
   const right = displayActionChord(actionKeymap.primaryBinding("detail.pane.right"));
   const down = displayActionChord(actionKeymap.primaryBinding("detail.pane.below"));
-  return `⇧R replace here  f ${readerLabel}  ${right}/r split right  ${down}/d split down  Esc close  Enter default`;
+  return `⇧R replace here  c choose once  f ${readerLabel}  ${right}/r split right  ${down}/d split down  Esc close  Enter default`;
 }
 
 export class OpenDestinationChooser {
@@ -103,7 +105,7 @@ export class OpenDestinationChooser {
     options: OpenDestinationChooserOptions = {},
   ) {
     this.state = options.state ?? createOpenDestinationChooserState();
-    this.readerLabel = options.readerLabel ?? "first unlocked";
+    this.readerLabel = options.readerLabel ?? "linked destination";
     this.timeoutMs = options.timeoutMs ?? DEFAULT_OPEN_DESTINATION_TIMEOUT_MS;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.actionKeymap = options.actionKeymap ?? DEFAULT_OUTLINER_ACTION_KEYMAP;
@@ -115,7 +117,7 @@ export class OpenDestinationChooser {
     this.state.active = true;
     this.state.loading = false;
     this.state.target = target;
-    this.state.status = `Choose destination · default: ${this.readerLabel}, otherwise split right`;
+    this.state.status = `Choose destination · Enter: ${this.readerLabel} · c choose once · R self · r/d new split`;
     this.scheduleDismissal();
     this.effects.invalidate();
   }
@@ -140,6 +142,8 @@ export class OpenDestinationChooser {
       ? "split-right"
       : mapped.actionId === "detail.pane.below"
       ? "split-down"
+      : str.toLowerCase() === "c"
+      ? "chosen"
       : str === "R"
       ? "replace"
       : str.toLowerCase() === "f"
@@ -194,12 +198,14 @@ export class OpenDestinationChooser {
       : `Opening ${target.title}…`;
     this.effects.invalidate();
     try {
-      await this.effects.beforeOpen?.(target, destination);
+      if (destination !== "chosen") await this.effects.beforeOpen?.(target, destination);
       if (!isCurrent()) {
         this.effects.invalidate();
         return;
       }
-      if (destination === "replace") {
+      if (destination === "chosen") {
+        if (!await this.effects.openChosen?.(target)) { if (isCurrent()) this.dismiss(); return; }
+      } else if (destination === "replace") {
         await this.effects.replace(target);
       } else if (destination === "first-unlocked") {
         const opened = await this.effects.openFirstUnlocked(target);
@@ -209,7 +215,7 @@ export class OpenDestinationChooser {
         }
         if (!opened) {
           this.state.loading = false;
-          this.state.status = "No unlocked Detail is available · choose replace or a split direction";
+          this.state.status = "No linked destination · choose once, replace here, or a split direction";
           this.scheduleDismissal();
           this.effects.invalidate();
           return;
@@ -224,7 +230,7 @@ export class OpenDestinationChooser {
           this.effects.invalidate();
           return;
         }
-        if (!opened) await this.effects.openNewDetail(target, "right");
+        if (!opened) throw new Error("No linked destination · choose once, replace here, or a split direction");
       }
       if (!isCurrent()) {
         this.effects.invalidate();

@@ -73,7 +73,7 @@ export interface OutlinerLinkNavigation {
   created?: boolean;
   targetClientId?: string;
   intent?: OutlinerNavigationIntent;
-  resolution?: "unlocked" | "self" | "context" | "same-tab";
+  resolution?: "unlocked" | "self" | "context" | "same-tab" | "linked" | "chosen";
 }
 
 interface LinkSpan {
@@ -325,14 +325,15 @@ export async function navigateOutlinerLink(
     treeClientId?: string;
     detailClientId?: string;
     sourceClientId?: string;
+    sourceRegion?: import("./types").OutlinerRegion;
     navigation?: Pick<TreeNavigation, "dispatch" | "resolve">;
     intent?: OutlinerNavigationIntent;
   } = {},
 ): Promise<OutlinerLinkNavigation> {
   const dispatch = targets.navigation?.dispatch ?? ((target, intent, options) =>
-    dispatchNavigation(requester, targets.sourceClientId!, target, intent, options));
+    dispatchNavigation(requester, targets.sourceClientId!, target, intent, {...options, ...(targets.sourceRegion ? {sourceRegion: targets.sourceRegion} : {})}));
   const resolve = targets.navigation?.resolve ?? ((intent, options) =>
-    resolveNavigationDestination(requester, targets.sourceClientId!, intent, options));
+    resolveNavigationDestination(requester, targets.sourceClientId!, intent, {...options, ...(targets.sourceRegion ? {sourceRegion: targets.sourceRegion} : {})}));
   const target = parseOutlinerLinkUri(uri);
   if (target.kind === "goto") {
     const focused = targets.navigation

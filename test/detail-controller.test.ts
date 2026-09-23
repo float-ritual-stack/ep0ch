@@ -2639,8 +2639,8 @@ describe("detail controller projection and deferred refresh", () => {
       event("ui", { targetClientId: "detail-test", command: "open", target: { kind: "block", blockId: third.id } }),
       viewport,
     );
-    expect(harness.controller.state.context.selected?.id).toBe(second.id);
-    expect(harness.calls.selfFocuses).toBe(0);
+    expect(harness.controller.state.context.selected?.id).toBe(third.id);
+    expect(harness.calls.selfFocuses).toBe(1);
 
     await harness.controller.dispatch({ type: "lock.toggle" }, viewport);
     await harness.controller.onServiceEvent(
@@ -2824,7 +2824,7 @@ describe("detail controller projection and deferred refresh", () => {
   });
 
 
-  test("preserves fragment identity in explicit and fallback splits", async () => {
+  test("preserves fragment identity when explicitly splitting after a missing destination", async () => {
     const source = makeBlock({ text: "See ((target01^decision))" });
 
     const explicit = createHarness(source);
@@ -2844,6 +2844,8 @@ describe("detail controller projection and deferred refresh", () => {
     await fallback.controller.initialize();
     await fallback.controller.dispatch({ type: "reference.follow" }, viewport);
     await fallback.controller.handleDestinationChooserKeypress("", { name: "return" });
+    expect(fallback.calls.openedDetails).toEqual([]);
+    await fallback.controller.handleDestinationChooserKeypress("r", {name: "r"});
     expect(fallback.calls.openedDetails).toEqual([{
       blockId: "target01",
       direction: "right",
@@ -2882,7 +2884,7 @@ describe("detail controller projection and deferred refresh", () => {
 
     expect(harness.controller.state.destinationChooser.active).toBe(true);
     expect(harness.controller.state.destinationChooser.status).toContain(
-      "No unlocked Detail is available",
+      "No linked destination",
     );
     expect(harness.calls.openedDetails).toEqual([]);
     expect(harness.controller.state.context.selected?.id).toBe(source.id);
@@ -3038,7 +3040,7 @@ describe("detail controller projection and deferred refresh", () => {
     expect(harness.controller.state.previewOffset).toBe(0);
   });
 
-  test("defers content and detail UI commands while editing, then refreshes after cancel", async () => {
+  test("defers content refresh while rejecting navigation during an edit", async () => {
     const harness = createHarness(makeBlock());
     await harness.controller.initialize();
     await harness.controller.dispatch({ type: "edit.begin" }, viewport);
@@ -3062,7 +3064,7 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.refreshPendingSelection();
     expect(harness.calls.selections).toBe(selectionLoads + 1);
     expect(harness.controller.state.refreshPending).toBe(false);
-    expect(harness.controller.state.context.selected?.id).toBe("other-block");
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
     expect(harness.controller.state.connectionMode).toBe("locked");
   });
 
@@ -4554,7 +4556,7 @@ describe("detail backlink loading and navigation", () => {
       preserveSource: true,
     }]);
     expect(harness.controller.state.context.selected?.id).toBe(source.id);
-    expect(harness.controller.state.status).toContain("first unlocked Detail");
+    expect(harness.controller.state.status).toContain("linked Detail");
 
     await harness.controller.dispatch({
       type: "reference.open",
@@ -4965,7 +4967,7 @@ describe("Detail property inspector integration", () => {
     expect(controller.isBufferMode()).toBe(false);
   });
 
-  test("consumes queued navigation before projecting a property update for the old target", async () => {
+  test("rejects navigation while a property draft is active", async () => {
     const sourceBlock = makeBlock({
       id: "property-source",
       text: "Subject [status::planned]",
@@ -4997,17 +4999,14 @@ describe("Detail property inspector integration", () => {
       event("ui", { targetClientId: "detail-test", command: "edit", target: { kind: "block", blockId: "other-block" },  }),
       viewport,
     );
-    expect(controller.state.refreshPending).toBe(true);
+    expect(controller.state.refreshPending).toBe(false);
 
     await controller.dispatch({ type: "property-inspector.edit.commit" }, viewport);
 
     expect(controller.state.refreshPending).toBe(false);
-    expect(controller.state.target).toEqual({ kind: "block", blockId: "other-block" });
-    expect(controller.state.context.selected?.id).toBe("other-block");
-    expect(controller.state.previewRegions.focusedRegionId).toBeNull();
+    expect(controller.state.target).toEqual({kind: "block", blockId: "property-source"});
     expect(controller.state.propertyInspector.edit).toBeNull();
-    expect(controller.state.projectedSelectedText).toBe("Target other-block");
-    expect(harness.calls.projectedReadHosts).toEqual(["property-source", "other-block"]);
+    expect(controller.state.context.selected?.text).toContain("complete");
   });
 });
 
@@ -5202,17 +5201,24 @@ test("composed Tree publication settles during an edit lock without changing the
   expect(harness.calls.updates[0]).toEqual({blockId: original.id, text: original.text, expectedRevision: original.revision});
 });
 
-test("composed Tree preserves its source occurrence while opening the local Detail", async () => {
+test("composed Tree sends its logical source region through explicit navigation", async () => {
   const harness = createHarness(makeBlock());
   await harness.controller.initialize();
+  const calls: unknown[] = [];
   const navigation = composedTreeNavigation({
-    client: {async request(input) { throw new Error(`Unexpected host routing: ${input.action}`); }},
+    client: {async request<T>(input: import("../src/client").RequestInput) {
+      calls.push(input);
+      return {targetClientId: "chosen-detail"} as T;
+    }},
     clientId: "detail-test", contextId: "context-test", detail: harness.controller,
     viewport: () => viewport, revealBlock: async () => {}, schedulePreview() {},
   });
-  expect((await navigation.resolve("open", {preserveSource: true})).targetClientId).toBe("detail-test");
-  await navigation.dispatch({kind: "block", blockId: "linked-target"}, "open", {preserveSource: true});
-  expect(harness.controller.state.context.selected?.id).toBe("linked-target");
+  expect((await navigation.resolve("open", {preserveSource: true})).targetClientId).toBe("chosen-detail");
+  await navigation.dispatch({kind: "block", blockId: "linked-target"}, "open");
+  expect(calls).toEqual([
+    {action: "navigation.resolve", sourceClientId: "detail-test", sourceRegion: "tree", intent: "open", preserveSource: true},
+    {action: "navigation.dispatch", sourceClientId: "detail-test", sourceRegion: "tree", intent: "open", target: {kind: "block", blockId: "linked-target"}},
+  ]);
 });
 
 test("retained pointer selections preserve occurrence or global scope across navigation", async () => {

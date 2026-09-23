@@ -115,6 +115,7 @@ import type {
   RenderedSelectionCapture,
   SelectionContext,
   OutlinerNavigationDispatch,
+  OutlinerViewAddress,
   OutlinerNavigationResolution,
   OutlinerNavigationIntent,
   OutlinerNavigationTarget,
@@ -509,11 +510,15 @@ export interface DetailEffects {
   getBrowsingContext(): Promise<BrowsingContextState>;
   loadTarget(target: OutlinerNavigationTarget): Promise<DetailReadyDocument>;
   setLocked(locked: boolean): Promise<void>;
+  isSourceSelectionActive?(): boolean;
+  setNavigationProtection?(reason: string | null): Promise<void>;
+  chooseDestination?(purpose: "link" | "open"): Promise<OutlinerViewAddress | null | undefined>;
+  setDestination?(destination: OutlinerViewAddress | null): Promise<void>;
   setCurrentTarget(target: OutlinerNavigationTarget | null): Promise<void>;
   dispatchNavigation(
     target: OutlinerNavigationTarget,
     intent: OutlinerNavigationIntent,
-    options?: { preserveSource?: boolean; focusTarget?: boolean },
+    options?: { preserveSource?: boolean; focusTarget?: boolean; destination?: OutlinerViewAddress },
   ): Promise<OutlinerNavigationDispatch>;
   resolveNavigation(
     intent: OutlinerNavigationIntent,
@@ -634,6 +639,7 @@ export type DetailIntent =
   | { type: "annotation.selection.place"; row: number; column: number; extend?: boolean }
   | { type: "trash.restore" }
   | { type: "comment.begin"; sourceRange?: { start: number; end: number } }
+  | { type: "navigation.link" }
   | { type: "navigation.back" }
   | { type: "navigation.forward" }
   | { type: "reference.follow" }
@@ -1091,7 +1097,6 @@ export function createDetailController(
   };
   const navigationHistory: DetailNavigationEntry[] = [];
   let navigationIndex = -1;
-  let pendingUiCommand: OutlinerUiCommand | null = null;
   let serviceConnected = false;
   let destinationChooser: OpenDestinationChooser | undefined;
   const destinationReferences = new WeakMap<OpenDestinationTarget, OutlinerLinkTarget>();
@@ -1125,7 +1130,16 @@ export function createDetailController(
     for (const entry of blockCache.values()) entry.stale = true;
   };
 
-  const emit = (): void => onChange(state);
+  let lastProtection: string | null | undefined;
+  const protection = (): string | null => isBufferMode() ? "active edit or source selection" : (state.selectionAnchor !== null || effects.isSourceSelectionActive?.()) ? "active source selection" : null;
+  const emit = (): void => {
+    const reason = protection();
+    if (reason !== lastProtection && effects.setNavigationProtection && serviceConnected) {
+      lastProtection = reason;
+      void effects.setNavigationProtection(reason).catch(() => { lastProtection = undefined; });
+    }
+    onChange(state);
+  };
   const isBufferMode = (): boolean =>
     state.mode === "edit" || state.mode === "select" || state.mode === "comment" ||
     state.propertyInspector.edit !== null;
@@ -2071,7 +2085,7 @@ export function createDetailController(
     if (!("target" in command) || !command.target) return null;
     if (
       state.connectionMode === "locked" &&
-      (command.command === "preview" || command.command === "open")
+      command.command === "preview"
     ) {
       return null;
     }
@@ -2140,7 +2154,7 @@ export function createDetailController(
       if (dispatched.targetClientId === effects.clientId) {
         await applyNavigationCommand(dispatched.command);
       }
-      state.status = `Opened ${target.title} in ${options.readerLabel ?? "first unlocked Detail"}`;
+      state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
       return true;
     } catch (error) {
       if (errorMessage(error) === ALL_DETAILS_LOCKED_ERROR || errorMessage(error) === PRIMARY_DETAIL_LOCKED_ERROR) {
@@ -2151,13 +2165,22 @@ export function createDetailController(
   };
 
   destinationChooser = new OpenDestinationChooser({
+    openChosen: async (target) => {
+      const destination = await effects.chooseDestination?.("open");
+      if (!destination) return false;
+      // Choosing or cancelling never resolves an authored Resource occurrence.
+      const reference = destinationReferences.get(target);
+      if (reference) await resolveDestinationTarget(target, reference);
+      await effects.dispatchNavigation(target.target, "open", {destination});
+      return true;
+    },
     beforeOpen: async (target) => {
       const reference = destinationReferences.get(target);
       if (reference) await resolveDestinationTarget(target, reference);
     },
     replace: async (target) => {
-      if (isBufferMode()) {
-        throw new Error("Finish or cancel the active edit before replacing this Detail");
+      if (protection()) {
+        throw new Error("Finish or cancel the active edit or source selection before replacing this Detail");
       }
       await applyNavigationCommand({
         targetClientId: effects.clientId,
@@ -2194,10 +2217,7 @@ export function createDetailController(
   });
 
   const refreshPendingTarget = async (): Promise<void> => {
-    const command = pendingUiCommand;
-    pendingUiCommand = null;
-    if (command) await applyNavigationCommand(command);
-    else await loadCurrentTarget(true);
+    await loadCurrentTarget(true);
   };
 
   const editorLayout = (viewport: DetailViewport) =>
@@ -3215,6 +3235,14 @@ export function createDetailController(
           state.status = "Restored from Trash";
         }
         break;
+      case "navigation.link": {
+        const destination = await effects.chooseDestination?.("link");
+        if (destination !== undefined) {
+          await effects.setDestination?.(destination);
+          state.status = destination ? `Open → ${destination.clientId} / ${destination.region}` : "Open unlinked · choose a destination or new split";
+        }
+        break;
+      }
       case "navigation.back":
       case "navigation.forward": {
         const direction = intent.type === "navigation.back" ? -1 : 1;
@@ -4092,12 +4120,16 @@ export function createDetailController(
     }
     if (
       state.connectionMode === "locked" &&
-      (command.command === "preview" || command.command === "open")
+      command.command === "preview"
     ) {
       return;
     }
+    if (protection() && "target" in command && command.target) {
+      state.status = "Open rejected · finish or cancel the active edit or source selection";
+      emit();
+      return;
+    }
     if (isBufferMode()) {
-      if ("target" in command && command.target) pendingUiCommand = command;
       state.refreshPending = true;
       return;
     }
@@ -4224,6 +4256,8 @@ export function createDetailController(
       markBlockCacheStale();
       serviceConnected = true;
       await effects.setLocked(state.connectionMode === "locked");
+      lastProtection = protection();
+      await effects.setNavigationProtection?.(lastProtection);
       await effects.setCurrentTarget(state.target);
       state.attention = await effects.getAttention();
       state.status = "";

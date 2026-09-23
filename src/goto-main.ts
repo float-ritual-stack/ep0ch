@@ -12,6 +12,8 @@ import { isTreeMouseSequence } from "./tree-mouse";
 if (process.env.HERDR_ENV !== "1") throw new Error("Goto popup requires Herdr");
 const sourceClientId = process.env.OUTLINER_GOTO_SOURCE_CLIENT_ID?.trim();
 if (!sourceClientId) throw new Error("OUTLINER_GOTO_SOURCE_CLIENT_ID is required");
+const sourceRegion = process.env.OUTLINER_GOTO_SOURCE_REGION;
+if (sourceRegion !== "tree" && sourceRegion !== "detail") throw new Error("OUTLINER_GOTO_SOURCE_REGION must be tree or detail");
 
 const paths = resolveClientPaths();
 reportCurrentPaneWorkspace(paths.workspaceRoot);
@@ -34,7 +36,7 @@ const controller = new GotoController({
         target: { kind: "block", blockId },
       } });
     } else {
-      await client.request({ action: "navigation.dispatch", sourceClientId,
+      await client.request({ action: "navigation.dispatch", sourceClientId, sourceRegion,
         target: { kind: "block", blockId }, intent: "open" });
     }
     await stop();

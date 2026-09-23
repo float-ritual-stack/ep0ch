@@ -196,6 +196,7 @@ const controller = new VirtualBranchNavigatorController(launch.sourceRole, {
       await client.request({
         action: "navigation.dispatch",
         sourceClientId: launch.sourceClientId,
+        sourceRegion: launch.sourceRole,
         target: { kind: "block", blockId },
         intent: "open",
       });

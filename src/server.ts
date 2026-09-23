@@ -34,6 +34,9 @@ import {
 import { WorkflowManager } from "./workflows";
 import {
   OUTLINER_PROTOCOL_VERSION,
+  type OutlinerViewAddress,
+  type NavigationLinkState,
+  type OutlinerNavigationResolution,
   clientSupportsRole,
   type OutlinerRegion,
   type AnnotationBatchReceipt,
@@ -111,6 +114,7 @@ export class OutlinerServer {
   private inboxUnavailable = "Automatic Inbox cleanup is not enabled for this service";
   private activeGotoRankings = 0;
   private server: Server | null = null;
+  private readonly navigationLinks = new Map<string, OutlinerViewAddress>();
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   private readonly browsingContextTargets = new Map<string, OutlinerNavigationTarget | null>();
   private readonly attentionStates = new Map<string, AttentionClientState>();
@@ -311,6 +315,11 @@ export class OutlinerServer {
   private removeSubscriber(socket: Socket): void {
     const removed = this.subscribers.get(socket);
     this.subscribers.delete(socket);
+    if (removed) {
+      for (const [key, destination] of this.navigationLinks) {
+        if (key === JSON.stringify([removed.clientId, "tree"]) || key === JSON.stringify([removed.clientId, "detail"]) || destination.clientId === removed.clientId) this.navigationLinks.delete(key);
+      }
+    }
     if (
       removed &&
       ![...this.subscribers.values()].some((client) => client.contextId === removed.contextId)
@@ -593,6 +602,7 @@ export class OutlinerServer {
     clientId: string,
     update: {
       locked?: boolean;
+      navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
       runtime?: OutlinerClientRuntime | null;
       focusedRegion?: OutlinerRegion;
@@ -600,6 +610,7 @@ export class OutlinerServer {
     },
   ): OutlinerClientRegistration {
     if (
+      update.navigationProtection === undefined &&
       update.locked === undefined &&
       update.currentTarget === undefined &&
       update.runtime === undefined && update.focusedRegion === undefined && update.treeSelection === undefined
@@ -610,6 +621,10 @@ export class OutlinerServer {
       if (client.clientId !== clientId) continue;
       if (update.treeSelection === null && client.role !== "composed") throw new Error("Only composed clients have internal regions");
       const updated = { ...client };
+      if (update.navigationProtection !== undefined) {
+        if (!clientSupportsRole(client, "detail") || (update.navigationProtection !== null && (typeof update.navigationProtection !== "string" || update.navigationProtection.length > 200))) throw new Error("Invalid navigation protection");
+        updated.navigationProtection = update.navigationProtection;
+      }
       Object.assign(updated, this.normalizeComposedState(client.role, update.focusedRegion, update.treeSelection ?? undefined, false));
       if (update.treeSelection === null) delete updated.treeSelection;
       if (update.locked !== undefined) {
@@ -1058,12 +1073,44 @@ export class OutlinerServer {
     };
   }
 
+  private navigationView(view: OutlinerViewAddress, destination = false): OutlinerClientRegistration {
+    if (!view || (view.region !== "tree" && view.region !== "detail")) throw new Error("Navigation requires an explicit logical view region");
+    const client = this.clientById(view.clientId);
+    if (!clientSupportsRole(client, view.region) || (destination && view.region !== "detail")) throw new Error("Open destination must be a live Detail view");
+    return client;
+  }
+
+  private navigationLinkState(source: OutlinerViewAddress): NavigationLinkState {
+    this.navigationView(source);
+    return {source, destination: this.navigationLinks.get(JSON.stringify([source.clientId, source.region])) ?? null,
+      destinations: this.listClients("detail").map(client => ({view: {clientId: client.clientId, region: "detail"},
+        label: `${client.role === "composed" ? "Composed Detail" : "Detail"} ${client.runtime?.paneId ?? client.clientId}`,
+        ...(client.navigationProtection ? {protection: client.navigationProtection} : {})}))};
+  }
+
+  private resolveExplicitOpen(source: OutlinerClientRegistration, sourceRegion?: OutlinerViewAddress["region"], destination?: OutlinerViewAddress, preserveSource = false): OutlinerNavigationResolution {
+    const region = sourceRegion ?? (source.role === "composed" ? undefined : source.role);
+    if (!region) throw new Error("Composed Open requires sourceRegion: tree or detail");
+    this.navigationView({clientId: source.clientId, region});
+    const chosen = destination ?? this.navigationLinks.get(JSON.stringify([source.clientId, region]));
+    if (!chosen) throw new Error("No linked destination · use Link destination, Open once, or a new Detail split");
+    let target: OutlinerClientRegistration;
+    try { target = this.navigationView(chosen, true); }
+    catch { throw new Error("Linked destination closed · choose a destination or open a new Detail split"); }
+    if (preserveSource && chosen.clientId === source.clientId && region === chosen.region) throw new Error("Choose another destination to preserve this source");
+    if (target.navigationProtection) throw new Error(`Destination is protected: ${target.navigationProtection} · finish or cancel it there`);
+    return {sourceClientId: source.clientId, targetClientId: chosen.clientId, targetRegion: chosen.region, intent: "open", resolution: destination ? "chosen" : "linked"};
+  }
+
   private resolveNavigationTarget(
     sourceClientId: string,
     intent: OutlinerNavigationIntent,
     preserveSource = false,
+    sourceRegion?: OutlinerViewAddress["region"],
+    destination?: OutlinerViewAddress,
   ): Omit<OutlinerNavigationDispatch, "command"> {
     const source = this.clientById(sourceClientId);
+    if (intent === "open") return this.resolveExplicitOpen(source, sourceRegion, destination, preserveSource);
     const primary = this.listClients("composed").find(client => client.contextId === source.contextId);
     if (primary && !preserveSource) {
       if (intent !== "reveal" && primary.locked) throw new Error(PRIMARY_DETAIL_LOCKED_ERROR);
@@ -1524,11 +1571,24 @@ export class OutlinerServer {
           } satisfies BrowsingContextPublication;
           break;
         }
+        case "navigation.link.get":
+          result = this.navigationLinkState(request.source);
+          break;
+        case "navigation.link.set": {
+          this.navigationView(request.source);
+          const key = JSON.stringify([request.source.clientId, request.source.region]);
+          if (request.destination === null) this.navigationLinks.delete(key);
+          else { this.navigationView(request.destination, true); this.navigationLinks.set(key, {...request.destination}); }
+          result = this.navigationLinkState(request.source);
+          break;
+        }
         case "navigation.resolve":
           result = this.resolveNavigationTarget(
             request.sourceClientId,
             this.navigationIntent(request.intent),
             request.preserveSource,
+            request.sourceRegion,
+            request.destination,
           );
           break;
         case "navigation.dispatch": {
@@ -1541,6 +1601,8 @@ export class OutlinerServer {
             request.sourceClientId,
             intent,
             request.preserveSource,
+            request.sourceRegion,
+            request.destination,
           );
           let command: OutlinerUiCommand;
           if (intent === "reveal") {
@@ -1570,6 +1632,7 @@ export class OutlinerServer {
             throw new Error(`Target client is not registered: ${request.command.targetClientId}`);
           }
           const target = this.clientById(request.command.targetClientId);
+          if (["open", "replace", "edit"].includes(request.command.command) && target.navigationProtection) throw new Error(`Destination is protected: ${target.navigationProtection}`);
           const region = request.command.targetRegion;
           if (target.role === "composed" && region !== "tree" && region !== "detail") throw new Error("Composed commands require an explicit target region: tree or detail");
           if (region !== undefined && (region !== "tree" && region !== "detail" || !clientSupportsRole(target, region))) throw new Error("Command target region is unavailable");
