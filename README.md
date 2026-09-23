@@ -516,6 +516,10 @@ bun run cli clients --role tree
 bun run goto 40bd0864
 bun run goto --query "roadmap review"
 bun run goto --client <client-uuid> --query "roadmap review"
+bun run cli link 'pi-outliner://block/<block-uuid>' --tree-client <tree-client-uuid>
+bun run cli link 'pi-outliner://resource/<resource-uuid>' --detail-client <detail-client-uuid>
+bun run cli link 'pi-outliner://block/<block-uuid>' --source-client <source-client-uuid> --source-region tree
+bun run cli link 'pi-outliner://reference/<source-block-uuid>?revision=1&start=7&end=22' --source-client <source-client-uuid> --source-region detail
 bun run cli work-id-status
 bun run cli work-id-configure --prefix PIE
 bun run cli work-id-allocate --id <block-uuid> --expected <revision>
@@ -524,6 +528,15 @@ bun run cli work-id-allocate --id <block-uuid> --expected <revision>
 Text updates require the integer `revision` returned by the read before editing. Omitting `--expected` or saving an old revision fails without replacing newer text. Sibling moves do not invalidate an unchanged text draft.
 
 The CLI resolves the same workspace-scoped socket and database as the service. `goto` accepts a full UUID, unique short prefix, or unambiguous fuzzy title/content query. Eight-character IDs are convenience labels, not a uniqueness guarantee; ambiguous queries return full-UUID candidates without changing selection. Work-ID configuration is normally one-time; allocation requires the exact block UUID and its latest integer `revision`, available in bounded `list` results. A successful allocation atomically persists both the immutable reservation and the block's `[work-id::…]` property/address; a failed request consumes neither the number nor a reservation.
+
+`link` accepts one URL, positional or `--url`. Use `--source-client` to follow
+that view's saved Detail link; composed sources also require `--source-region
+tree|detail`. For a source-free Resource or authored-reference URL, supply
+`--detail-client` explicitly. Reference URLs must retain the exact source block
+revision and token span emitted by Outliner; the numbers above are placeholders.
+Missing or protected destinations fail before Resource registration. Use
+`--tree-client` for source-free block, page, Work-ID, or goto URLs. These three
+client options are mutually exclusive; goto URLs accept Tree targeting only.
 
 ## Keyboard controls
 
