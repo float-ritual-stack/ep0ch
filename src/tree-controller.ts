@@ -122,6 +122,8 @@ export interface TreeRoot { readonly rowId: string; readonly canonicalId: string
 
 export interface TreeView {
   readonly root?: TreeRoot | null;
+  readonly breadcrumbs?: readonly (TreeRoot & {kind:"physical"|"occurrence"})[];
+  readonly breadcrumbStart?: number | null;
   readonly scrollStartEntryIndex?: number;
   readonly workspaceRoot: string;
   readonly rows: readonly TreeDisplayRow[];
@@ -178,6 +180,7 @@ export interface TreeControllerEffects {
 
 export interface TreeController {
   setViewportStart(index: number): void;
+  setBreadcrumbStart(index: number): void;
   view(): TreeView;
   revealBlock(blockId: string): Promise<void>;
   initialize(): Promise<void>;
@@ -297,6 +300,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let baseRows: TreeRow[] = [];
   let rows: TreeDisplayRow[] = [];
   let root: TreeRoot | null = effects.initialRoot ?? null;
+  let fullRowsById = new Map<string,TreeRow>();
+  let breadcrumbRowId: string | undefined;
+  let breadcrumbStart: number | null = null;
   let scrollStartEntryIndex = 0;
   let physicalBlocksById = new Map<string, TreeIndexBlock>();
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
@@ -457,10 +463,25 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     return `${toggle}  ${main}\n${actionKeymap.helpText("tree", "inbox", ["tree.menu.open"])}  ${navigation}`;
   }
 
+  function breadcrumbs(): Array<TreeRoot & {kind:"physical"|"occurrence"}> {
+    const selected=rows[selectedIndex];
+    const path: Array<TreeRoot & {kind:"physical"|"occurrence"}> = [];
+    let row=fullRowsById.get(isBlockTreeRow(selected) ? selected.rowId : selected?.owner.rowId ?? "");
+    const seen=new Set<string>();
+    while(row && !seen.has(row.rowId)) {
+      seen.add(row.rowId);
+      path.unshift({rowId:row.rowId,canonicalId:row.canonicalId,label:row.block.preview,kind:row.kind});
+      row=fullRowsById.get(row.kind === "occurrence" ? row.parentRowId : row.block.parentId ?? "");
+    }
+    return path;
+  }
+
   function view(): TreeView {
     return {
       workspaceRoot: effects.workspaceRoot,
       root, scrollStartEntryIndex,
+      breadcrumbs:breadcrumbs(),
+      breadcrumbStart:breadcrumbRowId === rows[selectedIndex]?.rowId ? breadcrumbStart : null,
       rows,
       physicalBlocksById,
       expandedDocuments,
@@ -645,6 +666,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       snapshot.virtualOccurrenceRanks,
       presentation,
     );
+    fullRowsById = new Map(projection.rows.map(row=>[row.rowId,row]));
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
     let scope = projection.rows;
     if(root) {
@@ -1850,6 +1872,26 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     }
+    if(actionId.startsWith("tree.breadcrumb.focus:")) {
+      let id: string;
+      try { id=decodeURIComponent(actionId.slice("tree.breadcrumb.focus:".length)); }
+      catch { return; }
+      const target=breadcrumbs().find(crumb=>crumb.rowId === id);
+      if(target) await focusRoot(target);
+      effects.invalidate();return;
+    }
+    if(actionId === "tree.breadcrumb.left" || actionId === "tree.breadcrumb.right") {
+      const path=breadcrumbs();
+      breadcrumbStart=Math.max(0,Math.min(path.length-1,(breadcrumbStart ?? 0)+(actionId.endsWith("left") ? -1 : 1)));
+      breadcrumbRowId=rows[selectedIndex]?.rowId;
+      effects.invalidate();return;
+    }
+    if(actionId === "tree.root.parent") {
+      const path=breadcrumbs();
+      if(path.length>1) await focusRoot(path[path.length-2]!);
+      else await focusRoot(null);
+      effects.invalidate();return;
+    }
     if (["tree.root.focus","tree.root.workspace","tree.root.right","tree.root.below","tree.depth.expand","tree.depth.collapse"].includes(actionId)) {
       const row=rows[selectedIndex];
       if(actionId === "tree.root.workspace") await focusRoot(null);
@@ -2401,6 +2443,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
   return {
     setViewportStart(index) { scrollStartEntryIndex = index; },
+    setBreadcrumbStart(index) { breadcrumbStart=index;breadcrumbRowId=rows[selectedIndex]?.rowId; },
     view,
     async revealBlock(blockId) {
       if (mode !== "browse") throw new Error("Finish or cancel the Tree editor before navigating");

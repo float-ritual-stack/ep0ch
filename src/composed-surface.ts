@@ -136,6 +136,7 @@ export class ComposedTree implements Component {
       clearScreen: false, focused: this.options.focused(), propertyKeys: this.propertyKeys,
     });
     this.controller.setViewportStart(rendered.scrollStartEntryIndex);
+    if(rendered.breadcrumbStart !== undefined) this.controller.setBreadcrumbStart(rendered.breadcrumbStart);
     this.frameLines = rendered.frame.split("\n").slice(0, this.options.height()).map(line => truncateToWidth(line, width));
     this.mouseTargets = rendered.mouseTargets;
     return this.frameLines;

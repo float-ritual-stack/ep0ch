@@ -3356,3 +3356,36 @@ test("the file viewer uses service content while retaining the authored line ran
   expect(controller.view().viewerLines).toEqual(["SERVER SECOND"]);
   expect(controller.view().viewerPath).toBe("today.txt:2");
 });
+
+test("breadcrumb strip scroll does not navigate; ancestor focus and Back retain viewport", async () => {
+  const blocks=[block("root",{hasChildren:true}),block("child",{parentId:"root",depth:1,hasChildren:true}),block("leaf",{parentId:"child",depth:2})];
+  const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();
+  await controller.handleRowClick("leaf");controller.setViewportStart(1);controller.setBreadcrumbStart(2);
+  expect(controller.view().breadcrumbs?.map(item=>item.rowId)).toEqual(["root","child","leaf"]);
+  const calls=fake.calls.length;
+  await controller.handleAction("tree.breadcrumb.left");
+  expect(controller.view().breadcrumbStart).toBe(1);
+  expect(controller.view().root).toBeNull();expect(controller.view().scrollStartEntryIndex).toBe(1);
+  expect(selectedBlockRow(controller).rowId).toBe("leaf");expect(fake.calls.length).toBe(calls);
+  await controller.handleAction("tree.breadcrumb.focus:child");
+  expect(controller.view().root?.rowId).toBe("child");
+  expect(controller.view().breadcrumbs?.map(item=>item.rowId)).toEqual(["root","child"]);
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(controller.view().root).toBeNull();expect(selectedBlockRow(controller).rowId).toBe("leaf");
+  expect(controller.view().scrollStartEntryIndex).toBe(1);
+});
+
+test("breadcrumbs follow the projected occurrence instead of the canonical storage parent", async () => {
+  const storage=block("storage",{hasChildren:true});
+  const note=block("note",{parentId:storage.id,depth:1});
+  const hub=block("hub",{properties:[{key:"type",value:"virtual-branch"},{key:"query",value:"fixture=note"}]});
+  const fake=harness(input=>input.action === "tree.index" ? snapshot([storage,note,hub],hub) : input.action === "tree.query" ? {blocks:[note],completeness:{kind:"complete"}} : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();
+  await controller.handleRowClick("occurrence:hub:note");
+  expect(controller.view().breadcrumbs?.map(({rowId,kind})=>[rowId,kind])).toEqual([["hub","physical"],["occurrence:hub:note","occurrence"]]);
+  await controller.handleAction("tree.breadcrumb.focus:hub");
+  expect(controller.view().root?.rowId).toBe("hub");
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
+});

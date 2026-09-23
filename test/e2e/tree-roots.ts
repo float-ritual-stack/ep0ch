@@ -19,16 +19,16 @@ const result=await runHerdrScenario({
     await session.revealTree(tree,a.id);
     await session.keys(tree,"space");
     await session.revealTree(tree,b.id);await session.keys(tree,"alt+f");
-    await session.waitVisible(tree,"← Workspace · PIE303 Projected hub");
+    await session.waitVisible(tree,"PIE303 Projected hub");
     await session.waitVisible(tree,"PIE303 Nested result");
     await session.checkpoint("01-collapsed-source-keeps-nested-query");
     // Focus the nested occurrence, not its canonical source.
     await session.keys(tree,"down","alt+f");
-    await session.waitVisible(tree,"← Workspace · PIE303 Nested query");
+    await session.waitVisible(tree,"PIE303 Nested query");
     await session.keys(tree,"shift+left");
     await session.waitFor("nested root folded",()=>session.visible(tree),text=>!text.includes("PIE303 Nested result"));
     await session.keys(tree,"shift+right");await session.waitVisible(tree,"PIE303 Nested result");
-    await session.keys(tree,"alt+left");await session.waitVisible(tree,"← Workspace · PIE303 Projected hub");
+    await session.keys(tree,"alt+left");await session.waitVisible(tree,"PIE303 Projected hub");
     const fresh=await session.client.request<Block>({action:"get",blockId:match.id});
     await session.client.request({action:"update",mutation:{author:"agent",actorId:"PIE303-fixture"},blockId:fresh.id,expectedRevision:fresh.revision,text:fresh.text.replace("Nested result","Refreshed result")});
     await session.waitVisible(tree,"PIE303 Refreshed result");
@@ -46,7 +46,7 @@ const result=await runHerdrScenario({
       const registration=await session.waitFor("new rooted Tree",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
       const added=registration.find(r=>r.role === "tree" && !before.has(r.clientId))!;
       const pane=await session.adoptDetached(added.clientId,"tree");
-      await session.waitVisible(pane,`← Workspace · 303 ${stage}`);
+      await session.waitVisible(pane,`303 ${stage}`);
       roots.push(pane);
     }
     await session.revealTree(tree,views[0]!.id);await session.keys(tree,"alt+f");
@@ -64,7 +64,7 @@ const result=await runHerdrScenario({
     await session.keys(tree,"alt+y");
     const added=await session.waitFor("rooted Tree below",session.registrations,items=>items.some(r=>r.role === "tree" && !before.has(r.clientId)));
     const below=await session.adoptDetached(added.find(r=>r.role === "tree" && !before.has(r.clientId))!.clientId,"tree");
-    await session.waitVisible(below,"← Workspace · 303 queued");await session.closeDetached(below);
+    await session.waitVisible(below,"303 queued");await session.closeDetached(below);
     await session.checkpoint("04-close-view-keeps-data");
     assert.equal((await session.client.request<Block>({action:"get",blockId:q.id})).parentId,a.id);
   },

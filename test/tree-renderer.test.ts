@@ -1114,3 +1114,32 @@ test("renders a targeted Tree block mark and coalesced return cue", () => {
   expect(rendered).toContain("\x1b[1;4;96m");
   expect(rendered.split("\n").every((line) => visibleWidth(line) <= 44)).toBe(true);
 });
+
+test("breadcrumbs keep controls at the edges and link occurrence identity safely", () => {
+  const path = [
+    {rowId:"hub",canonicalId:"hub",label:"Hub",kind:"physical" as const},
+    {rowId:"occurrence:hub:note",canonicalId:"note",label:"世界\x1b[2J projected note",kind:"occurrence" as const},
+  ];
+  const result=renderTreeFrame(view([block("note")],{breadcrumbs:path,breadcrumbStart:1}),32,12,0);
+  const line=result.frame.split("\n")[3]!;
+  expect(visibleWidth(line)).toBe(32);
+  expect(stripTerminalSequences(line).startsWith("⌂ < ◇ 世界")).toBe(true);
+  expect(stripTerminalSequences(line).endsWith(">" )).toBe(true);
+  expect(line).not.toContain("\x1b[2J");
+  expect(getOsc8LinkAtColumn(line,0)).toBe("pi-outliner-action:tree.root.workspace");
+  expect(getOsc8LinkAtColumn(line,2)).toBe("pi-outliner-action:tree.breadcrumb.left");
+  expect(getOsc8LinkAtColumn(line,6)).toBe("pi-outliner-action:tree.breadcrumb.focus:occurrence%3Ahub%3Anote");
+  expect(getOsc8LinkAtColumn(line,31)).toBe("pi-outliner-action:tree.breadcrumb.right");
+});
+
+test("scrolled deep rows reclaim common indentation while preserving child geometry", () => {
+  const rows=Array.from({length:18},(_,i)=>block(`Title ${i} remains readable`,{depth:i,hasChildren:true}));
+  const first=renderTreeFrame(view(rows,{selectedIndex:13}),40,12,12);
+  const second=renderTreeFrame(view(rows,{selectedIndex:14}),40,12,first.scrollStartEntryIndex);
+  expect(first.scrollStartEntryIndex).toBe(12);
+  expect(second.scrollStartEntryIndex).toBe(12);
+  expect(stripTerminalSequences(first.frame)).toContain("Title 12 remains readable");
+  const targets=first.mouseTargets.filter(target=>target != null);
+  expect(targets.slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+  expect(second.mouseTargets.filter(target=>target != null).slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+});
