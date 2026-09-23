@@ -289,7 +289,7 @@ export class InboxRepository {
       const result = this.result(id, current, plan.source.disposition === "hold" ? plan.source.reason! : plan.summary, usage);
       if (prepared && (plan.source.disposition !== "hold" || prepared.kind === "unfulfilled")) {
         result.kind = prepared.kind;
-        result.summary = prepared.kind === "organized" ? `Organized: ${plan.summary}`
+        result.summary = prepared.kind === "organized" ? `${prepared.summary}${plan.summary === "Organized note metadata" ? "" : ` · ${plan.summary}`}`
           : prepared.kind === "unfulfilled" && plan.source.disposition !== "hold" ? `${prepared.summary}\n\n${plan.summary}` : prepared.summary;
       }
       if (plan.source.disposition === "hold") {
@@ -337,7 +337,9 @@ export class InboxRepository {
       let finalText = preserveProperties(current, sourceText, true);
       if (assistance) {
         finalText = preserveTags(current, finalText);
-        finalText = prepareNoteEdit(assistance.candidate, assistance.plan, finalText).text;
+        const applied = prepareNoteEdit(assistance.candidate, assistance.plan, finalText);
+        finalText = applied.text;
+        if(applied.kind === "organized")result.summary = `${applied.summary}${plan.summary === "Organized note metadata" ? "" : ` · ${plan.summary}`}`;
       }
       this.store.update(current.id, finalText, current.revision, mutation);
       this.store.move(current.id, destination.id);

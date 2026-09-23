@@ -150,7 +150,7 @@ describe("InboxRepository", () => {
     expect(filed.properties).toContainEqual({ key: "tag", value: "navigation" });
     expect(store.require(originalChild.id)).toEqual(originalChild);
     expect(result.kind).toBe("organized");
-    expect(result.summary).toBe("Organized: Filed a clearer note.");
+    expect(result.summary).toBe("type capture → idea; added 1 tag (navigation) · Filed a clearer note.");
     expect(repository.results()).toHaveLength(1);
     expect(notes.results()).toEqual([]);
     expect(notes.pending(repository.sourceIds()).map(value => value.source.id)).not.toContain(source.id);
@@ -215,6 +215,8 @@ describe("InboxRepository", () => {
       const result = repository.apply("retry-tags", current, plan({ source: {
         disposition: "file", text: "A cleaned note on #Authored [tag::navigation] [tag::editor-only]\n\nUseful explanation.",
       } }), undefined, { candidate, plan: retry });
+      expect(result.summary).toContain("editor-only");
+      expect(result.summary).not.toContain("No metadata changes");
       notes.checkpointEditorial(result, candidate, retry);
     })();
     current = store.require(source.id);

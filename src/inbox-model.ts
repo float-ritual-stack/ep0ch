@@ -1,3 +1,4 @@
+import {recordInboxOmission} from "./inbox-observations";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -201,9 +202,11 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
     // This is cumulative across Pi turns (including cached input) and Jev requests,
     // not a single context window. Leave room to retrieve, read, and then edit a note.
     const maxTokens = options.maxTotalTokens ?? 150_000;
-    const usage: InboxUsage = { provider: "", model: "", inputTokens: 0, outputTokens: 0, cost: 0, jevCalls: 0, elapsedMs: 0 };
+    const usage: InboxUsage = { provider: "", model: "", inputTokens: 0, outputTokens: 0, cost: 0, jevCalls: 0, elapsedMs: 0, notChecked: [] };
     usage.jevSuccessfulCalls = 0;
     if (!(options.jevApiKey ?? process.env.TYPESAFE_API_KEY)) usage.jevWarning = "Jev is not configured; Pi edited without relationship judgments";
+    if(usage.jevWarning)recordInboxOmission(usage,"relationships",usage.jevWarning);
+    const excerpts = new Map<string,number>();
     const reads = new Map<string, { block: Block; ranges: Array<[number, number]> }>();
     const source = structuredClone(context.source);
     let plan: InboxPlan | undefined;
@@ -221,7 +224,12 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       usage.outputTokens = (stats?.tokens.output ?? 0) + jevOutput;
       usage.cost = (stats?.cost ?? 0) + jevInput * JEV_INPUT_PRICE;
       usage.elapsedMs = Math.round(performance.now() - started);
-      return { ...usage };
+      const partial=[...excerpts].filter(([id,length])=>length>900&&!reads.has(id)).length;
+      const incomplete=[...reads.keys()].filter(id=>!fullyRead(id)).length;
+      const notChecked=[...usage.notChecked??[]];
+      if(partial)notChecked.push({area:"Pi candidate reads",reason:`${partial} retrieved note${partial===1?' was':'s were'} only shown to Pi as search excerpts`});
+      if(incomplete)notChecked.push({area:"note reads",reason:`${incomplete} paged read${incomplete===1?' was':'s were'} not completed`});
+      return { ...usage, notChecked };
     };
     const interruption = () => context.signal.aborted ? new Error("Inbox cleanup canceled")
       : new InboxNoteError(`Inbox cleanup timed out after ${timeoutMs} ms`);
@@ -278,8 +286,12 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           async execute(_call, params) {
             assertActive(); searches++; context.progress("Looking for prior notes and related work");
             const candidates = context.search(params.query).filter(b => live(b) && b.id !== source.id).slice(0, SEARCH_LIMIT);
+            if(!prompts)recordInboxOmission(usage,"relationships","Relationship judging is not enabled for answer requests");
+            recordInboxOmission(usage,"retrieval",`Search used a bounded shortlist of at most ${SEARCH_LIMIT}; other notes were not exhaustively checked`);
+            candidates.forEach(block=>excerpts.set(block.id,block.text.length));
             let status = "unavailable";
             const missing = candidates.filter(b => !relationshipCache.has(`${b.id}:${b.revision}`));
+            if(prompts && usage.jevCalls>=4 && missing.length)recordInboxOmission(usage,"relationships","Some uncached comparisons were skipped after the four-call limit");
             if (prompts && usage.jevCalls < 4 && missing.length && (options.jevApiKey ?? process.env.TYPESAFE_API_KEY)) {
               usage.jevCalls++; context.progress("Jev is comparing duplicate and related notes");
               try {
@@ -287,13 +299,15 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
                 const hints = await relationships(source, missing, prompts.relationships, options, signal, maxTokens - (stats?.tokens.total ?? 0) - jevInput - jevOutput);
                 if (hints) {
                   usage.jevSuccessfulCalls!++;
+                  if(source.text.length>18000)recordInboxOmission(usage,"Jev input","Relationship checks saw only the first 18,000 source characters");
+                  if(missing.some(block=>block.text.length>6000))recordInboxOmission(usage,"Jev input","Some relationship candidates were limited to their first 6,000 characters");
                   jevInput += hints.inputTokens; jevOutput += hints.outputTokens;
                   missing.forEach((b, i) => relationshipCache.set(`${b.id}:${b.revision}`, hints.judged[i]!));
-                } else { usage.jevCalls--; status = "budget"; usage.jevWarning = "Some Jev comparisons were skipped to stay within this note's budget"; }
+                } else { usage.jevCalls--; status = "budget"; usage.jevWarning = "Some Jev comparisons were skipped to stay within this note's budget"; recordInboxOmission(usage,"relationships",usage.jevWarning); }
               } catch {
                 assertActive();
                 // Provider bodies may echo note content or credentials.
-                usage.jevWarning = "Some Jev comparisons failed; Pi continued with the retrieved notes";
+                usage.jevWarning = "Some Jev comparisons failed; Pi continued with the retrieved notes"; recordInboxOmission(usage,"relationships",usage.jevWarning);
               }
             }
             assertActive();
@@ -338,7 +352,9 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       if (context.inventory) customTools.push(defineTool({
         name: "property_inventory", label: "Property inventory", description: "Read exact property values and block counts from the service. Completeness is explicit; a truncated page is not a complete inventory.",
         parameters: Type.Object({ key: text(100) }, { additionalProperties: false }),
-        async execute(_call, params) { assertActive(); return result(context.inventory!(params.key)); },
+        async execute(_call, params) { assertActive(); const inventory=context.inventory!(params.key);
+          if(!inventory.complete)recordInboxOmission(usage,"inventory","Property inventory was incomplete");
+          return result(inventory); },
       }) as typeof customTools[number]);
       const workspaceRoot = options.workspaceRoot ?? process.cwd();
       trace = new AssistantSession(workspaceRoot, options.sessionDirectory ?? join(
