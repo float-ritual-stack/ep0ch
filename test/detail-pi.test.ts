@@ -358,3 +358,9 @@ describe("Pi TUI Detail component", () => {
     expect(enqueued).toEqual(["x"]);
   });
 });
+
+
+test("Preview function shortcuts decode modified terminal sequences", () => {
+  expect(decodePiDetailInput("\x1b[18~")).toMatchObject({kind: "key", key: {name: "f7", shift: false}});
+  expect(decodePiDetailInput("\x1b[18;2~")).toMatchObject({kind: "key", key: {name: "f7", shift: true}});
+});

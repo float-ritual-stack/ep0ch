@@ -640,7 +640,6 @@ describe("createTreeController", () => {
       sourceClientId: "tree-test",
       contextId: "tree-test-context",
       target: { kind: "resource", resourceId },
-      dispatchPreview: false,
     });
     expect(fake.calls.some((call) => call.action === "navigation.dispatch")).toBe(false);
 
@@ -3355,4 +3354,26 @@ test("the file viewer uses service content while retaining the authored line ran
   expect(controller.view().mode).toBe("viewer");
   expect(controller.view().viewerLines).toEqual(["SERVER SECOND"]);
   expect(controller.view().viewerPath).toBe("today.txt:2");
+});
+
+
+test("an unpaired independent Tree inspects locally without creating a Detail", async () => {
+  const a = block("local-a", {text: "SOURCE LOCAL ALPHA"});
+  const b = block("local-b", {text: "SOURCE LOCAL BETA"});
+  const fake = harness(input => {
+    if (input.action === "tree.index") return snapshot([a, b], a);
+    if (input.action === "browsing-context.publish") return {contextId: "tree-test-context", target: input.target, unavailable: "No paired reader · Preview stays in this Tree"};
+  });
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  await controller.handleRowClick("local-b");
+  for (let n = 0; n < 20 && !controller.view().localPreview?.lines.includes("SOURCE LOCAL BETA"); n++) await Promise.resolve();
+  expect(controller.view().localPreview?.lines).toContain("SOURCE LOCAL BETA");
+  expect(fake.createdDetails).toEqual([]);
+  expect(fake.calls.some(call => call.action === "navigation.dispatch")).toBe(false);
+  await controller.handleKeypress("", {name: "f7"}, "pass");
+  expect(controller.view().localPreview?.focused).toBe(true);
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(controller.view().localPreview).toBeNull();
+  expect(fake.createdDetails).toEqual([]);
 });

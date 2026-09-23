@@ -587,7 +587,7 @@ export class OutlinerServer {
   }
 
   private activeResourceRevisions(resourceId?: string): ResourceRevisionRef[] {
-    return this.listClients("detail").flatMap(client => [client.currentTarget, client.previewTarget].flatMap(target =>
+    return this.listClients().flatMap(client => [client.currentTarget, client.previewTarget].flatMap(target =>
       target?.kind === "resource" && target.revision && (resourceId === undefined || target.resourceId === resourceId) ? [target.revision] : []));
   }
 
@@ -627,7 +627,6 @@ export class OutlinerServer {
       }
       if (update.previewTarget === null) delete updated.previewTarget;
       else if (update.previewTarget !== undefined) {
-        if (!clientSupportsRole(client, "detail")) throw new Error("Only Detail readers retain Preview targets");
         updated.previewTarget = this.normalizeNavigationTarget(update.previewTarget, "retain");
       }
       if (update.currentTarget === null) {
@@ -1065,7 +1064,7 @@ export class OutlinerServer {
     if (intent === "open") return this.resolveExplicitOpen(source, sourceRegion, destination, preserveSource);
     if (intent === "preview") {
       const candidates = source.role === "detail" || source.role === "composed" ? [source]
-        : this.listClients("detail").filter(client => client.contextId === source.contextId);
+        : this.listClients("detail").filter(client => client.contextId === source.contextId && (!source.runtime?.hostname || !client.runtime?.hostname || client.runtime.hostname === source.runtime.hostname));
       if (candidates.length !== 1) throw new Error("No paired reader · Preview stays in this Tree");
       return {sourceClientId, targetClientId: candidates[0]!.clientId, targetRegion: "detail", intent, resolution: "context"};
     }
@@ -1410,9 +1409,6 @@ export class OutlinerServer {
           break;
         case "resources.describe": {
           const destination = this.clientById(request.destinationClientId);
-          if (!clientSupportsRole(destination, "detail")) {
-            throw new Error("Resource descriptions require a Detail destination");
-          }
           const target = this.normalizeNavigationTarget(request.target);
           if (target.kind !== "resource") {
             throw new Error("Resource description target must be a resource");

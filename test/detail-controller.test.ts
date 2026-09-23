@@ -1,3 +1,4 @@
+import { DetailReadingSurface } from "../src/detail-reading-surface";
 import { CURSOR_MARKER, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
 import {
@@ -5258,4 +5259,59 @@ test("retained pointer selections preserve occurrence or global scope across nav
   await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
   expect(harness.controller.state.mode).toBe("comment");
   expect(harness.controller.state.annotationDraft?.target.referenceContext).toEqual(first.referenceContext);
+});
+
+
+describe("retained Current and local Preview", () => {
+  test("passive inspection leaves Current draft, undo, history and scroll intact; Keep protects then promotes", async () => {
+    const current = createHarness(makeBlock({id: "current", text: "Current canonical"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    await preview.controller.initialize();
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    await current.controller.dispatch({type: "edit.begin"}, viewport);
+    await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = current.controller.state.buffer.text;
+    const editorOffset = current.controller.state.editorVisualOffset;
+    for (const blockId of ["inspect-a", "inspect-b", "inspect-c"]) {
+      await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId}}, viewport);
+      expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+      expect(current.controller.state.buffer.text).toBe(draft);
+      expect(current.controller.state.editorVisualOffset).toBe(editorOffset);
+    }
+    surface.toggleFocus();
+    expect(surface.active).toBe(preview.controller);
+    expect(await surface.keepPreview(viewport)).toBe(false);
+    expect(current.calls.updates).toHaveLength(0);
+    surface.toggleFocus();
+    await current.controller.dispatch({type: "buffer.undo"}, viewport);
+    expect(current.controller.state.buffer.text).toBe("Current canonical");
+    await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+    expect(await surface.keepPreview(viewport)).toBe(true);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspect-c"});
+    expect(surface.previewVisible).toBe(false);
+    await current.controller.dispatch({type: "navigation.back"}, viewport);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    expect(current.calls.updates).toHaveLength(0);
+  });
+
+  test("a held older Preview cannot overwrite a newer one or Current", async () => {
+    const current = createHarness(makeBlock({id: "current"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    const read = preview.effects.loadTarget;
+    const held = Promise.withResolvers<void>();
+    preview.effects.loadTarget = async target => {
+      if (target.kind === "block" && target.blockId === "older") await held.promise;
+      return read(target);
+    };
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    const older = surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "older"}}, viewport);
+    await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "newer"}}, viewport);
+    held.resolve(); await older;
+    expect(preview.controller.state.target).toEqual({kind: "block", blockId: "newer"});
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    await surface.closePreview();
+    expect(surface.active).toBe(current.controller);
+  });
 });
