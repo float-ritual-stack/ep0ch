@@ -1710,3 +1710,16 @@ Use the Tree actions menu (`?`) to **focus branch**, **return to workspace**, or
 `Shift+Right` reveals one additional hierarchy layer under the selected occurrence. `Shift+Left` folds its deepest expanded layer. These leave other branches and inline note previews alone; the shortcuts can be changed in the keybindings configuration. Existing `Alt+Shift+Right/Down` still create Details. Goto or Reveal Source can deliberately leave the current root; Back returns to the earlier root and viewport.
 
 Collapsed source folders no longer empty a query displayed through another projection. Missing or no-longer-visible roots retain a **return to workspace** action. This is local navigation state, not another database or a smaller network payload.
+
+Each reader retains **Current** while passive Tree selection updates one local
+**Preview**. At wide widths they sit beside each other; at narrower widths,
+`F7` switches between them. `Alt+Enter` keeps Preview as Current and
+`Shift+F7` closes Preview. Keeping or editing Preview first protects any Current
+draft or source selection. Current keeps its own history, scroll, editor undo,
+and document identity while another item is inspected.
+
+Passive inspection stays with the Tree's paired browsing context. An independent
+Tree without a paired reader shows its own read-only Preview (`F7` to focus it,
+`Shift+F7` to close); selection never creates a pane. Explicit Open continues to
+use the source's saved destination link. Resource Preview reads an existing
+representation and retains its revision; it does not intern or refresh a Resource.

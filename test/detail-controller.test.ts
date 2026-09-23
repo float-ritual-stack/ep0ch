@@ -1,3 +1,4 @@
+import { DetailReadingSurface } from "../src/detail-reading-surface";
 import { CURSOR_MARKER, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
 import {
@@ -2624,23 +2625,23 @@ describe("detail controller projection and deferred refresh", () => {
     expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "decision" });
   });
 
-  test("opens the chooser without replacing a locked anchor when no Detail is available", async () => {
+  test("reports a missing linked destination without replacing Current or opening another pane", async () => {
     const source = makeBlock({ id: "locked-source", text: "See ((locked-target))" });
     const harness = createHarness(source);
     await harness.controller.initialize();
     harness.effects.dispatchNavigation = async () => {
       throw new Error(
-        "All Details in this tab are locked · unlock one or open another Detail",
+        "No linked destination · choose a Detail",
       );
     };
 
-    await harness.controller.dispatch({
+    await expect(harness.controller.dispatch({
       type: "reference.open",
       target: { kind: "block", value: "locked-target" },
       routing: "linked",
-    }, viewport);
+    }, viewport)).rejects.toThrow("No linked destination");
 
-    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
     expect(harness.controller.state.context.selected?.id).toBe(source.id);
     expect(harness.calls.openedDetails).toEqual([]);
   });
@@ -2782,7 +2783,7 @@ describe("detail controller projection and deferred refresh", () => {
 
     const fallback = createHarness(source);
     fallback.effects.dispatchNavigation = async () => {
-      throw new Error("All Details in this tab are locked · unlock one or open another Detail");
+      throw new Error("No linked destination · choose a Detail");
     };
     await fallback.controller.initialize();
     await fallback.controller.dispatch({ type: "reference.follow" }, viewport);
@@ -2819,7 +2820,7 @@ describe("detail controller projection and deferred refresh", () => {
     const source = makeBlock({ text: "See ((target01))" });
     const harness = createHarness(source);
     harness.effects.dispatchNavigation = async () => {
-      throw new Error("All Details in this tab are locked · unlock one or open another Detail");
+      throw new Error("No linked destination · choose a Detail");
     };
     await harness.controller.initialize();
     await harness.controller.dispatch({ type: "reference.follow" }, viewport);
@@ -5150,4 +5151,62 @@ test("retained pointer selections preserve occurrence or global scope across nav
   await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
   expect(harness.controller.state.mode).toBe("comment");
   expect(harness.controller.state.annotationDraft?.target.referenceContext).toEqual(first.referenceContext);
+});
+
+
+describe("retained Current and local Preview", () => {
+  test("passive inspection leaves Current draft, undo, history and scroll intact; Keep protects then promotes", async () => {
+    const current = createHarness(makeBlock({id: "current", text: "Current canonical"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    await preview.controller.initialize();
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    await current.controller.dispatch({type: "edit.begin"}, viewport);
+    await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = current.controller.state.buffer.text;
+    await current.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+    expect(current.calls.selfFocuses).toBeGreaterThan(0);
+    expect(current.controller.state.buffer.text).toBe(draft);
+    const editorOffset = current.controller.state.editorVisualOffset;
+    for (const blockId of ["inspect-a", "inspect-b", "inspect-c"]) {
+      await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId}}, viewport);
+      expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+      expect(current.controller.state.buffer.text).toBe(draft);
+      expect(current.controller.state.editorVisualOffset).toBe(editorOffset);
+    }
+    surface.toggleFocus();
+    expect(surface.active).toBe(preview.controller);
+    expect(await surface.keepPreview(viewport)).toBe(false);
+    expect(current.calls.updates).toHaveLength(0);
+    surface.toggleFocus();
+    await current.controller.dispatch({type: "buffer.undo"}, viewport);
+    expect(current.controller.state.buffer.text).toBe("Current canonical");
+    await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+    expect(await surface.keepPreview(viewport)).toBe(true);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspect-c"});
+    expect(surface.previewVisible).toBe(false);
+    await current.controller.dispatch({type: "navigation.back"}, viewport);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    expect(current.calls.updates).toHaveLength(0);
+  });
+
+  test("a held older Preview cannot overwrite a newer one or Current", async () => {
+    const current = createHarness(makeBlock({id: "current"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    const read = preview.effects.loadTarget;
+    const held = Promise.withResolvers<void>();
+    preview.effects.loadTarget = async target => {
+      if (target.kind === "block" && target.blockId === "older") await held.promise;
+      return read(target);
+    };
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    const older = surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "older"}}, viewport);
+    await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "newer"}}, viewport);
+    held.resolve(); await older;
+    expect(preview.controller.state.target).toEqual({kind: "block", blockId: "newer"});
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    await surface.closePreview();
+    expect(surface.active).toBe(current.controller);
+  });
 });

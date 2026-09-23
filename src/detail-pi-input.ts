@@ -215,6 +215,12 @@ function decodeModifyOtherKeysPrintable(data: string): string | undefined {
 }
 
 export function decodePiDetailInput(data: string): PiDetailInput {
+  // Pi's legacy parser does not decode modified function-key tilde sequences.
+  const functionKey = data.match(/^\x1b\[18(?:;(\d+))?~$/);
+  if (functionKey) {
+    const modifiers = Number(functionKey[1] ?? "1") - 1;
+    return keyInput({name: "f7", shift: Boolean(modifiers & 1), meta: Boolean(modifiers & 2), ctrl: Boolean(modifiers & 4), sequence: data});
+  }
   if (data.startsWith(BRACKETED_PASTE_START) && data.endsWith(BRACKETED_PASTE_END)) {
     return {
       kind: "paste",

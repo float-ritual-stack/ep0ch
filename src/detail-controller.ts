@@ -205,6 +205,7 @@ export interface DetailPropertyInspectorState {
 }
 
 export interface DetailControllerOptions {
+  openHere?(target: OutlinerNavigationTarget): Promise<boolean>;
   propertyInspectorPresentation?: DetailPropertyInspectorPresentation;
   destinationTimeoutMs?: number;
   readerLabel?: string;
@@ -2128,7 +2129,8 @@ export function createDetailController(
         ...(preserveSource ? { preserveSource: true } : {}),
       });
       if (dispatched.targetClientId === effects.clientId) {
-        await applyNavigationCommand(dispatched.command);
+        if (options.openHere) await options.openHere(target.target);
+        else await applyNavigationCommand(dispatched.command);
       }
       state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
       return true;
@@ -2152,6 +2154,10 @@ export function createDetailController(
       if (reference) await resolveDestinationTarget(target, reference);
     },
     replace: async (target) => {
+      if (options.openHere) {
+        if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
+        return;
+      }
       if (protection()) {
         throw new Error("Finish or cancel the active edit or source selection before replacing this Detail");
       }
@@ -4042,6 +4048,7 @@ export function createDetailController(
   };
 
   async function handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
+    if (command.command === "focus") { effects.focusSelf(); emit(); return; }
     if (command.command === "comment.selection") {
       if (!command.renderedSelection) {
         state.status = "Rendered selection payload is missing";

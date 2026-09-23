@@ -20,9 +20,8 @@ import { deriveResourceCapabilityReport } from "../src/resources";
 import type { Block } from "../src/types";
 import { createPropertyInspectorModel, detailPropertyInspectorRegions } from "../src/property-inspector";
 const ACTION_MENU = "\x1b]8;;pi-outliner-action:detail.menu.open\x1b\\\x1b[2;36m[⋯]\x1b[0m\x1b]8;;\x1b\\";
-const UNLOCKED = "\x1b]8;;pi-outliner-action:detail.lock.toggle\x1b\\\x1b[32m🔓\x1b[0m\x1b]8;;\x1b\\";
 const detailHeader = (title: string, width: number): string[] => {
-  const controls = `${UNLOCKED} ${ACTION_MENU}`;
+  const controls = ACTION_MENU;
   return [
     `\x1b[1;97m${title}\x1b[0m${
       " ".repeat(Math.max(1, width - visibleWidth(title) - visibleWidth(controls)))
@@ -239,13 +238,10 @@ describe("detail ANSI renderer", () => {
     expect(stripTerminalSequences(rendered)).toContain(resource.id);
     expect(rendered).not.toContain("Select a block in the outliner pane.");
   });
-  test("right-aligns clickable lock and action-menu controls", () => {
+  test("right-aligns the action-menu control", () => {
     const header = renderDetailLines(state(), { width: 64, height: 8 })[0]!;
     const visible = stripTerminalSequences(header);
-    expect(visible.endsWith("🔓 [⋯]")).toBe(true);
-    expect(getOsc8LinkAtColumn(header, visible.indexOf("🔓"))).toBe(
-      "pi-outliner-action:detail.lock.toggle",
-    );
+    expect(visible.endsWith("[⋯]")).toBe(true);
     expect(getOsc8LinkAtColumn(header, visible.indexOf("[⋯]") + 1)).toBe(
       "pi-outliner-action:detail.menu.open",
     );

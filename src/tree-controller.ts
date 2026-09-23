@@ -73,6 +73,7 @@ import type {
   TreeIndexCollection,
   TreeIndexSnapshot,
   ResolvedBlockReferences,
+  ResourceDescription,
 } from "./types";
 import {
   buildVirtualBranchCreationText,
@@ -144,6 +145,7 @@ export interface TreeView {
   readonly goto?: GotoController | null;
   readonly inbox?: InboxController | null;
   readonly inboxCue?: string;
+  readonly localPreview?: {readonly target: OutlinerNavigationTarget; readonly title: string; readonly lines: readonly string[]; readonly offset: number; readonly focused: boolean} | null;
   readonly viewerLines: readonly string[];
   readonly viewerPath: string;
   readonly viewerOffset: number;
@@ -327,6 +329,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let quickBuffer = new TextBuffer();
   let quickCompletion: MutableQuickCompletion | null = null;
 
+  let localPreview: TreeView["localPreview"] = null;
+  let localPreviewGeneration = 0;
   let viewerLines: string[] = [];
   let viewerPath = "";
   let viewerOffset = 0;
@@ -484,6 +488,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       goto: mode === "goto" ? goto : null,
       inbox: mode === "inbox" ? inbox : null,
       inboxCue: inboxStatusCue(inbox.snapshot, inbox.error),
+      localPreview,
       viewerLines,
       viewerPath,
       viewerOffset,
@@ -972,6 +977,31 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
   }
 
+  async function inspectLocally(target: OutlinerNavigationTarget): Promise<void> {
+    const generation = ++localPreviewGeneration;
+    const title = target.kind === "block" ? target.blockId : target.resourceId;
+    localPreview = {target, title, lines: ["Loading Preview…"], offset: 0, focused: localPreview?.focused ?? false};
+    effects.invalidate();
+    try {
+      let text: string;
+      if (target.kind === "block") {
+        const block = await effects.request<Block>({action: "get", blockId: target.blockId});
+        const resolved = await effects.request<ResolvedBlockReferences>({action: "references.resolve", text: block.text});
+        text = resolved.text;
+      } else {
+        const resource = await effects.request<ResourceDescription>({action: "resources.describe", destinationClientId: effects.clientId, target});
+        text = resource.filesystem?.text ?? resource.web?.markdown ?? resource.remoteEntity?.markdown ?? resource.pdf?.markdown ?? resource.computed?.markdown ?? "No cached readable representation · Open explicitly to inspect this Resource";
+      }
+      if (generation !== localPreviewGeneration) return;
+      localPreview = {target, title, lines: text.split(/\r?\n/), offset: 0, focused: localPreview?.focused ?? false};
+      await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: target});
+    } catch (error) {
+      if (generation !== localPreviewGeneration) return;
+      localPreview = {target, title, lines: [errorMessage(error)], offset: 0, focused: localPreview?.focused ?? false};
+    }
+    effects.invalidate();
+  }
+
   async function drainBrowsingPublications(): Promise<void> {
     while (pendingBrowsingPublication) {
       const desired = pendingBrowsingPublication;
@@ -983,9 +1013,17 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         if (publication.unavailable) {
           status = publication.unavailable;
           browsingPublicationStatus = publication.unavailable;
-        } else if (status === browsingPublicationStatus) {
-          status = "";
-          browsingPublicationStatus = "";
+          if (desired.dispatchPreview && desired.target && publication.unavailable.startsWith("No paired reader")) void inspectLocally(desired.target);
+        } else {
+          if (localPreview && publication.preview) {
+            localPreviewGeneration += 1;
+            localPreview = null;
+            await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: null});
+          }
+          if (status === browsingPublicationStatus) {
+            status = "";
+            browsingPublicationStatus = "";
+          }
         }
         effects.invalidate();
       }
@@ -1025,6 +1063,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     target: OutlinerNavigationTarget | null,
     dispatchPreview = true,
   ): Promise<void> {
+    localPreviewGeneration += 1;
     pendingBrowsingPublication = { target, dispatchPreview, rowId: rows[selectedIndex]?.rowId ?? null };
     await startBrowsingPublicationPump();
   }
@@ -1061,7 +1100,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const target = authoredLinkTarget(row);
     if (target) {
       status = `${row.link.label} selected · Enter opens in Detail`;
-      await publishBrowsingTarget(target, false);
+      await publishBrowsingTarget(target);
     } else {
       status = authoredLinkUnavailableReason(row) ?? "Authored target is unavailable";
       await publishBrowsingTarget(null, false);
@@ -2076,6 +2115,26 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     inputAction: TerminalInputAction,
     resolveAction = true,
   ): Promise<void> {
+    if (inputAction !== "suppress" && mode === "browse" && key.name === "f7") {
+      if (key.shift) {
+        localPreviewGeneration += 1;
+        localPreview = null;
+        await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: null});
+      } else if (localPreview) localPreview = {...localPreview, focused: !localPreview.focused};
+      effects.invalidate();
+      return;
+    }
+    if (inputAction !== "suppress" && mode === "browse" && localPreview?.focused) {
+      const page = Math.max(1, effects.terminalHeight() - 4);
+      const delta = key.name === "up" ? -1 : key.name === "down" ? 1 : key.name === "pageup" ? -page : key.name === "pagedown" ? page : 0;
+      if (delta) localPreview = {...localPreview, offset: Math.max(0, Math.min(localPreview.lines.length - 1, localPreview.offset + delta))};
+      else if (key.name === "escape") localPreview = {...localPreview, focused: false};
+      else if (key.name === "return") {
+        try { await effects.navigation.dispatch(localPreview.target, "open"); }
+        catch (error) { status = errorMessage(error); }
+      } else if (!(key.ctrl && key.name === "q")) return;
+      if (!(key.ctrl && key.name === "q")) { effects.invalidate(); return; }
+    }
     if (resolveAction) {
       const mapped = actionKeymap.canonicalize("tree", actionScope(), str, key);
       if (mapped.suppressed) return;

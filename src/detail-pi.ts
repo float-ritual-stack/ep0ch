@@ -206,6 +206,7 @@ let pendingLinkClick: PiDetailLinkClick = {
   routing: "linked",
   suppress: false,
 };
+let directSelectionOwner: "current" | "preview" = "current";
 let latestDirectSelection: DetailDirectSelectionCapture | null = null;
 let pendingDirectSelection: Promise<DetailDirectSelectionCapture | null> | null = null;
 let pendingResourceSelectionRange: TextBufferRange | null = null;
@@ -271,7 +272,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     const capture = await capturePromise;
     if (generation === directSelectionGeneration) {
       latestDirectSelection = capture;
-      await effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : capture ? "active source selection" : null);
+      await effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : capture && directSelectionOwner === "current" ? "active source selection" : null);
       pendingDirectSelection = null;
       pendingResourceSelectionRange = null;
     }
@@ -431,7 +432,7 @@ const effects: DetailEffects = {
   async setDestination(destination) {
     await client.request({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
   },
-  isSourceSelectionActive: () => latestDirectSelection !== null || pendingDirectSelection !== null,
+  isSourceSelectionActive: () => directSelectionOwner === "current" && (latestDirectSelection !== null || pendingDirectSelection !== null),
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
   },
@@ -687,14 +688,18 @@ const controller = createDetailController(
 
 const inspection = createDetailController({
   ...effects,
+  loadTarget: async target => target.kind === "block" ? effects.loadTarget(target) : {
+    kind: "resource", target,
+    description: await client.request<ResourceDescription>({action: "resources.describe", destinationClientId: clientId, target}),
+  },
   getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
   setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
   setNavigationProtection: async () => {},
   isSourceSelectionActive: () => false,
-}, () => synchronizeLayout?.(), {readerLabel: "linked Detail", actionKeymap});
+}, () => synchronizeLayout?.(), {readerLabel: "linked Detail", actionKeymap, openHere: target => readingSurface.openHere(target, viewport())});
 const readingSurface = new DetailReadingSurface(controller, inspection, () => synchronizeLayout?.(), async () => {
   await client.request({action: "clients.update", clientId, previewTarget: null});
-});
+}, () => effects.isSourceSelectionActive?.() ?? false);
 const focusedReader = () => readingSurface.active;
 const focusedPreviewLayout = () => readingSurface.focused === "preview" && readingSurface.previewVisible ? inspectionLayout : preview;
 const readingHelp = () => `${readingSurface.previewVisible ? "F7 Current/Preview  Alt+Enter Keep Preview  Shift+F7 close Preview  " : ""}`;
@@ -814,13 +819,14 @@ function startWatcher(): void {
         serviceEventScheduler.scheduleWork(async () => {
           await composedTree?.controller.handleConnect();
           await controller.onServiceConnect(viewport());
+          await inspection.onServiceConnect(viewport());
           if (composed) await client.request({action: "clients.update", clientId, focusedRegion});
         });
       }
     },
     onDisconnect: () => {
       runtimeSync?.suspend();
-      serviceEventScheduler.scheduleWork(() => { composedTree?.controller.handleDisconnect(); controller.onServiceDisconnect(); });
+      serviceEventScheduler.scheduleWork(() => { composedTree?.controller.handleDisconnect(); controller.onServiceDisconnect(); inspection.onServiceDisconnect(); });
     },
     onError: (error) => {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
@@ -1170,6 +1176,7 @@ function shouldPassDetailInputToTui(data: string): boolean {
   const pointer = parseTreePrimaryPointer(data);
   if (pointer && !pointer.meta && !pointer.ctrl) {
     if (pointer.phase === "down") {
+      directSelectionOwner = readingSurface.active === inspection ? "preview" : "current";
       directSelectionGeneration += 1;
       latestDirectSelection = null;
       pendingDirectSelection = null;
@@ -1177,12 +1184,12 @@ function shouldPassDetailInputToTui(data: string): boolean {
       pendingResourceSelectionRange = null;
     }
     if (
-      controller.state.mode === "preview" &&
-      controller.state.target?.kind === "resource"
+      focusedReader().state.mode === "preview" &&
+      focusedReader().state.target?.kind === "resource"
     ) {
       const point = focusedPreviewLayout().sourcePointAtViewport(
         pointer.row,
-        pointer.column,
+        pointer.column - (readingSurface.active === inspection && readerSplitVisible() ? currentReaderWidth() + 1 : 0),
         terminal.columns,
       );
       if (pointer.phase === "down") {
@@ -1200,6 +1207,7 @@ function shouldPassDetailInputToTui(data: string): boolean {
     detailChooserOwnsPiInput(data)
   ) return false;
   if (actionMenuHandle) return true;
+  if (readingSurface.active === inspection && isTreeMouseSequence(data)) return true;
   if (composerHandle) return false;
   if (tui.hasOverlay()) return true;
   if (!isTreeMouseSequence(data)) return false;
@@ -1256,9 +1264,10 @@ const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewp
 async function readerAction(actionId: string): Promise<boolean> {
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
-  if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport()); return true; }
+  if (actionId === "detail.reading.keep") { if (await readingSurface.keepPreview(viewport())) directSelectionOwner = "current"; return true; }
   if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit") {
     if (!await readingSurface.keepPreview(viewport())) return true;
+    directSelectionOwner = "current";
     await handleKeypress.invoke(actionId);
     return true;
   }
@@ -1460,16 +1469,16 @@ synchronizeLayout = () => {
 
   composedLayout?.resize();
   if (composerHandle && composerWidth !== terminal.columns) { composerHandle.hide(); composerHandle = null; }
-  if (mode === "comment" && !composerHandle) {
+  if (mode === "comment" && readingSurface.active === controller && !composerHandle) {
     composerWidth = terminal.columns;
     composerHandle = tui.showOverlay(composer, {
-      width: composed ? terminal.columns : "100%",
-      ...(composed ? {col: composedWidths(processTerminal.columns).detailX} : {}),
+      width: terminal.columns,
+      col: composed ? composedWidths(processTerminal.columns).detailX : 0,
       maxHeight: BUFFER_COMPOSER_HEIGHT,
       anchor: "bottom-center",
       nonCapturing: true,
     });
-  } else if (mode !== "comment" && composerHandle) {
+  } else if ((mode !== "comment" || readingSurface.active !== controller) && composerHandle) {
     composerHandle.hide();
     composerHandle = null;
   }
@@ -1556,6 +1565,7 @@ async function initialize(): Promise<void> {
   await composedTree?.controller.initialize();
   runtimeInitialized = true;
   await controller.onServiceConnect(viewport());
+  await inspection.onServiceConnect(viewport());
 }
 
 try {

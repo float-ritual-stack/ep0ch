@@ -610,7 +610,7 @@ describe("Pi Markdown detail preview", () => {
     const lines = previewLayout(detail).render(32).map(stripTerminalSequences);
 
     expect(lines[0]).toContain("Resolved block");
-    expect(lines[0]).toMatch(/🔓 \[⋯\]$/);
+    expect(lines[0]).toMatch(/\[⋯\]$/);
     expect(lines[1]).toBe("");
     expect(lines[2]).toBe("─".repeat(32));
     expect(lines.at(-2)).toBe("Ready");
