@@ -38,6 +38,7 @@ export class DetailReadingSurface {
   async receive(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
     if (command.command === "preview") {
       this.previewVisible = true;
+      if (!this.current.state.target) this.focused = "preview";
       await this.preview.handleUiCommand(command, viewport);
     } else {
       this.focused = "current";

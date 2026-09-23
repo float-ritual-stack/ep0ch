@@ -1267,6 +1267,10 @@ const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewp
   navigatePreview: direction => inspectionLayout.navigate(direction),
 });
 async function readerAction(actionId: string): Promise<boolean> {
+  if (readingSurface.active === inspection && actionId === "detail.lock.toggle") {
+    inspection.onServiceError(new Error("Preview follows local selection · Keep Preview to retain it as Current"));
+    return true;
+  }
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
   if (actionId === "detail.reading.keep") { if (await readingSurface.keepPreview(viewport())) directSelectionOwner = "current"; return true; }

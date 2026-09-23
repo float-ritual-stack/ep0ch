@@ -4095,6 +4095,7 @@ export function createDetailController(
   };
 
   async function handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
+    if (command.command === "focus") { effects.focusSelf(); emit(); return; }
     if (command.command === "comment.selection") {
       if (!command.renderedSelection) {
         state.status = "Rendered selection payload is missing";

@@ -602,6 +602,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
   }
   if (inputAction !== "suppress" && !active.state.destinationChooser.active) {
     const {actionId} = actionKeymap.resolve("detail", detailActionScopes(active.state), str, key);
+    if (active === inspection && actionId === "detail.lock.toggle") { inspection.onServiceError(new Error("Preview follows local selection · Keep Preview to retain it as Current")); return; }
     if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
     if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
     if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }

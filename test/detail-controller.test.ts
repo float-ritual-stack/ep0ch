@@ -5272,6 +5272,9 @@ describe("retained Current and local Preview", () => {
     await current.controller.dispatch({type: "edit.begin"}, viewport);
     await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
     const draft = current.controller.state.buffer.text;
+    await current.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+    expect(current.calls.selfFocuses).toBeGreaterThan(0);
+    expect(current.controller.state.buffer.text).toBe(draft);
     const editorOffset = current.controller.state.editorVisualOffset;
     for (const blockId of ["inspect-a", "inspect-b", "inspect-c"]) {
       await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId}}, viewport);
