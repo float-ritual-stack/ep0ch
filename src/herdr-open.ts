@@ -86,7 +86,11 @@ await reportStartupErrors("open", async () => {
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
     invocationPane = (JSON.parse(paneOutput) as PaneDetailsResponse).result?.pane;
-    workspaceRoot = invocationPane?.foreground_cwd ?? invocationPane?.cwd ?? workspaceRoot;
+    // Outliner panes report their project through OSC 7; their running process
+    // remains in the plugin checkout. A new Tree must inherit the project.
+    workspaceRoot = mode === "open-tree"
+      ? invocationPane?.cwd ?? invocationPane?.foreground_cwd ?? workspaceRoot
+      : invocationPane?.foreground_cwd ?? invocationPane?.cwd ?? workspaceRoot;
   }
 
   const paths = resolveClientPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot });

@@ -70,7 +70,8 @@ appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
 if (args[0] === "pane" && args[1] === "get") {
   console.log(JSON.stringify({ result: { pane: {
     pane_id: "workspace:pane",
-    foreground_cwd: ${JSON.stringify(workspaceRoot)},
+    foreground_cwd: ${JSON.stringify(mode === "open-tree" ? "/unrelated/plugin-checkout" : workspaceRoot)},
+    cwd: ${JSON.stringify(workspaceRoot)},
     workspace_id: "workspace",
     tab_id: "workspace:tab",
   } } }));
