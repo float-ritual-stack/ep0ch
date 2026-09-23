@@ -253,27 +253,37 @@ export class InboxController {
     }
   }
 
+  /** One content resolver for keyboard, mouse and destination creation. */
+  async resolveContentTarget(blockId = this.targets[this.targetIndex]?.role === "diagnostics"
+    ? this.selected?.sourceId : this.targets[this.targetIndex]?.id): Promise<string> {
+    if (!blockId) throw new Error("Select an Inbox source or output");
+    const session = this.session;
+    const selectedId = this.selected?.id;
+    // The initial content target may have been deleted since this receipt.
+    // Explicit non-default choices remain explicit rather than silently redirecting.
+    const candidates = this.targetIndex === 0 && blockId === this.targets[0]?.id
+      ? this.targets.filter(target => target.role !== "diagnostics").map(target => target.id)
+      : [blockId];
+    let available: Block | null = null;
+    for (const candidate of candidates) {
+      const block = await this.effects.request<Block | null>({ action: "get", blockId: candidate }).catch(error => {
+        if (error instanceof Error && error.message === `Block not found: ${candidate}`) return null;
+        throw error;
+      });
+      if (!this.active || session !== this.session || selectedId !== this.selected?.id) throw new Error("Inbox selection changed; choose the target again");
+      if (block && !block.deletedAt && !block.effectiveDeletedRootId) { available = block; break; }
+    }
+    if (!available) throw new Error("This block is no longer available");
+    this.targetIndex = Math.max(0, this.targets.findIndex(target => target.id === available.id));
+    return available.id;
+  }
+
   private async open(blockId: string | undefined, destination: "tree" | "detail"): Promise<void> {
     if (!blockId) return;
     const session = this.session;
     try {
-      // The initial content target may have been deleted since this receipt.
-      // Explicit non-default choices remain explicit rather than silently redirecting.
-      const candidates = this.targetIndex === 0 && blockId === this.targets[0]?.id
-        ? this.targets.filter(target => target.role !== "diagnostics").map(target => target.id)
-        : [blockId];
-      let available: Block | null = null;
-      for (const candidate of candidates) {
-        const block = await this.effects.request<Block | null>({ action: "get", blockId: candidate }).catch(error => {
-          if (error instanceof Error && error.message === `Block not found: ${candidate}`) return null;
-          throw error;
-        });
-        if (!this.active || session !== this.session) return;
-        if (block && !block.deletedAt && !block.effectiveDeletedRootId) { available = block; break; }
-      }
-      if (!available) throw new Error("This block is no longer available");
-      this.targetIndex = Math.max(0, this.targets.findIndex(target => target.id === available.id));
-      await this.effects.open(available.id, destination);
+      const id = await this.resolveContentTarget(blockId);
+      await this.effects.open(id, destination);
       if (destination === "tree") { this.active = false; this.session++; }
     } catch (error) {
       if (this.active && session === this.session) this.notice = message(error);

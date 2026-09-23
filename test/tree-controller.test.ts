@@ -3666,3 +3666,24 @@ test('Inbox destination chooser retains selection, cancel returns to Inbox and o
  await c.handleAction('tree.navigation.link');await c.handleAction('destination:0');expect(lastCall(fake.calls,'navigation.link.set')).toMatchObject({destination:{clientId:'detail-test',region:'detail'}});
  await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('browse');expect(fake.stops).toBe(0);
 });
+
+test('all Inbox chooser paths resolve live content and expose creation and stale-reader failures',async()=>{
+ const note=block('live-source'),output=block('deleted-output');let stale=false;
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([note],note);
+  if(input.action==='get') {if(input.blockId===output.id)throw new Error(`Block not found: ${output.id}`);if(input.blockId===note.id)return note;}
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:stale?[]:[{view:{clientId:'reader',region:'detail'},label:'Reader'}]};
+  if(input.action==='navigation.link.set'&&stale)throw new Error('Reader disconnected');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
+ await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
+ expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:note.id}});
+ let created='';fake.effects.createDetailDestination=async(id)=>{created=id;throw new Error('Pane startup timed out');};
+ c.view().inbox!.targetIndex=0;
+ await c.handleAction('tree.navigation.link');await c.handleAction('destination:new-right');
+ expect(created).toBe(note.id);expect(c.view().inbox?.notice).toContain('Pane startup timed out');
+ await c.handleAction('tree.navigation.link');stale=true;await c.handleAction('destination:0');
+ expect(c.view().mode).toBe('action-menu');expect(c.view().status).toBe('Reader disconnected');
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.notice).toBe('Reader disconnected');
+});

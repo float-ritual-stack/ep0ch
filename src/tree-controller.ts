@@ -1346,18 +1346,24 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const selected = rows[selectedIndex];
     const purpose = destinationMenu?.purpose ?? "link";
     const callerMode = destinationMenu ? actionMenuReturnMode : mode;
-    const blockId = callerMode === "inbox" ? (inbox.targets[inbox.targetIndex]?.role === "diagnostics" ? inbox.selected?.sourceId : inbox.targets[inbox.targetIndex]?.id) : isBlockTreeRow(selected) ? selected.canonicalId : undefined;
+    const selectedBlockId = isBlockTreeRow(selected) ? selected.canonicalId : undefined;
     destinationMenu = null; placementDirection = null; destinationPreview.clear(); mode = callerMode;
     try {
+      const blockId = callerMode === "inbox" ? await inbox.resolveContentTarget() : selectedBlockId;
       if (!blockId) throw new Error("Select a block to create a Detail destination");
       if (!effects.createDetailDestination) throw new Error("Creating a destination is unavailable in this host");
       status = "Creating Detail · waiting for the new reader to connect…";
+      if (callerMode === "inbox") inbox.notice = status;
       effects.invalidate();
       const destination = await effects.createDetailDestination(blockId, placement);
       if (purpose === "link") await effects.request({action: "navigation.link.set", source: {clientId: effects.clientId, region: "tree"}, destination});
       void navigationDisplay.refresh();
       status = purpose === "link" ? "Linked: Tree → new Detail" : "Opened once in new Detail";
-    } catch (error) { status = errorMessage(error); }
+      if (callerMode === "inbox") inbox.notice = status;
+    } catch (error) {
+      status = errorMessage(error);
+      if (callerMode === "inbox") inbox.notice = `${status} · Use Link destination or Open once to retry`;
+    }
     effects.invalidate();
   }
 
@@ -2001,15 +2007,25 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (destination === undefined) return;
       destinationMenu = null;placementDirection=null;destinationPreview.clear();
       mode = actionMenuReturnMode;
+      try {
       if (menu.purpose === "link") {
         await effects.request({action: "navigation.link.set", source: menu.state.source, destination});
         void navigationDisplay.refresh();
         status = destination ? `Linked: Tree → ${menu.state.destinations.find(entry=>entry.view.clientId===destination.clientId)?.label ?? "Detail"}` : "Open unlinked · choose once or new split";
       } else if (destination) {
         if (mode === "inbox") {
-          const target = inbox.targets[inbox.targetIndex];
-          if (target && target.role !== "diagnostics") await effects.navigation.dispatch({kind:"block",blockId:target.id},"open",{destination});
+          const blockId = await inbox.resolveContentTarget();
+          await effects.navigation.dispatch({kind:"block",blockId},"open",{destination});
         } else await focusDetailReader({destination});
+      }
+      } catch (error) {
+        const failure = errorMessage(error);
+        if (mode === "inbox") {
+          inbox.notice = failure;
+          try { await handleAction(menu.purpose === "link" ? "tree.navigation.link" : "tree.navigation.once"); }
+          catch { /* Keep the original failure visible even if discovery is unavailable. */ }
+        }
+        status = failure;
       }
       effects.invalidate();
       return;
