@@ -148,6 +148,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --tree-key)
       [ "$#" -ge 2 ] || fail "--tree-key requires a chord"
+      case "$2" in
+        -*) fail "--tree-key requires a chord" ;;
+      esac
       TREE_KEY=$2
       shift 2
       ;;

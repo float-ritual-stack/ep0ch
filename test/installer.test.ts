@@ -61,6 +61,12 @@ command = "float.pi-outliner.obsolete"
     expect(await readFile(config, "utf8")).toBe(first);
 
     expect(keys.find(k => k.command === "float.pi-outliner.open-tree")?.key).toBe("prefix+shift+u");
+    for (const args of [["--tree-key"], ["--tree-key", "--no-config"], ["--tree-key", "-y"]]) {
+      const missingChord = await run(...args);
+      expect(missingChord.exitCode).not.toBe(0);
+      expect(missingChord.stderr).toContain("--tree-key requires a chord");
+      expect(await readFile(config, "utf8")).toBe(first);
+    }
     expect((await run("--tree-key", "prefix+u")).exitCode).not.toBe(0);
     expect((await run("--tree-key", "prefix+alt+k")).exitCode).not.toBe(0);
     expect(await readFile(config, "utf8")).toBe(first);
