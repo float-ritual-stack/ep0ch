@@ -207,6 +207,7 @@ export interface DetailPropertyInspectorState {
 }
 
 export interface DetailControllerOptions {
+  openHere?(target: OutlinerNavigationTarget): Promise<boolean>;
   propertyInspectorPresentation?: DetailPropertyInspectorPresentation;
   destinationTimeoutMs?: number;
   readerLabel?: string;
@@ -729,6 +730,7 @@ export interface DetailController {
   handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void>;
   onServiceEvent(event: OutlinerEvent, viewport: DetailViewport): Promise<void>;
   supersedePassivePreview(): void;
+  releaseDocument(): void;
   handleDestinationChooserKeypress(str: string, key: TerminalKey): Promise<boolean>;
   destinationChooserHelpText(): string;
   onServiceConnect(viewport: DetailViewport): Promise<void>;
@@ -1219,7 +1221,7 @@ export function createDetailController(
     return { projection, resolved };
   };
 
-  const loadAnnotations = async (expectedGeneration = loadGeneration): Promise<void> => {
+  const loadAnnotations = async (expectedGeneration = loadGeneration, application: "queued" | "current-turn" = "queued"): Promise<void> => {
     const targetAtStart = state.target;
     const documentAtStart = state.document;
     const fileAtStart = state.referencedFile;
@@ -1286,7 +1288,7 @@ export function createDetailController(
     } catch {
       threads = [];
     }
-    effects.enqueueViewUpdate(() => {
+    const apply = () => {
       if (expectedGeneration !== loadGeneration || state.document !== documentAtStart ||
         state.referencedFile !== fileAtStart || !sameNavigationTarget(state.target, targetAtStart) ||
         sameAnnotationThreads(state.annotationThreads, threads)) return;
@@ -1296,7 +1298,9 @@ export function createDetailController(
       }
       state.annotationThreads = threads;
       emit();
-    });
+    };
+    if (application === "current-turn") apply();
+    else effects.enqueueViewUpdate(apply);
   };
 
   const invalidateBacklinks = (): void => {
@@ -2152,7 +2156,9 @@ export function createDetailController(
         ...(preserveSource ? { preserveSource: true } : {}),
       });
       if (dispatched.targetClientId === effects.clientId) {
-        await applyNavigationCommand(dispatched.command);
+        if (options.openHere) {
+          if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
+        } else await applyNavigationCommand(dispatched.command);
       }
       state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
       return true;
@@ -2179,6 +2185,10 @@ export function createDetailController(
       if (reference) await resolveDestinationTarget(target, reference);
     },
     replace: async (target) => {
+      if (options.openHere) {
+        if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
+        return;
+      }
       if (protection()) {
         throw new Error("Finish or cancel the active edit or source selection before replacing this Detail");
       }
@@ -3097,9 +3107,11 @@ export function createDetailController(
         selectAnnotationThread(intent.annotationId, true, viewport);
         break;
       case "annotation.thread.reply":
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
         beginAnnotationReply(intent.annotationId);
         break;
       case "annotation.thread.lifecycle":
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
         await changeAnnotationLifecycle(intent.annotationId);
         break;
       case "resource.refresh": {
@@ -4089,6 +4101,7 @@ export function createDetailController(
   };
 
   async function handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
+    if (command.command === "focus" && !command.target) { effects.focusSelf(); emit(); return; }
     if (command.command === "comment.selection") {
       if (!command.renderedSelection) {
         state.status = "Rendered selection payload is missing";
@@ -4161,6 +4174,16 @@ export function createDetailController(
     captureResourcePointerSelection,
     setPreviewRegions(regions) {
       reconcilePreviewRegions(state.previewRegions, regions);
+    },
+    releaseDocument() {
+      loadGeneration += 1;
+      clearDocumentPresentation();
+      state.document = {kind: "empty"};
+      navigationHistory.length = 0;
+      navigationIndex = -1;
+      blockCache.clear();
+      syncNavigationState();
+      emit();
     },
     supersedePassivePreview() {
       loadGeneration += 1;

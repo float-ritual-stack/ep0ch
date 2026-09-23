@@ -48,6 +48,7 @@ export interface ResolvedActionInput {
 
 const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift"] as const;
 const KEY_NAMES: Record<string, string> = {
+  f7: "F7",
   arrowdown: "ArrowDown",
   arrowleft: "ArrowLeft",
   arrowright: "ArrowRight",
@@ -199,6 +200,9 @@ const ACTION_SPECS = [
   { id: "tree.delete.confirm", surface: "tree", modes: ["delete"], label: "confirm Trash", description: "Confirm moving the selected subtree to Trash", defaultChords: ["y"], helpPriority: 95, menuGroup: "Edit" },
   { id: "detail.close", surface: "detail", modes: ["*"], label: "close", description: "Close this Detail pane", defaultChords: ["Ctrl+Q"], helpPriority: 100, menuGroup: "System" },
   { id: "detail.cancel", surface: "detail", modes: ["edit", "select", "comment"], label: "cancel", description: "Cancel the current editor, rendered selection, or contextual buffer without saving", defaultChords: ["Esc"], helpPriority: 100, menuGroup: "System" },
+  { id: "detail.reading.focus", surface: "detail", modes: ["*"], label: "Current / Preview", description: "Switch focus between the retained reader and local Preview", defaultChords: ["F7"], helpPriority: 20, menuGroup: "View" },
+  { id: "detail.reading.keep", surface: "detail", modes: ["*"], label: "Keep Preview here", description: "Promote Preview into Current while protecting its draft", defaultChords: ["Alt+Enter"], helpPriority: 20, menuGroup: "View" },
+  { id: "detail.reading.close", surface: "detail", modes: ["*"], label: "Close Preview", description: "Release the local Preview while preserving Current", defaultChords: ["Shift+F7"], helpPriority: 20, menuGroup: "View" },
   { id: "detail.menu.open", surface: "detail", modes: ["preview", "annotation", "file", "property"], label: "actions", description: "Open contextual actions and effective bindings", defaultChords: ["?"], helpPriority: 25, menuGroup: "System" },
   { id: "detail.keymap.reload", surface: "detail", modes: ["preview", "annotation", "file", "property"], label: "reload keys", description: "Atomically reload the Outliner keymap", defaultChords: ["Ctrl+R"], helpPriority: 5, menuGroup: "System" },
   { id: "detail.focus.tree", surface: "detail", modes: ["preview", "annotation", "file"], label: "Tree", description: "Return focus to Tree", defaultChords: ["q", "Ctrl+C"], helpPriority: 75, menuGroup: "Pane" },

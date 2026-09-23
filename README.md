@@ -1711,6 +1711,19 @@ Use the Tree actions menu (`?`) to **focus branch**, **return to workspace**, or
 
 Collapsed source folders no longer empty a query displayed through another projection. Missing or no-longer-visible roots retain a **return to workspace** action. This is local navigation state, not another database or a smaller network payload.
 
+Each reader retains **Current** while passive Tree selection updates one local
+**Preview**. At wide widths they sit beside each other; at narrower widths,
+`F7` switches between them. `Alt+Enter` keeps Preview as Current and
+`Shift+F7` closes Preview. Keeping or editing Preview first protects any Current
+draft or source selection. Current keeps its own history, scroll, editor undo,
+and document identity while another item is inspected.
+
+Passive inspection stays with the Tree's paired browsing context. An independent
+Tree without a paired reader shows its own read-only Preview (`F7` to focus it,
+`Shift+F7` to close); selection never creates a pane. Explicit Open continues to
+use the source's saved destination link. Resource Preview reads an existing
+representation and retains its revision; it does not intern or refresh a Resource.
+
 ### Sticky Tree breadcrumbs
 
 The sticky path follows the selected occurrence, including the query through which you reached it. A `◇` marks a projected path segment. Click an ancestor to focus that branch; **Back** restores your former root, selection and vertical viewport. `⌂` returns to the workspace. The `<` / `>` controls scroll only the path, with configurable `Alt+[` / `Alt+]` equivalents. **? → Focus parent branch** provides keyboard ancestor navigation.

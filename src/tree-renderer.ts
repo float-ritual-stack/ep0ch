@@ -386,6 +386,28 @@ export function renderTreeFrame(
   initialScrollStartEntryIndex = 0,
   options: TreeRenderOptions = {},
 ): TreeRenderResult {
+  if (view.localPreview && view.mode === "browse") {
+    const preview = view.localPreview;
+    const wide = width >= 140;
+    const treeWidth = wide ? Math.floor((width - 1) / 2) : width;
+    const tree = renderTreeFrame({...view, localPreview: null}, treeWidth, height, initialScrollStartEntryIndex, {...options, clearScreen: false});
+    const previewWidth = wide ? width - treeWidth - 1 : width;
+    const lines = [
+      truncateToWidth(`${preview.focused ? "●" : "○"} Preview · ${sanitizeDynamicText(preview.title)}`, previewWidth),
+      ...preview.lines.slice(preview.offset, preview.offset + Math.max(1, height - 3)).map(line => renderMarkdownLine(truncate(sanitizeDynamicText(line), previewWidth))),
+    ];
+    while (lines.length < height - 1) lines.push("");
+    lines.push(truncateToWidth("F7 Tree/Preview · Enter Open linked · Shift+F7 close", previewWidth));
+    let frame: string;
+    if (wide) {
+      const treeLines = tree.frame.split("\n");
+      frame = lines.map((line, index) => {
+        const left = truncateToWidth(treeLines[index] ?? "", treeWidth);
+        return left + " ".repeat(Math.max(0, treeWidth - visibleWidth(left))) + "│" + line;
+      }).join("\n");
+    } else frame = preview.focused ? lines.join("\n") : tree.frame;
+    return {...tree, frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${frame}`, mouseTargets: preview.focused && !wide ? [] : tree.mouseTargets};
+  }
   const output: string[] = [options.clearScreen === false ? "" : `${ESC}H${ESC}2J`];
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 

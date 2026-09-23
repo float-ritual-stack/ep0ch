@@ -1,3 +1,5 @@
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { DetailReadingSurface } from "./detail-reading-surface";
 import { getProperty } from "./properties";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import { emitKeypressEvents } from "node:readline";
@@ -11,12 +13,13 @@ import { OutlinerActionKeymap } from "./outliner-actions";
 import {
   createDetailController,
   type DetailEffects,
+  type DetailController,
   type DetailViewport,
 } from "./detail-controller";
 import { projectDetailRead } from "./detail-embeds";
 import { DetailEventScheduler } from "./detail-event-scheduler";
 import { createDetailKeyHandler, detailActionScopes } from "./detail-keymap";
-import { buildDetailAnsiPreview, renderDetailAnsi } from "./detail-renderer";
+import { buildDetailAnsiPreview, renderDetailLines } from "./detail-renderer";
 import { referencedFilePreview, type FileContents, type ReferencedPathCandidate } from "./files";
 import {
   editTextInExternalEditor,
@@ -99,12 +102,13 @@ let runtimeSync: ClientRuntimeSync | null = null;
 let workQueue = Promise.resolve();
 let pendingPaste: string | null = null;
 
-function viewport(): DetailViewport {
-  const width = process.stdout.columns ?? 100;
+function viewport(reader: DetailController = readingSurface.active): DetailViewport {
+  const totalWidth = process.stdout.columns ?? 100;
+  const width = readingSurface.previewVisible && totalWidth >= 150 ? Math.floor((totalWidth - 1) / 2) : totalWidth;
   return {
     width,
     height: process.stdout.rows ?? 30,
-    ...(controller.state.mode === "preview" ? { preview: buildDetailAnsiPreview(controller.state, width) } : {}),
+    ...(reader.state.mode === "preview" ? { preview: buildDetailAnsiPreview(reader.state, width) } : {}),
   };
 }
 const firstWatcherConnection = Promise.withResolvers<void>();
@@ -415,13 +419,26 @@ const effects: DetailEffects = {
 };
 
 function draw(): void {
-  controller.setPreviewRegions(detailPropertyInspectorRegions(controller.state));
-  process.stdout.write(renderDetailAnsi(controller.state, viewport(), {
-    helpText: actionKeymap.helpText("detail", detailActionScopes(controller.state, {
-      bufferMode: controller.isBufferMode(),
-    })),
-    chooserHelpText: controller.destinationChooserHelpText(),
-  }));
+  const render = (reader: DetailController, label: string) => {
+    reader.setPreviewRegions(detailPropertyInspectorRegions(reader.state));
+    return renderDetailLines(reader.state, viewport(reader), {
+      header: {surface: label, focused: readingSurface.active === reader},
+      helpPrefix: readingSurface.previewVisible ? "F7 Current/Preview · Alt+Enter Keep · Shift+F7 close" : "",
+      helpText: actionKeymap.helpText("detail", detailActionScopes(reader.state, {bufferMode: reader.isBufferMode()})),
+      chooserHelpText: reader.destinationChooserHelpText(),
+    });
+  };
+  let lines: string[];
+  if (readingSurface.previewVisible && (process.stdout.columns ?? 100) >= 150) {
+    const left = render(controller, "Current");
+    const right = render(inspection, "Preview");
+    const width = viewport(controller).width;
+    lines = Array.from({length: Math.max(left.length, right.length)}, (_, index) => {
+      const line = truncateToWidth(left[index] ?? "", width);
+      return line + " ".repeat(Math.max(0, width - visibleWidth(line))) + "│" + (right[index] ?? "");
+    });
+  } else lines = render(readingSurface.active, readingSurface.active === inspection ? "Preview" : "Current");
+  process.stdout.write("\x1b[H\x1b[2J" + lines.join("\n"));
 }
 
 const controller = createDetailController(
@@ -437,6 +454,22 @@ const controller = createDetailController(
   },
 );
 
+const inspection = createDetailController({
+  ...effects,
+  loadTarget: async target => target.kind === "block" ? effects.loadTarget(target) : {
+    kind: "resource", target,
+    description: await client.request<ResourceDescription>({action: "resources.describe", destinationClientId: clientId, target}),
+  },
+  getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
+  setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
+  setLocked: async () => {},
+  setNavigationProtection: async () => {},
+  isSourceSelectionActive: () => false,
+}, draw, {actionKeymap, openHere: target => readingSurface.openHere(target, viewport(controller))});
+const readingSurface = new DetailReadingSurface(controller, inspection, draw, async () => {
+  await client.request({action: "clients.update", clientId, previewTarget: null});
+});
+
 function enqueueWork(task: () => void | Promise<void>): void {
   workQueue = workQueue.then(task).catch((error) => {
     controller.onServiceError(error);
@@ -445,8 +478,8 @@ function enqueueWork(task: () => void | Promise<void>): void {
 const serviceEventScheduler = new DetailEventScheduler({
   clientId,
   enqueue: enqueueWork,
-  handle: (event) => controller.onServiceEvent(event, viewport()),
-  supersedePreview: () => controller.supersedePassivePreview(),
+  handle: (event) => readingSurface.onServiceEvent(event, viewport()),
+  supersedePreview: () => inspection.supersedePassivePreview(),
 });
 
 let inputDecoder = new TerminalInputDecoder((text) => {
@@ -500,12 +533,12 @@ function startWatcher(): void {
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
-        serviceEventScheduler.scheduleWork(() => controller.onServiceConnect(viewport()));
+        serviceEventScheduler.scheduleWork(async () => { await controller.onServiceConnect(viewport(controller)); await inspection.onServiceConnect(viewport(inspection)); });
       }
     },
     onDisconnect: () => {
       runtimeSync?.suspend();
-      serviceEventScheduler.scheduleWork(() => controller.onServiceDisconnect());
+      serviceEventScheduler.scheduleWork(() => { controller.onServiceDisconnect(); inspection.onServiceDisconnect(); });
     },
     onError: (error) => {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
@@ -526,6 +559,7 @@ function stop(): void {
 }
 
 const handleKeypress = createDetailKeyHandler({ controller, viewport, stop, actionKeymap });
+const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport, stop: () => { void readingSurface.closePreview(); }, actionKeymap});
 
 async function initialize(): Promise<void> {
   await waitForService();
@@ -533,7 +567,8 @@ async function initialize(): Promise<void> {
   await firstWatcherConnection.promise;
   await controller.initialize();
   runtimeInitialized = true;
-  await controller.onServiceConnect(viewport());
+  await controller.onServiceConnect(viewport(controller));
+  await inspection.onServiceConnect(viewport(inspection));
 }
 
 try {
@@ -555,18 +590,34 @@ process.on("SIGHUP", stop);
 
 async function handleInput(str: string, key: TerminalKey): Promise<void> {
   const inputAction = inputDecoder.consume(str, key);
+  const active = readingSurface.active;
   if (pendingPaste !== null) {
     const text = pendingPaste;
     pendingPaste = null;
-    if (controller.state.destinationChooser.active) {
-      await controller.handleDestinationChooserKeypress("", { name: "paste" });
+    if (active.state.destinationChooser.active) {
+      await active.handleDestinationChooserKeypress("", { name: "paste" });
       return;
     }
-    if (controller.isBufferMode()) {
-      await controller.dispatch({ type: "buffer.insert", text }, viewport());
+    if (active.isBufferMode()) await active.dispatch({ type: "buffer.insert", text }, viewport());
+  }
+  if (inputAction !== "suppress" && !active.state.destinationChooser.active) {
+    const {actionId} = actionKeymap.resolve("detail", detailActionScopes(active.state), str, key);
+    if (active === inspection && actionId === "detail.lock.toggle") { inspection.onServiceError(new Error("Preview follows local selection · Keep Preview to retain it as Current")); return; }
+    if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
+    if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
+    if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }
+    if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+      const annotationId = inspection.state.selectedAnnotationId;
+      if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return; }
+      await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
+      return;
+    }
+    if (actionId && active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
+      if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
+      return;
     }
   }
-  await handleKeypress(str, key, inputAction);
+  await (active === inspection ? inspectionKeypress : handleKeypress)(str, key, inputAction);
 }
 
 process.stdin.on("keypress", (str: string, key: TerminalKey) => {

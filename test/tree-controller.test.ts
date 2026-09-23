@@ -647,7 +647,6 @@ describe("createTreeController", () => {
       sourceClientId: "tree-test",
       contextId: "tree-test-context",
       target: { kind: "resource", resourceId },
-      dispatchPreview: false,
     });
     expect(fake.calls.some((call) => call.action === "navigation.dispatch")).toBe(false);
 
@@ -3371,6 +3370,32 @@ test("the file viewer uses service content while retaining the authored line ran
   expect(controller.view().viewerPath).toBe("today.txt:2");
 });
 
+
+test("an unpaired independent Tree inspects locally without creating a Detail", async () => {
+  const a = block("local-a", {text: "SOURCE LOCAL ALPHA"});
+  const b = block("local-b", {text: "SOURCE LOCAL BETA"});
+  const fake = harness(input => {
+    if (input.action === "tree.index") return snapshot([a, b], a);
+    if (input.action === "browsing-context.publish") return {contextId: "tree-test-context", target: input.target, unavailable: "No paired reader · Preview stays in this Tree"};
+  });
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  await controller.handleRowClick("local-b");
+  for (let n = 0; n < 20 && !controller.view().localPreview?.lines.includes("SOURCE LOCAL BETA"); n++) await Promise.resolve();
+  expect(controller.view().localPreview?.lines).toContain("SOURCE LOCAL BETA");
+  expect(fake.createdDetails).toEqual([]);
+  expect(fake.calls.some(call => call.action === "navigation.dispatch")).toBe(false);
+  await controller.handleKeypress("", {name: "f7"}, "pass");
+  expect(controller.view().localPreview?.focused).toBe(true);
+  await controller.handleKeypress("", {name: "return"}, "pass");
+  expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({action: "navigation.dispatch", sourceClientId: "tree-test", intent: "open", target: {kind: "block", blockId: "local-b"}});
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(controller.view().localPreview).toBeNull();
+  expect(lastCall(fake.calls, "clients.update")).toEqual({action: "clients.update", clientId: "tree-test", previewTarget: null});
+  expect(fake.createdDetails).toEqual([]);
+});
+
+
 test("breadcrumb strip scroll does not navigate; ancestor focus and Back retain viewport", async () => {
   const blocks=[block("root",{hasChildren:true}),block("child",{parentId:"root",depth:1,hasChildren:true}),block("leaf",{parentId:"child",depth:2})];
   const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
@@ -3420,4 +3445,16 @@ test("paging uses the reflowed breadcrumb viewport without skipping numbered lin
     await controller.handleKeypress("",{name:"pagedown"},"pass");
   }
   expect([...seen].sort((a,b)=>a-b)).toEqual(Array.from({length:25},(_,i)=>i+1));
+});
+
+
+test("Tree close Preview leaves the composed Detail retention alone when no local Preview exists", async () => {
+  const first = block("paired-selection");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([first], first) : undefined);
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  expect(controller.view().localPreview).toBeNull();
+  fake.calls.length = 0;
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(fake.calls.filter(call => call.action === "clients.update")).toEqual([]);
 });

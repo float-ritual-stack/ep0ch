@@ -1,3 +1,4 @@
+import { DetailReadingSurface } from "../src/detail-reading-surface";
 import { CURSOR_MARKER, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
 import {
@@ -5258,4 +5259,177 @@ test("retained pointer selections preserve occurrence or global scope across nav
   await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
   expect(harness.controller.state.mode).toBe("comment");
   expect(harness.controller.state.annotationDraft?.target.referenceContext).toEqual(first.referenceContext);
+});
+
+
+describe("retained Current and local Preview", () => {
+  test("passive inspection leaves Current draft, undo, history and scroll intact; Keep protects then promotes", async () => {
+    const current = createHarness(makeBlock({id: "current", text: "Current canonical"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    await preview.controller.initialize();
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    await current.controller.dispatch({type: "edit.begin"}, viewport);
+    await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = current.controller.state.buffer.text;
+    await current.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+    expect(current.calls.selfFocuses).toBeGreaterThan(0);
+    expect(current.controller.state.buffer.text).toBe(draft);
+    const editorOffset = current.controller.state.editorVisualOffset;
+    for (const blockId of ["inspect-a", "inspect-b", "inspect-c"]) {
+      await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId}}, viewport);
+      expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+      expect(current.controller.state.buffer.text).toBe(draft);
+      expect(current.controller.state.editorVisualOffset).toBe(editorOffset);
+    }
+    surface.toggleFocus();
+    expect(surface.active).toBe(preview.controller);
+    expect(await surface.keepPreview(viewport)).toBe(false);
+    expect(current.calls.updates).toHaveLength(0);
+    surface.toggleFocus();
+    await current.controller.dispatch({type: "buffer.undo"}, viewport);
+    expect(current.controller.state.buffer.text).toBe("Current canonical");
+    await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+    expect(await surface.keepPreview(viewport)).toBe(true);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspect-c"});
+    expect(surface.previewVisible).toBe(false);
+    await current.controller.dispatch({type: "navigation.back"}, viewport);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    expect(current.calls.updates).toHaveLength(0);
+  });
+
+  test("a held older Preview cannot overwrite a newer one or Current", async () => {
+    const current = createHarness(makeBlock({id: "current"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    const read = preview.effects.loadTarget;
+    const held = Promise.withResolvers<void>();
+    preview.effects.loadTarget = async target => {
+      if (target.kind === "block" && target.blockId === "older") await held.promise;
+      return read(target);
+    };
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    const older = surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "older"}}, viewport);
+    await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "newer"}}, viewport);
+    held.resolve(); await older;
+    expect(preview.controller.state.target).toEqual({kind: "block", blockId: "newer"});
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    await surface.closePreview();
+    expect(surface.active).toBe(current.controller);
+  });
+});
+
+
+test("closing a Resource Preview releases the target across service reconnect", async () => {
+  const current = createHarness(makeBlock({id: "retained"}));
+  const preview = createHarness(makeBlock());
+  const published: unknown[] = [];
+  preview.effects.getBrowsingContext = async () => ({contextId: "context-test", target: null});
+  preview.effects.setCurrentTarget = async target => { published.push(target); };
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {published.push(null);});
+  await current.controller.initialize();
+  await preview.controller.onServiceConnect(viewport);
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "resource", resourceId: "closed-resource"}}, viewport);
+  expect(preview.controller.state.target).toEqual({kind: "resource", resourceId: "closed-resource"});
+  await surface.closePreview();
+  published.length = 0;
+  preview.controller.onServiceDisconnect();
+  await preview.controller.onServiceConnect(viewport);
+  expect(published.length).toBeGreaterThan(0);
+  expect(published.every(target => target === null)).toBe(true);
+  expect(preview.controller.state.target).toBeNull();
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained"});
+});
+
+test("Preview native thread actions promote safely and save the exact reply buffer", async () => {
+  const current = createHarness(makeBlock({id: "retained", text: "Retained document"}), null, async text => ({text, references: []}));
+  const preview = createHarness(makeBlock({id: "inspected", text: "Target inspected"}), null, async text => ({text, references: []}));
+  let thread: AnnotationThread;
+  const replied: unknown[] = [];
+  const lifecycles: unknown[] = [];
+  for (const harness of [current, preview]) {
+    harness.effects.reconcileAnnotations = async input => {
+      if (input.newRepresentation.subject.kind !== "block" || input.newRepresentation.subject.blockId !== "inspected") return {threads: [], changed: false};
+      thread ??= {...annotationRecord({representation: input.newRepresentation, anchor: {kind: "text-quote", start: 0, end: 6, exact: "Target", prefix: "", suffix: ""}}), replies: []};
+      return {threads: [thread], changed: false};
+    };
+    harness.effects.replyAnnotation = async input => {
+      replied.push(input.input);
+      const reply = {...annotationRecord(thread.originalTarget, {block: makeBlock({id: "reply"}), body: input.input.body}), parentAnnotationId: thread.block.id};
+      thread = {...thread, replies: [reply]};
+      return {annotations: [reply], deduplicated: false};
+    };
+    harness.effects.getAnnotation = async () => thread;
+    harness.effects.setAnnotationLifecycle = async input => { lifecycles.push(input); thread = {...thread, lifecycle: input.lifecycle}; return thread; };
+  }
+  const queuedPaints: Array<() => void> = [];
+  current.effects.enqueueViewUpdate = update => { queuedPaints.push(update); };
+  await current.controller.initialize(); await preview.controller.initialize();
+  await preview.controller.dispatch({type: "annotation.thread.move", delta: 1}, viewport);
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  surface.previewVisible = true; surface.focused = "preview";
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  await surface.activatePreviewAction({type: "annotation.thread.reply", annotationId: "annotation-1"}, viewport);
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(preview.controller.state.mode).toBe("preview");
+  expect(replied).toEqual([]);
+  await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+  await surface.activatePreviewAction({type: "annotation.thread.reply", annotationId: "annotation-1"}, viewport);
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspected"});
+  expect(current.controller.state.annotationReplyDraft?.annotationId).toBe("annotation-1");
+  expect(preview.controller.state.mode).toBe("preview");
+  await current.controller.dispatch({type: "buffer.insert", text: "Exact native reply"}, viewport);
+  await current.controller.dispatch({type: "buffer.save"}, viewport);
+  expect(replied).toEqual([{annotationId: "annotation-1", body: "Exact native reply", source: "user"}]);
+  await surface.activatePreviewAction({type: "annotation.thread.lifecycle", annotationId: "annotation-1"}, viewport);
+  expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "resolved"}]);
+  expect(current.calls.updates).toEqual([]);
+});
+
+
+test("protected local Open preserves its failure instead of reporting success", async () => {
+  const current = createHarness(makeBlock({id: "retained-current", text: "Current draft"}));
+  let surface: DetailReadingSurface;
+  const preview = createHarness(makeBlock({id: "inspection"}), null, undefined, undefined, {
+    openHere: target => surface.openHere(target, viewport),
+  });
+  surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  await current.controller.initialize();
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "inspection"}}, viewport);
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  const intent = {type: "reference.open" as const, target: {kind: "block" as const, value: "linked-target"}};
+  await expect(preview.controller.dispatch({...intent, routing: "first-unlocked"}, viewport)).rejects.toThrow("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).toContain("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).not.toContain("Opened");
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained-current"});
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(surface.previewVisible).toBe(true);
+  await preview.controller.dispatch(intent, viewport);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "return"});
+  expect(preview.controller.state.destinationChooser.status).toContain("Open failed: Finish or cancel the Current draft");
+  expect(current.controller.state.buffer.text).toBe(draft);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "escape"});
+});
+
+test("targeted focus navigates while protected focus preserves the Current draft", async () => {
+  const harness = createHarness(makeBlock({id: "original"}));
+  await harness.controller.initialize();
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "focused-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.calls.selfFocuses).toBe(1);
+  await harness.controller.dispatch({type: "edit.begin"}, viewport);
+  await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = harness.controller.state.buffer.text;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "rejected-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.controller.state.buffer.text).toBe(draft);
+  expect(harness.controller.state.status).toContain("Open rejected");
+  const focuses = harness.calls.selfFocuses;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+  expect(harness.calls.selfFocuses).toBe(focuses + 1);
+  expect(harness.controller.state.buffer.text).toBe(draft);
 });

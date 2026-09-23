@@ -13,12 +13,12 @@ export interface ForwardedRequest {
 }
 
 export interface OptionalResponseMatch {
-  action: "references.resolve" | "annotations.reconcile";
+  action: "references.resolve" | "annotations.reconcile" | "blocks.context";
   contains: string;
 }
 
 export type ComposedResponseMatch = {
-  action: "browsing-context.publish" | "clients.update";
+  action: "browsing-context.publish" | "clients.update" | "blocks.context";
   contains: string;
 };
 
