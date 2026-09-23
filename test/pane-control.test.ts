@@ -11,6 +11,7 @@ import {
   openBacklinkPeekPopup,
   openCapturePopup,
   openDetailPane,
+  openTreePane,
   openGotoPopup,
   openVirtualBranchNavigatorPopup,
   outlinerRightClickOwnership,
@@ -338,6 +339,14 @@ if (args[0] === "pane" && args[1] === "current") {
       explicitTargetOpen.indexOf("--target-pane"),
       explicitTargetOpen.indexOf("--target-pane") + 2,
     )).toEqual(["--target-pane", "w1:explicit-source"]);
+    const root={rowId:"occurrence:Q:root",canonicalId:"root",label:"A rooted view"};
+    openTreePane({workspaceRoot:"/workspace",root,direction:"down"},herdr);
+    const rootOpen=readFileSync(logPath,"utf8").trim().split("\n").map(line=>JSON.parse(line) as string[]).at(-2)!;
+    expect(rootOpen.slice(rootOpen.indexOf("--entrypoint"),rootOpen.indexOf("--entrypoint")+2)).toEqual(["--entrypoint","outliner"]);
+    expect(rootOpen).toContain(`OUTLINER_TREE_ROOT=${encodeURIComponent(JSON.stringify(root))}`);
+    expect(rootOpen).toContain("OUTLINER_SOCKET_PATH=/tmp/forwarded-outliner.sock");
+    expect(rootOpen.slice(rootOpen.indexOf("--direction"),rootOpen.indexOf("--direction")+2)).toEqual(["--direction","down"]);
+
   } finally {
     if (originalHerdrEnv === undefined) delete process.env.HERDR_ENV;
     else process.env.HERDR_ENV = originalHerdrEnv;

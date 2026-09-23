@@ -546,6 +546,38 @@ describe("virtual branch projection", () => {
     }));
     expect(projection.branchStates.get(hubs.id)?.truncation.depth).toBe(false);
   });
+  test("discovers a displayed nested query after its physical parent is collapsed", async () => {
+    const a=visibleBlock("A",[],{hasChildren:true});
+    const q=visibleBlock("Q",[{key:"type",value:"virtual-branch"},{key:"query",value:"kind=target"}],{parentId:"A",depth:1});
+    const b=visibleBlock("B",[{key:"type",value:"virtual-branch"},{key:"query",value:"kind=query"}]);
+    const item=visibleBlock("item");
+    const physical=[a,q,b,item];
+    const calls:string[]=[];
+    const query=async (value:any)=>{calls.push(value.filters[0].value);return complete(value.filters[0].value === "query" ? [q] : [item]);};
+    const presentation={collapsedBlockIds:new Set(["A"]),collapsedOccurrenceRowIds:new Set<string>(),multilineExpandedRowIds:new Set<string>()};
+    const projection=await projectVirtualBranches(physical,physical,query,[],presentation);
+    const nested=projection.rows.find(row=>row.kind === "occurrence" && row.canonicalId === "Q")!;
+    expect(projection.rows.some(row=>row.kind === "occurrence" && row.parentRowId === nested.rowId && row.canonicalId === "item")).toBe(true);
+    expect(calls.sort()).toEqual(["query","target"]);
+    presentation.collapsedOccurrenceRowIds.add(nested.rowId);
+    const folded=await projectVirtualBranches(physical,physical,query,[],presentation);
+    expect(folded.rows.some(row=>row.kind === "occurrence" && row.canonicalId === "item")).toBe(false);
+    expect(folded.rows.some(row=>row.rowId === nested.rowId)).toBe(true);
+  });
+
+  test("a direct occurrence collapse does not prune a nested copy's children", async () => {
+    const q=visibleBlock("Q",[{key:"type",value:"virtual-branch"},{key:"query",value:"kind=parent"}]);
+    const b=visibleBlock("B",[{key:"type",value:"virtual-branch"},{key:"query",value:"kind=query"}]);
+    const parent=visibleBlock("parent",[],{hasChildren:true});
+    const child=visibleBlock("child",[],{parentId:"parent",depth:1});
+    const blocks=[q,b,parent,child];
+    const projection=await projectVirtualBranches(blocks,blocks,async query=>complete(query.filters?.[0]?.value === "query" ? [q] : [parent]),[],{
+      collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:new Set(["occurrence:Q:parent"]),multilineExpandedRowIds:new Set(),
+    });
+    expect(projection.rows.some(row=>row.rowId === "occurrence:Q:parent:child")).toBe(false);
+    expect(projection.rows.some(row=>row.rowId === "occurrence:B:Q/occurrence:Q:parent:child")).toBe(true);
+  });
+
   test("keeps inline expansion local to physical, direct, and nested occurrences", async () => {
     const outer = visibleBlock("outer", [
       { key: "type", value: "virtual-branch" },
@@ -657,7 +689,7 @@ describe("virtual branch projection", () => {
     const projection = await projectVirtualBranches(
       [definition, root],
       physical,
-      async () => complete([root, child]),
+      async query => complete(query.filters?.some(filter => filter.value === "other") ? [] : [root, child]),
     );
     const occurrences = projection.rows.filter(isVirtualBranchOccurrence);
 

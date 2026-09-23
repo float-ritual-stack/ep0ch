@@ -161,8 +161,17 @@ const PANE_MENU = "\x1b]8;;pi-outliner-action:tree.menu.open\x1b\\[⋯]\x1b]8;;\
 const HEADER = `\x1b[1;36mOutliner\x1b[0m  \x1b[2m/w\x1b[0m  ${PANE_MENU}`;
 
 describe("renderTreeFrame", () => {
+  test("bounds and sanitizes the focused root header", () => {
+    const label="界".repeat(100)+"\x1b[2J\x1b]52;c;payload\x07";
+    const frame=renderTreeFrame(view([block("root")],{root:{rowId:"root",canonicalId:"root",label}}),40,12).frame;
+    expect(frame.split("\n")).toHaveLength(12);
+    const header=frame.split("\n")[2]!;
+    expect(visibleWidth(header)).toBeLessThanOrEqual(40);
+    expect(header).not.toContain("\x1b[2J");expect(header).not.toContain("\x1b]52");
+  });
   test("shows a clickable Inbox cue and the same bounded overlay in standalone and composed Tree", async () => {
     const inbox = new InboxController({
+      async openResource() {},
       async request<T>() { return { enabled: true, paused: true, state: "paused", message: "Paused by user", pending: 4, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 } as T; },
       invalidate() {}, async open() {}, close() {},
     });

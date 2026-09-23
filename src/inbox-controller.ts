@@ -4,10 +4,12 @@ import type { InboxResultSummary, InboxStatus } from "./inbox-types";
 import { TextBuffer } from "./text-buffer";
 import { isPrintableInput, sanitizeDynamicText, type TerminalKey } from "./terminal";
 import type { Block } from "./types";
+import type { InternResourceReceipt } from "./resources";
 
 interface InboxEffects extends OutlinerRequester {
   invalidate(): void;
   open(blockId: string, destination: "tree" | "detail"): Promise<void>;
+  openResource(resourceId: string): Promise<void>;
   close(): void | Promise<void>;
 }
 
@@ -46,11 +48,13 @@ export class InboxController {
   get steering(): boolean { return this.reconsiderSourceId !== null; }
   get instructions(): string { return this.buffer.text; }
   get column(): number { return this.buffer.column; }
-  get targets(): Array<{ id: string; label: string }> {
+  get targets(): Array<{ id: string; label: string; sessionPath?: string }> {
     const result = this.selected;
     if (!result) return [];
     return [
       ...result.outputIds.map((id, index) => ({ id, label: `Output ${index + 1}` })),
+      ...(result.usage?.piSessions ?? []).flatMap((session, index) => session.path
+        ? [{ id: session.id, label: `Pi session ${index + 1}${session.snapshot ? " · partial" : ""}`, sessionPath: session.path }] : []),
       { id: result.sourceId, label: "Source" },
     ];
   }
@@ -179,7 +183,16 @@ export class InboxController {
       if (count) this.targetIndex = (this.targetIndex + (key.shift ? -1 : 1) + count) % count;
     } else if (key.name === "pageup" || key.name === "pagedown") {
       this.detailOffset = Math.max(0, this.detailOffset + (key.name === "pageup" ? -5 : 5));
-    } else if (key.name === "return") await this.open(this.targets[this.targetIndex]?.id, key.meta ? "detail" : "tree");
+    } else if (key.name === "return") {
+      const target = this.targets[this.targetIndex];
+      if (target?.sessionPath) await this.openSession(target.sessionPath);
+      else await this.open(target?.id, key.meta ? "detail" : "tree");
+    }
+    else if (str === "t") {
+      const target = this.targets.find(target => target.sessionPath);
+      if (target?.sessionPath) await this.openSession(target.sessionPath);
+      else this.notice = "No saved Pi session for this result";
+    }
     else if (str === "s") await this.open(this.selected?.sourceId, "tree");
     else if (str === "p") {
       if (!this.snapshot) this.notice = "Wait for Inbox status before changing it";
@@ -197,6 +210,17 @@ export class InboxController {
       }
     }
     this.effects.invalidate();
+  }
+
+  private async openSession(path: string): Promise<void> {
+    this.busy = true;
+    try {
+      // This request is evaluated by the service owning the receipt and file,
+      // including when this Tree runs on another host.
+      const receipt = await this.effects.request<InternResourceReceipt>({ action: "resources.intern-filesystem", input: { path, mediaType: "text/plain" } });
+      await this.effects.openResource(receipt.resource.id);
+    } catch (error) { this.notice = message(error); }
+    finally { this.busy = false; this.effects.invalidate(); }
   }
 
   private async changedCollection(): Promise<void> {

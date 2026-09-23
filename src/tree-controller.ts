@@ -120,7 +120,11 @@ export interface TreeQuickCompletion {
   readonly items: readonly TreeQuickCompletionItem[];
 }
 
+export interface TreeRoot { readonly rowId: string; readonly canonicalId: string; readonly label: string }
+
 export interface TreeView {
+  readonly root?: TreeRoot | null;
+  readonly scrollStartEntryIndex?: number;
   readonly workspaceRoot: string;
   readonly rows: readonly TreeDisplayRow[];
   readonly physicalBlocksById: ReadonlyMap<string, TreeIndexBlock>;
@@ -155,6 +159,8 @@ export interface TreeView {
 }
 
 export interface TreeControllerEffects {
+  readonly initialRoot?: TreeRoot;
+  createTreePane?(root: TreeRoot, direction: "right" | "down"): Promise<void>;
   readonly workspaceRoot: string;
   readonly navigation: TreeNavigation;
   readonly clientId: string;
@@ -173,6 +179,7 @@ export interface TreeControllerEffects {
 }
 
 export interface TreeController {
+  setViewportStart(index: number): void;
   view(): TreeView;
   revealBlock(blockId: string): Promise<void>;
   initialize(): Promise<void>;
@@ -197,6 +204,8 @@ interface MutableQuickCompletion {
 }
 
 interface TreeNavigationEntry {
+  readonly root: TreeRoot | null;
+  readonly scrollStartEntryIndex: number;
   readonly rowId: string;
   readonly canonicalId: string;
 }
@@ -289,6 +298,8 @@ function fallbackRowBeforeDelete(
 export function createTreeController(effects: TreeControllerEffects): TreeController {
   let baseRows: TreeRow[] = [];
   let rows: TreeDisplayRow[] = [];
+  let root: TreeRoot | null = effects.initialRoot ?? null;
+  let scrollStartEntryIndex = 0;
   let physicalBlocksById = new Map<string, TreeIndexBlock>();
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
   let indexSequence: number | null = null;
@@ -353,6 +364,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   const inbox = new InboxController({
     request: input => effects.request(input),
+    async openResource(resourceId) {
+      await effects.navigation.dispatch({ kind: "resource", resourceId }, "open");
+      mode = "browse";
+      status = "Pi session opened in Detail";
+      if (refreshPending) await reload();
+      effects.invalidate();
+    },
     invalidate() {
       const cue = inboxStatusCue(inbox.snapshot, inbox.error);
       if (mode === "inbox" || cue !== lastInboxCue) effects.invalidate();
@@ -447,6 +465,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   function view(): TreeView {
     return {
       workspaceRoot: effects.workspaceRoot,
+      root, scrollStartEntryIndex,
       rows,
       physicalBlocksById,
       expandedDocuments,
@@ -631,7 +650,20 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       snapshot.virtualOccurrenceRanks,
       presentation,
     );
-    const expanded = new Map(projection.rows.filter(row => row.multilineExpanded).map(row => [row.canonicalId, row.block]));
+    const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
+    let scope = projection.rows;
+    if(root) {
+      const anchor = projection.rows[rootIndex];
+      if(!anchor) scope = [];
+      else {
+        root = {...root,label:anchor.block.preview};
+        let end = rootIndex+1;
+        while(end<projection.rows.length && projection.rows[end]!.depth>anchor.depth) end++;
+        scope = projection.rows.slice(rootIndex,end).map(row=>({...row,depth:row.depth-anchor.depth}));
+      }
+    }
+    if(root && rootIndex < 0) status = "Focused occurrence is no longer visible · return to workspace from actions";
+    const expanded = new Map(scope.filter(row => row.multilineExpanded).map(row => [row.canonicalId, row.block]));
     const loaded = new Map<string, ExpandedTreeDocument>();
     await Promise.all([...expanded].map(async ([id, entry]) => {
       const retained = indexSequence === snapshot.sequence ? expandedDocuments.get(id) : undefined;
@@ -646,7 +678,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }));
     expandedDocuments = loaded;
     indexSequence = snapshot.sequence;
-    baseRows = projection.rows;
+    baseRows = scope;
     physicalBlocksById = new Map(physical.map((block) => [block.id, block]));
     if (authoredLinksPanel.kind === "open" && authoredLinksPanel.load.kind === "ready") {
       const loaded = authoredLinksPanel.load.snapshot;
@@ -908,14 +940,14 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function navigationEntry(row: TreeDisplayRow | undefined): TreeNavigationEntry | null {
-    return isBlockTreeRow(row) ? { rowId: row.rowId, canonicalId: row.canonicalId } : null;
+    return isBlockTreeRow(row) ? { rowId: row.rowId, canonicalId: row.canonicalId, root, scrollStartEntryIndex } : null;
   }
 
   function sameNavigationEntry(
     left: TreeNavigationEntry | null | undefined,
     right: TreeNavigationEntry | null | undefined,
   ): boolean {
-    return left?.rowId === right?.rowId && left?.canonicalId === right?.canonicalId;
+    return left?.rowId === right?.rowId && left?.canonicalId === right?.canonicalId && left?.root?.rowId === right?.root?.rowId;
   }
 
   function recordNavigation(
@@ -1054,6 +1086,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   ): Promise<void> {
     const source = navigationEntry(rows[selectedIndex]);
     let visibilityChanged = false;
+    if (options?.physicalSource) root = null;
     if (!canonicalId || !options?.physicalSource) {
       await reload(options?.preferredRowId ?? canonicalId);
     }
@@ -1064,6 +1097,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         !isBlockTreeRow(currentSelected) ||
         currentSelected.canonicalId !== canonicalId)
     ) {
+      root = null;
       const target = physicalBlocksById.get(canonicalId);
       if (!target) throw new Error(`Block not found: ${canonicalId}`);
       if (activeFilter) {
@@ -1622,7 +1656,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
 
-    await selectVisibleBlock(canonical.id, { preferredRowId: target.rowId });
+    root = target.root;
+    if(root) {
+      await reload(target.rowId,{exactRowIdOnly:true});
+      await publishDisplayRowSelection(rows[selectedIndex]);
+    } else await selectVisibleBlock(canonical.id, { preferredRowId: target.rowId });
+    scrollStartEntryIndex = target.scrollStartEntryIndex;
     status = direction === "back" ? "Navigation back" : "Navigation forward";
   }
 
@@ -1682,6 +1721,49 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     status = intent === "open"
       ? `${verb} ${blockDisplayTitle(resolved.block)} in ${effects.navigation.readerLabel}`
       : `${verb} ${blockDisplayTitle(resolved.block)} · ${dispatched.resolution}`;
+  }
+
+  function setCollapsed(row: TreeRow, collapsed: boolean): void {
+    const ids = row.kind === "occurrence" ? collapsedOccurrenceRowIds : collapsedBlockIds;
+    const id = row.kind === "occurrence" ? row.rowId : row.canonicalId;
+    if(collapsed) ids.add(id); else ids.delete(id);
+  }
+
+  async function changeDepth(expand: boolean): Promise<void> {
+    const selected = rows[selectedIndex];
+    if(!isBlockTreeRow(selected)) return;
+    const branch = () => {
+      const index = rows.findIndex(row => row.rowId === selected.rowId);
+      const result: TreeRow[] = [];
+      for(let i=index; i>=0 && i<rows.length; i++) {
+        const row=rows[i]!;
+        if(i>index && row.depth<=selected.depth) break;
+        if(isBlockTreeRow(row)) result.push(row);
+      }
+      return result;
+    };
+    const previouslyVisible = new Set(branch().map(row=>row.rowId));
+    const candidates = branch().filter(row=>row.hasChildren && row.collapsed === expand);
+    if(!candidates.length) return;
+    const depth = expand ? Math.min(...candidates.map(row=>row.depth)) : Math.max(...candidates.map(row=>row.depth));
+    for(const row of candidates) if(row.depth === depth) setCollapsed(row,!expand);
+    await reload(selected.rowId,{exactRowIdOnly:true});
+    if(expand) {
+      // A newly exposed child starts closed even if it was expanded before hiding.
+      for(const row of branch()) if(row.depth === depth+1 && row.hasChildren && !previouslyVisible.has(row.rowId)) setCollapsed(row,true);
+      await reload(selected.rowId,{exactRowIdOnly:true});
+    }
+    status = expand ? "Expanded one layer" : "Collapsed one layer";
+  }
+
+  async function focusRoot(next: TreeRoot | null): Promise<void> {
+    const source = navigationEntry(rows[selectedIndex]);
+    root = next;
+    scrollStartEntryIndex = 0;
+    await reload(next?.rowId ?? source?.rowId);
+    recordNavigation(source,navigationEntry(rows[selectedIndex]));
+    await publishDisplayRowSelection(rows[selectedIndex]);
+    status = next ? `Focused branch: ${next.label}` : "Workspace Tree";
   }
 
   async function handleDisclosure(rowId: string): Promise<void> {
@@ -1798,6 +1880,18 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
       effects.invalidate();
       return;
+    }
+    if (["tree.root.focus","tree.root.workspace","tree.root.right","tree.root.below","tree.depth.expand","tree.depth.collapse"].includes(actionId)) {
+      const row=rows[selectedIndex];
+      if(actionId === "tree.root.workspace") await focusRoot(null);
+      else if(actionId.startsWith("tree.depth.")) await changeDepth(actionId === "tree.depth.expand");
+      else if(isBlockTreeRow(row)) {
+        const next={rowId:row.rowId,canonicalId:row.canonicalId,label:row.block.preview};
+        if(actionId === "tree.root.focus") await focusRoot(next);
+        else if(effects.createTreePane) await effects.createTreePane(next,actionId === "tree.root.right" ? "right" : "down");
+        else status = "Creating a Tree split requires a pane host";
+      }
+      effects.invalidate(); return;
     }
     if (actionId === "tree.detail.right" || actionId === "tree.detail.below") {
       await createDetailPane(actionId === "tree.detail.right" ? "right" : "down");
@@ -2337,6 +2431,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await inbox.refresh();
   }
   return {
+    setViewportStart(index) { scrollStartEntryIndex = index; },
     view,
     async revealBlock(blockId) {
       if (mode !== "browse") throw new Error("Finish or cancel the Tree editor before navigating");
