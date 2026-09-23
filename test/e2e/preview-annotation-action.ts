@@ -33,7 +33,9 @@ const result = await runHerdrScenario({
     const target = {kind: "resource" as const, resourceId: resource.id, revision: file.revision};
     await s.client.request({action: "navigation.dispatch", sourceClientId: tree.clientId, intent: "preview", target});
     await s.waitFor("Resource Preview ready", current, c => c.previewTarget?.kind === "resource");
-    await s.focus(s.panes.detail); await s.keys(s.panes.detail, "f7", "]");
+    await s.focus(s.panes.detail); await s.keys(s.panes.detail, "f7");
+    await s.waitFor("Preview comment marker rendered", () => s.visible(s.panes.detail), frame => frame.includes("+ EXACT PREVIEW PASSAGE"));
+    await s.keys(s.panes.detail, "]");
     await s.waitVisible(s.panes.detail, "PREVIEW THREAD BODY");
     const frame = await s.waitFor("native Preview reply control", () => terminal.visible(), frame => frame.includes("Reply · Resolve"));
     const lines = frame.split("\n");

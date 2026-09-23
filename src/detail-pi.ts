@@ -1277,7 +1277,7 @@ async function readerAction(actionId: string): Promise<boolean> {
     if (readingSurface.active === controller) directSelectionOwner = "current";
     return true;
   }
-  if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit") {
+  if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
     if (!await readingSurface.keepPreview(viewport())) return true;
     directSelectionOwner = "current";
     await handleKeypress.invoke(actionId);

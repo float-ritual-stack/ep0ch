@@ -612,7 +612,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
       await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
       return;
     }
-    if (actionId && active === inspection && actionKeymap.action(actionId).menuGroup === "Edit") {
+    if (actionId && active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
       if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
       return;
     }
