@@ -652,11 +652,12 @@ test("maps Shift+R to current-block reveal without a destination picker", async 
 
   await preview.press({ name: "r", shift: true }, "R");
   await preview.press({ name: "l", shift: true }, "L");
-    await preview.press({ name: "l", ctrl: true });
+  await preview.press({ name: "l", ctrl: true });
   await preview.press({ name: "l", meta: true });
 
   expect(preview.intents.filter(intent=>intent.type !== "redraw")).toEqual([
     { type: "current.reveal" },
+    { type: "navigation.link" },
   ]);
 });
 

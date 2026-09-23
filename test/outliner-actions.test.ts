@@ -109,6 +109,10 @@ describe("Outliner action keymap", () => {
     expect(reveal.available({ surface: "detail", mode: "file" })).toBe(true);
     expect(reveal.available({ surface: "detail", mode: "property" })).toBe(true);
     expect(reveal.available({ surface: "detail", mode: "edit" })).toBe(false);
+    for (const [surface, mode] of [["tree", "browse"], ["detail", "preview"]] as const) {
+      expect(keymap.resolve(surface, mode, "l", {name: "l", meta: true}).actionId).toBe(`${surface}.navigation.link`);
+      expect(keymap.menuItems(surface, mode)).toContainEqual(expect.objectContaining({id: `${surface}.navigation.link`, binding: "⌥L"}));
+    }
     expect(keymap.action("tree.current.reveal").defaultChords).toEqual(["Shift+R"]);
     expect(keymap.action("detail.current.reveal").defaultChords).toEqual(["Shift+R"]);
     expect(keymap.action("tree.reference.reveal").defaultChords).toEqual(["Alt+Shift+R"]);

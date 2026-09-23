@@ -394,7 +394,7 @@ another target is inspected. Keeping Preview or opening another target is
 refused while Current has a draft or an active source selection.
 
 Tree `Enter` explicitly opens the selected target through that Tree's saved
-Detail destination link. **? → Link destination** sets the link; **Open once
+Detail destination link. **Alt+L** (or **? → Link destination**) sets the link; **Open once
 in…** chooses a destination for one action. Several sources can share a reader,
 and receiving a target never forwards it through the receiver's own link.
 Moving or resizing panes does not change links. An absent destination reports
@@ -1711,7 +1711,7 @@ Existing threads and an agent reply are seeded through public APIs.
 
 ### Linked explicit opens
 
-Each live Tree or Detail region can link to one Detail destination. Several sources may share a destination; receiving a document does not follow the receiver's own link. Moving panes leaves these links unchanged. New Tree/Detail pairs start linked; independent Trees use **? → Link destination**. Detail has the same action. The menu marks the current link.
+Each live Tree or Detail region can link to one Detail destination. Several sources may share a destination; receiving a document does not follow the receiver's own link. Moving panes leaves these links unchanged. New Tree/Detail pairs start linked; independent Trees use **Alt+L** (or **? → Link destination**). Detail uses the same shortcut. The menu marks the current link.
 
 Tree **? → Open once in…** and Detail's reference destination chooser (**c**) choose an existing Detail for one action without changing its link. The chooser also offers **R** to replace here and **r/d** to create a right/down split. Cancelling never resolves an authored Resource or refreshes its provider. An unlinked or closed destination produces an explicit recovery message, with no automatic destination or split. Drafts and active source selections reject replacement.
 

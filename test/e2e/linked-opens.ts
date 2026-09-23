@@ -27,7 +27,7 @@ const result = await runHerdrScenario({
     const current = async (id: string) => (await session.registrations()).find(c => c.clientId === id)?.currentTarget;
     const linkTree = async (source: OutlinerClientRegistration, pane: string) => {
       await session.focus(pane);
-      await session.keys(pane, "?"); await session.text(pane, "Link destination"); await session.keys(pane, "enter");
+      await session.keys(pane, "alt+l");
       await session.waitVisible(pane, "Unlink destination");
       await session.text(pane, x.runtime!.paneId!); await session.keys(pane, "enter");
       await session.waitFor("Tree link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: source.clientId, region: "tree"}}), value => value.destination?.clientId === x.clientId);
@@ -35,7 +35,7 @@ const result = await runHerdrScenario({
     // Initial creation explicitly links A to its new reader. Reconfigure B/C through the UI.
     for (const [source, pane] of [[b, second.tree], [c, third.tree]] as const) await linkTree(source, pane);
     await session.client.request({action: "ui.command.send", command: {targetClientId: x.clientId, targetRegion: "detail", command: "focus"}});
-    await session.keys(session.panes.detail, "?"); await session.waitFor("Detail actions open", () => session.visible(session.panes.detail), text => text.includes("Find:")); await session.text(session.panes.detail, "Link destination"); await session.keys(session.panes.detail, "enter");
+    await session.keys(session.panes.detail, "alt+l");
     await session.waitFor("Detail link destinations", () => session.visible(session.panes.detail), text => text.includes("Unlink destination"));
     await session.text(session.panes.detail, y.runtime!.paneId!); await session.keys(session.panes.detail, "enter");
     await session.waitFor("Detail link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}}), state => state.destination?.clientId === y.clientId);
@@ -73,6 +73,9 @@ const result = await runHerdrScenario({
     await session.revealTree(third.tree, docs[1]!.id); await session.keys(third.tree, "enter");
     await session.waitVisible(third.tree, "Destination is protected"); await session.waitVisible(session.panes.detail, "UNSAVED LINKED DRAFT");
     await assert.rejects(session.client.request({action:"navigation.dispatch",sourceClientId:b.clientId,intent:"open",target}),/protected/);
+    await session.waitVisible(session.panes.detail,"UNSAVED LINKED DRAFT");
+    await session.client.request({action:"ui.command.send",command:{targetClientId:x.clientId,targetRegion:"detail",command:"preview",target:{kind:"block",blockId:docs[2]!.id}}});
+    await session.waitFor("direct Preview during draft",session.registrations,values=>{const preview=values.find(v=>v.clientId===x.clientId)?.previewTarget;return preview?.kind==="block"&&preview.blockId===docs[2]!.id;});
     await session.waitVisible(session.panes.detail,"UNSAVED LINKED DRAFT");
     await session.checkpoint("03-protected-draft-no-fallback");
     await session.focus(session.panes.detail); await session.keys(session.panes.detail, "escape");
