@@ -39,10 +39,9 @@ const result = await runHerdrScenario({
     await session.waitFor("Detail link destinations", () => session.visible(session.panes.detail), text => text.includes("Unlink destination"));
     await session.text(session.panes.detail, y.runtime!.paneId!); await session.keys(session.panes.detail, "enter");
     await session.waitFor("Detail link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}}), state => state.destination?.clientId === y.clientId);
-    // Old passive reader pool remains separate until the Preview cutover; hold Y against it.
+    // Passive Tree selection updates Preview while Y retains its Current document.
     await session.client.request({action: "ui.command.send", command: {targetClientId: y.clientId, command: "replace", target: {kind: "block", blockId: yInitial.id}}});
     await session.waitVisible(second.detail, "UNRELATED Y START");
-    await session.focus(second.detail); await session.keys(second.detail, "L");
     for (const [index, pane] of [session.panes.tree, second.tree, third.tree].entries()) {
       await session.revealTree(pane, docs[index]!.id);
       const yBefore = await current(y.clientId);

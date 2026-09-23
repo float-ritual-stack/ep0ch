@@ -36,16 +36,10 @@ const result = await runHerdrScenario({
     const registration = (await session.registrations()).find(client => client.runtime?.paneId === remote.detail);
     assert.ok(registration);
     const target = () => session.registrations().then(clients => clients.find(client => client.clientId === registration.clientId));
-    const unlock = async () => {
-      if ((await target())?.locked) {
-        await session.keys(remote.detail, "i");
-        await session.waitFor("Detail unlocked", target, value => value?.locked === false);
-      }
-    };
     const reveal = async (block: Block, body: string) => {
-      await unlock();
       const started = performance.now();
       await session.revealTree(remote.tree, block.id);
+      await session.keys(remote.tree, "enter");
       await session.waitVisible(remote.detail, body);
       await session.waitFor("Detail target registration", target, value =>
         value?.currentTarget?.kind === "block" && value.currentTarget.blockId === block.id);
@@ -67,11 +61,11 @@ const result = await runHerdrScenario({
       assert.equal(cold.state, "held");
     }
     await session.record("cold-primary", { primaryMs, transport, barrier: cold?.state,
-      timingScope: "RPC Tree reveal setup to observed primary body and exact target registration; includes client lookup, host, and polling overhead",
+      timingScope: "RPC Tree reveal and explicit Open to observed primary body and exact target registration; includes client lookup, host, and polling overhead",
       requests: session.forwardedDetailRequests() });
     await session.checkpoint("01-primary-before-optional-reply");
     await session.keys(remote.detail, "e");
-    await session.waitVisible(remote.detail, "Locked for editing");
+    await session.waitVisible(remote.detail, "Editing");
     await session.text(remote.detail, " DRAFT-SURVIVES");
     await session.waitVisible(remote.detail, "DRAFT-SURVIVES");
     cold?.release();
@@ -108,7 +102,7 @@ const result = await runHerdrScenario({
       await session.waitVisible(remote.detail, "References are not ready");
     }
     await session.keys(remote.detail, "e");
-    await session.waitVisible(remote.detail, "Locked for editing");
+    await session.waitVisible(remote.detail, "Editing");
     await session.text(remote.detail, " CANCELLED-DRAFT");
     await session.waitVisible(remote.detail, "CANCELLED-DRAFT");
     await session.keys(remote.detail, "escape");
@@ -123,7 +117,7 @@ const result = await runHerdrScenario({
       text: "Changed reference title\nB PRIMARY CONTENT", mutation: { author: "agent", actorId: "pie-271-fixture" } });
     await held(renamed);
     await session.keys(remote.detail, "e");
-    await session.waitVisible(remote.detail, "Locked for editing");
+    await session.waitVisible(remote.detail, "Editing");
     await session.text(remote.detail, " CANCELLED-REFERENCE-DRAFT");
     renamed?.release();
     await session.waitVisible(remote.detail, "CANCELLED-REFERENCE-DRAFT");

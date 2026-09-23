@@ -23,6 +23,7 @@ const result = await runHerdrScenario({
     const current = async () => (await session.registrations()).find(client => client.clientId === registration.clientId);
     const revealSource = async () => {
       await session.revealTree(panes.tree, source.id);
+      await session.keys(panes.tree, "enter");
       await session.waitFor("source target published", current, client =>
         client?.currentTarget?.kind === "block" && client.currentTarget.blockId === source.id);
       const frame = await session.waitVisible(panes.detail, "Occurrence choices");

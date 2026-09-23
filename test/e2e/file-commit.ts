@@ -29,7 +29,7 @@ const result = await runHerdrScenario({
     await session.waitVisible(session.panes.detail, "ORIGINAL");
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing filesystem Resource");
+    await session.waitVisible(session.panes.detail, "Editing filesystem Resource");
     await session.text(session.panes.detail, " SAVED");
     await session.waitVisible(session.panes.detail, "ORIGINAL SAVED");
     await session.checkpoint("01-open-draft");
@@ -64,7 +64,7 @@ const result = await runHerdrScenario({
 
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing filesystem Resource");
+    await session.waitVisible(session.panes.detail, "Editing filesystem Resource");
     await session.text(session.panes.detail, " SECOND-DRAFT");
     await session.waitVisible(session.panes.detail, "ORIGINAL SAVED SECOND-DRAFT");
     writeFileSync(path, "EXTERNAL-CURRENT");

@@ -50,12 +50,13 @@ const result = await runHerdrScenario({
     await session.waitVisible(remote.tree, title);
     const rows = await session.waitFor("canonical file reference", () => session.database.query("SELECT id, text FROM blocks WHERE text = ?").all(text) as Array<{id: string; text: string}>, rows => rows.length === 1);
     const blockId = rows[0]!.id;
+    await session.keys(remote.tree, "enter");
     const detailFrame = await session.waitVisible(remote.detail, selected);
     assert.ok(!detailFrame.includes("CLIENT WRONG LINE"));
     assert.ok(!detailFrame.includes("SERVICE FIRST"));
     assert.ok(!detailFrame.includes("SERVICE LAST"));
     assert.deepEqual(identities(), baseline);
-    await session.checkpoint("02-passive-detail-service-bytes");
+    await session.checkpoint("02-current-detail-service-bytes");
 
     await session.keys(remote.tree, "f");
     const treeFrame = await session.waitVisible(remote.tree, selected);
@@ -84,11 +85,7 @@ const result = await runHerdrScenario({
     assert.deepEqual(identities(), baseline);
     await session.waitFor("cancel returned focus to remote Tree", () => session.registrations(), clients =>
       clients.some(client => client.clientId === tree.clientId && client.runtime?.focused === true));
-    await session.focus(remote.detail);
-    await session.keys(remote.detail, "L");
-    await session.waitFor("remote Detail unlocked", () => session.registrations(), clients =>
-      clients.some(client => client.clientId === detail.clientId && client.locked === false));
-    await session.record("passive-file-authority", { serviceRoot: session.projectRoot, clientRoot: remote.workspaceRoot, renderer, blockId, baseline, after: identities() });
+    await session.record("file-authority", { serviceRoot: session.projectRoot, clientRoot: remote.workspaceRoot, renderer, blockId, baseline, after: identities() });
 
     await session.focus(remote.tree);
     await session.keys(remote.tree, "?");

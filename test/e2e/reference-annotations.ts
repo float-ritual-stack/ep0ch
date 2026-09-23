@@ -41,11 +41,8 @@ const result = await runHerdrScenario({
     });
     const thread = (id: string) => s.client.request<AnnotationRecord>({ action: "annotations.get", annotationId: id });
     const revealSource = async () => {
-      if ((await current()).locked) {
-        await focusView("detail"); await s.keys(detail, "L");
-        await s.waitFor("reader unlocked", current, c => !c.locked);
-      }
       await s.revealTree(tree, host.id);
+      await s.keys(tree, "enter");
       await s.waitFor("source opened", current, c => c.currentTarget?.kind === "block" && c.currentTarget.blockId === host.id);
       await focusView("detail");
       const frame = await s.waitVisible(detail, "Occurrence annotation fixture");

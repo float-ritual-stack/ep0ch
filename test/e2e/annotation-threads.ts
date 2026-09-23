@@ -49,6 +49,7 @@ const result = await runHerdrScenario({
     const thread = async (id: string) => (await threads()).find(t => t.block.id === id)!;
     const reveal = async (blockId: string, panes = { tree, detail }) => {
       await s.revealTree(panes.tree, blockId);
+      await s.keys(panes.tree, "enter");
       await s.waitFor("target published", s.registrations, cs => cs.some(c => c.runtime?.paneId === panes.detail && c.currentTarget?.kind === "block" && c.currentTarget.blockId === blockId));
       await s.focus(panes.detail);
       if (composed && panes.detail === detail && (await current()).focusedRegion !== "detail") {

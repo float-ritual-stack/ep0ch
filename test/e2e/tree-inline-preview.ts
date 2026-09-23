@@ -34,10 +34,10 @@ const result = await runHerdrScenario({
 
     // Inline reading must work while the independent Detail stays on another target.
     await session.revealTree(treePane, outer.id);
+    await session.keys(treePane, "enter");
     await session.waitVisible(session.panes.detail, "INLINE-OUTER");
-    await session.keys(session.panes.detail, "i");
-    await session.waitFor("Detail locked to the outer branch", session.registrations, (entries) =>
-      entries.some((entry) => entry.runtime?.paneId === session.panes.detail && entry.locked === true &&
+    await session.waitFor("Current opened on the outer branch", session.registrations, (entries) =>
+      entries.some((entry) => entry.runtime?.paneId === session.panes.detail &&
         entry.currentTarget?.kind === "block" && entry.currentTarget.blockId === outer.id)
     );
 
@@ -60,7 +60,6 @@ const result = await runHerdrScenario({
     const detail = (await session.registrations()).find((entry) =>
       entry.runtime?.paneId === session.panes.detail
     );
-    assert.equal(detail?.locked, true);
     assert.equal(detail?.currentTarget?.kind, "block");
     assert.equal(detail?.currentTarget?.kind === "block" && detail.currentTarget.blockId, outer.id);
     for (const original of [note, child, inner, outer]) {
