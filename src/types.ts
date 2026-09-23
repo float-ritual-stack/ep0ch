@@ -969,6 +969,7 @@ export interface OutlinerClientRegistration {
   locked?: boolean;
   navigationProtection?: string | null;
   currentTarget?: OutlinerNavigationTarget;
+  previewTarget?: OutlinerNavigationTarget;
   runtime?: OutlinerClientRuntime;
   resourcePresentation?: ResourcePresentationContext;
   focusedRegion?: OutlinerRegion;
@@ -1227,7 +1228,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 66;
+export const OUTLINER_PROTOCOL_VERSION = 67;
 
 
 export interface OutlinerServiceStatus {
@@ -1274,6 +1275,7 @@ export type OutlinerRequest =
       locked?: boolean;
       navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
+      previewTarget?: OutlinerNavigationTarget | null;
       runtime?: OutlinerClientRuntime | null;
       focusedRegion?: OutlinerRegion;
       treeSelection?: { target: OutlinerNavigationTarget; rowId: string } | null;

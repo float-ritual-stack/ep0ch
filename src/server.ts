@@ -19,7 +19,6 @@ import { readAuthoredLinks } from "./authored-links";
 import { normalizeAnnotationReferenceContext } from "./annotations";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import { isFragmentId, resolveFragment } from "./fragments";
-import { ALL_DETAILS_LOCKED_ERROR, PRIMARY_DETAIL_LOCKED_ERROR } from "./navigation-routes";
 import { OutlinerStore } from "./store";
 import {
   normalizeResourceId,
@@ -588,14 +587,8 @@ export class OutlinerServer {
   }
 
   private activeResourceRevisions(resourceId?: string): ResourceRevisionRef[] {
-    return this.listClients("detail").flatMap(({ currentTarget }) => {
-      if (
-        currentTarget?.kind !== "resource" ||
-        currentTarget.revision === undefined ||
-        (resourceId !== undefined && currentTarget.resourceId !== resourceId)
-      ) return [];
-      return [currentTarget.revision];
-    });
+    return this.listClients("detail").flatMap(client => [client.currentTarget, client.previewTarget].flatMap(target =>
+      target?.kind === "resource" && target.revision && (resourceId === undefined || target.resourceId === resourceId) ? [target.revision] : []));
   }
 
   private updateClient(
@@ -604,6 +597,7 @@ export class OutlinerServer {
       locked?: boolean;
       navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
+      previewTarget?: OutlinerNavigationTarget | null;
       runtime?: OutlinerClientRuntime | null;
       focusedRegion?: OutlinerRegion;
       treeSelection?: OutlinerClientRegistration["treeSelection"] | null;
@@ -612,7 +606,7 @@ export class OutlinerServer {
     if (
       update.navigationProtection === undefined &&
       update.locked === undefined &&
-      update.currentTarget === undefined &&
+      update.currentTarget === undefined && update.previewTarget === undefined &&
       update.runtime === undefined && update.focusedRegion === undefined && update.treeSelection === undefined
     ) {
       throw new Error("Client update must change locked, currentTarget, or runtime");
@@ -630,6 +624,11 @@ export class OutlinerServer {
       if (update.locked !== undefined) {
         if (!clientSupportsRole(client, "detail")) throw new Error("Only Detail clients can be locked");
         updated.locked = update.locked;
+      }
+      if (update.previewTarget === null) delete updated.previewTarget;
+      else if (update.previewTarget !== undefined) {
+        if (!clientSupportsRole(client, "detail")) throw new Error("Only Detail readers retain Preview targets");
+        updated.previewTarget = this.normalizeNavigationTarget(update.previewTarget, "retain");
       }
       if (update.currentTarget === null) {
         delete updated.currentTarget;
@@ -1026,53 +1025,6 @@ export class OutlinerServer {
     }
   }
 
-  private detailPool(source: OutlinerClientRegistration): OutlinerClientRegistration[] {
-    if (!this.hasAvailableTopology(source)) return [];
-    const details = this.listClients("detail")
-      .filter(client => client.role !== "composed" || client.contextId === source.contextId)
-      .filter((client) => this.hasAvailableTopology(client));
-    const candidates = source.runtime?.workspaceId && source.runtime.tabId
-      ? details.filter((client) => this.sameTab(source, client))
-      : details.filter((client) => client.contextId === source.contextId);
-    return candidates.sort((left, right) =>
-      (left.runtime?.paneX ?? Number.MAX_SAFE_INTEGER) -
-        (right.runtime?.paneX ?? Number.MAX_SAFE_INTEGER) ||
-      (left.runtime?.paneY ?? Number.MAX_SAFE_INTEGER) -
-        (right.runtime?.paneY ?? Number.MAX_SAFE_INTEGER) ||
-      left.clientId.localeCompare(right.clientId)
-    );
-  }
-
-  private resolveUnlockedDetail(
-    source: OutlinerClientRegistration,
-    intent: "preview" | "open",
-    preserveSource = false,
-  ): Omit<OutlinerNavigationDispatch, "command"> {
-    const pool = this.detailPool(source);
-    if (pool.length === 0) {
-      throw new Error("No Detail is available in this tab · open another Detail");
-    }
-    const candidates = preserveSource
-      ? pool.filter((client) => client.clientId !== source.clientId)
-      : pool;
-    const target = candidates.find((client) => !client.locked);
-    if (!target) {
-      if (preserveSource) {
-        throw new Error(
-          "No other unlocked Detail is available · unlock one or open another Detail",
-        );
-      }
-      throw new Error(ALL_DETAILS_LOCKED_ERROR);
-    }
-    return {
-      sourceClientId: source.clientId,
-      targetClientId: target.clientId,
-      ...(target.role === "composed" ? { targetRegion: "detail" as const } : {}),
-      intent,
-      resolution: "unlocked",
-    };
-  }
-
   private navigationView(view: OutlinerViewAddress, destination = false): OutlinerClientRegistration {
     if (!view || (view.region !== "tree" && view.region !== "detail")) throw new Error("Navigation requires an explicit logical view region");
     const client = this.clientById(view.clientId);
@@ -1111,16 +1063,18 @@ export class OutlinerServer {
   ): Omit<OutlinerNavigationDispatch, "command"> {
     const source = this.clientById(sourceClientId);
     if (intent === "open") return this.resolveExplicitOpen(source, sourceRegion, destination, preserveSource);
+    if (intent === "preview") {
+      const candidates = source.role === "detail" || source.role === "composed" ? [source]
+        : this.listClients("detail").filter(client => client.contextId === source.contextId);
+      if (candidates.length !== 1) throw new Error("No paired reader · Preview stays in this Tree");
+      return {sourceClientId, targetClientId: candidates[0]!.clientId, targetRegion: "detail", intent, resolution: "context"};
+    }
     const primary = this.listClients("composed").find(client => client.contextId === source.contextId);
     if (primary && !preserveSource) {
-      if (intent !== "reveal" && primary.locked) throw new Error(PRIMARY_DETAIL_LOCKED_ERROR);
       return { sourceClientId, targetClientId: primary.clientId, intent, resolution: "context", targetRegion: intent === "reveal" ? "tree" : "detail" };
     }
     if (!this.hasAvailableTopology(source)) {
       throw new Error("Herdr pane discovery is unavailable · wait for the service registry to reconnect");
-    }
-    if (intent !== "reveal") {
-      return this.resolveUnlockedDetail(source, intent, preserveSource);
     }
     if (source.role === "tree") {
       return {

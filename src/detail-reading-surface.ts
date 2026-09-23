@@ -1,0 +1,66 @@
+import type { DetailController, DetailViewport } from "./detail-controller";
+import type { OutlinerEvent, OutlinerNavigationTarget, OutlinerUiCommand } from "./types";
+
+/** One retained reader and one disposable, read-only inspection surface. */
+export class DetailReadingSurface {
+  previewVisible = false;
+  focused: "current" | "preview" = "current";
+
+  constructor(
+    readonly current: DetailController,
+    readonly preview: DetailController,
+    private readonly invalidate: () => void,
+    private readonly releasePreview: () => Promise<void>,
+  ) {}
+
+  get active(): DetailController {
+    return this.previewVisible && this.focused === "preview" ? this.preview : this.current;
+  }
+
+  toggleFocus(): void {
+    if (!this.previewVisible) {
+      this.current.onServiceError(new Error("Select an item to inspect in Preview"));
+      return;
+    }
+    this.focused = this.focused === "current" ? "preview" : "current";
+    this.invalidate();
+  }
+
+  async closePreview(): Promise<void> {
+    this.preview.supersedePassivePreview();
+    this.previewVisible = false;
+    this.focused = "current";
+    await this.releasePreview();
+    this.invalidate();
+  }
+
+  async receive(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
+    if (command.command === "preview") {
+      this.previewVisible = true;
+      await this.preview.handleUiCommand(command, viewport);
+    } else {
+      this.focused = "current";
+      await this.current.handleUiCommand(command, viewport);
+    }
+    this.invalidate();
+  }
+
+  async onServiceEvent(event: OutlinerEvent, viewport: DetailViewport): Promise<void> {
+    if (event.domain === "ui" && event.command) return this.receive(event.command, viewport);
+    await this.current.onServiceEvent(event, viewport);
+    if (this.previewVisible && event.domain !== "attention") await this.preview.onServiceEvent(event, viewport);
+  }
+
+  async keepPreview(viewport: DetailViewport): Promise<boolean> {
+    const target: OutlinerNavigationTarget | null = this.preview.state.target;
+    if (!this.previewVisible || !target) return false;
+    if (this.current.isBufferMode() || this.current.state.selectionAnchor !== null) {
+      this.preview.onServiceError(new Error("Finish or cancel the Current draft or source selection before keeping Preview"));
+      return false;
+    }
+    await this.current.handleUiCommand({command: "replace", targetClientId: "local-current", target}, viewport);
+    if (JSON.stringify(this.current.state.target) !== JSON.stringify(target)) return false;
+    await this.closePreview();
+    return true;
+  }
+}

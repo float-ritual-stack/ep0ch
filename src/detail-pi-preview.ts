@@ -174,6 +174,7 @@ interface CachedDetailDraftProjection extends DetailDraftProjection {
 }
 
 export interface DetailPiPreviewOptions {
+  surfaceLabel?(): string;
   primaryFocused?(): boolean;
   draftText?(): string | null;
   projectDraft?(text: string): Promise<DetailDraftProjection>;
@@ -1035,6 +1036,9 @@ class DetailPreviewHeader implements Component {
       const focused = this.options.focused?.() ?? false;
       header.surface = `${focused ? "●" : "○"} Draft`;
       header.focused = focused;
+    } else if (this.options.surfaceLabel) {
+      header.surface = this.options.surfaceLabel();
+      header.focused = this.options.primaryFocused?.() ?? true;
     } else if (this.options.primaryFocused) {
       const focused = this.options.primaryFocused();
       header.surface = `${focused ? "●" : "○"} Detail`;
