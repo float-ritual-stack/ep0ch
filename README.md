@@ -1804,3 +1804,14 @@ The installer assigns **prefix, Shift+U** to `float.pi-outliner.open-tree`.
 Use `--tree-key CHORD` to customize it. **? → New Tree** in Tree or Detail
 opens an independent Tree at the workspace root. Existing **Tree right/below**
 actions instead use the selected branch. Prefix+U retains Tree+Detail launch.
+
+### Local Tree Preview controls
+
+Each Tree has its own **Show/Hide Preview** control and `?` menu actions.
+Hiding persists while browsing until you show it again. In Preview's header,
+**→** docks right, **↓** docks below, **Auto** follows available space, **−/+**
+resize, and **×** hides. Drag the divider to resize directly. Keyboard equivalents
+are `Alt+Shift+P` (toggle), `Alt+=` (grow), and `Alt+-` (shrink); all are configurable.
+Dock and size preferences survive hide/show and terminal resizing within that Tree;
+they do not change Herdr panes or persist after closing the Tree. Small windows use
+a compact reader; `Alt+P` switches focus between Tree and Preview.
