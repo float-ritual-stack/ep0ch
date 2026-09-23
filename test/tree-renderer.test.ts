@@ -204,6 +204,7 @@ describe("renderTreeFrame", () => {
     const rendered = renderTreeFrame(view([root, child]), 80, 9);
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -702,6 +703,7 @@ describe("renderTreeFrame", () => {
     const rendered = renderTreeFrame(view(rows, { branchStates }), 200, 12);
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -744,6 +746,7 @@ describe("renderTreeFrame", () => {
     );
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -1113,4 +1116,58 @@ test("renders a targeted Tree block mark and coalesced return cue", () => {
   expect(visible).toContain("◀");
   expect(rendered).toContain("\x1b[1;4;96m");
   expect(rendered.split("\n").every((line) => visibleWidth(line) <= 44)).toBe(true);
+});
+
+
+test("wide local Preview keeps Tree row hit targets aligned with rendered text", () => {
+  const rows = [block("FIRST TARGET"), block("SECOND TARGET")];
+  const rendered = renderTreeFrame({...view(rows), localPreview: {target: {kind: "block", blockId: rows[1]!.id}, title: "Preview", lines: ["Inspection"], offset: 0, focused: false}}, 180, 16, 0, {clearScreen: false});
+  const lines = rendered.frame.split("\n").map(stripTerminalSequences);
+  for (const row of rows) {
+    const index = lines.findIndex(line => line.includes(row.id));
+    expect(index).toBeGreaterThan(0);
+    expect(rendered.mouseTargets[index]?.rowId).toBe(row.id);
+  }
+});
+
+
+test("breadcrumbs keep controls at the edges and link occurrence identity safely", () => {
+  const path = [
+    {rowId:"hub",canonicalId:"hub",label:"Hub",kind:"physical" as const},
+    {rowId:"occurrence:hub:note",canonicalId:"note",label:"世界\x1b[2J projected note",kind:"occurrence" as const},
+  ];
+  const result=renderTreeFrame(view([block("note")],{breadcrumbs:path,breadcrumbStart:1}),32,12,0);
+  const line=result.frame.split("\n")[3]!;
+  expect(visibleWidth(line)).toBe(32);
+  expect(stripTerminalSequences(line).startsWith("⌂ < ◇ 世界")).toBe(true);
+  expect(stripTerminalSequences(line).endsWith(">" )).toBe(true);
+  expect(line).not.toContain("\x1b[2J");
+  expect(getOsc8LinkAtColumn(line,0)).toBe("pi-outliner-action:tree.root.workspace");
+  expect(getOsc8LinkAtColumn(line,2)).toBe("pi-outliner-action:tree.breadcrumb.left");
+  expect(getOsc8LinkAtColumn(line,6)).toBe("pi-outliner-action:tree.breadcrumb.focus:occurrence%3Ahub%3Anote");
+  expect(getOsc8LinkAtColumn(line,31)).toBe("pi-outliner-action:tree.breadcrumb.right");
+});
+
+test("scrolled deep rows reclaim common indentation while preserving child geometry", () => {
+  const rows=Array.from({length:18},(_,i)=>block(`Title ${i} remains readable`,{depth:i,hasChildren:true}));
+  const first=renderTreeFrame(view(rows,{selectedIndex:13}),40,12,12);
+  const second=renderTreeFrame(view(rows,{selectedIndex:14}),40,12,first.scrollStartEntryIndex);
+  expect(first.scrollStartEntryIndex).toBe(12);
+  expect(second.scrollStartEntryIndex).toBe(12);
+  expect(stripTerminalSequences(first.frame)).toContain("Title 12 remains readable");
+  const targets=first.mouseTargets.filter(target=>target != null);
+  expect(targets.slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+  expect(second.mouseTargets.filter(target=>target != null).slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+});
+
+test("expanded-row reflow cannot flatten newly exposed shallower ancestry", () => {
+  const rows=[physical(block("deep",{depth:10,text:"word ".repeat(20),displayText:"word ".repeat(20),hasChildren:true}),{multilineExpanded:true}),physical(block("parent",{depth:1,hasChildren:true})),physical(block("child",{depth:2,hasChildren:true}))];
+  const rendered=renderTreeFrame(view(rows,{selectedIndex:0}),40,12,0);
+  const targets=rendered.mouseTargets.filter(target=>target != null);
+  const parent=targets.find(target=>target!.rowId === "parent")!;
+  const child=targets.find(target=>target!.rowId === "child")!;
+  // At the original depth the expanded note may fill the whole viewport.
+  // If reflow exposes ancestry, it must retain its hierarchy.
+  if (child) { expect(parent).toBeDefined(); expect(child.disclosureColumn-parent.disclosureColumn).toBe(2); }
+  else expect(targets.every(target=>target!.rowId === "deep")).toBe(true);
 });

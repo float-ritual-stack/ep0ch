@@ -1,4 +1,5 @@
-import type { DetailController, DetailViewport } from "./detail-controller";
+import type { PreviewRegionAction } from "./detail-preview-regions";
+import type { DetailController, DetailOpenRouting, DetailViewport } from "./detail-controller";
 import type { OutlinerEvent, OutlinerNavigationTarget, OutlinerUiCommand } from "./types";
 
 /** One retained reader and one disposable, read-only inspection surface. */
@@ -28,8 +29,8 @@ export class DetailReadingSurface {
   }
 
   async closePreview(): Promise<void> {
-    this.preview.supersedePassivePreview();
     this.previewVisible = false;
+    this.preview.releaseDocument();
     this.focused = "current";
     await this.releasePreview();
     this.invalidate();
@@ -51,6 +52,13 @@ export class DetailReadingSurface {
     if (event.domain === "ui" && event.command) return this.receive(event.command, viewport);
     await this.current.onServiceEvent(event, viewport);
     if (this.previewVisible && event.domain !== "attention") await this.preview.onServiceEvent(event, viewport);
+  }
+
+  async activatePreviewAction(action: PreviewRegionAction, viewport: DetailViewport, routing?: DetailOpenRouting): Promise<void> {
+    if (this.active === this.preview && (action.type === "annotation.thread.reply" || action.type === "annotation.thread.lifecycle")) {
+      if (!await this.keepPreview(viewport)) return;
+    }
+    await this.active.dispatch({type: "preview.action", action, ...(routing ? {routing} : {})}, viewport);
   }
 
   async keepPreview(viewport: DetailViewport): Promise<boolean> {

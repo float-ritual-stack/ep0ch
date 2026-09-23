@@ -124,6 +124,7 @@ function harness(
     },
     async onServiceEvent() {},
     supersedePassivePreview() {},
+    releaseDocument() {},
     async onServiceConnect() {},
     onServiceDisconnect() {},
     onServiceError() {},

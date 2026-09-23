@@ -5210,3 +5210,72 @@ describe("retained Current and local Preview", () => {
     expect(surface.active).toBe(current.controller);
   });
 });
+
+
+test("closing a Resource Preview releases the target across service reconnect", async () => {
+  const current = createHarness(makeBlock({id: "retained"}));
+  const preview = createHarness(makeBlock());
+  const published: unknown[] = [];
+  preview.effects.getBrowsingContext = async () => ({contextId: "context-test", target: null});
+  preview.effects.setCurrentTarget = async target => { published.push(target); };
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {published.push(null);});
+  await current.controller.initialize();
+  await preview.controller.onServiceConnect(viewport);
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "resource", resourceId: "closed-resource"}}, viewport);
+  expect(preview.controller.state.target).toEqual({kind: "resource", resourceId: "closed-resource"});
+  await surface.closePreview();
+  published.length = 0;
+  preview.controller.onServiceDisconnect();
+  await preview.controller.onServiceConnect(viewport);
+  expect(published.length).toBeGreaterThan(0);
+  expect(published.every(target => target === null)).toBe(true);
+  expect(preview.controller.state.target).toBeNull();
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained"});
+});
+
+test("Preview native thread actions promote safely and save the exact reply buffer", async () => {
+  const current = createHarness(makeBlock({id: "retained", text: "Retained document"}), null, async text => ({text, references: []}));
+  const preview = createHarness(makeBlock({id: "inspected", text: "Target inspected"}), null, async text => ({text, references: []}));
+  let thread: AnnotationThread;
+  const replied: unknown[] = [];
+  const lifecycles: unknown[] = [];
+  for (const harness of [current, preview]) {
+    harness.effects.reconcileAnnotations = async input => {
+      if (input.newRepresentation.subject.kind !== "block" || input.newRepresentation.subject.blockId !== "inspected") return {threads: [], changed: false};
+      thread ??= {...annotationRecord({representation: input.newRepresentation, anchor: {kind: "text-quote", start: 0, end: 6, exact: "Target", prefix: "", suffix: ""}}), replies: []};
+      return {threads: [thread], changed: false};
+    };
+    harness.effects.replyAnnotation = async input => {
+      replied.push(input.input);
+      const reply = {...annotationRecord(thread.originalTarget, {block: makeBlock({id: "reply"}), body: input.input.body}), parentAnnotationId: thread.block.id};
+      thread = {...thread, replies: [reply]};
+      return {annotations: [reply], deduplicated: false};
+    };
+    harness.effects.getAnnotation = async () => thread;
+    harness.effects.setAnnotationLifecycle = async input => { lifecycles.push(input); thread = {...thread, lifecycle: input.lifecycle}; return thread; };
+  }
+  const queuedPaints: Array<() => void> = [];
+  current.effects.enqueueViewUpdate = update => { queuedPaints.push(update); };
+  await current.controller.initialize(); await preview.controller.initialize();
+  await preview.controller.dispatch({type: "annotation.thread.move", delta: 1}, viewport);
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  surface.previewVisible = true; surface.focused = "preview";
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  await surface.activatePreviewAction({type: "annotation.thread.reply", annotationId: "annotation-1"}, viewport);
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(preview.controller.state.mode).toBe("preview");
+  expect(replied).toEqual([]);
+  await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+  await surface.activatePreviewAction({type: "annotation.thread.reply", annotationId: "annotation-1"}, viewport);
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspected"});
+  expect(current.controller.state.annotationReplyDraft?.annotationId).toBe("annotation-1");
+  expect(preview.controller.state.mode).toBe("preview");
+  await current.controller.dispatch({type: "buffer.insert", text: "Exact native reply"}, viewport);
+  await current.controller.dispatch({type: "buffer.save"}, viewport);
+  expect(replied).toEqual([{annotationId: "annotation-1", body: "Exact native reply", source: "user"}]);
+  await surface.activatePreviewAction({type: "annotation.thread.lifecycle", annotationId: "annotation-1"}, viewport);
+  expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "resolved"}]);
+  expect(current.calls.updates).toEqual([]);
+});
