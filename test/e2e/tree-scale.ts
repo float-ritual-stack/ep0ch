@@ -102,6 +102,7 @@ const result = await runHerdrScenario({
     await s.revealTree(remote.tree, board.id);
     await s.keys(remote.tree, "down");
     await selected(sources[0]!.id);
+    await s.keys(remote.tree, "enter");
     await s.waitVisible(remote.detail, "EXACT SOURCE 0");
     const mutations: number[] = [];
     let editable = sources[0]!;

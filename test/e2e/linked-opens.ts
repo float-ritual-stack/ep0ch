@@ -27,7 +27,7 @@ const result = await runHerdrScenario({
     const current = async (id: string) => (await session.registrations()).find(c => c.clientId === id)?.currentTarget;
     const linkTree = async (source: OutlinerClientRegistration, pane: string) => {
       await session.focus(pane);
-      await session.keys(pane, "?"); await session.text(pane, "Link destination"); await session.keys(pane, "enter");
+      await session.keys(pane, "alt+l");
       await session.waitVisible(pane, "Unlink destination");
       await session.text(pane, x.runtime!.paneId!); await session.keys(pane, "enter");
       await session.waitFor("Tree link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: source.clientId, region: "tree"}}), value => value.destination?.clientId === x.clientId);
@@ -35,14 +35,13 @@ const result = await runHerdrScenario({
     // Initial creation explicitly links A to its new reader. Reconfigure B/C through the UI.
     for (const [source, pane] of [[b, second.tree], [c, third.tree]] as const) await linkTree(source, pane);
     await session.client.request({action: "ui.command.send", command: {targetClientId: x.clientId, targetRegion: "detail", command: "focus"}});
-    await session.keys(session.panes.detail, "?"); await session.waitFor("Detail actions open", () => session.visible(session.panes.detail), text => text.includes("Find:")); await session.text(session.panes.detail, "Link destination"); await session.keys(session.panes.detail, "enter");
+    await session.keys(session.panes.detail, "alt+l");
     await session.waitFor("Detail link destinations", () => session.visible(session.panes.detail), text => text.includes("Unlink destination"));
     await session.text(session.panes.detail, y.runtime!.paneId!); await session.keys(session.panes.detail, "enter");
     await session.waitFor("Detail link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}}), state => state.destination?.clientId === y.clientId);
-    // Old passive reader pool remains separate until the Preview cutover; hold Y against it.
+    // Passive Tree selection updates Preview while Y retains its Current document.
     await session.client.request({action: "ui.command.send", command: {targetClientId: y.clientId, command: "replace", target: {kind: "block", blockId: yInitial.id}}});
     await session.waitVisible(second.detail, "UNRELATED Y START");
-    await session.focus(second.detail); await session.keys(second.detail, "L");
     for (const [index, pane] of [session.panes.tree, second.tree, third.tree].entries()) {
       await session.revealTree(pane, docs[index]!.id);
       const yBefore = await current(y.clientId);
@@ -65,20 +64,33 @@ const result = await runHerdrScenario({
     await session.waitFor("one-off destinations", () => session.visible(second.tree), frame => frame.includes("/ detail") && frame.includes("Find:")); await session.text(second.tree, y.runtime!.paneId!); await session.keys(second.tree, "enter");
     await session.waitFor("one-off Y", () => current(y.clientId), target => target?.kind === "block" && target.blockId === docs[0]!.id);
     assert.equal((await session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: b.clientId, region: "tree"}})).destination?.clientId, x.clientId);
+    const {resource} = await session.client.request<InternResourceReceipt>({action: "resources.intern-filesystem", input: {path: "linked-resource.md"}});
+    const description = await session.client.request<ResourceDescription>({action: "resources.describe", destinationClientId: x.clientId, target: {kind: "resource", resourceId: resource.id}});
+    const target = {kind: "resource" as const, resourceId: resource.id, revision: description.filesystem!.revision};
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e"); await session.text(session.panes.detail, " UNSAVED LINKED DRAFT");
     await session.waitFor("draft protection registered", session.registrations, values => Boolean(values.find(v => v.clientId === x.clientId)?.navigationProtection));
     await session.revealTree(third.tree, docs[1]!.id); await session.keys(third.tree, "enter");
     await session.waitVisible(third.tree, "Destination is protected"); await session.waitVisible(session.panes.detail, "UNSAVED LINKED DRAFT");
+    await assert.rejects(session.client.request({action:"navigation.dispatch",sourceClientId:b.clientId,intent:"open",target}),/protected/);
+    await session.waitVisible(session.panes.detail,"UNSAVED LINKED DRAFT");
+    await session.client.request({action:"ui.command.send",command:{targetClientId:x.clientId,targetRegion:"detail",command:"preview",target:{kind:"block",blockId:docs[2]!.id}}});
+    await session.waitFor("direct Preview during draft",session.registrations,values=>{const preview=values.find(v=>v.clientId===x.clientId)?.previewTarget;return preview?.kind==="block"&&preview.blockId===docs[2]!.id;});
+    await session.waitVisible(session.panes.detail,"UNSAVED LINKED DRAFT");
     await session.checkpoint("03-protected-draft-no-fallback");
     await session.focus(session.panes.detail); await session.keys(session.panes.detail, "escape");
     await session.waitFor("draft protection released", session.registrations, values => !values.find(v => v.clientId === x.clientId)?.navigationProtection);
-    const {resource} = await session.client.request<InternResourceReceipt>({action: "resources.intern-filesystem", input: {path: "linked-resource.md"}});
-    const description = await session.client.request<ResourceDescription>({action: "resources.describe", destinationClientId: x.clientId, target: {kind: "resource", resourceId: resource.id}});
-    const target = {kind: "resource" as const, resourceId: resource.id, revision: description.filesystem!.revision};
     await session.client.request({action: "navigation.dispatch", sourceClientId: b.clientId, intent: "open", target});
     await session.waitVisible(session.panes.detail, "LINKED RESOURCE PINNED BYTES"); assert.deepEqual(await current(x.clientId), target);
     await session.checkpoint("04-resource-identity-and-revision");
+    await session.focus(session.panes.detail);await session.keys(session.panes.detail,"v");
+    await session.waitFor("exact source selection protected",session.registrations,values=>Boolean(values.find(v=>v.clientId===x.clientId)?.navigationProtection));
+    await assert.rejects(session.client.request({action:"ui.command.send",command:{targetClientId:x.clientId,targetRegion:"detail",command:"replace",target:{kind:"block",blockId:docs[0]!.id}}}),/protected/);
+    await assert.rejects(session.client.request({action:"navigation.dispatch",sourceClientId:b.clientId,intent:"open",target}),/protected/);
+    assert.deepEqual(await current(x.clientId),target);
+    await session.checkpoint("04a-resource-selection-preserved");
+    await session.keys(session.panes.detail,"escape");
+    await session.waitFor("source selection released",session.registrations,values=>!values.find(v=>v.clientId===x.clientId)?.navigationProtection);
     const resourceHost = await session.client.request<Block>({action: "create", text: "Cancellable Resource choice [file::cancelled-resource.md]"});
     await session.client.request({action: "ui.command.send", command: {targetClientId: x.clientId, targetRegion: "detail", command: "replace", target: {kind: "block", blockId: resourceHost.id}}});
     await session.waitVisible(session.panes.detail, "Cancellable Resource choice");

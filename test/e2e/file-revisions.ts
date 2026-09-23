@@ -32,7 +32,7 @@ const result = await runHerdrScenario({
     const before = statSync(path, { bigint: true });
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing filesystem Resource");
+    await session.waitVisible(session.panes.detail, "Editing filesystem Resource");
     await session.text(session.panes.detail, " LOCAL-DRAFT");
     await session.waitVisible(session.panes.detail, "ORIGINAL LOCAL-DRAFT");
     await session.checkpoint("01-open-filesystem-draft");
@@ -70,7 +70,7 @@ const result = await runHerdrScenario({
     await session.waitVisible(session.panes.detail, "REPLACED");
     await session.checkpoint("03-explicit-cancel-and-refresh");
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing filesystem Resource");
+    await session.waitVisible(session.panes.detail, "Editing filesystem Resource");
     await session.text(session.panes.detail, " AFTER-RELOAD");
     await session.waitVisible(session.panes.detail, "REPLACED AFTER-RELOAD");
     await terminal.write("\u0013");

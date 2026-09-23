@@ -37,7 +37,7 @@ const result = await runHerdrScenario({
     assert.ok(treeFrame.length > 0);
     await session.checkpoint("01-selected-open-local");
     await session.keys(pane, "e");
-    await session.waitVisible(pane, "Locked for editing");
+    await session.waitVisible(pane, "Editing");
     await terminal.write("\u001b[F");
     await session.text(pane, " edited");
     await session.waitVisible(pane, "Original body edited");
@@ -47,6 +47,11 @@ const result = await runHerdrScenario({
     await session.waitVisible(pane, "Original body edited");
     await terminal.write("\u001b[17~");
     await session.waitFor("Tree focus with dirty Detail", session.registrations, entries => entries[0]?.focusedRegion === "tree");
+    await session.keys(pane, "up", "enter");
+    await session.waitVisible(pane, "Destination is protected");
+    await session.waitVisible(pane, "Original body edited");
+    assert.deepEqual((await session.registrations())[0]!.currentTarget, {kind: "block", blockId: host.id});
+    await session.keys(pane, "down");
     await terminal.write("\u001b[17~");
     await session.waitFor("Detail focus restored", session.registrations, entries => entries[0]?.focusedRegion === "detail");
     await session.waitVisible(pane, "Original body edited");
@@ -61,7 +66,7 @@ const result = await runHerdrScenario({
     assert.deepEqual((await session.visible(pane)).split("\n").filter(line => line.includes("PIE283 scroll row")).map(line => line.slice(0, 31)), treeFrame);
     await terminal.write("\u001b[17~");
     await session.keys(pane, "e");
-    await session.waitVisible(pane, "Locked for editing");
+    await session.waitVisible(pane, "Editing");
     await session.text(pane, " CANCELLED-BY-USER");
     await terminal.write("\u001b");
     await session.waitFor("cancel preview", () => session.visible(pane), frame => !frame.includes("CANCELLED-BY-USER"));
@@ -81,9 +86,7 @@ const result = await runHerdrScenario({
     // Host discovery is an independent transport; local navigation must not need it.
     await session.waitFor("wide cancel returns Tree", session.registrations, entries => entries[0]?.focusedRegion === "tree");
     await terminal.write("\u001b[17~");
-    await session.waitFor("Detail focus before unlock", session.registrations, entries => entries[0]?.focusedRegion === "detail");
-    await session.keys(pane, "L");
-    await session.waitFor("unlocked", session.registrations, entries => entries[0]?.locked === false);
+    await session.waitFor("Detail focus without a draft", session.registrations, entries => entries[0]?.focusedRegion === "detail" && !entries[0]?.navigationProtection);
     await session.setRegistryUnavailable(true);
     await session.waitFor("registry unavailable", session.registrations, entries => !entries[0]?.runtime?.paneId);
     assert.equal((await session.client.request<{status: string}>({action: "ping"})).status, "ready");
@@ -91,7 +94,7 @@ const result = await runHerdrScenario({
     await goto(reference.id);
     await session.waitVisible(pane, "Detached canonical bytes");
     await session.keys(pane, "enter", "e");
-    await session.waitVisible(pane, "Locked for editing");
+    await session.waitVisible(pane, "Editing");
     await session.text(pane, " during registry outage");
     await terminal.write("\u0013");
     await session.waitFor("saved without discovery", () => session.client.request<Block>({action: "get", blockId: reference.id}), block => block.text.endsWith(" during registry outage"));

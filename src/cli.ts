@@ -7,7 +7,7 @@ import {
 import { createOutlinerClient, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
 import { resolveClientPaths } from "./paths";
-import { navigateOutlinerLink } from "./outliner-links";
+import { navigateOutlinerLink, parseOutlinerLinkUri } from "./outliner-links";
 import type { BlockSearchQuery, CaptureReceipt } from "./types";
 
 const paths = resolveClientPaths();
@@ -215,13 +215,51 @@ switch (command) {
   case "link": {
     const { values, positionals } = parseArgs({
       args: rest,
-      options: { url: { type: "string" } },
+      options: {
+        url: { type: "string" },
+        "source-client": { type: "string" },
+        "source-region": { type: "string" },
+        "detail-client": { type: "string" },
+        "tree-client": { type: "string" },
+      },
       allowPositionals: true,
       strict: true,
     });
-    const url = values.url ?? positionals.join("");
+    if (positionals.length > 1 || (values.url !== undefined && positionals.length > 0)) {
+      throw new Error("link accepts one URL, either positional or --url");
+    }
+    const url = values.url ?? positionals[0];
     if (!url) throw new Error("link requires a pi-outliner URL");
-    directResult = await navigateOutlinerLink(client, url);
+    const sourceClientId = values["source-client"];
+    const sourceRegion = values["source-region"];
+    const detailClientId = values["detail-client"];
+    const treeClientId = values["tree-client"];
+    for (const name of ["source-client", "detail-client", "tree-client"] as const) {
+      if (values[name] !== undefined && !values[name].trim()) throw new Error(`--${name} requires a client ID`);
+    }
+    if (sourceRegion !== undefined && sourceRegion !== "tree" && sourceRegion !== "detail") {
+      throw new Error("--source-region must be tree or detail");
+    }
+    if (sourceRegion !== undefined && !sourceClientId) {
+      throw new Error("--source-region requires --source-client");
+    }
+    if ([sourceClientId, detailClientId, treeClientId].filter(value => value !== undefined).length > 1) {
+      throw new Error("Use only one of --source-client, --detail-client, or --tree-client");
+    }
+    const target = parseOutlinerLinkUri(url);
+    const resourceTarget = target.kind === "resource" || target.kind === "reference";
+    if (detailClientId && !resourceTarget) {
+      throw new Error("--detail-client requires a Resource or reference URL; use --source-client for linked Open");
+    }
+    if (treeClientId && resourceTarget) {
+      throw new Error("Resource and reference URLs require --detail-client or --source-client");
+    }
+    if (sourceClientId && target.kind === "goto") {
+      throw new Error("goto URLs require --tree-client, not --source-client");
+    }
+    directResult = await navigateOutlinerLink(client, url, {
+      sourceClientId, sourceRegion, detailClientId, treeClientId,
+    });
     break;
   }
   case "work-id-status":
@@ -267,8 +305,8 @@ switch (command) {
       },
       strict: true,
     });
-    if (values.role !== undefined && values.role !== "tree" && values.role !== "detail" && values.role !== "composed") {
-      throw new Error("clients --role must be tree, detail, or composed");
+    if (values.role !== undefined && values.role !== "tree" && values.role !== "detail" && values.role !== "composed" && values.role !== "observer") {
+      throw new Error("clients --role must be tree, detail, composed, or observer");
     }
     request = {
       action: "clients.list",

@@ -28,6 +28,10 @@ const result = await runHerdrScenario({
     const begin = async (query: string) => {
       await closed();
       await session.focus(pane);
+      if (composed && (await current()).focusedRegion !== "tree") {
+        await terminal.write("\u001b[17~");
+        await session.waitFor("Tree focused for Goto", current, entry => entry.focusedRegion === "tree");
+      }
       await session.keys(pane, "g");
       await waitPopup("Go to  ");
       await terminal.write(`\x1b[200~${query}\x1b[201~`);
@@ -35,6 +39,7 @@ const result = await runHerdrScenario({
     await begin(origin.id);
     await terminal.write("\r");
     await closed();
+    await session.keys(pane, "enter");
     await session.waitVisible(session.panes.detail, "ORIGINAL-DETAIL-BODY");
     const before = await selection();
     const detailBefore = (await detail()).currentTarget;
@@ -81,7 +86,7 @@ const result = await runHerdrScenario({
     await terminal.write("\r");
     await closed();
     await session.waitFor("Enter reveals result", selection, target => target?.kind === "block" && target.blockId === second.id);
-    await session.waitVisible(session.panes.detail, "BETA-PREVIEW-BODY");
+    assert.deepEqual((await detail()).currentTarget, detailBefore, "Goto reveal changes Preview, not Current");
     const selected = await selection();
     await begin(first.id);
     await waitPopup("ALPHA-PREVIEW-BODY");
@@ -92,12 +97,15 @@ const result = await runHerdrScenario({
     assert.deepEqual(await selection(), selected);
     await session.waitFor("Detail ready for keyboard input", detail,
       entry => composed ? entry.focusedRegion === "detail" : entry.runtime?.focused === true);
-    await terminal.write("L");
-    await session.waitFor("Detail receives keys after popup open", detail, entry => entry.locked === true);
-    await terminal.write("L");
-    await session.waitFor("Detail unlocked after focus check", detail, entry => entry.locked === false);
+    await terminal.write("e");
+    await session.waitVisible(session.panes.detail, "Editing");
+    await session.waitFor("Detail receives keys and protects its draft", detail, entry => Boolean(entry.navigationProtection));
+    await session.text(session.panes.detail, " CANCELLED-FOCUS-PROBE");
+    await terminal.write("\x1b");
+    await session.waitFor("draft protection released", detail, entry => !entry.navigationProtection);
+    assert.equal((await session.client.request<Block>({action: "get", blockId: first.id})).text, first.text);
     await session.checkpoint("03-independent-detail-open");
-    if (composed) {
+    if (composed && (await current()).focusedRegion !== "tree") {
       await session.keys(pane, "q");
       await session.waitFor("return to Tree", current, entry => entry.focusedRegion === "tree");
     }

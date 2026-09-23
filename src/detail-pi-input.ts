@@ -33,7 +33,7 @@ export function detailChooserOwnsPiInput(data: string): boolean {
 }
 export interface PiDetailLinkClick {
   readonly activate: boolean;
-  readonly routing: "first-unlocked" | "chooser";
+  readonly routing: "linked" | "chooser";
   readonly suppress: boolean;
 }
 
@@ -43,7 +43,7 @@ export function piDetailLinkClick(data: string): PiDetailLinkClick | null {
   const activate = treeClickActivates(click);
   return {
     activate,
-    routing: activate ? "chooser" : "first-unlocked",
+    routing: activate ? "chooser" : "linked",
     suppress: click.shift && !activate,
   };
 }

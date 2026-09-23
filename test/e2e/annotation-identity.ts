@@ -28,13 +28,8 @@ const result = await runHerdrScenario({
       return readAnnotation(found.blocks[0]!.id);
     };
     const reveal = async (blockId: string) => {
-      const current = (await session.registrations()).find(client => client.clientId === registration.clientId);
-      if (current?.locked) {
-        await session.focus(detail);
-        await session.keys(detail, "L");
-        await session.waitFor("Detail unlocked", session.registrations, entries => entries.some(client => client.clientId === registration.clientId && !client.locked));
-      }
       await session.revealTree(tree, blockId);
+      await session.keys(tree, "enter");
       await session.waitFor("Detail target", session.registrations, entries => entries.some(client => client.clientId === registration.clientId && client.currentTarget?.kind === "block" && client.currentTarget.blockId === blockId));
       await session.focus(detail);
     };

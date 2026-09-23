@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { createAnnotationReferenceContext, createTextQuoteAnchor } from "../../src/annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationTarget, AnnotationThread, Block, InternResourceReceipt, OutlinerClientRegistration, ResourceDescription } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
@@ -49,7 +49,11 @@ const result = await runHerdrScenario({
     const thread = async (id: string) => (await threads()).find(t => t.block.id === id)!;
     const reveal = async (blockId: string, panes = { tree, detail }) => {
       await s.revealTree(panes.tree, blockId);
-      await s.waitFor("target published", s.registrations, cs => cs.some(c => c.runtime?.paneId === panes.detail && c.currentTarget?.kind === "block" && c.currentTarget.blockId === blockId));
+      await s.keys(panes.tree, "enter");
+      // Current identity can already match before Enter's composed focus transition finishes.
+      await s.waitFor("target published and focused", s.registrations, cs => cs.some(c =>
+        c.runtime?.paneId === panes.detail && c.currentTarget?.kind === "block" && c.currentTarget.blockId === blockId &&
+        (!composed || panes.detail !== detail || c.focusedRegion === "detail")));
       await s.focus(panes.detail);
       if (composed && panes.detail === detail && (await current()).focusedRegion !== "detail") {
         await terminal.write("\u001b[17~");
@@ -59,7 +63,7 @@ const result = await runHerdrScenario({
     await reveal(host.id);
     await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
     await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "enter"); await s.waitVisible(detail, "GLOBAL PASSAGE");
+    await s.keys(detail, "R"); await s.waitVisible(detail, "GLOBAL PASSAGE");
     await s.waitFor("all threads loaded", threads, ts => ts.length === 4 && ts.find(t => t.block.id === orphan.block.id)?.resolvedTarget === null);
     const target = (await current()).currentTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
@@ -116,7 +120,7 @@ const result = await runHerdrScenario({
       assert.equal((await s.client.request<Block>({ action: "get", blockId: host.id })).text, host.text);
       assert.deepEqual((await s.client.request<AnnotationRecord>({ action: "annotations.get", annotationId: selected.block.id })).originalTarget, selected.originalTarget);
       await s.record("composed-thread-controls", { target, beforeReply, threads: await threads(),
-        input: "Internal F6 focus, contextual Resource opening, native Reply click, multiline reply, resolve/reopen, cancellation, other occurrence and orphan navigation",
+        input: "Tree Enter opens and focuses Detail, contextual Resource opening, native Reply click, multiline reply, resolve/reopen, cancellation, other occurrence and orphan navigation",
         limits: "Standalone companion journey covers full ANSI appendix and narrow thread scrolling; composed-surface companion covers narrow/wide allocation." });
       return;
     }
@@ -144,18 +148,24 @@ const result = await runHerdrScenario({
     await s.waitVisible(ansi.detail, "Original target:");
     await s.keys(ansi.detail, "G"); await s.waitVisible(ansi.detail, "Orphan final comment sentinel");
     await s.checkpoint("09-ansi-evidence-bottom-reachable");
-    const evidenceRow = (await s.visible(ansi.detail)).split("\n")[3];
+    const currentViewportRow = (frame: string) => {
+      const lines = frame.split("\n");
+      const divider = lines[0]!.indexOf("│Preview");
+      assert.ok(divider > 0, "ANSI wide reader includes separate Current and Preview regions");
+      return sliceByColumn(lines[3]!, 0, visibleWidth(lines[0]!.slice(0, divider)), true);
+    };
+    const evidenceRow = currentViewportRow(await s.visible(ansi.detail));
     for (const lifecycle of ["resolved", "open"] as const) {
       await s.keys(ansi.detail, "D");
       await s.waitFor(`direct annotation ${lifecycle}`, () => thread(orphan.block.id), t => t.lifecycle === lifecycle);
       await s.waitVisible(ansi.detail, "Orphan final comment sentinel");
-      assert.equal((await s.visible(ansi.detail)).split("\n")[3], evidenceRow);
+      assert.equal(currentViewportRow(await s.visible(ansi.detail)), evidenceRow);
     }
     await s.checkpoint("09a-annotation-lifecycle-keeps-evidence-viewport");
     await reveal(host.id, ansi);
     await s.keys(ansi.detail, "o"); await s.waitVisible(ansi.detail, "Choose a reference");
     await s.keys(ansi.detail, "tab", "o"); await s.waitVisible(ansi.detail, "Choose destination");
-    await s.keys(ansi.detail, "enter"); await s.waitVisible(ansi.detail, "GLOBAL PASSAGE");
+    await s.keys(ansi.detail, "R"); await s.waitVisible(ansi.detail, "GLOBAL PASSAGE");
     const ansiCurrent = async () => (await s.registrations()).find(c => c.runtime?.paneId === ansi.detail)!;
     const ansiTarget = (await ansiCurrent()).currentTarget;
     assert.ok(ansiTarget?.kind === "resource" && ansiTarget.referenceContext);
@@ -171,7 +181,7 @@ const result = await runHerdrScenario({
     await s.waitFor("ANSI reply persisted", () => thread(selected.block.id), t => t.replies.some(r => r.body === "ANSI reply first line\nANSI reply final line"));
     await s.waitVisible(ansi.detail, "ANSI reply final line");
     assert.deepEqual((await ansiCurrent()).currentTarget, ansiTarget);
-    assert.equal((await s.visible(ansi.detail)).split("\n")[3], ansiBeforeReply.split("\n")[3]);
+    assert.equal(currentViewportRow(await s.visible(ansi.detail)), currentViewportRow(ansiBeforeReply));
     await s.keys(ansi.detail, "D"); await s.waitFor("ANSI resolves selected thread", () => thread(selected.block.id), t => t.lifecycle === "resolved");
     await s.waitVisible(ansi.detail, "D reopen");
     await s.keys(ansi.detail, "D"); await s.waitFor("ANSI reopens selected thread", () => thread(selected.block.id), t => t.lifecycle === "open");
@@ -180,7 +190,7 @@ const result = await runHerdrScenario({
     await s.text(ansi.detail, "Discard ANSI reply"); await s.keys(ansi.detail, "esc"); await s.waitVisible(ansi.detail, "Reply cancelled");
     assert.equal((await thread(selected.block.id)).replies.length, 3);
     assert.deepEqual((await ansiCurrent()).currentTarget, ansiTarget);
-    assert.equal((await s.visible(ansi.detail)).split("\n")[3], ansiBeforeReply.split("\n")[3]);
+    assert.equal(currentViewportRow(await s.visible(ansi.detail)), currentViewportRow(ansiBeforeReply));
     await s.checkpoint("11-ansi-reply-and-lifecycle-preserve-reader");
     await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 3"); await s.waitVisible(ansi.detail, "Other reference thread");
     await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 4"); await s.waitVisible(ansi.detail, "unpositioned");

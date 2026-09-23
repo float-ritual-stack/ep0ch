@@ -1339,7 +1339,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await selectVisibleBlock(targetId, { preferredRowId: targetRowId });
     try {
       await effects.navigation.edit(targetId);
-      status = `Multiline editor opened and locked in ${effects.navigation.readerLabel}`;
+      status = `Multiline editor opened in ${effects.navigation.readerLabel}`;
     } catch (error) {
       status = errorMessage(error);
     }

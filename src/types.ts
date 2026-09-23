@@ -916,11 +916,11 @@ export interface DeliverySyncReceipt {
   changed: boolean;
 }
 
-export type OutlinerClientRole = "tree" | "detail" | "composed";
+export type OutlinerClientRole = "tree" | "detail" | "composed" | "observer";
 export type OutlinerRegion = "tree" | "detail";
 
 export function clientSupportsRole(client: Pick<OutlinerClientRegistration, "role">, role: OutlinerClientRole): boolean {
-  return client.role === role || (client.role === "composed" && role !== "composed");
+  return client.role === role || (client.role === "composed" && (role === "tree" || role === "detail"));
 }
 
 export interface BlockTarget {
@@ -966,7 +966,6 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
-  locked?: boolean;
   navigationProtection?: string | null;
   currentTarget?: OutlinerNavigationTarget;
   previewTarget?: OutlinerNavigationTarget;
@@ -1228,7 +1227,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 67;
+export const OUTLINER_PROTOCOL_VERSION = 68;
 
 
 export interface OutlinerServiceStatus {
@@ -1272,7 +1271,6 @@ export type OutlinerRequest =
       id: string;
       action: "clients.update";
       clientId: string;
-      locked?: boolean;
       navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
       previewTarget?: OutlinerNavigationTarget | null;
@@ -1733,7 +1731,7 @@ export interface OutlinerNavigationResolution {
   sourceClientId: string;
   targetClientId: string;
   intent: OutlinerNavigationIntent;
-  resolution: "unlocked" | "self" | "context" | "same-tab" | "linked" | "chosen";
+  resolution: "self" | "context" | "same-tab" | "linked" | "chosen";
   targetRegion?: OutlinerRegion;
 }
 

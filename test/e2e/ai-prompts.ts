@@ -25,7 +25,7 @@ async function editPrompt(session: HerdrScenarioSession, text: string): Promise<
   const pane = session.panes.detail;
   await session.focus(pane);
   await session.keys(pane, "e");
-  await session.waitVisible(pane, "Locked for editing filesystem Resource");
+  await session.waitVisible(pane, "Editing filesystem Resource");
   await session.keys(pane, "alt+a");
   await session.text(pane, text);
   await session.keys(pane, "ctrl+s");

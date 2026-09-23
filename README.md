@@ -21,7 +21,7 @@ addressable as `[[outliner-tour]]`.
 | To… | Start here |
 | --- | --- |
 | Find a note and preview it | Tree `g`: [Goto search](#tree-browse-mode) |
-| Keep a reference beside your work | [Independent Details and locking](#working-with-multiple-details) |
+| Keep a reference beside your work | [Current, Preview, and linked Details](#working-with-multiple-details) |
 | Read files and comment on a particular use | [Authored Resources](#inspect-authored-links) and [reference comments](#comments-on-individual-resource-references) |
 | Capture a thought and inspect its cleanup | Tree `c`, then `Shift+I`: [Capture and Inbox](#capture-and-inbox) |
 | Tune the AI's instructions | [Editable prompt files](#editing-ai-prompts) |
@@ -53,11 +53,11 @@ herdr plugin action invoke open-composed --plugin float.pi-outliner
 ```
 
 Tree owns its selected occurrence, history and scroll. Detail owns its target,
-lock, retained Resource revision, draft, undo/redo and scroll. Enter opens the
+Current and Preview targets, retained Resource revisions, draft, undo/redo and scroll. Enter opens the
 selected target in the primary Detail; `F6` switches regions, and `q` returns from
 Detail to Tree. Ordinary navigation and focus remain usable while Herdr discovery
-is unavailable, provided the Outliner service is healthy. A locked primary reader
-stays locked; opening a different destination is explicit.
+is unavailable, provided the Outliner service is healthy. Current remains in place during passive inspection; drafts and active source selections
+protect it from replacement.
 
 The existing `o` destination chooser can replace the primary reader or open a
 separate Detail to the right/below. Herdr still places, moves and closes detached
@@ -81,7 +81,7 @@ including its exact revision, regardless of which region has keyboard focus.
 
 Run `bun run test:e2e:composed` for the isolated actual-application journeys.
 They record frames, state, native pointer input, registry fault/restoration,
-detached movement/closure and process cleanup. A held publication/edit-lock
+detached movement/closure and process cleanup. A held publication/draft-protection
 interleaving verifies that delayed Tree previews cannot change a draft's owner.
 Generated Outlinks and Resources also open locally during discovery failure.
 No shared user host is used.
@@ -91,9 +91,9 @@ No shared user host is used.
 - SQLite-backed hierarchical blocks with stable UUIDs, sibling order, authors, timestamps, and one canonical graph per workspace root.
 - Workspace-isolated service and runtime paths.
 - Versioned JSON-lines RPC over a Unix socket. Clients and service must use matching [`OUTLINER_PROTOCOL_VERSION`](src/types.ts) values.
-- Reactive canonical content/view broadcasts, per-process Tree/Detail registration with Detail lock availability, exact-client UI commands, and source-aware `preview | open | reveal` navigation.
+- Reactive canonical content/view broadcasts, per-process Tree/Detail/observer registration with operation protection, exact-client UI commands, and source-aware `preview | open | reveal` navigation.
 - Durable resources have UUID identities independent of blocks and mutable locators. Provider-qualified Sources bind filesystem roots or remote namespaces; overlapping Sources remain distinct, relocations preserve Resource IDs, provider revisions remain explicit, and capability resolution reports blockers across provider, credentials, workspace policy, host, and connectivity. Registered Detail hosts declare Surface, Placement, renderer, capability, credential, and connectivity facts; open/describe/refresh deterministically negotiate cached Markdown, embedded-browser, native-document, metadata, or external-link representations without changing Resource identity. PDF is a media type reachable through filesystem and web Sources: one captured binary snapshot can produce both native PDF and page-aware Markdown representations through versioned replaceable extractors.
-- Each Tree owns its cursor, occurrence selection, filter, viewport, collapsed rows, multiline expansion, explicit-navigation history, and browsing context; moving a Tree previews only in the first unlocked same-tab Detail and never replaces a locked anchor.
+- Each Tree owns its cursor, occurrence selection, filter, viewport, collapsed rows, multiline expansion, explicit-navigation history, and browsing context; moving a Tree updates Preview in its paired reader, or its own local Preview when unpaired, while Current stays in place.
 - Indexed `[property::value]` metadata with optimistic property patching and catalog queries.
 - Exact block and fragment references using `((block-id))` and `((block-id^fragment-id))`, resolved to display titles in read mode while raw text remains editable.
 - Unique normalized symbolic addresses from explicit `[page::address]` declarations and Work IDs, with aliases, explicit removal, bounded completion, dangling links, and transactional create-on-follow.
@@ -111,10 +111,10 @@ No shared user host is used.
 - Client-local multiline-expanded Tree rows support viewport-sized intra-block PageUp/PageDown without changing the Tree cursor.
 - Pi Markdown preview with line, page, endpoint, and mouse/trackpad scrolling.
 - Detail renders source-spanned Markdown, nested Obsidian callouts, generated embeds, Backlinks, and a structured property inspector through one PreviewRegion focus/action model while canonical source remains authoritative.
-- The property inspector preserves repeated keys and block/line/inline scope, offers inline disclosure plus a locked dedicated Detail pane, and routes typed block/page/Work-ID values through existing navigation.
+- The property inspector preserves repeated keys and block/line/inline scope, offers inline disclosure plus a dedicated Detail pane, and routes typed block/page/Work-ID values through existing navigation.
 - Grapheme-safe wrapped Detail editing, word motion, selection, deletion, bounded per-session undo/redo, completion, optimistic save, and whole-session Esc cancellation.
 - Targeted ephemeral attention marks exact block/file source ranges in one addressed Tree or Detail without mutating content, selection, navigation history, or durable annotations. Marks expire, become stale instead of drifting when source changes, retain one current plus bounded supporting cues, and coalesce missed activity into a return summary.
-- Detail shows `🔓` when unlocked and `🔐` when locked; unlocked Details form a spatial preview/open pool, while locked Details retain exact context anchors.
+- Detail retains Current alongside a separate passive Preview. Explicit Open uses the source’s saved destination link; drafts and active source selections protect Current from replacement.
 - Durable annotations use ordinary blocks for comment and reply content, lifecycle, and promotion presentation. One relational sidecar owns immutable original targets and append-only resolution history for block, filesystem Resource, rendered, web, and provider evidence. Typed anchors share one codec seam. Reconciliation follows a deterministic ladder: unchanged representation, provider-native identity, structural quote verification, unique exact quote, context ranking, then bounded local fuzzy matching. High-confidence matches apply automatically; medium candidates remain probable, low candidates remain unresolved, and candidate targets and scores remain in history. Detail reveals only currently resolved text-quote positions and keeps probable, unresolved, ambiguous, orphaned, unsupported, and rejected outcomes inspectable.
 - Herdr-owned pane placement/focus and current-pane recovery, one remembered service pane, per-process live client discovery, and an ephemeral runtime registry.
 - Pi/OMP commands, tools, selection-context injection, canonical `/send-to-outline` capture, and deterministic configured `PREFIX-XXX` work-placeholder nudging.
@@ -358,10 +358,10 @@ The manifest exposes three workspace/tab/pane actions:
   fresh browsing context, then focuses the Tree. Otherwise it selects the Tree
   by the invoking pane, then an unambiguous Tree in the current tab, workspace,
   or project, and focuses that exact client. Ambiguity fails explicitly.
-- `ensure-detail` applies the same Tree selection. It focuses an existing Detail
-  in that Tree's tab, preferring the Tree's browsing context, an unlocked pane,
-  and then spatial pane order; if the tab has none, it opens one below the Tree
-  in the Tree's context. With no Tree it opens a complete pair.
+- `ensure-detail` applies the same Tree selection and focuses its saved linked
+  Detail, wherever that pane has moved. If the Tree has no link, this explicit
+  host action creates a Detail below it and links the pair. An unavailable linked
+  destination reports an error. With no Tree it opens a complete pair.
 - `open-here` always creates a new Tree/Detail pair beside the invoking pane in
   the current tab. The pair shares a fresh ephemeral browsing context and the
   new Tree receives focus.
@@ -381,35 +381,36 @@ verifies the Herdr action.
 #### Working with multiple Details
 
 Trees and Details under the same filesystem root share canonical blocks and
-content updates, but not cursors, targets, filters, viewport state, lock state,
-or navigation history.
+content updates. Each view keeps its own cursor, target, filter, viewport,
+draft, and navigation history.
 
-Every Detail starts **Unlocked**. Tree cursor movement previews the selected
-canonical block in the first unlocked Detail in the same Herdr tab, ordered by
-pane position from left to right and then top to bottom. Preview updates never
-steal focus. Press `Enter` in Tree to focus that reader without locking it.
+Tree cursor movement updates **Preview** in its paired browsing context without
+replacing **Current** or taking focus. An independent Tree without a paired
+reader shows a local read-only Preview. Selection never creates a pane. Wide
+readers show Current and Preview beside each other; `F7` switches focus (or the
+visible reader at narrow widths), `Shift+F7` closes Preview, and `Alt+Enter`
+keeps Preview as Current. Current retains its history, scroll, and draft while
+another target is inspected. Keeping Preview or opening another target is
+refused while Current has a draft or an active source selection.
 
-Press `Option+Shift+Right` in Tree to create and focus an independent Detail to the right, or
-`Option+Shift+Down` to create it below. The new pane receives a fresh browsing context
-seeded with the selected canonical block, so later Tree cursor movement does
-not replace it. It remains unlocked for explicit opens until you lock it.
+Tree `Enter` explicitly opens the selected target through that Tree's saved
+Detail destination link. **Alt+L** (or **? → Link destination**) sets the link; **Open once
+in…** chooses a destination for one action. Several sources can share a reader,
+and receiving a target never forwards it through the receiver's own link.
+Moving or resizing panes does not change links. An absent destination reports
+recovery choices; ordinary Open never selects a nearby pane or creates a split.
 
-When a block becomes a context anchor, focus its Detail and press `L`, `i`,
-`Ctrl+L`, or `Command/Meta+L`. The header changes to **Locked**, and that pane
-is removed from the preview/open pool. The next Tree selection therefore
-appears in the next unlocked Detail. Entering block edit or annotation-comment
-mode locks the Detail automatically. Locking never silently expires; explicitly
-unlock the pane to make it eligible again.
+Press `Option+Shift+Right` in Tree to create and focus an independent Detail to
+the right, or `Option+Shift+Down` to create it below. Creating a split is an
+explicit action. Closing any view does not delete its documents or annotations.
 
 `o`, plain-clicked references, and typed Property targets inside Detail open one
-destination chooser without navigating first. `Shift+R` explicitly replaces
-the current Detail while preserving its lock state, `f` uses the first unlocked
-same-tab Detail, `r` splits right, and `d` splits down. `Enter` uses the first
-unlocked Detail or creates a right split when none is available. `f` remains in
-the chooser when every Detail is locked, so fallback topology is always an
-explicit choice. `Esc` dismisses without resolving or opening the target.
-Outside the chooser, `Shift+R` reveals the block currently shown by the Detail,
-while `Option+Shift+R` reveals its first authored reference.
+destination chooser before resolving the target. `Shift+R` replaces here,
+`f` or `Enter` uses the saved link, `c` chooses an existing reader once, and
+`r`/`d` creates a right/down split. Replacement respects the destination's draft
+and source-selection protection. `Esc` dismisses without resolving or opening
+the target. Outside the chooser, `Shift+R` reveals the block currently shown by
+the Detail, while `Option+Shift+R` reveals its first authored reference.
 Block-fragment targets retain their exact anchor across every destination.
 
 #### Inspect authored links
@@ -418,7 +419,7 @@ Select a block in Tree, press `?`, and invoke **View · Show authored links**.
 Tree inserts two generated branches under that exact occurrence:
 
 - **Outlinks** contains authored block references, `[[page]]` addresses, and Work
-  IDs. Resolved rows open in the first unlocked Detail. Merely showing or
+  IDs. Resolved rows open through the Tree's saved Detail link. Merely showing or
   selecting an unresolved page is read-only; pressing `Enter` follows the
   address and transactionally creates its registered page only when necessary.
   An unresolved Work ID is never created implicitly.
@@ -444,7 +445,7 @@ Tree inserts two generated branches under that exact occurrence:
   human-authored row is labeled **Enter creates**. Pressing `Enter` performs
   provider resolution or local interning, creates the Source only for safe
   filesystem, web, or application defaults, creates the Resource, and opens
-  its canonical identity in the first unlocked Detail. Missing files,
+  its canonical identity in the linked Detail after destination preflight. Missing files,
   ambiguous Sources, unavailable credentials, and policy denials remain
   explicit errors rather than creating placeholders.
 
@@ -462,10 +463,10 @@ bun run goto "Authored links example"
 
 Known limits in the current dogfood build:
 
-- Tree-generated Resource opens require an unlocked reader. If all Details are
-  locked, unlock or open another reader first; Tree does not offer a destination
-  chooser for this action. Inside Detail, Resource references use the shared
-  destination chooser.
+- Tree-generated Resource opens require a valid linked Detail. Set **Link
+  destination** before activation; an absent or protected destination fails
+  before Resource registration. Inside Detail, Resource references use the
+  shared destination chooser.
 - `[file::user@host/path]` creates an SSH application deep link, not a
   source-backed remote file. SSH-backed text and `[ssh::host/path]` authoring
   are tracked as PIE-261.
@@ -515,6 +516,10 @@ bun run cli clients --role tree
 bun run goto 40bd0864
 bun run goto --query "roadmap review"
 bun run goto --client <client-uuid> --query "roadmap review"
+bun run cli link 'pi-outliner://block/<block-uuid>' --tree-client <tree-client-uuid>
+bun run cli link 'pi-outliner://resource/<resource-uuid>' --detail-client <detail-client-uuid>
+bun run cli link 'pi-outliner://block/<block-uuid>' --source-client <source-client-uuid> --source-region tree
+bun run cli link 'pi-outliner://reference/<source-block-uuid>?revision=1&start=7&end=22' --source-client <source-client-uuid> --source-region detail
 bun run cli work-id-status
 bun run cli work-id-configure --prefix PIE
 bun run cli work-id-allocate --id <block-uuid> --expected <revision>
@@ -523,6 +528,15 @@ bun run cli work-id-allocate --id <block-uuid> --expected <revision>
 Text updates require the integer `revision` returned by the read before editing. Omitting `--expected` or saving an old revision fails without replacing newer text. Sibling moves do not invalidate an unchanged text draft.
 
 The CLI resolves the same workspace-scoped socket and database as the service. `goto` accepts a full UUID, unique short prefix, or unambiguous fuzzy title/content query. Eight-character IDs are convenience labels, not a uniqueness guarantee; ambiguous queries return full-UUID candidates without changing selection. Work-ID configuration is normally one-time; allocation requires the exact block UUID and its latest integer `revision`, available in bounded `list` results. A successful allocation atomically persists both the immutable reservation and the block's `[work-id::…]` property/address; a failed request consumes neither the number nor a reservation.
+
+`link` accepts one URL, positional or `--url`. Use `--source-client` to follow
+that view's saved Detail link; composed sources also require `--source-region
+tree|detail`. For a source-free Resource or authored-reference URL, supply
+`--detail-client` explicitly. Reference URLs must retain the exact source block
+revision and token span emitted by Outliner; the numbers above are placeholders.
+Missing or protected destinations fail before Resource registration. Use
+`--tree-client` for source-free block, page, Work-ID, or goto URLs. These three
+client options are mutually exclusive; goto URLs accept Tree targeting only.
 
 ## Keyboard controls
 
@@ -555,8 +569,8 @@ title. Collapsed Tree rows right-align summaries against the row's available
 width, omit a lone property's repeated key, remove lower-priority fields before
 truncating the title, and never add a second row.
 The complete authored metadata remains available in expanded rows and the
-property inspector. Detail also right-aligns the clickable `🔓`/`🔐` lock and
-`[⋯]` action controls.
+property inspector. Detail also provides the `[⋯]` action control and labels
+Current and Preview separately.
 
 Resource properties use the same activation for metadata and inline mentions.
 Pi Detail links the authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]`
@@ -623,23 +637,22 @@ unchanged.
 | `PageUp` / `PageDown` | Scroll within the selected multiline-expanded block |
 | `Left` / `Right` | Collapse/go to parent; expand/go to first child |
 | `Option+Up` / `Option+Down` | Reorder canonical siblings, or branch-local projected occurrences |
-| `Enter` | Focus the current block in the first unlocked same-tab Detail; remain unlocked |
+| `Enter` | Open the selected target in the linked Detail |
 | `Option+Shift+Right` / `Option+Shift+Down` | Create and focus a new independent Detail to the right / below |
-| `e` | Edit a single-line block inline; open and lock a multiline block in the first unlocked Detail |
+| `e` | Edit a single-line block inline; open a multiline edit in the linked Detail |
 | `a` / `s` | Add child / sibling |
 | `c` | Open the Herdr quick-capture popup; Enter adds a line, Ctrl+S saves to Inbox, Esc retains and closes, Ctrl+D twice discards |
 | `Tab` / `Shift+Tab` | Indent / outdent |
 | `Space` | Toggle collapse |
 | `.` or `Command+.` | Expand/collapse multiline block detail in Tree |
-| `Ctrl+E` or modified Enter | Explicitly edit and lock the selected block in the first unlocked Detail |
+| `Ctrl+E` or modified Enter | Explicitly edit the selected block in the linked Detail |
 | `g` | Search blocks with a document preview and optional Jev ranking |
 | `Shift+I` | Inspect the automatic Inbox agent, its results, Pause/Resume, Undo, and reconsideration |
-| `o` | Open the first exact `((block-id))` or symbolic `[[address]]` reference in the first unlocked Detail |
+| `o` | Open the first exact `((block-id))` or symbolic `[[address]]` reference in the linked Detail |
 | `R` | Reveal this row's canonical physical source, clearing filters, expanding its ancestors, and focusing this Tree |
 | `Option+Shift+R` | Reveal the first authored reference in this Tree |
 | `Shift+V` | Open the selected virtual branch in the generic split navigator |
 | `m` / `Shift+M` | Toggle a bookmark for the selected block / open Bookmarks |
-| `L` | Explain that locking is controlled from a Detail pane |
 | `Option+Left` / `Option+Right` | Move backward / forward through block navigation history |
 | `/` | Filter visible blocks |
 | `f` | Open a referenced file |
@@ -674,7 +687,7 @@ occurrence to its canonical physical row, `Option+Left` returns to that
 occurrence. User-triggered reveals focus the target Tree; programmatic reveal
 commands only focus it when they explicitly request focus.
 
-Plain-clicking a Tree row selects it and publishes that row to its linked Detail.
+Plain-clicking a Tree row selects it and updates its paired or local Preview.
 `Ctrl`/`Meta`-clicking a Tree row selects and opens it; when the clicked cell is
 an authored `PIE-NNN`, canonical UUID, exact reference, or `[[address]]`, the
 referenced target opens instead. Authored links in Detail retain direct
@@ -690,7 +703,7 @@ exact link that reveals that ancestor or leaf in Tree rather than opening
 another Detail.
 
 For links rendered outside the active Outliner, the Herdr handler identifies the
-invoking pane's live client and uses the same unlocked-pool routing. On macOS,
+invoking pane's live client and uses the source’s saved destination link. On macOS,
 the optional `macos/pi-outliner-link` app remains an explicit compatibility
 path: Warp uses Command-click; Ghostty with mouse capture uses
 Shift-Command-click.
@@ -719,26 +732,26 @@ Projected virtual occurrences deliberately constrain hierarchy and collapse. Bra
 | Peek: `Esc` | Cancel, restore the exact inline source row, and leave this Detail unchanged |
 | Peek: `Enter` | Open the shared destination chooser |
 | Peek: configured Detail right/below binding | Open the current preview directly in a new right/down Detail |
-| Chooser: configured Detail right/below binding or `r` / `d`; `Shift+R` / `f` | Split right/down; replace this Detail / use first unlocked Detail |
-| Chooser: `Enter` / `Esc` | Use the default destination / dismiss without navigation |
+| Chooser: configured Detail right/below binding or `r` / `d`; `Shift+R` / `f` | Split right/down; replace this Detail / use linked Detail |
+| Chooser: `c`; `Enter` / `Esc` | Choose once; use the saved link / dismiss without navigation |
 | Primary-button drag | Select and copy an exact rendered block or cached Resource passage |
 | `c` | Comment on the most recently dragged passage without entering another selection mode |
 | configured Herdr `float.pi-outliner.comment-selection` key | Alternate copy-mode path for commenting on a retained native rendered selection |
-| `e` | Lock this Detail and edit raw canonical text |
+| `e` | Edit raw canonical text; an active draft protects Current |
 | `f` | Open referenced file |
 | `o` | Open the first authored reference in the shared destination chooser |
 | `R` | Reveal the block currently shown by this Detail in its paired or unique same-tab Tree |
 | `Option+Shift+R` | Reveal the first authored reference in the paired or unique same-tab Tree |
 | `Shift+V` | Open the current virtual branch in the generic split navigator |
 | `m` / `Shift+M` | Toggle a bookmark for the current block / open Bookmarks |
-| `L`, `i`, `Ctrl+L`, or `Command/Meta+L` | Lock this block as an anchor, or unlock the Detail for previews and opens |
+| `F7` / `Shift+F7` / `Alt+Enter` | Switch Current/Preview focus, close Preview, or keep Preview as Current |
 | `Option+Shift+Right` / `Option+Shift+Down` | Open the current target in a new independent Detail to the right / below |
-| `Option+Left` / `Option+Right` | Move backward / forward through this Detail's local history without changing lock state |
+| `Option+Left` / `Option+Right` | Move backward / forward through Current's local history |
 | `r` | Restore the selected block when it is a direct Trash root |
 | `q` | Focus Tree; close a dedicated Property Detail |
 | `Ctrl+Q` | Close Detail |
 
-Detail navigation history is local to that Detail process and retains at most 200 exact targets. Opening a reference, receiving an exact target, or following the paired Tree records a visit. Back/forward pins the historical target so a later Tree cursor event cannot immediately replace it. Soft-deleted targets reopen read-only; a purged target remains visible as unavailable. Closing Detail discards this history.
+Detail navigation history is local to that Detail process and retains at most 200 exact targets. Explicitly opening or keeping a target records a visit. Passive Tree selection updates Preview independently and leaves Current history in place. Soft-deleted targets reopen read-only; a purged target remains visible as unavailable. Closing Detail discards this history.
 
 Detail parses the complete projected Markdown document before applying generated
 embed decoration. Exact character and line spans are recovered from the parsed
@@ -787,9 +800,9 @@ it, while `Enter` or `Ctrl`/`Meta`-click opens a reversible preview over the
 invoking Detail. The popup captures the current filtered/sorted source set once:
 `Left`/`Right` traverse it and `Esc` restores the exact inline row without
 navigation. `Enter` opens the destination chooser. Inside that chooser,
-`Shift+R` replaces the invoking Detail regardless of lock state, `f` uses the
-first unlocked Detail, `r` splits right, and `d` splits down. A second `Enter`
-uses the first unlocked Detail or falls back to a right split. Back in the
+`Shift+R` replaces the invoking Detail subject to operation protection, `c`
+chooses a reader once, `f` or a second `Enter` uses the saved link, `r` splits
+right, and `d` splits down. An absent link reports recovery choices. Back in the
 invoking Detail, outside the popup, pane-level `Shift+R` reveals the current
 Detail block's canonical physical source in Tree.
 
@@ -821,7 +834,7 @@ keybinding handoff, preserves its exact validated text, and brackets live-Detail
 discovery with two identical recent-pane snapshots. It aborts if the pane
 revision, captured output, registered Detail/context/host block changes, or the
 exact quote is absent from that bounded pane history. No clipboard is read. Both
-paths lock that exact Detail and open the composer over the existing reader;
+paths protect that exact Detail while the composer is open over the existing reader;
 `Ctrl+S` creates the comment and `Esc` cancels without creating anything.
 The composer shows three body rows and scrolls to keep the cursor visible as you
 type or resize the pane.
@@ -921,7 +934,7 @@ annotation document also scrolls through its full evidence and history with `G`.
 
 Long physical lines wrap without changing raw text. Continuation rows remain associated with one physical line number, and keyboard or pointer selection maps back to exact authored source. Bracketed paste replaces the selection and remains one edit even when terminal payload chunks arrive separately. Keyboard cursor movement keeps the active edge visible.
 
-External block editing never writes the canonical block directly. From preview it first opens and locks an ordinary Detail draft; from edit mode it sends the exact unsaved buffer. Save and Esc remain the block commit/discard boundary. Writable, unpinned text filesystem Resources use the same private editor adapter, but a changed returned draft is revision-checked and written back to the source immediately; `e` instead opens the built-in buffer and commits through `Ctrl+S`. Detail uses exported `$VISUAL` or `$EDITOR` directly; when Herdr's plugin environment omits them, it reads those values and `PATH` from the user's interactive shell without evaluating the editor value as shell code. Outliner leaves the alternate screen, waits for that editor in the same local or SSH/Herdr PTY, restores the originating Detail and viewport, then imports valid UTF-8 only if the captured block version or filesystem revision is unchanged. Failed launches, nonzero exits, restoration failures, and version conflicts preserve the private recovery file and leave canonical content unchanged.
+External block editing never writes the canonical block directly. From preview it first opens an ordinary protected Detail draft; from edit mode it sends the exact unsaved buffer. Save and Esc remain the block commit/discard boundary. Writable, unpinned text filesystem Resources use the same private editor adapter, but a changed returned draft is revision-checked and written back to the source immediately; `e` instead opens the built-in buffer and commits through `Ctrl+S`. Detail uses exported `$VISUAL` or `$EDITOR` directly; when Herdr's plugin environment omits them, it reads those values and `PATH` from the user's interactive shell without evaluating the editor value as shell code. Outliner leaves the alternate screen, waits for that editor in the same local or SSH/Herdr PTY, restores the originating Detail and viewport, then imports valid UTF-8 only if the captured block version or filesystem revision is unchanged. Failed launches, nonzero exits, restoration failures, and version conflicts preserve the private recovery file and leave canonical content unchanged.
 
 Filesystem saves compare the opened file's content hash, size, and modification
 time. A stale edit retains its Detail draft and leaves the source unchanged.
@@ -1110,7 +1123,7 @@ disclosure, and `/` filters the popup rows transiently. `Enter` opens the shared
 destination chooser. `Shift+R` dispatches Reveal for the selected row's physical
 source and closes after the service accepts that dispatch. Outside the chooser,
 `Esc` or `q` closes without changing canonical data, Tree selection, viewport,
-Detail lock state, or occurrence ranks; inside the chooser, `Esc` first dismisses
+Detail Current, or occurrence ranks; inside the chooser, `Esc` first dismisses
 that chooser. At narrow widths, `Tab` switches between the independently usable
 list and preview.
 
@@ -1364,7 +1377,7 @@ acknowledge, clear, or inspect short-lived block/file attention. Exact UTF-16
 anchors carry source version/hash evidence; stale source is rejected on create
 and existing marks become visibly stale after a source change. `reveal` and
 `focus` are explicit, independent opt-ins. Without them, the target pane's
-selection, navigation history, lock, and canonical content do not change.
+selection, navigation history, drafts, and canonical content do not change.
 
 `outliner_workflow` starts only the typed `walkthrough.plan` action with an
 explicit capability allowlist, fan-out bound, call bound, and invocation
@@ -1698,7 +1711,7 @@ Existing threads and an agent reply are seeded through public APIs.
 
 ### Linked explicit opens
 
-Each live Tree or Detail region can link to one Detail destination. Several sources may share a destination; receiving a document does not follow the receiver's own link. Moving panes leaves these links unchanged. New Tree/Detail pairs start linked; independent Trees use **? → Link destination**. Detail has the same action. The menu marks the current link.
+Each live Tree or Detail region can link to one Detail destination. Several sources may share a destination; receiving a document does not follow the receiver's own link. Moving panes leaves these links unchanged. New Tree/Detail pairs start linked; independent Trees use **Alt+L** (or **? → Link destination**). Detail uses the same shortcut. The menu marks the current link.
 
 Tree **? → Open once in…** and Detail's reference destination chooser (**c**) choose an existing Detail for one action without changing its link. The chooser also offers **R** to replace here and **r/d** to create a right/down split. Cancelling never resolves an authored Resource or refreshes its provider. An unlinked or closed destination produces an explicit recovery message, with no automatic destination or split. Drafts and active source selections reject replacement.
 

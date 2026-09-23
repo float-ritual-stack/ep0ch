@@ -79,7 +79,7 @@ export interface VirtualBranchNavigatorEffects {
   ): Promise<VirtualBranchNavigatorProjection>;
   loadPreview(row: VirtualBranchOccurrenceRow): Promise<VirtualBranchNavigatorPreview>;
   replaceTarget(blockId: string): Promise<void>;
-  openInFirstUnlocked(blockId: string): Promise<boolean>;
+  openLinked(blockId: string): Promise<boolean>;
   openInNewDetail(blockId: string, direction: "right" | "down"): Promise<void>;
   revealSource(blockId: string): Promise<void>;
   removeSelectedRecord?(row: VirtualBranchOccurrenceRow): Promise<void>;
@@ -153,8 +153,8 @@ export class VirtualBranchNavigatorController {
     this.actionKeymap = options.actionKeymap ?? DEFAULT_OUTLINER_ACTION_KEYMAP;
     this.destinationChooser = new OpenDestinationChooser({
       replace: (target) => effects.replaceTarget(openDestinationBlockId(target)),
-      openFirstUnlocked: (target) =>
-        effects.openInFirstUnlocked(openDestinationBlockId(target)),
+      openLinked: (target) =>
+        effects.openLinked(openDestinationBlockId(target)),
       openNewDetail: (target, direction) =>
         effects.openInNewDetail(openDestinationBlockId(target), direction),
       opened: () => this.finish(),

@@ -91,7 +91,6 @@ function computedDetailEffects(
         }),
       };
     },
-    async setLocked() {},
     async setCurrentTarget() {},
     async dispatchNavigation() {
       return unavailable();

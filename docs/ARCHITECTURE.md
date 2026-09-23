@@ -137,7 +137,7 @@ separate from passive inspection.
 
 Tree holds no canonical block state. It reconstructs canonical data from service snapshots and events, then owns its cursor, occurrence selection, filter, collapsed canonical IDs, multiline-expanded row IDs, viewport, explicit-navigation history, and browsing-context publication in-process. Closing a Tree discards only that Tree's presentation state.
 
-Cursor changes publish the selected canonical block together with the source Tree client ID. The service retains the browsing-context target and emits a `preview` UI command to the first spatially unlocked Detail in the same tab; preview never focuses the destination. Global `selection` events are ignored by Tree panes. Tree `Enter` dispatches `open` to focus the same unlocked reader without entering edit mode. Exact-client `focus` and `reveal` commands move only their addressed Tree and locally expand ancestors when required. The legacy saved workspace selection may seed a newly created Tree once, but it is not continuing pane authority.
+Cursor changes publish the selected canonical block together with the source Tree client ID. The service retains the browsing-context target and emits a `preview` UI command to the paired reader in that context; an unpaired Tree owns its local read-only Preview. Preview never focuses the destination or replaces Current. Global `selection` events are ignored by Tree panes. Tree `Enter` dispatches explicit `open` through its saved destination link without entering edit mode. Exact-client `focus` and `reveal` commands move only their addressed Tree and locally expand ancestors when required. The legacy saved workspace selection may seed a newly created Tree once, but it is not continuing pane authority.
 
 PageUp/PageDown move the selected expanded row's offset by one Tree body viewport and clamp to its wrapped row count. Cursor changes, multiline expansion changes, and reconnects reset the offset.
 
@@ -169,8 +169,13 @@ same executor. Raw text and cursor-editing input reaches
 [`text-buffer-editor.ts`](../src/text-buffer-editor.ts) only after command
 resolution declines the chord.
 
-Detail owns an exact block-or-resource target, a bounded in-process target
-history, and a visible `Unlocked | Locked` state. Resource targets are addressed
+Detail owns an exact Current block-or-resource target, a bounded in-process
+target history, and a separate Preview target. Current and Preview retain
+independent scroll and inspection state. `F7` switches focus, `Shift+F7` closes
+Preview, and `Alt+Enter` keeps Preview as Current, subject to Current draft and
+source-selection protection. Wide readers show both; narrow readers switch the
+visible document. Passive Resource inspection uses read-only description of
+existing representations and never interns or refreshes a Resource. Resource targets are addressed
 by durable Resource UUID without a synthetic block. Opening web, Jira, Linear,
 and computed Resources reads local state only. It selects the latest suitable
 immutable Markdown representation when one exists and reports missing or failed
@@ -265,27 +270,25 @@ pin/reference/audit accounting, and representation protection propagates to
 its source snapshot. Unpinned open still uses the current newest suitable
 cached representation without provider access.
 
-Block editing, backlinks, and Tree
-reveal stay unavailable for Resource targets. An unlocked Detail is eligible for
-same-tab Tree previews and confirmed opens. Ordinary navigation can target only
-an unlocked Detail. A locked Detail also rejects directly addressed ordinary
-`preview` and `open` commands; explicit `replace` alone may retarget it without
-changing its lock state. `L`, `i`, `Ctrl+L`, or `Meta+L` toggles the current
-target's lock. Block and cached Resource annotation commenting lock before opening a
-mutable buffer.
+Block editing, backlinks, and Tree reveal stay unavailable for Resource targets.
+`navigationProtection` describes an active draft or source selection that must
+be finished or cancelled before Current can be replaced. Explicit `open`,
+`replace`, and directly addressed document commands all respect this protection.
+Pure focus and passive Preview do not replace Current. Mutable block/comment
+buffers publish protection before accepting replacement commands.
 
 Authored block/page/Work-ID links and typed Property targets bind one target to
 the shared destination chooser before resolution or navigation. `Shift+R`
-replaces the current Detail, `f` dispatches to the first spatially unlocked
-same-tab Detail, and the configured Detail right/down bindings or legacy `r`/`d`
-create an independent right/down Detail. The Backlink Peek popup accepts the
-same configured direction bindings directly and from its chooser. `Enter`
-uses the first unlocked destination and falls back to a right split; explicit
-`f` never falls back. Block-fragment identity is carried through replace,
-first-unlocked, and split routes. `Esc`, target changes, pane exit, or the
-configurable idle timeout dispose the bound target without navigation. Chooser
-input is consumed before the ordinary Detail keymap and resets the idle timer.
-Closing Detail discards its target, history, chooser, and lock state.
+replaces the current Detail, `f` or `Enter` uses its saved link, and `c` chooses
+an existing reader once. The configured Detail right/down bindings or legacy
+`r`/`d` explicitly create an independent right/down Detail. The Backlink Peek
+popup accepts the same configured direction bindings directly and from its
+chooser. Missing destinations report recovery choices and never trigger an
+automatic split. Block-fragment and Resource identity survive every route.
+`Esc`, target changes, pane exit, or the configurable idle timeout dispose the
+bound target without resolving or refreshing it. Chooser input is consumed
+before the ordinary Detail keymap and resets the idle timer. Closing Detail
+discards its local Current, Preview, history, and chooser.
 
 The generated Backlinks section is collapsed by default and therefore performs
 no relation query during ordinary Tree cursor previews. Expansion calls the
@@ -331,7 +334,7 @@ multi-column glyphs, alias-specific keys, and unknown fields retain defaults.
 The read-only property inspector calls the same scoped property parser used by
 the property index and retains every occurrence's scope, ordinal, line/column,
 span, syntax, placement, and typed target. `p` toggles the inline disclosure;
-`P` launches a locked dedicated Detail presentation for the same block/model.
+`P` launches a dedicated Detail presentation for the same block/model.
 Filter, grouping, focus, and viewport state are process-local. Every rendered
 property cell carries a Detail-local focus action so a plain click highlights
 the occurrence. Actionable block/page/Work-ID values use Ctrl/Meta-click or the
@@ -598,51 +601,54 @@ Do not leave older editors running across this upgrade.
 - Work IDs: `work-ids.status`, `work-ids.configure`, `work-ids.allocate`
 - legacy workspace selection/history: `selection.get`, `selection.set`, `navigation.state`, `navigation.back`, `navigation.forward`
 - reactive clients: `events.subscribe`, `clients.list`, `clients.update`
-- exact-client behavior: `ui.command.send`; `open` respects the destination lock, while explicit `replace` retargets the invoking Detail and preserves that lock state
+- exact-client behavior: `ui.command.send`; document-changing commands respect destination operation protection, while pure focus preserves Current
 - targeted ephemeral attention: `attention.get`, `attention.mark`, `attention.advance`, `attention.clear`, and `attention.acknowledge`
 - typed workflows: `workflows.start`, `workflows.get`, `workflows.list`, `workflows.structure`, `workflows.plan`, `workflows.transition`, `workflows.cancel`, `workflows.promotion.preview`, and `workflows.promotion.commit`
 
 ### Live client identity
 
-Each Tree and Detail process generates a fresh client UUID and registers
-`{ clientId, role, contextId, locked?, currentTarget?, runtime? }` on
-`events.subscribe`. A Detail's current target is an explicit block or Resource
-address. Details register unlocked and publish every explicit lock or target
-transition through `clients.update`. `open-here` generates one context UUID and
-passes it to the Tree and Detail it creates. Standalone processes use their
-client UUID as a private context.
+Each process generates a fresh client UUID and registers
+`{ clientId, role, contextId, currentTarget?, previewTarget?, navigationProtection?, runtime? }`
+on `events.subscribe`. Tree, Detail, composed, and observer are explicit roles.
+Current and Preview addresses retain exact Resource revisions independently.
+Clients publish target/protection transitions through `clients.update`.
+`open-here` generates one context UUID for its Tree/Detail pair and links the
+Tree region to that Detail. Standalone processes use their client UUID as a
+private context.
 
 Client registrations retain terminal identity as their stable Herdr join key.
 When Herdr is available, the service reconciles pane, workspace, tab, and
 coordinate fields from the live runtime registry before returning client reads;
-launch-time placement is retained only without a configured Herdr registry. The service orders same-tab
-Detail candidates by horizontal then vertical pane position, with client ID only
-as a deterministic fallback. Herdr remains authoritative for current placement
-and focus.
+launch-time placement is retained only without a configured Herdr registry.
+Herdr remains authoritative for placement and focus. Geometry is not an Open
+routing key: each source region stores one live Detail destination identity.
+Composed clients require an explicit source or target region where ambiguous.
 
 The subscription socket owns its registration. The service rejects duplicate
 live client IDs and removes exactly that socket's registration. When the last
 subscriber for a browsing context disconnects, its target is pruned.
-`clients.list` returns the live registry, optionally filtered by role.
+`clients.list` returns the live registry, optionally filtered by role. Observers
+receive refresh events but cannot initiate navigation, receive direct document
+commands, or serve as linked/one-off destinations.
 
 `content`, legacy `selection`, and `view` events are workspace broadcasts. A
 `ui` command or `attention` event is written only to its `targetClientId`.
 
-For `preview` and `open`, `navigation.resolve` and `navigation.dispatch` select
-the first unlocked Detail in the source's current tab. Locked Details and every
-other tab/workspace are excluded. Without a configured Herdr registry, the
-source's browsing context is the fallback pool boundary. A configured registry
-that is unavailable or cannot locate the source instead reports unavailable
-Herdr discovery; it never routes using stale launch-time placement. When the
-pool exists but every Detail is locked, navigation fails with an instruction
-to unlock one or open another Detail; no anchor is overwritten. `reveal` targets the source Tree,
-then one same-context Tree, then one unambiguous same-tab Tree. There are no
-persisted or manual per-source open routes.
+For explicit `open`, `navigation.resolve` and `navigation.dispatch` use the
+source region's saved link or an explicit one-off destination. Receipt does
+not forward through the receiver's link. Pane moves and resizes do not change
+links; disconnect removes them. Missing or protected destinations produce clear
+recovery errors without choosing another reader or creating a pane. Passive
+`preview` stays within the source's paired browsing context on the same host,
+or appears locally in an unpaired Tree; it does not follow Open links.
+`reveal` targets the source Tree, then one same-context Tree, then one
+unambiguous same-tab Tree.
 
-Direct dangling page activation preflights the unlocked destination before
-transactional create-on-follow. Detail chooser activation instead defers
-resolution and create-on-follow until a destination is confirmed, so dismissal
-and idle expiry leave canonical content unchanged.
+Dangling page and authored Resource activation preflight the selected destination
+before create-on-follow, registration, or provider resolution. Detail chooser
+activation defers resolution until a destination is confirmed, so dismissal and
+idle expiry leave canonical content unchanged. A Resource Open with no source
+client must supply an explicit Detail destination before any side effects.
 
 ### Agent provenance
 
@@ -673,7 +679,7 @@ Workflow transitions are durable; narration is not. `next`, `previous`,
 `resume`, and `skip` atomically replace the target client's PIE-180 current
 attention mark and emit a targeted reveal instruction. `pause` and `branch`
 suspend without moving the mark; `end` removes it. Selection, navigation
-history, locks, source text, and user-owned annotation lifecycle remain
+history, drafts, source text, and user-owned annotation lifecycle remain
 unchanged.
 
 Questions and replies use the canonical PIE-210 annotation tables. A workflow
@@ -800,8 +806,8 @@ the same controller and renderer in a 90% × 88% popup. `goto-main.ts` uses Pi's
 `ProcessTerminal` for input and terminal restoration; it is not a registered
 navigation destination. The invoking client ID is passed explicitly: Enter sends
 a Tree-region focus command to that client, and Alt+Enter uses the existing
-navigation operation from that source. Missing sources and locked destinations
-remain errors in the popup. No pane discovery is needed to identify the source.
+navigation operation from that source. Missing sources and absent or protected
+destinations remain errors in the popup. No pane discovery is needed to identify the source.
 Outside Herdr the modal stays in the application surface; the composed terminal
 makes Tree its layout root while it is active, then restores the split. Search
 state is transient and independent Detail state is preserved until acceptance.
@@ -833,17 +839,17 @@ Store startup creates one canonical `Inbox [type::inbox] [system-view::inbox]` w
 ## Reactive flow
 
 1. A client obtains a workspace snapshot or exact block context.
-2. It registers a fresh process identity, role, browsing-context identity, and
-   Detail lock state.
+2. It registers a fresh process identity, role, browsing-context identity,
+   Current/Preview targets, and operation protection.
 3. Tree publishes its local cursor with its source client identity.
-4. The service retains the context target, chooses the first spatially unlocked
-   same-tab Detail, and sends that one client a `preview` UI command.
+4. The service retains the context target and sends the paired reader a
+   `preview` UI command; an unpaired Tree displays its own Preview.
 5. Canonical mutations broadcast `content` events to every client under the
    workspace root; receiving content refreshes data but never transfers browsing
    authority.
 6. Exact `ui` commands are delivered only to their target client.
-7. On service reconnect, Detail republishes its lock state and Tree republishes
-   its retained cursor. A restarted process receives a new client identity;
+7. On service reconnect, Detail republishes its targets and protection; Tree
+   republishes its retained cursor. A restarted process receives a new client identity;
    `open-here` creates a new pair context.
 
 The service and extension focus tracker share `HerdrRegistryRunner`, a client
@@ -856,13 +862,13 @@ buffered events in order before reporting readiness. It refreshes subscription
 scope when panes change and obtains a fresh snapshot after reconnect or invalid
 topology. There is no retained-replay quiet window and no per-cursor CLI polling.
 
-While Detail is editing/commenting, it is locked before the mutable buffer
-opens. Content and exact-target refreshes are marked pending instead of
-replacing that buffer. Save uses `expectedRevision`; conflicts preserve the
+While Detail is editing/commenting, replacement protection is published before
+the mutable buffer opens. Content and exact-target refreshes are marked pending
+instead of replacing that buffer. Save uses `expectedRevision`; conflicts preserve the
 buffer and surface the error.
 
 Tree and Detail navigation histories are process-local and bounded to 200 exact
-targets. History navigation does not change Detail lock state. Soft-deleted
+targets. Passive Preview never adds a visit to Current history. Soft-deleted
 targets remain exact and read-only; purged targets surface as unavailable.
 Legacy service-owned `selection` history remains only for CLI/agent
 compatibility.
@@ -979,13 +985,12 @@ tokens discard stale completions after rapid movement or refresh.
 Popup selection, filter, disclosure, and viewport state are process-local.
 Content/view events reproject while retaining an exact occurrence row ID or the
 deterministic neighbor at the prior index. The popup registers as a transient
-locked Detail watcher, so it receives refresh events without entering the
-unlocked preview/open pool; every subscription connection triggers a fresh
-projection to close startup and reconnect gaps. `Enter` delegates to
+observer, so it receives refresh events without becoming a navigation
+destination; every subscription connection triggers a fresh projection to close startup and reconnect gaps. `Enter` delegates to
 `OpenDestinationChooser`; `Shift+R` dispatches PIE-220 Reveal with `focusTarget`
 and closes after the service accepts the dispatch. The target Tree command then
 performs physical selection and focus. Outside the chooser, cancel closes
-without retargeting the invoking client or mutating selection, lock state,
+without retargeting the invoking client or mutating selection, Current,
 canonical data, or ranks; chooser `Esc` first dismisses the bound destination.
 Wide frames show list and Detail preview together; narrow frames retain both
 surfaces behind an explicit `Tab` toggle. Keyboard and SGR mouse selection,
@@ -1175,7 +1180,7 @@ phrase and can scroll to its source row after reflow. Both surfaces show a
 coalesced return summary and acknowledge it with `Ctrl+X` without clearing active
 marks. Expiry and explicit clear remove marks. `reveal` and `focus` are separate
 instruction flags; absent those flags, receipt changes no pane target, browsing
-context, lock, selection, navigation history, durable annotation, or canonical
+context, drafts, selection, navigation history, durable annotation, or canonical
 content. The service validates a currently registered target client and never
 broadcasts attention to sibling panes.
 
@@ -1186,10 +1191,11 @@ the three pane-routing actions exported by the plugin manifest:
 - `open` reuses or opens the service, then focuses the Tree selected by invoking
   pane, unambiguous current tab, workspace, or project. If none exists, it runs
   the same pair creation as `open-here`; ambiguity is an error.
-- `ensure-detail` applies the same Tree selection, focuses an existing Detail in
-  that Tree's tab (preferring its context, unlocked state, and spatial order),
-  or opens one below the Tree with the Tree's browsing context. With no Tree it
-  opens a complete pair.
+- `ensure-detail` applies the same Tree selection and focuses its saved linked
+  Detail identity, independent of geometry. With no link, this explicit host
+  action opens and links a Detail below the Tree in its browsing context. An
+  unavailable linked destination fails explicitly. With no Tree it opens a
+  complete pair.
 - `open-here` always generates a browsing-context UUID, opens a Tree to the right
   of the invoking pane and a Detail below that Tree with the same UUID, and
   focuses the Tree.

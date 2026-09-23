@@ -173,7 +173,7 @@ function harness(
     async replaceTarget(blockId) {
       calls.replaced.push(blockId);
     },
-    async openInFirstUnlocked(blockId) {
+    async openLinked(blockId) {
       calls.firstUnlocked.push(blockId);
       return true;
     },

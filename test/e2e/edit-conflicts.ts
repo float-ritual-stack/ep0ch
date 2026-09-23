@@ -45,7 +45,7 @@ const result = await runHerdrScenario({
     await session.waitVisible(session.panes.detail, "S3-CONFLICT-TARGET");
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing");
+    await session.waitVisible(session.panes.detail, "Editing");
     await session.text(session.panes.detail, " LOCAL-DRAFT");
     await session.waitVisible(session.panes.detail, "S3-CONFLICT-TARGET LOCAL-DRAFT");
     await session.checkpoint("01-open-detail-draft");
@@ -77,7 +77,7 @@ const result = await runHerdrScenario({
     await session.checkpoint("03-cancel-refreshes-newer-content");
     await session.focus(session.panes.detail);
     await session.keys(session.panes.detail, "e");
-    await session.waitVisible(session.panes.detail, "Locked for editing");
+    await session.waitVisible(session.panes.detail, "Editing");
     await session.text(session.panes.detail, " AFTER-REORDER");
     await session.waitVisible(session.panes.detail, "S3-REMOTE-WINNER AFTER-REORDER");
     await session.client.request({ action: "move", blockId: sibling.id, parentId: original.parentId, position: 0 });

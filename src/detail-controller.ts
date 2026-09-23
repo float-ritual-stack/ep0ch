@@ -43,7 +43,6 @@ import {
   type ResolvedOutlinerLinkTarget,
   type FollowResourceOccurrenceReceipt,
 } from "./outliner-links";
-import { ALL_DETAILS_LOCKED_ERROR, PRIMARY_DETAIL_LOCKED_ERROR } from "./navigation-routes";
 import {
   createOpenDestinationChooserState,
   OpenDestinationChooser,
@@ -131,7 +130,6 @@ interface DetailNavigationEntry {
 }
 
 export type DetailMode = "preview" | "file" | "annotation" | "edit" | "select" | "comment";
-export type DetailConnectionMode = "unlocked" | "locked";
 
 export interface DetailViewport {
   width: number;
@@ -453,7 +451,6 @@ export interface DetailState {
   readonly context: SelectionContext;
   readonly target: OutlinerNavigationTarget | null;
   readonly resource: ResourceDescription["resource"] | null;
-  connectionMode: DetailConnectionMode;
   canNavigateBack: boolean;
   canNavigateForward: boolean;
   resolvedSelectedText: string;
@@ -510,7 +507,6 @@ export interface DetailEffects {
   focusSelf(): void;
   getBrowsingContext(): Promise<BrowsingContextState>;
   loadTarget(target: OutlinerNavigationTarget): Promise<DetailReadyDocument>;
-  setLocked(locked: boolean): Promise<void>;
   isSourceSelectionActive?(): boolean;
   setNavigationProtection?(reason: string | null): Promise<void>;
   chooseDestination?(purpose: "link" | "open"): Promise<OutlinerViewAddress | null | undefined>;
@@ -609,7 +605,7 @@ export type DetailBufferMoveDirection =
   | "word-left"
   | "word-right";
 
-export type DetailOpenRouting = "first-unlocked" | "chooser";
+export type DetailOpenRouting = "linked" | "chooser";
 
 export interface DetailResourceSelectionCapture {
   readonly kind: "resource";
@@ -687,7 +683,6 @@ export type DetailIntent =
   | { type: "property-inspector.edit.cancel" }
   | { type: "property-inspector.edit.select-all" }
   | { type: "embed-background.toggle" }
-  | { type: "lock.toggle" }
   | { type: "buffer.insert"; text: string }
   | { type: "buffer.newline" }
   | { type: "buffer.backspace" }
@@ -1039,7 +1034,6 @@ export function createDetailController(
     get resource() {
       return detailResourceDescription(this)?.resource ?? null;
     },
-    connectionMode: options.propertyInspectorPresentation === "dedicated" ? "locked" : "unlocked",
     canNavigateBack: false,
     annotationThreads: [],
     canNavigateForward: false,
@@ -2087,32 +2081,14 @@ export function createDetailController(
     command: OutlinerUiCommand,
   ): Promise<DetailLoadOutcome | null> => {
     if (!("target" in command) || !command.target) return null;
-    if (
-      state.connectionMode === "locked" &&
-      command.command === "preview"
-    ) {
-      return null;
-    }
     const successStatus = (): string => {
-      if (command.command === "preview") {
-        return command.target.kind === "resource"
-          ? "Previewing resource · L locks this resource"
-          : "Previewing Tree selection · L locks this block";
-      }
+      if (command.command === "preview") return "Preview";
       if (command.command === "open") {
         return command.target.kind === "block" && command.target.fragmentId
-          ? `Opened fragment · ^${command.target.fragmentId} · line ${state.previewOffset + 1} · still unlocked`
-          : command.target.kind === "resource"
-            ? "Opened resource here · still unlocked · L locks this resource"
-            : "Opened here · still unlocked · L locks this block";
+          ? `Opened fragment · ^${command.target.fragmentId} · line ${state.previewOffset + 1}`
+          : "Opened here";
       }
-      if (command.command === "replace") {
-        const noun = command.target.kind === "resource" ? "resource" : "block";
-        return state.connectionMode === "locked"
-          ? `Replaced here · remains locked · L unlocks this ${noun}`
-          : `Replaced here · still unlocked · L locks this ${noun}`;
-      }
-      return "";
+      return command.command === "replace" ? "Replaced here" : "";
     };
     return loadNavigationTarget(
       command.target,
@@ -2147,7 +2123,7 @@ export function createDetailController(
     target.title = blockDisplayTitle(resolved.block);
   };
 
-  const openFirstUnlocked = async (
+  const openLinked = async (
     target: OpenDestinationTarget,
     preserveSource = false,
   ): Promise<boolean> => {
@@ -2163,9 +2139,6 @@ export function createDetailController(
       state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
       return true;
     } catch (error) {
-      if (errorMessage(error) === ALL_DETAILS_LOCKED_ERROR || errorMessage(error) === PRIMARY_DETAIL_LOCKED_ERROR) {
-        return false;
-      }
       throw error;
     }
   };
@@ -2198,12 +2171,10 @@ export function createDetailController(
         target: target.target,
       });
       const noun = target.target.kind === "resource" ? "resource" : "block";
-      state.status = state.connectionMode === "locked"
-        ? `Replaced here · remains locked · L unlocks this ${noun}`
-        : `Replaced here · still unlocked · L locks this ${noun}`;
+      state.status = `Replaced ${noun} here`;
     },
-    openFirstUnlocked: (target) =>
-      openFirstUnlocked(
+    openLinked: (target) =>
+      openLinked(
         target,
         destinationReferences.get(target)?.preserveSource === true,
       ),
@@ -2266,11 +2237,6 @@ export function createDetailController(
     }
   };
 
-  const setLocked = async (locked: boolean): Promise<void> => {
-    await effects.setLocked(locked);
-    state.connectionMode = locked ? "locked" : "unlocked";
-  };
-
   const beginEdit = async (viewport: DetailViewport): Promise<void> => {
     const selected = state.context.selected;
     let text: string;
@@ -2281,7 +2247,7 @@ export function createDetailController(
         return;
       }
       text = selected.text;
-      status = "Locked for editing";
+      status = "Editing";
     } else {
       const description = detailResourceDescription(state);
       if (
@@ -2318,9 +2284,8 @@ export function createDetailController(
         return;
       }
       text = description.filesystem.text;
-      status = "Locked for editing filesystem Resource";
+      status = "Editing filesystem Resource";
     }
-    await setLocked(true);
     state.buffer = new TextBuffer(text);
     state.buffer.row = state.buffer.lines.length - 1;
     state.buffer.moveEnd();
@@ -2434,7 +2399,6 @@ export function createDetailController(
       state.status = "Focus a property value before editing";
       return;
     }
-    await setLocked(true);
     const buffer = new TextBuffer(entry.value);
     buffer.moveEnd();
     state.propertyInspector.edit = {
@@ -2501,7 +2465,6 @@ export function createDetailController(
         : "This view has no source text to annotate";
       return;
     }
-    await setLocked(true);
     state.buffer = new TextBuffer(resourceText ?? selected!.text);
     state.buffer.placeCursor(sourceLine, sourceColumn);
     state.editorVisualOffset = 0;
@@ -2510,7 +2473,7 @@ export function createDetailController(
     state.completion = null;
     state.annotationDraft = undefined;
     state.mode = "select";
-    state.status = "Locked · extend the rendered selection, then press c";
+    state.status = "extend the rendered selection, then press c";
   };
 
   const beginComment = async (
@@ -2577,7 +2540,6 @@ export function createDetailController(
       returnMode = "file";
       state.annotationRange = range;
     }
-    await setLocked(true);
     state.annotationDraft = { requestId: crypto.randomUUID(), target, returnMode };
     state.buffer = new TextBuffer();
     state.editorVisualOffset = 0;
@@ -2589,12 +2551,12 @@ export function createDetailController(
       ? `${anchor.start}-${anchor.end}`
       : "unpositioned quote";
     state.status = returnMode === "file" && state.annotationRange
-      ? `Locked · commenting on ${state.referencedFile?.sourcePath}:${state.annotationRange.startLine}-${state.annotationRange.endLine}`
+      ? `commenting on ${state.referencedFile?.sourcePath}:${state.annotationRange.startLine}-${state.annotationRange.endLine}`
       : target.referenceContext
-        ? `Locked · commenting on this reference${target.representation.subject.kind === "resource" ? ` · Resource passage ${range}` : " occurrence"}`
+        ? `commenting on this reference${target.representation.subject.kind === "resource" ? ` · Resource passage ${range}` : " occurrence"}`
       : target.representation.subject.kind === "resource"
-        ? `Locked · commenting on cached Markdown ${range}`
-        : `Locked · commenting on source range ${range}`;
+        ? `commenting on cached Markdown ${range}`
+        : `commenting on source range ${range}`;
   };
 
   const captureResourcePointerSelection = (
@@ -2654,7 +2616,6 @@ export function createDetailController(
       state.status = errorMessage(error);
       return;
     }
-    await setLocked(true);
     state.annotationDraft = {
       requestId: crypto.randomUUID(),
       target,
@@ -2667,8 +2628,8 @@ export function createDetailController(
     state.mode = "comment";
     const anchor = target.anchor;
     state.status = anchor.kind === "text-quote" && anchor.start !== null && anchor.end !== null
-      ? `Locked · commenting on rendered quote ${anchor.start}-${anchor.end}`
-      : "Locked · commenting on the captured rendered passage";
+      ? `commenting on rendered quote ${anchor.start}-${anchor.end}`
+      : "commenting on the captured rendered passage";
   };
 
   const beginDirectComment = async (
@@ -3382,7 +3343,7 @@ export function createDetailController(
             destinationChooser!.open(target);
           } else {
             await resolveDestinationTarget(target, reference);
-            if (!await openFirstUnlocked(target, reference.preserveSource === true)) {
+            if (!await openLinked(target, reference.preserveSource === true)) {
               destinationChooser!.open(target);
             }
           }
@@ -3425,14 +3386,6 @@ export function createDetailController(
         state.status = intent.direction === "right"
           ? `Opened ${title} to the right`
           : `Opened ${title} below`;
-        break;
-      }
-      case "lock.toggle": {
-        const locked = state.connectionMode !== "locked";
-        await setLocked(locked);
-        state.status = locked
-          ? "Locked this block · previews use the next unlocked Detail"
-          : "Unlocked · available for previews and opens";
         break;
       }
       case "preview.focus.set": {
@@ -4131,12 +4084,6 @@ export function createDetailController(
       emit();
       return;
     }
-    if (
-      state.connectionMode === "locked" &&
-      command.command === "preview"
-    ) {
-      return;
-    }
     if (protection() && "target" in command && command.target) {
       state.status = "Open rejected · finish or cancel the active edit or source selection";
       emit();
@@ -4278,7 +4225,6 @@ export function createDetailController(
     async onServiceConnect() {
       markBlockCacheStale();
       serviceConnected = true;
-      await effects.setLocked(state.connectionMode === "locked");
       lastProtection = protection();
       await effects.setNavigationProtection?.(lastProtection);
       await effects.setCurrentTarget(state.target);

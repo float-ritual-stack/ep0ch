@@ -23,6 +23,7 @@ const result = await runHerdrScenario({
     const current = async () => (await session.registrations()).find(client => client.clientId === registration.clientId);
     const revealSource = async () => {
       await session.revealTree(panes.tree, source.id);
+      await session.keys(panes.tree, "enter");
       await session.waitFor("source target published", current, client =>
         client?.currentTarget?.kind === "block" && client.currentTarget.blockId === source.id);
       const frame = await session.waitVisible(panes.detail, "Occurrence choices");
@@ -43,11 +44,20 @@ const result = await runHerdrScenario({
     await session.keys(panes.detail, "o");
     await session.waitVisible(panes.detail, "Choose destination");
     assert.equal(resourceCount(), baseline);
-    await session.keys(panes.detail, "enter");
+    await session.keys(panes.detail, "escape");
+    await session.waitFor("cancelled destination chooser", () => session.visible(panes.detail), frame => !frame.includes("Choose destination"));
+    assert.equal(resourceCount(), baseline);
+    assert.deepEqual((await current())?.currentTarget, {kind: "block", blockId: source.id});
+    await session.checkpoint("02-cancel-keeps-occurrence-uninterned");
+    await session.keys(panes.detail, "o");
+    await session.waitVisible(panes.detail, "Choose destination");
+    await session.keys(panes.detail, "R");
     await session.waitVisible(panes.detail, "SECOND FILE LINE");
     await session.waitFor("Resource target published", current, client => client?.currentTarget?.kind === "resource");
     assert.equal(resourceCount(), baseline + 1);
     const resourceTarget = (await current())!.currentTarget;
+    assert.ok(resourceTarget?.kind === "resource" && resourceTarget.referenceContext);
+    assert.equal(resourceTarget.referenceContext.anchor.start, sourceText.lastIndexOf("[file::"));
     await session.checkpoint("03-second-occurrence-opens-resource");
 
     await revealSource();
@@ -55,15 +65,19 @@ const result = await runHerdrScenario({
     await session.waitVisible(panes.detail, "Choose a reference");
     await session.keys(panes.detail, "o");
     await session.waitVisible(panes.detail, "Choose destination");
-    await session.keys(panes.detail, "enter");
+    await session.keys(panes.detail, "R");
     await session.waitVisible(panes.detail, "SECOND FILE LINE");
     await session.waitFor("same canonical Resource reused", current, client =>
-      JSON.stringify(client?.currentTarget) === JSON.stringify(resourceTarget));
+      client?.currentTarget?.kind === "resource" && client.currentTarget.resourceId === resourceTarget.resourceId);
+    const firstTarget = (await current())!.currentTarget;
+    assert.ok(firstTarget?.kind === "resource" && firstTarget.referenceContext);
+    assert.equal(firstTarget.referenceContext.anchor.start, sourceText.indexOf("[file::"));
+    assert.notEqual(firstTarget.referenceContext.anchor.start, resourceTarget.referenceContext.anchor.start);
     assert.equal(resourceCount(), baseline + 1);
     assert.equal((await session.client.request<Block>({ action: "get", blockId: source.id })).text, sourceText);
     await session.record("occurrence-result", { renderer, sourceId: source.id, sourceText,
-      baselineResourceCount: baseline, finalResourceCount: resourceCount(), resourceTarget,
-      input: "RPC Tree reveal setup; real Detail o/Tab/o/Enter, repeat first occurrence",
+      baselineResourceCount: baseline, finalResourceCount: resourceCount(), resourceTarget, firstTarget,
+      input: "RPC remote Tree link and Tree reveal setup; real Detail o/Tab/o/Escape cancels without interning; o/R opens here, repeat first occurrence",
       limits: "Keyboard activation; native pointer activation has renderer/controller coverage only." });
     await session.checkpoint("04-first-occurrence-reuses-resource");
   },

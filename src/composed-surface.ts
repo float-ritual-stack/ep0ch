@@ -1,7 +1,7 @@
 import { HStack, type Component } from "@earendil-works/pi-tui";
 import type { OutlinerRequester } from "./client-target";
 import { PiDetailInputStreamDecoder } from "./detail-pi-input";
-import { PRIMARY_DETAIL_LOCKED_ERROR, dispatchNavigation, resolveNavigationDestination, type TreeNavigation } from "./navigation-routes";
+import { dispatchNavigation, resolveNavigationDestination, type TreeNavigation } from "./navigation-routes";
 import type { createDetailController, DetailViewport } from "./detail-controller";
 import type { OutlinerActionKeymap } from "./outliner-actions";
 import { navigateOutlinerLink } from "./outliner-links";
@@ -31,9 +31,6 @@ export function composedTreeNavigation(options: {
   // Tree's source is its own occurrence, not the primary Detail's document.
   const resolve: TreeNavigation["resolve"] = async (intent, routeOptions) => {
     if (intent === "open") return resolveNavigationDestination(client, clientId, intent, {...routeOptions, sourceRegion: "tree"});
-    if (intent !== "reveal" && detail.state.connectionMode === "locked") {
-      throw new Error(PRIMARY_DETAIL_LOCKED_ERROR);
-    }
     return {sourceClientId: clientId, targetClientId: clientId, intent, resolution: "context", targetRegion: intent === "reveal" ? "tree" : "detail"};
   };
   return {

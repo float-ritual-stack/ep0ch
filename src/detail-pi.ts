@@ -203,7 +203,7 @@ const initialTarget = detailTargetFromEnvironment(process.env.OUTLINER_DETAIL_TA
 configureCurrentPaneRightClick(rightClickOwnership);
 let pendingLinkClick: PiDetailLinkClick = {
   activate: false,
-  routing: "first-unlocked",
+  routing: "linked",
   suppress: false,
 };
 let directSelectionOwner: "current" | "preview" = "current";
@@ -280,7 +280,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
   },
   openUrl(url) {
     const pointer = pendingLinkClick;
-    pendingLinkClick = { activate: false, routing: "first-unlocked", suppress: false };
+    pendingLinkClick = { activate: false, routing: "linked", suppress: false };
     if (pointer.suppress || stopping) return;
     serviceEventScheduler.scheduleWork(async () => {
       if (focusedReader().state.destinationChooser.active) {
@@ -431,9 +431,6 @@ const effects: DetailEffects = {
   isSourceSelectionActive: () => directSelectionOwner === "current" && (latestDirectSelection !== null || pendingDirectSelection !== null),
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
-  },
-  async setLocked(locked) {
-    await client.request({ action: "clients.update", clientId, locked });
   },
   async setCurrentTarget(currentTarget) {
     await client.request({ action: "clients.update", clientId, currentTarget });
@@ -693,7 +690,6 @@ const inspection = createDetailController({
   },
   getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
   setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
-  setLocked: async () => {},
   setNavigationProtection: async () => {},
   isSourceSelectionActive: () => false,
 }, () => synchronizeLayout?.(), {readerLabel: "linked Detail", actionKeymap, openHere: target => readingSurface.openHere(target, viewport())});
@@ -809,7 +805,6 @@ function startWatcher(): void {
       role: composed ? "composed" : "detail",
       ...(composed ? {focusedRegion} : {}),
       contextId: browsingContextId,
-      locked: detailPresentation === "property-inspector",
       runtime,
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },
@@ -1263,10 +1258,6 @@ const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewp
   navigatePreview: direction => inspectionLayout.navigate(direction),
 });
 async function readerAction(actionId: string): Promise<boolean> {
-  if (readingSurface.active === inspection && actionId === "detail.lock.toggle") {
-    inspection.onServiceError(new Error("Preview follows local selection · Keep Preview to retain it as Current"));
-    return true;
-  }
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
   if (actionId === "detail.reading.keep") { if (await readingSurface.keepPreview(viewport())) directSelectionOwner = "current"; return true; }
@@ -1302,7 +1293,7 @@ async function handleDecodedInput(input: PiDetailInput): Promise<void> {
       requestStop();
       return;
     }
-    pendingLinkClick = { activate: false, routing: "first-unlocked", suppress: false };
+    pendingLinkClick = { activate: false, routing: "linked", suppress: false };
     const forwarded = piDetailChooserInput(input);
     await focusedReader().handleDestinationChooserKeypress(forwarded.str, forwarded.key);
     return;

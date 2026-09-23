@@ -42,7 +42,7 @@ test("explicit logical links fan in, never forward receipt, preserve one-off cho
     expect(events.filter(e => e.command?.targetClientId === "Y")).toHaveLength(1);
     expect((await open("A", {destination: view("Y")})).resolution).toBe("chosen");
     expect((await client.request<NavigationLinkState>({action: "navigation.link.get", source})).destination).toEqual(view("X"));
-    await client.request({action: "clients.update", clientId: "X", runtime: {paneX: 999, tabId: "moved"}, locked: true});
+    await client.request({action: "clients.update", clientId: "X", runtime: {paneX: 999, tabId: "moved"}});
     expect((await open("A")).targetClientId).toBe("X");
     await client.request({action: "clients.update", clientId: "X", navigationProtection: "active draft"});
     await expect(open("A")).rejects.toThrow("active draft");

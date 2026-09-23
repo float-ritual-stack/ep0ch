@@ -183,9 +183,6 @@ const effects: DetailEffects = {
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
   },
-  async setLocked(locked) {
-    await client.request({ action: "clients.update", clientId, locked });
-  },
   async setCurrentTarget(currentTarget) {
     await client.request({ action: "clients.update", clientId, currentTarget });
   },
@@ -462,7 +459,6 @@ const inspection = createDetailController({
   },
   getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
   setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
-  setLocked: async () => {},
   setNavigationProtection: async () => {},
   isSourceSelectionActive: () => false,
 }, draw, {actionKeymap, openHere: target => readingSurface.openHere(target, viewport(controller))});
@@ -525,7 +521,6 @@ function startWatcher(): void {
       clientId,
       role: "detail",
       contextId: browsingContextId,
-      locked: detailPresentation === "property-inspector",
       runtime,
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },
@@ -602,7 +597,6 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
   }
   if (inputAction !== "suppress" && !active.state.destinationChooser.active) {
     const {actionId} = actionKeymap.resolve("detail", detailActionScopes(active.state), str, key);
-    if (active === inspection && actionId === "detail.lock.toggle") { inspection.onServiceError(new Error("Preview follows local selection · Keep Preview to retain it as Current")); return; }
     if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
     if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
     if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }

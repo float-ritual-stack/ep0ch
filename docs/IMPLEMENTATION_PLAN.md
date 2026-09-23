@@ -608,7 +608,9 @@ controller operations and one designated primary reader, including generated
 Outlinks and Resources while Herdr discovery is unavailable.
 
 Tree selection/history/scroll and Detail target/history/scroll/draft remain
-independent. A locked primary stays locked. One `role: "composed"` registration
+independent. PIE-223/305/306 supersede the original lock-based experiment: passive
+selection updates local Preview, explicit Open uses a saved link, and active drafts
+or source selections protect Current from replacement. One `role: "composed"` registration
 publishes `treeSelection`, `currentTarget` and `focusedRegion`; explicit commands
 and attention reveal/focus name `targetRegion`. Retention uses Detail's exact
 Resource revision regardless of keyboard focus. Existing service operations own
@@ -618,14 +620,14 @@ routing, independent placement and their own state.
 Preserve `test:e2e:composed` and its component journeys: real editing, selection,
 undo/redo, save/cancel, dirty keyboard close, Tree scroll, narrow/wide resize,
 registry outage, detached move/close and native Resource pointer coordinates.
-`composed-boundaries.ts` holds publication and edit-lock replies to prove that
+`composed-boundaries.ts` holds publication and navigation-protection replies to prove that
 background Tree publication cannot change a draft's owner; generated links still
 open locally during discovery failure. The occurrence journey also runs through
 this launch. Public-protocol tests retain explicit region targeting and Resource
 revision retention as separate invariants.
 
 The separate-pane launch remains available. A1's broader standalone destination
-policy is not silently changed by this experiment. `Ctrl+Q` guards active drafts;
+policy is now explicitly linked through PIE-223/306 rather than an unlocked pool. `Ctrl+Q` guards active drafts;
 force-closing a host pane or killing its process does not promise draft recovery.
 External Herdr copy-mode selection is refused in composed panes because its pane
 identity cannot prove the internal region. Detail-native pointer selection plus

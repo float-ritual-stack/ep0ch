@@ -35,7 +35,7 @@ const target: OpenDestinationTarget = {
 };
 
 function harness(options: {
-  firstUnlocked?: boolean;
+  linkedAvailable?: boolean;
   scheduler?: FakeScheduler;
   actionKeymap?: OutlinerActionKeymap;
 } = {}) {
@@ -47,9 +47,9 @@ function harness(options: {
     replace: (opened) => {
       calls.push(`replace:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
     },
-    openFirstUnlocked: (opened) => {
+    openLinked: (opened) => {
       calls.push(`first:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
-      return options.firstUnlocked ?? true;
+      return options.linkedAvailable ?? true;
     },
     openNewDetail: (opened, direction) => {
       calls.push(`split:${direction}:${
@@ -74,7 +74,7 @@ async function choose(
 ): Promise<void> {
   const input = destination === "replace"
     ? ["R", { name: "r", shift: true }]
-    : destination === "first-unlocked"
+    : destination === "linked"
     ? ["f", { name: "f" }]
     : destination === "split-right"
     ? ["r", { name: "r" }]
@@ -83,7 +83,7 @@ async function choose(
 }
 
 describe("open destination chooser", () => {
-  test("defers navigation until confirmation and defaults to first unlocked", async () => {
+  test("defers navigation until confirmation and defaults to linked destination", async () => {
     const state = harness();
     state.chooser.open(target);
 
@@ -101,22 +101,22 @@ describe("open destination chooser", () => {
   });
 
   test("keeps the choice explicit when no linked destination is available", async () => {
-    const fallback = harness({ firstUnlocked: false });
+    const fallback = harness({ linkedAvailable: false });
     fallback.chooser.open(target);
     await fallback.chooser.handleKeypress("", { name: "return" });
     expect(fallback.calls).not.toContain("split:right:target-1");
     expect(fallback.chooser.state.active).toBe(true);
 
-    const explicitFirst = harness({ firstUnlocked: false });
+    const explicitFirst = harness({ linkedAvailable: false });
     explicitFirst.chooser.open(target);
-    await choose("first-unlocked", explicitFirst.chooser);
+    await choose("linked", explicitFirst.chooser);
     expect(explicitFirst.calls).not.toContain("split:right:target-1");
     expect(explicitFirst.chooser.state.active).toBe(true);
     expect(explicitFirst.chooser.state.status).toContain("No linked destination");
   });
 
   test("dispatches every explicit destination through one key model", async () => {
-    const cases: Array<[Exclude<OpenDestination, "default" | "first-unlocked">, string]> = [
+    const cases: Array<[Exclude<OpenDestination, "default" | "linked">, string]> = [
       ["replace", "replace:target-1"],
       ["split-right", "split:right:target-1"],
       ["split-down", "split:down:target-1"],
@@ -197,7 +197,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     });
@@ -225,7 +225,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     }, { scheduler, timeoutMs: 7_500 });
@@ -256,7 +256,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     }, { scheduler, timeoutMs: 7_500 });

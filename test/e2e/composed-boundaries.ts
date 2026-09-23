@@ -17,29 +17,32 @@ const result = await runHerdrScenario({
     const second = await session.client.request<Block>({action: "create", parentId: null, text: "PIE283 publication B"});
     const third = await session.client.request<Block>({action: "create", parentId: null, text: "PIE283 publication C"});
     await session.revealTree(pane, first.id);
-    await session.waitFor("A preview ready", session.registrations, values => values[0]?.currentTarget?.kind === "block" && values[0].currentTarget.blockId === first.id);
+    await session.keys(pane, "enter");
+    await session.waitFor("A Current ready", session.registrations, values => values[0]?.currentTarget?.kind === "block" && values[0].currentTarget.blockId === first.id && values[0].focusedRegion === "detail");
+    await session.keys(pane, "q");
+    await session.waitFor("Tree ready for publication race", session.registrations, values => values[0]?.focusedRegion === "tree");
     await session.checkpoint("01-original-owner");
     await session.enableComposedResponseBarriers();
     const publicationB = session.holdComposedResponse({action: "browsing-context.publish", contains: second.id});
     const publicationC = session.holdComposedResponse({action: "browsing-context.publish", contains: third.id});
-    const editLock = session.holdComposedResponse({action: "clients.update", contains: '"locked":true'});
+    const editProtection = session.holdComposedResponse({action: "clients.update", contains: '"navigationProtection":"active edit or source selection"'});
     await session.keys(pane, "down");
     await session.waitFor("publication B held", () => publicationB.state, value => value === "held");
     await session.keys(pane, "down");
     await terminal.write("\u001b[17~");
     await session.keys(pane, "e");
-    await session.waitFor("edit lock held", () => editLock.state, value => value === "held");
-    await session.record("interleaving-before-publication-release", {publicationB: publicationB.state, publicationC: publicationC.state, editLock: editLock.state});
+    await session.waitFor("edit protection reply held", () => editProtection.state, value => value === "held");
+    await session.record("interleaving-before-publication-release", {publicationB: publicationB.state, publicationC: publicationC.state, editProtection: editProtection.state});
     publicationB.release();
     // The pump starts C only after B's publication returns. This is a positive
-    // completion barrier while the edit is still waiting, not a timing sleep.
-    await session.waitFor("publication B finished while edit lock remains held", () => publicationC.state, value => value === "held");
-    assert.equal(editLock.state, "held");
+    // completion barrier while the protection reply is held, not a timing sleep.
+    await session.waitFor("publication B finished while edit protection reply remains held", () => publicationC.state, value => value === "held");
+    assert.equal(editProtection.state, "held");
     const held = (await session.registrations())[0]!;
-    await session.record("interleaving-after-publication-release", {publicationB: publicationB.state, publicationC: publicationC.state, editLock: editLock.state, registration: held});
-    await session.checkpoint("02-publication-finished-edit-waiting");
-    editLock.release();
-    await session.waitVisible(pane, "Locked for editing");
+    await session.record("interleaving-after-publication-release", {publicationB: publicationB.state, publicationC: publicationC.state, editProtection: editProtection.state, registration: held});
+    await session.checkpoint("02-publication-finished-draft-protected");
+    editProtection.release();
+    await session.waitVisible(pane, "Editing");
     await session.text(pane, " SAVED-TO-A");
     await terminal.write("\u0013");
     const after = await session.waitFor("edit saved", () => Promise.all([first, second, third].map(block => session.client.request<Block>({action: "get", blockId: block.id}))), blocks => blocks.some(block => block.text.endsWith(" SAVED-TO-A")));
@@ -53,8 +56,8 @@ const result = await runHerdrScenario({
 
     // Generated Resources and Outlinks preserve the Tree occurrence while
     // replacing the primary Detail. No independent reader is needed.
-    await session.keys(pane, "L", "q");
-    await session.waitFor("unlocked Tree", session.registrations, values => values[0]?.focusedRegion === "tree" && !values[0]?.locked);
+    await session.keys(pane, "q");
+    await session.waitFor("Tree focused after save", session.registrations, values => values[0]?.focusedRegion === "tree" && !values[0]?.navigationProtection);
     await session.client.request({action: "resources.intern-filesystem", input: {path: "generated.md"}});
     const host = await session.client.request<Block>({action: "create", parentId: null, text: `PIE283 generated links\n[file::generated.md]\n((${second.id}))`});
     await session.revealTree(pane, host.id);

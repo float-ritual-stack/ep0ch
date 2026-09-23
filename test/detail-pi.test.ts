@@ -48,7 +48,7 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
     context,
     target,
     resource: null,
-    connectionMode: "unlocked",
+    
     canNavigateBack: false,
     canNavigateForward: false,
     resolvedSelectedText: "",
@@ -112,7 +112,7 @@ describe("Pi TUI Detail input", () => {
   test("preserves plain, Ctrl, and Meta click routing across the Pi input boundary", () => {
     expect(piDetailLinkClick("\x1b[<0;4;3M")).toEqual({
       activate: false,
-      routing: "first-unlocked",
+      routing: "linked",
       suppress: false,
     });
     expect(piDetailLinkClick("\x1b[<16;4;3M")).toEqual({
@@ -313,7 +313,7 @@ describe("Pi TUI Detail component", () => {
       context: { selected: block("draft"), ancestors: [], children: [] },
       mode: "edit",
       buffer: new TextBuffer("draft"),
-      connectionMode: "locked",
+      
     });
     const component = new DetailPiComponent({
       state: detailState,
@@ -326,7 +326,7 @@ describe("Pi TUI Detail component", () => {
     const visible = stripTerminalSequences(rendered);
 
     expect(visible).toContain("○ Edit · draft");
-    expect(visible).toContain("🔐");
+    expect(visible).not.toContain("🔐");
     expect(rendered).toContain("^W focus");
   });
 

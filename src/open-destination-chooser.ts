@@ -14,7 +14,7 @@ export type OpenDestination =
   | "default"
   | "chosen"
   | "replace"
-  | "first-unlocked"
+  | "linked"
   | "split-right"
   | "split-down";
 
@@ -40,7 +40,7 @@ export interface OpenDestinationChooserEffects {
   beforeOpen?(target: OpenDestinationTarget, destination: OpenDestination): void | Promise<void>;
   openChosen?(target: OpenDestinationTarget): boolean | Promise<boolean>;
   replace(target: OpenDestinationTarget): void | Promise<void>;
-  openFirstUnlocked(target: OpenDestinationTarget): boolean | Promise<boolean>;
+  openLinked(target: OpenDestinationTarget): boolean | Promise<boolean>;
   openNewDetail(
     target: OpenDestinationTarget,
     direction: "right" | "down",
@@ -147,7 +147,7 @@ export class OpenDestinationChooser {
       : str === "R"
       ? "replace"
       : str.toLowerCase() === "f"
-      ? "first-unlocked"
+      ? "linked"
       : str.toLowerCase() === "r"
       ? "split-right"
       : str.toLowerCase() === "d"
@@ -189,7 +189,7 @@ export class OpenDestinationChooser {
     this.state.loading = true;
     this.state.status = destination === "replace"
       ? `Replacing this Detail with ${target.title}…`
-      : destination === "first-unlocked"
+      : destination === "linked"
       ? `Opening ${target.title} in ${this.readerLabel}…`
       : destination === "split-down"
       ? `Opening ${target.title} below…`
@@ -207,8 +207,8 @@ export class OpenDestinationChooser {
         if (!await this.effects.openChosen?.(target)) { if (isCurrent()) this.dismiss(); return; }
       } else if (destination === "replace") {
         await this.effects.replace(target);
-      } else if (destination === "first-unlocked") {
-        const opened = await this.effects.openFirstUnlocked(target);
+      } else if (destination === "linked") {
+        const opened = await this.effects.openLinked(target);
         if (!isCurrent()) {
           this.effects.invalidate();
           return;
@@ -225,7 +225,7 @@ export class OpenDestinationChooser {
       } else if (destination === "split-right") {
         await this.effects.openNewDetail(target, "right");
       } else {
-        const opened = await this.effects.openFirstUnlocked(target);
+        const opened = await this.effects.openLinked(target);
         if (!isCurrent()) {
           this.effects.invalidate();
           return;

@@ -20,7 +20,6 @@ const result = await runHerdrScenario({
     const tree = clients.find(c => c.runtime?.paneId === panes.tree && c.role === (composed ? "composed" : "tree"))!;
     const detail = clients.find(c => c.runtime?.paneId === panes.detail && c.role === (composed ? "composed" : "detail"))!;
     assert.ok(tree && detail);
-    if (ansi || heldReads) await session.client.request({action: "navigation.link.set", source: {clientId: tree.clientId, region: "tree"}, destination: {clientId: detail.clientId, region: "detail"}});
     const docs: Block[] = [];
     for (const text of ["RETAINED CURRENT", "INSPECTION ALPHA", "INSPECTION BETA", "INSPECTION GAMMA"]) docs.push(await session.client.request<Block>({action: "create", text: `${text}\n\n${Array.from({length: 70}, (_, i) => `${text} line ${i + 1}`).join("\n")}`}));
     const state = async () => (await session.registrations()).find(c => c.clientId === detail.clientId)!;

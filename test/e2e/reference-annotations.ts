@@ -41,12 +41,11 @@ const result = await runHerdrScenario({
     });
     const thread = (id: string) => s.client.request<AnnotationRecord>({ action: "annotations.get", annotationId: id });
     const revealSource = async () => {
-      if ((await current()).locked) {
-        await focusView("detail"); await s.keys(detail, "L");
-        await s.waitFor("reader unlocked", current, c => !c.locked);
-      }
       await s.revealTree(tree, host.id);
-      await s.waitFor("source opened", current, c => c.currentTarget?.kind === "block" && c.currentTarget.blockId === host.id);
+      await s.keys(tree, "enter");
+      // Reopening the same Current target still focuses Detail asynchronously.
+      await s.waitFor("source opened and focused", current, c => c.currentTarget?.kind === "block" &&
+        c.currentTarget.blockId === host.id && (!composed || c.focusedRegion === "detail"));
       await focusView("detail");
       const frame = await s.waitVisible(detail, "Occurrence annotation fixture");
       if (frame.includes("▾ Properties")) {
@@ -80,11 +79,11 @@ const result = await runHerdrScenario({
     await revealSource();
     await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
     await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "enter"); await s.waitVisible(detail, "Shared file passage");
+    await s.keys(detail, "R"); await s.waitVisible(detail, "Shared file passage");
     const target = (await current()).currentTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
     assert.equal(target.referenceContext.anchor.start, text.lastIndexOf("[file::"));
-    await s.keys(detail, "v"); await s.waitVisible(detail, "⎋ cancel");
+    await s.keys(detail, "v"); await s.waitVisible(detail, "extend the rendered selection");
     await s.keys(detail, ...Array(19).fill("shift+right")); await s.keys(detail, "c");
     const passage = await saveComment("File passage in the second reference context");
     assert.equal(passage.originalTarget.representation.subject.kind, "resource");
@@ -99,7 +98,7 @@ const result = await runHerdrScenario({
     } });
     await s.waitFor("file-global target", current, c => c.currentTarget?.kind === "resource" && !c.currentTarget.referenceContext);
     await s.waitVisible(detail, "Shared file passage");
-    await s.keys(detail, "v"); await s.waitVisible(detail, "⎋ cancel");
+    await s.keys(detail, "v"); await s.waitVisible(detail, "extend the rendered selection");
     await s.keys(detail, ...Array(19).fill("shift+right")); await s.keys(detail, "c");
     await s.waitVisible(detail, "Ctrl+S save"); await s.text(detail, "File-global comment"); await terminal.write("\u0013");
     const resourceThreads = await s.waitFor("file-global comment persisted", () => s.client.request<AnnotationThread[]>({
@@ -136,15 +135,19 @@ const result = await runHerdrScenario({
     await s.waitVisible(detail, "Comment on this reference");
     await cancelComment();
     await focusView("detail");
-    await openOccurrence(second.originalTarget.referenceContext!);
-    await s.keys(detail, "c");
-    await s.waitVisible(detail, "reference context changed");
+    await assert.rejects(openOccurrence(second.originalTarget.referenceContext!), /Destination is protected: active source selection/);
+    const retainedTarget = (await current()).currentTarget;
+    assert.ok(retainedTarget?.kind === "resource" && retainedTarget.referenceContext);
+    assert.equal(retainedTarget.referenceContext.anchor.start, first.originalTarget.referenceContext!.anchor.start);
     assert.equal((await hostThreads()).length, 3);
     await s.checkpoint("04b-pointer-selection-cannot-switch-occurrence");
-    await openOccurrence(first.originalTarget.referenceContext!);
     await s.keys(detail, "c");
     await s.waitVisible(detail, "Comment on this reference");
     await cancelComment();
+    // A native click clears the retained source selection before deliberate navigation.
+    await terminal.write(`\u001b[<0;${column + 1};${row + 1}M`);
+    await terminal.write(`\u001b[<0;${column + 1};${row + 1}m`);
+    await s.waitFor("native source selection cleared", current, c => !c.navigationProtection);
     await s.record("pointer-occurrence-evidence", { row, column, quote,
       selectedContext: first.originalTarget.referenceContext, rejectedContext: second.originalTarget.referenceContext });
 

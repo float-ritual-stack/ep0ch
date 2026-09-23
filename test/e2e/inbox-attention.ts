@@ -48,11 +48,16 @@ const result = await runHerdrScenario({
     }
   },
   async run(session) {
+    await session.attachClient();
     const pane = session.panes.tree;
+    const detail = (await session.registrations()).find(client => client.runtime?.paneId === session.panes.detail && client.role === "detail")!;
+    assert.ok(detail);
+    assert.notDeepEqual(detail.currentTarget, {kind: "block", blockId: failedSourceId});
     const recent = await session.client.request<InboxStatus>({ action: "inbox.status" });
     assert.equal(recent.attentionCount, 1);
     assert.equal(recent.results.length, 30);
     assert.ok(recent.results.every(result => result.state === "applied"));
+    const older = await session.client.request<InboxStatus>({action: "inbox.status", resultsOffset: 30});
     const attention = await session.client.request<InboxStatus>({ action: "inbox.status", attentionOnly: true });
     assert.equal(attention.results[0]!.sourceId, failedSourceId);
     await session.keys(pane, "I");
@@ -85,10 +90,17 @@ const result = await runHerdrScenario({
     await session.keys(pane, "z");
     await session.waitVisible(pane, "failed · PIE301 unresolved capture");
     await session.checkpoint("03-configured-shortcut");
+    await session.keys(pane, "alt+enter");
+    await session.waitFor("Inbox source opens in linked Detail", session.registrations, clients =>
+      clients.some(client => client.clientId === detail.clientId && client.currentTarget?.kind === "block" && client.currentTarget.blockId === failedSourceId));
+    await session.waitVisible(session.panes.detail, "Keep this original note.");
+    await session.checkpoint("04-inbox-source-opens-linked-detail");
+    assert.deepEqual((await session.client.request<InboxStatus>({action: "inbox.status"})).results, recent.results);
+    assert.deepEqual((await session.client.request<InboxStatus>({action: "inbox.status", resultsOffset: 30})).results, older.results);
     const unchanged = await session.client.request<InboxStatus>({ action: "inbox.status", attentionOnly: true });
     assert.deepEqual(unchanged.results, attention.results);
     await session.record("inbox-attention-evidence", { failedSourceId, olderSuccesses: 31,
-      opensOutstandingFailure: true, historyAndReentry: true, configuredKeyWorks: true, receiptsUnchanged: true,
+      opensOutstandingFailure: true, historyAndReentry: true, configuredKeyWorks: true, linkedDetailOpen: {clientId: detail.clientId, sourceId: failedSourceId}, receiptsUnchanged: true,
       boundary: "Real Herdr and service with synthetic model used only to seed historical receipts; no external inference." });
   },
 });

@@ -8,7 +8,6 @@ import { loadDetailReadPreview } from "./detail-read-preview";
 import { OutlinerActionKeymap } from "./outliner-actions";
 import { reportCurrentPaneWorkspace, currentPaneRuntime, openDetailPane } from "./pane-control";
 import { resolveClientPaths } from "./paths";
-import { ALL_DETAILS_LOCKED_ERROR } from "./navigation-routes";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
 import { blockDisplayTitle } from "./references";
 import {
@@ -191,20 +190,15 @@ const controller = new VirtualBranchNavigatorController(launch.sourceRole, {
       },
     });
   },
-  async openInFirstUnlocked(blockId) {
-    try {
-      await client.request({
-        action: "navigation.dispatch",
-        sourceClientId: launch.sourceClientId,
-        sourceRegion: launch.sourceRole,
-        target: { kind: "block", blockId },
-        intent: "open",
-      });
-      return true;
-    } catch (error) {
-      if (error instanceof Error && error.message === ALL_DETAILS_LOCKED_ERROR) return false;
-      throw error;
-    }
+  async openLinked(blockId) {
+    await client.request({
+      action: "navigation.dispatch",
+      sourceClientId: launch.sourceClientId,
+      sourceRegion: launch.sourceRole,
+      target: { kind: "block", blockId },
+      intent: "open",
+    });
+    return true;
   },
   async openInNewDetail(blockId, direction) {
     const sourceClient = (await listLiveClients(client))
@@ -336,9 +330,8 @@ try {
   const watcher = client.watch({
     client: {
       clientId: navigatorClientId,
-      role: "detail",
+      role: "observer",
       contextId: launch.browsingContextId,
-      locked: true,
       runtime: currentPaneRuntime(),
     },
     onConnect: () => {

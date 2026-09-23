@@ -254,7 +254,7 @@ describe("outliner link URIs", () => {
             sourceClientId: input.sourceClientId,
             targetClientId: "detail-c",
             intent: input.intent,
-            resolution: "unlocked",
+            resolution: "linked",
             command: { targetClientId: "detail-c", command: input.intent, target: input.target },
           } as T;
         }
@@ -272,7 +272,7 @@ describe("outliner link URIs", () => {
       title: "Origin-routed target",
       targetClientId: "detail-c",
       intent: "preview",
-      resolution: "unlocked",
+      resolution: "linked",
     });
     expect(calls).toEqual([
       { action: "get", blockId: target.id },
@@ -295,7 +295,7 @@ describe("outliner link URIs", () => {
             sourceClientId: input.sourceClientId,
             targetClientId: "detail-c",
             intent: input.intent,
-            resolution: "unlocked",
+            resolution: "linked",
             command: { targetClientId: "detail-c", command: input.intent, target: input.target },
           } as T;
         }
@@ -320,13 +320,13 @@ describe("outliner link URIs", () => {
     ]);
   });
 
-  test("does not create a dangling page when every Detail is locked", async () => {
+  test("does not create a dangling page when its linked destination is protected", async () => {
     const calls: RequestInput[] = [];
     const requester = {
       async request<T>(input: RequestInput): Promise<T> {
         calls.push(input);
         if (input.action === "navigation.resolve") {
-          throw new Error("All Details in this tab are locked · unlock one or open another Detail");
+          throw new Error("Destination is protected: active draft");
         }
         throw new Error(`Unexpected request: ${input.action}`);
       },
@@ -336,7 +336,7 @@ describe("outliner link URIs", () => {
       requester,
       outlinerLinkUri("page", "Future"),
       { sourceClientId: "tree-a", intent: "open" },
-    )).rejects.toThrow("All Details in this tab are locked");
+    )).rejects.toThrow("Destination is protected");
     expect(calls).toEqual([
       { action: "navigation.resolve", sourceClientId: "tree-a", intent: "open" },
     ]);

@@ -94,7 +94,7 @@ function harness(selected = "two", actionKeymap?: OutlinerActionKeymap): Harness
       calls.replaced.push(sourceBlockId);
       if (replaceError) throw replaceError;
     },
-    async openInFirstUnlocked(sourceBlockId) {
+    async openLinked(sourceBlockId) {
       calls.openedFirst.push(sourceBlockId);
       return firstUnlockedAvailable;
     },

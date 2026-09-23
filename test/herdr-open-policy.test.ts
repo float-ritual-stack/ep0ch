@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  selectExistingDetailClient,
+  selectLinkedDetailClient,
   selectTreeClient,
   selectTreeClientForInvocation,
 } from "../src/herdr-open-policy";
@@ -47,45 +47,14 @@ test("selects the Tree in the invoking tab before considering other live Trees",
   })).toBe(trees[0]);
 });
 
-test("prefers an unlocked spatially earlier Detail in the Tree browsing context", () => {
-  const tree: OutlinerClientRegistration = {
-    clientId: "tree",
-    role: "tree",
-    contextId: "shared",
-    runtime: { tabId: "tab", paneId: "tree-pane" },
-  };
+test("reuses only the linked logical Detail regardless of context or geometry", () => {
   const clients: OutlinerClientRegistration[] = [
-    tree,
-    {
-      clientId: "wrong-context",
-      role: "detail",
-      contextId: "other",
-      runtime: { tabId: "tab", paneId: "wrong" },
-    },
-    {
-      clientId: "locked",
-      role: "detail",
-      contextId: "shared",
-      locked: true,
-      runtime: { tabId: "tab", paneId: "locked", paneX: 0, paneY: 0 },
-    },
-    {
-      clientId: "available-later",
-      role: "detail",
-      contextId: "shared",
-      locked: false,
-      runtime: { tabId: "tab", paneId: "later", paneX: 5, paneY: 10 },
-    },
-    {
-      clientId: "available-first",
-      role: "detail",
-      contextId: "shared",
-      locked: false,
-      runtime: { tabId: "tab", paneId: "first", paneX: 2, paneY: 4 },
-    },
+    {clientId: "near", role: "detail", contextId: "shared", runtime: {tabId:"tab",paneX:0,paneY:0}},
+    {clientId: "linked", role: "composed", contextId: "other", runtime: {tabId:"moved-tab",paneX:500,paneY:500}},
+    {clientId: "observer", role: "observer", contextId: "shared"},
   ];
-
-  expect(selectExistingDetailClient(clients, tree)?.clientId).toBe("available-first");
-  expect(selectExistingDetailClient([tree, clients[1]!], tree)?.clientId)
-    .toBe("wrong-context");
+  expect(selectLinkedDetailClient(clients, {clientId:"linked",region:"detail"})).toBe(clients[1]);
+  expect(selectLinkedDetailClient(clients, null)).toBeUndefined();
+  expect(() => selectLinkedDetailClient(clients, {clientId:"closed",region:"detail"})).toThrow("Linked destination is unavailable");
+  expect(() => selectLinkedDetailClient(clients, {clientId:"observer",region:"detail"})).toThrow("Linked destination is unavailable");
 });

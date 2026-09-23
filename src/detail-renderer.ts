@@ -197,14 +197,8 @@ export interface DetailHeaderOptions {
   propertyKeys?: readonly string[];
 }
 
-function renderHeaderControls(state: Readonly<DetailState>): string {
-  const locked = state.connectionMode === "locked";
-  const lock = outlinerActionLink(
-    "detail.lock.toggle",
-    `${locked ? "\x1b[33m🔐" : "\x1b[32m🔓"}\x1b[0m`,
-  );
-  const menu = outlinerActionLink("detail.menu.open", "\x1b[2;36m[⋯]\x1b[0m");
-  return `${lock} ${menu}`;
+function renderHeaderControls(): string {
+  return outlinerActionLink("detail.menu.open", "\x1b[2;36m[⋯]\x1b[0m");
 }
 
 function alignHeaderControls(left: string, controls: string, width: number): string {
@@ -234,7 +228,7 @@ export function renderDetailHeader(
     : title;
   const attention = attentionBanner(state.attention, detailBlockTarget(state)?.blockId ?? null, width);
   return [
-    alignHeaderControls(left, renderHeaderControls(state), width),
+    alignHeaderControls(left, renderHeaderControls(), width),
     attention ?? renderDetailMetadata(state, width, options),
     `\x1b[2m${"─".repeat(width)}\x1b[0m`,
   ];

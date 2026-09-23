@@ -390,7 +390,7 @@ export class OutlinerServer {
     ) {
       throw new Error("Client registration clientId must be 1-200 printable characters");
     }
-    if (registration.role !== "tree" && registration.role !== "detail" && registration.role !== "composed") {
+    if (registration.role !== "tree" && registration.role !== "detail" && registration.role !== "composed" && registration.role !== "observer") {
       throw new Error(`Invalid client role: ${String(registration.role)}`);
     }
     const contextId = this.normalizeContextId(registration.contextId);
@@ -407,12 +407,6 @@ export class OutlinerServer {
       }
     }
     const runtime = this.normalizeClientRuntime(registration.runtime);
-    if (registration.locked !== undefined && typeof registration.locked !== "boolean") {
-      throw new Error("Client locked state must be boolean");
-    }
-    if (registration.role === "tree" && registration.locked) {
-      throw new Error("Only Detail clients can be locked");
-    }
     const currentTarget = registration.currentTarget === undefined
       ? undefined
       : this.normalizeNavigationTarget(registration.currentTarget, "retain");
@@ -426,7 +420,6 @@ export class OutlinerServer {
       clientId,
       role: registration.role,
       contextId,
-      ...(clientSupportsRole(registration, "detail") ? { locked: registration.locked ?? false } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),
       ...(resourcePresentation ? { resourcePresentation } : {}),
@@ -594,7 +587,6 @@ export class OutlinerServer {
   private updateClient(
     clientId: string,
     update: {
-      locked?: boolean;
       navigationProtection?: string | null;
       currentTarget?: OutlinerNavigationTarget | null;
       previewTarget?: OutlinerNavigationTarget | null;
@@ -605,11 +597,10 @@ export class OutlinerServer {
   ): OutlinerClientRegistration {
     if (
       update.navigationProtection === undefined &&
-      update.locked === undefined &&
       update.currentTarget === undefined && update.previewTarget === undefined &&
       update.runtime === undefined && update.focusedRegion === undefined && update.treeSelection === undefined
     ) {
-      throw new Error("Client update must change locked, currentTarget, or runtime");
+      throw new Error("Client update must change a target, protection, runtime, or region");
     }
     for (const [socket, client] of this.subscribers) {
       if (client.clientId !== clientId) continue;
@@ -621,10 +612,6 @@ export class OutlinerServer {
       }
       Object.assign(updated, this.normalizeComposedState(client.role, update.focusedRegion, update.treeSelection ?? undefined, false));
       if (update.treeSelection === null) delete updated.treeSelection;
-      if (update.locked !== undefined) {
-        if (!clientSupportsRole(client, "detail")) throw new Error("Only Detail clients can be locked");
-        updated.locked = update.locked;
-      }
       if (update.previewTarget === null) delete updated.previewTarget;
       else if (update.previewTarget !== undefined) {
         updated.previewTarget = this.normalizeNavigationTarget(update.previewTarget, "retain");
@@ -1040,7 +1027,7 @@ export class OutlinerServer {
   }
 
   private resolveExplicitOpen(source: OutlinerClientRegistration, sourceRegion?: OutlinerViewAddress["region"], destination?: OutlinerViewAddress, preserveSource = false): OutlinerNavigationResolution {
-    const region = sourceRegion ?? (source.role === "composed" ? undefined : source.role);
+    const region = sourceRegion ?? (source.role === "tree" || source.role === "detail" ? source.role : undefined);
     if (!region) throw new Error("Composed Open requires sourceRegion: tree or detail");
     this.navigationView({clientId: source.clientId, region});
     const chosen = destination ?? this.navigationLinks.get(JSON.stringify([source.clientId, region]));
@@ -1061,6 +1048,7 @@ export class OutlinerServer {
     destination?: OutlinerViewAddress,
   ): Omit<OutlinerNavigationDispatch, "command"> {
     const source = this.clientById(sourceClientId);
+    if (source.role === "observer") throw new Error("Observers cannot initiate navigation");
     if (intent === "open") return this.resolveExplicitOpen(source, sourceRegion, destination, preserveSource);
     if (intent === "preview") {
       const candidates = source.role === "detail" || source.role === "composed" ? [source]
@@ -1309,7 +1297,8 @@ export class OutlinerServer {
             request.role !== undefined &&
             request.role !== "tree" &&
             request.role !== "detail" &&
-            request.role !== "composed"
+            request.role !== "composed" &&
+            request.role !== "observer"
           ) {
             throw new Error(`Invalid client role: ${String(request.role)}`);
           }
@@ -1582,10 +1571,15 @@ export class OutlinerServer {
             throw new Error(`Target client is not registered: ${request.command.targetClientId}`);
           }
           const target = this.clientById(request.command.targetClientId);
-          if (["open", "replace", "edit"].includes(request.command.command) && target.navigationProtection) throw new Error(`Destination is protected: ${target.navigationProtection}`);
+          if (target.role === "observer") throw new Error("Observers are not navigation destinations");
           const region = request.command.targetRegion;
           if (target.role === "composed" && region !== "tree" && region !== "detail") throw new Error("Composed commands require an explicit target region: tree or detail");
           if (region !== undefined && (region !== "tree" && region !== "detail" || !clientSupportsRole(target, region))) throw new Error("Command target region is unavailable");
+          const targetsDetail = target.role === "detail" || region === "detail";
+          if (targetsDetail && target.navigationProtection &&
+            ("target" in request.command && request.command.target && request.command.command !== "preview")) {
+            throw new Error(`Destination is protected: ${target.navigationProtection}`);
+          }
           if (target.role === "composed" && region === "tree" && !["focus", "reveal"].includes(request.command.command)) throw new Error("This command requires the Detail region");
           if ("target" in request.command && request.command.target !== undefined) {
             request.command.target = this.normalizeNavigationTarget(request.command.target);
@@ -1597,9 +1591,6 @@ export class OutlinerServer {
             const operation = request.command.command === "replace" ? "replace" : "open";
             if (!clientSupportsRole(target, "detail")) {
               throw new Error(`Direct ${operation} target must be a Detail client`);
-            }
-            if (operation === "open" && target.locked) {
-              throw new Error("Invoking Detail is locked");
             }
           }
           if (request.command.command === "backlinks.select") {

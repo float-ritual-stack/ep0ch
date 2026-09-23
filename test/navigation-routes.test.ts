@@ -15,7 +15,7 @@ test("forwards unlocked-pool navigation resolution", async () => {
         sourceClientId: "tree-a",
         targetClientId: "detail-a",
         intent: "open",
-        resolution: "unlocked",
+        resolution: "linked",
       } as T;
     },
   };
@@ -73,7 +73,7 @@ test("forwards a preview dispatch without inventing a destination", async () => 
         sourceClientId: "tree-a",
         targetClientId: "detail-a",
         intent: "preview",
-        resolution: "unlocked",
+        resolution: "linked",
         command: { targetClientId: "detail-a", command: "preview", target: { kind: "block", blockId: "block-a" },  },
       } as T;
     },
@@ -98,7 +98,7 @@ test("forwards source preservation as an explicit routing constraint", async () 
         sourceClientId: "detail-a",
         targetClientId: "detail-b",
         intent: "open",
-        resolution: "unlocked",
+        resolution: "linked",
       } as T;
     },
   };
