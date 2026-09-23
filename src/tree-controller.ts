@@ -2130,7 +2130,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (delta) localPreview = {...localPreview, offset: Math.max(0, Math.min(localPreview.lines.length - 1, localPreview.offset + delta))};
       else if (key.name === "escape") localPreview = {...localPreview, focused: false};
       else if (key.name === "return") {
-        try { await effects.navigation.dispatch(localPreview.target, "open", {focusTarget: true}); }
+        try { await effects.navigation.dispatch(localPreview.target, "open"); }
         catch (error) { status = errorMessage(error); }
       } else if (!(key.ctrl && key.name === "q")) return;
       if (!(key.ctrl && key.name === "q")) { effects.invalidate(); return; }

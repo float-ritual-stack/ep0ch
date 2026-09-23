@@ -3373,6 +3373,8 @@ test("an unpaired independent Tree inspects locally without creating a Detail", 
   expect(fake.calls.some(call => call.action === "navigation.dispatch")).toBe(false);
   await controller.handleKeypress("", {name: "f7"}, "pass");
   expect(controller.view().localPreview?.focused).toBe(true);
+  await controller.handleKeypress("", {name: "return"}, "pass");
+  expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({action: "navigation.dispatch", sourceClientId: "tree-test", intent: "open", target: {kind: "block", blockId: "local-b"}});
   await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
   expect(controller.view().localPreview).toBeNull();
   expect(fake.createdDetails).toEqual([]);
