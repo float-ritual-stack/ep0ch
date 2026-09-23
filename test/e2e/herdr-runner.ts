@@ -1039,6 +1039,15 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
             values.some(value => value.contextId === contextId && value.role === "tree" && value.runtime?.paneId === tree) &&
             values.some(value => value.contextId === contextId && value.role === "detail" && value.runtime?.paneId === detail),
         });
+        // This helper deliberately creates a browsing pair. Shared context routes Preview;
+        // an explicit Tree-to-Detail link gives real Enter/Open the same paired destination.
+        const pair = await getRegistrations();
+        const treeClient = pair.find(value => value.contextId === contextId && value.role === "tree" && value.runtime?.paneId === tree);
+        const detailClient = pair.find(value => value.contextId === contextId && value.role === "detail" && value.runtime?.paneId === detail);
+        if (!treeClient || !detailClient) throw new Error("Remote browsing pair registration disappeared before linking");
+        await client.request({action: "navigation.link.set", source: {clientId: treeClient.clientId, region: "tree"},
+          destination: {clientId: detailClient.clientId, region: "detail"}});
+        await artifacts.event("setup", {kind: "rpc_remote_browsing_pair_link", treeClientId: treeClient.clientId, detailClientId: detailClient.clientId});
         await artifacts.write("process-environments.json", processEvidence);
         await artifacts.write(`${name}-browsing-context.json`, { workspaceRoot, serviceRoot: projectRoot, tree, detail, contextId, clientEnvironment, treeTransport, treeSocket: resources.treeForwarder?.socketPath ?? socket,
           detailTransport, detailSocket: resources.detailForwarder?.socketPath ?? socket, firstTreeFrameMs,
