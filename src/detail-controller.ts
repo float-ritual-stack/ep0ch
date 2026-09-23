@@ -1221,7 +1221,7 @@ export function createDetailController(
     return { projection, resolved };
   };
 
-  const loadAnnotations = async (expectedGeneration = loadGeneration): Promise<void> => {
+  const loadAnnotations = async (expectedGeneration = loadGeneration, application: "queued" | "current-turn" = "queued"): Promise<void> => {
     const targetAtStart = state.target;
     const documentAtStart = state.document;
     const fileAtStart = state.referencedFile;
@@ -1288,7 +1288,7 @@ export function createDetailController(
     } catch {
       threads = [];
     }
-    effects.enqueueViewUpdate(() => {
+    const apply = () => {
       if (expectedGeneration !== loadGeneration || state.document !== documentAtStart ||
         state.referencedFile !== fileAtStart || !sameNavigationTarget(state.target, targetAtStart) ||
         sameAnnotationThreads(state.annotationThreads, threads)) return;
@@ -1298,7 +1298,9 @@ export function createDetailController(
       }
       state.annotationThreads = threads;
       emit();
-    });
+    };
+    if (application === "current-turn") apply();
+    else effects.enqueueViewUpdate(apply);
   };
 
   const invalidateBacklinks = (): void => {
@@ -3104,11 +3106,11 @@ export function createDetailController(
         selectAnnotationThread(intent.annotationId, true, viewport);
         break;
       case "annotation.thread.reply":
-        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations();
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
         beginAnnotationReply(intent.annotationId);
         break;
       case "annotation.thread.lifecycle":
-        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations();
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
         await changeAnnotationLifecycle(intent.annotationId);
         break;
       case "resource.refresh": {

@@ -5362,6 +5362,8 @@ test("Preview native thread actions promote safely and save the exact reply buff
     harness.effects.getAnnotation = async () => thread;
     harness.effects.setAnnotationLifecycle = async input => { lifecycles.push(input); thread = {...thread, lifecycle: input.lifecycle}; return thread; };
   }
+  const queuedPaints: Array<() => void> = [];
+  current.effects.enqueueViewUpdate = update => { queuedPaints.push(update); };
   await current.controller.initialize(); await preview.controller.initialize();
   await preview.controller.dispatch({type: "annotation.thread.move", delta: 1}, viewport);
   const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
