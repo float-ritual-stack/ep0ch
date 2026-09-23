@@ -1,3 +1,5 @@
+import {TreePreviewInput} from './tree-preview-input';
+import {osc52ClipboardWrite} from './terminal';
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { serviceTreeNavigation } from "./navigation-routes";
 import { emitKeypressEvents } from "node:readline";
@@ -56,13 +58,14 @@ const mouseEnabled = process.env.HERDR_ENV === "1";
 const mouseInput = mouseEnabled ? new StdinBuffer() : null;
 const keyboardInput = mouseEnabled ? new PassThrough() : null;
 const keypressInput = keyboardInput ?? process.stdin;
-const enableMouse = "\x1b[?1000h\x1b[?1006h";
-const disableMouse = "\x1b[?1006l\x1b[?1000l";
+const enableMouse = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+const disableMouse = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 let watcher: OutlinerWatcher | null = null;
 let runtimeSync: ClientRuntimeSync | null = null;
 let stopping = false;
 let workQueue = Promise.resolve();
 let renderedFrameLines: string[] = [];
+const previewInput = new TreePreviewInput();
 let renderedMouseTargets: readonly (TreeMouseTarget | null | undefined)[] = [];
 
 function errorMessage(error: unknown): string {
@@ -77,11 +80,11 @@ function draw(): void {
     controller.view().scrollStartEntryIndex ?? 0,
     { propertyKeys: propertySummaryKeys },
   );
-  renderedFrameLines = result.frame.split("\n");
+  renderedFrameLines = previewInput.render(result.frame.split("\n"),result.preview,controller.view().localPreview);
   renderedMouseTargets = result.mouseTargets;
   controller.setViewportStart(result.scrollStartEntryIndex, result.expandedPage);
   if(result.breadcrumbStart !== undefined) controller.setBreadcrumbStart(result.breadcrumbStart);
-  process.stdout.write(result.frame);
+  process.stdout.write(renderedFrameLines.join("\n"));
 }
 
 function stop(): void {
@@ -191,6 +194,7 @@ function handleRawInput(data: string | Buffer): void {
 }
 
 function handleMouseSequence(sequence: string): void {
+  if(previewInput.handle(sequence,controller,text=>process.stdout.write(osc52ClipboardWrite(text)),draw))return;
   if (controller.view().mode === "goto") { enqueueWork(() => controller.handleGotoMouse(sequence)); return; }
   const secondaryClick = parseTreeSecondaryClick(sequence);
   if (secondaryClick && rightClickOwnership === "outliner") {
@@ -200,7 +204,7 @@ function handleMouseSequence(sequence: string): void {
   const wheelDirection = parseTreeWheel(sequence);
   if (wheelDirection) {
     enqueueWork(() =>
-      controller.handleKeypress("", { name: wheelDirection, sequence }, "pass")
+      controller.handleTreeWheel(wheelDirection)
     );
     return;
   }

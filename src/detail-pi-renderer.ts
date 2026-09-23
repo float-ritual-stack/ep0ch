@@ -1,6 +1,8 @@
 import {
   HStack,
+  VStack,
   truncateToWidth,
+  visibleWidth,
   type Component,
 } from "@earendil-works/pi-tui";
 import {
@@ -33,6 +35,34 @@ export function detailDraftSplitWidths(width: number): {
   );
   const editor = Math.ceil(availableWidth / 2);
   return { editor, preview: availableWidth - editor };
+}
+
+export function renderDetailDestinationPicker(options: {
+  width: number; height: number; status: string; query: string; purpose: "link" | "open";
+  list(width: number, height: number): string[];
+  preview(width: number, height: number): string[];
+}): string[] {
+  const {width, height} = options;
+  const bodyHeight = Math.max(1, height - 4);
+  const fit = (lines: string[], count: number, columns: number) => Array.from({length: count}, (_, i) => truncateToWidth(lines[i] ?? "", columns));
+  let body: string[];
+  if (width >= 100) {
+    const left = Math.min(48, Math.floor((width - 1) * 0.45));
+    const list = fit(options.list(left, bodyHeight), bodyHeight, left);
+    const preview = fit(options.preview(width - left - 1, bodyHeight), bodyHeight, width - left - 1);
+    body = list.map((line, index) => line + " ".repeat(Math.max(0, left - visibleWidth(line))) + "│" + preview[index]);
+  } else {
+    const listHeight = Math.min(7, Math.max(2, Math.floor(bodyHeight / 3)));
+    const previewHeight = Math.max(1, bodyHeight - listHeight - 1);
+    body = [...fit(options.list(width, listHeight), listHeight, width), "─".repeat(width), ...fit(options.preview(width, previewHeight), previewHeight, width)];
+  }
+  return [
+    options.purpose === "link" ? "Link destination · preview the selected reader" : "Open once · preview the selected reader",
+    options.status,
+    `Find: ${options.query}▏`,
+    ...body,
+    `↑↓ select · Enter ${options.purpose === "link" ? "links" : "opens once"} · Esc cancels`,
+  ].slice(0, height).map(line => truncateToWidth(line, width));
 }
 
 function escapeInspectorMarkdown(value: string): string {
@@ -245,5 +275,25 @@ export class DetailReaderSplitLayout extends HStack {
     Object.assign(this.entries[0], {basis: left, minSize: left, maxSize: left, grow: 0, shrink: 0});
     const right = width - left - 1;
     Object.assign(this.entries[1], {basis: right, minSize: right, maxSize: right, grow: 0, shrink: 0});
+  }
+}
+
+/** A narrower reader uses its available rows for Current above Preview. */
+export class DetailReaderVerticalLayout extends VStack {
+  constructor(current: Component, preview: Component) {
+    super([current, preview], {gap: 1});
+  }
+
+  setLayout(current: Component, height: number): void {
+    if (this.entries[0]!.component !== current) {
+      const preview = this.entries[1]!.component;
+      this.clear();
+      this.addChild(current);
+      this.addChild(preview);
+    }
+    const top = Math.floor((height - 1) / 2);
+    const bottom = height - top - 1;
+    Object.assign(this.entries[0], {basis: top, minSize: top, maxSize: top, grow: 0, shrink: 0});
+    Object.assign(this.entries[1], {basis: bottom, minSize: bottom, maxSize: bottom, grow: 0, shrink: 0});
   }
 }

@@ -1,5 +1,8 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { DetailReadingSurface } from "./detail-reading-surface";
+import { DetailReadingSurface, detailReaderGeometry } from "./detail-reading-surface";
+import { renderDetailDestinationPicker } from "./detail-pi-renderer";
+import { navigationDestinationItems, navigationDestinationStatus, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import { emitKeypressEvents } from "node:readline";
@@ -9,7 +12,7 @@ import {
   startClientRuntimeSync,
   type ClientRuntimeSync,
 } from "./client-runtime-sync";
-import { OutlinerActionKeymap } from "./outliner-actions";
+import { OutlinerActionKeymap, filterActionMenuItems, type OutlinerActionMenuItem } from "./outliner-actions";
 import {
   createDetailController,
   type DetailEffects,
@@ -67,6 +70,8 @@ import {
   type InternResourceReceipt,
   type PageAddressCollection,
   type OutlinerNavigationTarget,
+  type OutlinerViewAddress,
+  type NavigationLinkState,
   type OutlinerServiceStatus,
   type ResourceDescription,
   type ResolvedBlockReferences,
@@ -76,6 +81,7 @@ import {
 
 const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
+initTheme(undefined, false);
 const paths = resolveClientPaths();
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
@@ -102,12 +108,56 @@ let runtimeSync: ClientRuntimeSync | null = null;
 let workQueue = Promise.resolve();
 let pendingPaste: string | null = null;
 
+interface DetailDestinationPicker {
+  state: NavigationLinkState; purpose: "link" | "open"; showOther: boolean;
+  query: string; index: number; preview: NavigationDestinationPreview; reader: DetailController;
+  resolve(value: OutlinerViewAddress | null | undefined): void;
+}
+let destinationPicker: DetailDestinationPicker | null = null;
+function destinationItems(picker: DetailDestinationPicker): OutlinerActionMenuItem[] {
+  return filterActionMenuItems(navigationDestinationItems(picker.state, picker.purpose === "link", picker.showOther), picker.query);
+}
+function refreshDestinationPreview(): void {
+  const picker = destinationPicker;
+  if (!picker) return;
+  const items = destinationItems(picker);
+  picker.index = Math.max(0, Math.min(picker.index, items.length - 1));
+  const item = items[picker.index];
+  void picker.preview.select(item ? picker.state.destinations[Number(item.id.slice(12))] : undefined);
+  draw();
+}
+async function handleDestinationInput(str: string, key: TerminalKey): Promise<void> {
+  const picker = destinationPicker;
+  if (!picker) return;
+  if (key.name === "escape") {
+    picker.preview.clear(); destinationPicker = null; picker.resolve(undefined); draw(); return;
+  }
+  if (key.name === "return") {
+    const item = destinationItems(picker)[picker.index];
+    if (!item) return;
+    if (item.id === "destination:other") {
+      picker.showOther = !picker.showOther; picker.query = ""; picker.index = 0; refreshDestinationPreview(); return;
+    }
+    picker.preview.clear(); destinationPicker = null;
+    if (item.id === "destination:new-right" || item.id === "destination:new-below") {
+      try { await picker.reader.dispatch({type: "pane.open", direction: item.id === "destination:new-right" ? "right" : "down"}, viewport(picker.reader)); }
+      finally { picker.resolve(undefined); }
+    } else picker.resolve(item.id === "destination:unlink" ? null : picker.state.destinations[Number(item.id.slice(12))]?.view);
+    draw(); return;
+  }
+  if (key.name === "up") picker.index--;
+  else if (key.name === "down" || key.name === "tab") picker.index++;
+  else if (key.name === "backspace") { picker.query = [...picker.query].slice(0, -1).join(""); picker.index = 0; }
+  else if (str && !key.ctrl && !key.meta && [...str].every(char => char >= " " && char !== "\x7f")) { picker.query += str; picker.index = 0; }
+  refreshDestinationPreview();
+}
+
 function viewport(reader: DetailController = readingSurface.active): DetailViewport {
-  const totalWidth = process.stdout.columns ?? 100;
-  const width = readingSurface.previewVisible && totalWidth >= 150 ? Math.floor((totalWidth - 1) / 2) : totalWidth;
+  const geometry = detailReaderGeometry(process.stdout.columns ?? 100, process.stdout.rows ?? 30, readingSurface.previewVisible);
+  const {width, height} = reader === inspection ? geometry.preview : geometry.current;
   return {
     width,
-    height: process.stdout.rows ?? 30,
+    height,
     ...(reader.state.mode === "preview" ? { preview: buildDetailAnsiPreview(reader.state, width) } : {}),
   };
 }
@@ -179,6 +229,18 @@ const effects: DetailEffects = {
         WEB_RESOURCE_REQUEST_TIMEOUT_MS,
       ),
     };
+  },
+  async chooseDestination(purpose) {
+    const reader = readingSurface.active;
+    const state = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId, region: "detail"}});
+    return new Promise<OutlinerViewAddress | null | undefined>(resolve => {
+      destinationPicker = {state, purpose, reader, query: "", index: 0, showOther: false, preview: new NavigationDestinationPreview(client, draw), resolve};
+      refreshDestinationPreview();
+    });
+  },
+  async setDestination(destination) {
+    const state = await client.request<NavigationLinkState>({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+    return state.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region)?.label;
   },
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
@@ -416,17 +478,37 @@ const effects: DetailEffects = {
 };
 
 function draw(): void {
+  if (destinationPicker) {
+    const picker = destinationPicker;
+    const items = destinationItems(picker);
+    const lines = renderDetailDestinationPicker({
+      width: process.stdout.columns ?? 100, height: process.stdout.rows ?? 30,
+      purpose: picker.purpose, query: picker.query, status: navigationDestinationStatus(picker.state, picker.purpose, picker.showOther),
+      list: (width, height) => {
+        const visibleItems = Math.max(1, Math.floor(height / 2));
+        const start = Math.max(0, picker.index - visibleItems + 1);
+        return items.slice(start, start + visibleItems).flatMap((item, index) => [
+          truncateToWidth(`${start + index === picker.index ? "▶" : " "} ${item.label}`, width),
+          truncateToWidth(`  ${item.description}`, width),
+        ]);
+      },
+      preview: (width, height) => renderNavigationDestinationPreview(picker.preview, width, height),
+    });
+    process.stdout.write("\x1b[H\x1b[2J" + lines.join("\n"));
+    return;
+  }
+  const geometry = detailReaderGeometry(process.stdout.columns ?? 100, process.stdout.rows ?? 30, readingSurface.previewVisible);
   const render = (reader: DetailController, label: string) => {
     reader.setPreviewRegions(detailPropertyInspectorRegions(reader.state));
     return renderDetailLines(reader.state, viewport(reader), {
-      header: {surface: label, focused: readingSurface.active === reader},
-      helpPrefix: readingSurface.previewVisible ? "F7 Current/Preview · Alt+Enter Keep · Shift+F7 close" : "",
+      header: {surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
+      helpPrefix: readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview · Alt+Enter Keep · Esc close Preview` : "",
       helpText: actionKeymap.helpText("detail", detailActionScopes(reader.state, {bufferMode: reader.isBufferMode()})),
       chooserHelpText: reader.destinationChooserHelpText(),
     });
   };
   let lines: string[];
-  if (readingSurface.previewVisible && (process.stdout.columns ?? 100) >= 150) {
+  if (geometry.arrangement === "beside") {
     const left = render(controller, "Current");
     const right = render(inspection, "Preview");
     const width = viewport(controller).width;
@@ -434,6 +516,8 @@ function draw(): void {
       const line = truncateToWidth(left[index] ?? "", width);
       return line + " ".repeat(Math.max(0, width - visibleWidth(line))) + "│" + (right[index] ?? "");
     });
+  } else if (geometry.arrangement === "below") {
+    lines = [...render(controller, "Current"), "─".repeat(geometry.current.width), ...render(inspection, "Preview")];
   } else lines = render(readingSurface.active, readingSurface.active === inspection ? "Preview" : "Current");
   process.stdout.write("\x1b[H\x1b[2J" + lines.join("\n"));
 }
@@ -553,8 +637,8 @@ function stop(): void {
   process.exit(0);
 }
 
-const handleKeypress = createDetailKeyHandler({ controller, viewport, stop, actionKeymap });
-const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport, stop: () => { void readingSurface.closePreview(); }, actionKeymap});
+const handleKeypress = createDetailKeyHandler({ controller, viewport: () => viewport(controller), stop, actionKeymap });
+const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap});
 
 async function initialize(): Promise<void> {
   await waitForService();
@@ -595,6 +679,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
     }
     if (active.isBufferMode()) await active.dispatch({ type: "buffer.insert", text }, viewport());
   }
+  if (inputAction !== "suppress" && key.name === "escape" && await readingSurface.escapePreview()) return;
   if (inputAction !== "suppress" && !active.state.destinationChooser.active) {
     const {actionId} = actionKeymap.resolve("detail", detailActionScopes(active.state), str, key);
     if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
@@ -615,6 +700,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
 }
 
 process.stdin.on("keypress", (str: string, key: TerminalKey) => {
+  if (destinationPicker) { void handleDestinationInput(str, key).catch(error => controller.onServiceError(error)); return; }
   serviceEventScheduler.scheduleWork(() => handleInput(str, key));
 });
 

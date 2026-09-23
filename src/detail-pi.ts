@@ -1,5 +1,5 @@
 import { ComposedLayout, ComposedTree, composedTreeNavigation, composedPointer, composedWidths } from "./composed-surface";
-import { navigationDestinationItems } from "./navigation-destination-menu";
+import { navigationDestinationItems, navigationDestinationStatus, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
@@ -37,9 +37,10 @@ import {
   createDetailController,
   type DetailDirectSelectionCapture,
   type DetailEffects,
+  type DetailController,
   type DetailViewport,
 } from "./detail-controller";
-import { DetailReadingSurface } from "./detail-reading-surface";
+import { DetailReadingSurface, detailReaderGeometry } from "./detail-reading-surface";
 import { DetailEventScheduler } from "./detail-event-scheduler";
 import { layoutDetailEditor } from "./detail-editor-layout";
 import {
@@ -68,7 +69,9 @@ import {
   DetailPiComponent,
   DetailPiDraftSplitLayout,
   DetailReaderSplitLayout,
+  DetailReaderVerticalLayout,
   detailDraftSplitWidths,
+  renderDetailDestinationPicker,
 } from "./detail-pi-renderer";
 import { parsePropertySummaryKeys } from "./property-summary";
 import { referencedFilePreview, type FileContents, type ReferencedPathCandidate } from "./files";
@@ -216,12 +219,12 @@ let focusedRegion: OutlinerRegion = "tree";
 const processTerminal = new ProcessTerminal();
 let inspectionVisible = false;
 const readerWidth = () => composed ? composedWidths(processTerminal.columns).detail : processTerminal.columns;
-const readerSplitVisible = () => inspectionVisible && readerWidth() >= 150;
-const currentReaderWidth = () => readerSplitVisible() ? Math.floor((readerWidth() - 1) / 2) : readerWidth();
+const readerGeometry = () => detailReaderGeometry(readerWidth(), processTerminal.rows, inspectionVisible);
+const currentReaderWidth = () => readerGeometry().current.width;
 // Detail receives its allocated rectangle; Pi still owns the actual terminal.
 const terminal = {
   get columns() { return currentReaderWidth(); },
-  get rows() { return processTerminal.rows; },
+  get rows() { return readerGeometry().current.height; },
   drainInput: (quietMs: number, maxMs: number) => processTerminal.drainInput(quietMs, maxMs),
 };
 let detailPaneId: string | undefined;
@@ -282,6 +285,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     const pointer = pendingLinkClick;
     pendingLinkClick = { activate: false, routing: "linked", suppress: false };
     if (pointer.suppress || stopping) return;
+    if (actionMenuInvoke && url.startsWith("pi-outliner-action:")) { actionMenuInvoke(url.slice("pi-outliner-action:".length)); return; }
     serviceEventScheduler.scheduleWork(async () => {
       if (focusedReader().state.destinationChooser.active) {
         await focusedReader().handleDestinationChooserKeypress("", { name: "pointer" });
@@ -333,8 +337,9 @@ function draftSplitActive(): boolean {
     terminal.columns >= DETAIL_DRAFT_SPLIT_MIN_WIDTH;
 }
 
-function viewport(): DetailViewport {
-  const width = terminal.columns;
+function viewport(reader: DetailController = controller): DetailViewport {
+  const rectangle = reader === inspection ? readerGeometry().preview : readerGeometry().current;
+  const width = rectangle.width;
   const editorUsesSplitWidth = width >= DETAIL_DRAFT_SPLIT_MIN_WIDTH &&
     controller.state.mode !== "file" &&
     controller.state.mode !== "comment";
@@ -343,7 +348,7 @@ function viewport(): DetailViewport {
     editorWidth: editorUsesSplitWidth
       ? detailDraftSplitWidths(width).editor
       : width,
-    height: terminal.rows,
+    height: rectangle.height,
     editorBody: controller.state.mode === "comment"
       ? bufferComposerEditorBody(width)
       : undefined,
@@ -418,15 +423,28 @@ const effects: DetailEffects = {
     };
   },
   async chooseDestination(purpose) {
+    const invokingReader = focusedReader();
     const state = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId, region: "detail"}});
+    const document = new NavigationDestinationPreview(client, () => tui.requestRender());
+    let showOther = false;
     return new Promise<OutlinerViewAddress | null | undefined>(resolve => {
-      showActionMenu(navigationDestinationItems(state, purpose === "link"), async id => {
-        resolve(id === "destination:unlink" ? null : state.destinations[Number(id.slice(12))]?.view);
-      }, undefined, () => resolve(undefined));
+      const show = () => showActionMenu(navigationDestinationItems(state, purpose === "link", showOther), async id => {
+        if (id === "destination:other") { showOther = !showOther; show(); return; }
+        document.clear();
+        if (id === "destination:new-right" || id === "destination:new-below") {
+          try { await invokingReader.dispatch({type: "pane.open", direction: id === "destination:new-right" ? "right" : "down"}, viewport(invokingReader)); }
+          finally { resolve(undefined); }
+        } else resolve(id === "destination:unlink" ? null : state.destinations[Number(id.slice(12))]?.view);
+      }, undefined, () => { document.clear(); resolve(undefined); }, {
+        purpose, status: () => navigationDestinationStatus(state, purpose, showOther), preview: document,
+        select: id => { void document.select(id ? state.destinations[Number(id.slice(12))] : undefined); },
+      });
+      show();
     });
   },
   async setDestination(destination) {
-    await client.request({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+    const state = await client.request<NavigationLinkState>({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+    return state.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region)?.label;
   },
   isSourceSelectionActive: () => directSelectionOwner === "current" && (latestDirectSelection !== null || pendingDirectSelection !== null),
   async setNavigationProtection(navigationProtection) {
@@ -698,7 +716,8 @@ const readingSurface = new DetailReadingSurface(controller, inspection, () => sy
 }, () => effects.isSourceSelectionActive?.() ?? false);
 const focusedReader = () => readingSurface.active;
 const focusedPreviewLayout = () => readingSurface.focused === "preview" && readingSurface.previewVisible ? inspectionLayout : preview;
-const readingHelp = () => `${readingSurface.previewVisible ? "F7 Current/Preview  Alt+Enter Keep Preview  Shift+F7 close Preview  " : ""}`;
+const readingHelp = () => readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview  Alt+Enter Keep Preview  Esc close Preview  ` : "";
+const currentLabel = () => `${readingSurface.focused === "current" ? "●" : "○"} Current${inspectionVisible && readerGeometry().arrangement === "switch" ? ` · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : ""}`;
 
 function focusRegion(region: OutlinerRegion): void {
   if (focusedRegion === region) return;
@@ -856,11 +875,13 @@ async function stop(exitCode = 0): Promise<void> {
 }
 
 let actionMenuHandle: OverlayHandle | null = null;
+let actionMenuInvoke: ((id: string) => void) | null = null;
 let composerHandle: OverlayHandle | null = null;
 
 function closeActionMenu(): void {
   actionMenuHandle?.hide();
   actionMenuHandle = null;
+  actionMenuInvoke = null;
 }
 
 const actionMenuTheme: SelectListTheme = {
@@ -871,20 +892,40 @@ const actionMenuTheme: SelectListTheme = {
   noMatch: (text) => `\x1b[2m${text}\x1b[0m`,
 };
 
+interface DetailDestinationMenuOptions {
+  purpose: "link" | "open"; status(): string; preview: NavigationDestinationPreview; select(id: string | undefined): void;
+}
+
 class FuzzyActionMenu implements Component {
   private query = "";
   private list: SelectList;
+  private visibleRows: number | undefined;
   onSelect?: (actionId: string) => void;
   onCancel?: () => void;
 
   constructor(
     private readonly items: readonly OutlinerActionMenuItem[],
     private readonly maxVisible: number,
+    private readonly destination?: DetailDestinationMenuOptions,
   ) {
     this.list = this.createList();
   }
 
   render(width: number): string[] {
+    if (this.destination) return renderDetailDestinationPicker({
+      width, height: Math.max(10, Math.floor(processTerminal.rows * 0.9)), purpose: this.destination.purpose,
+      status: this.destination.status(), query: this.query,
+      list: (columns, rows) => {
+        const count = Math.max(1, rows - 1);
+        if (this.visibleRows !== count) {
+          const selected = this.list.getSelectedItem()?.value;
+          this.visibleRows = count;
+          this.list = this.createList(selected);
+        }
+        return this.list.render(columns).slice(0, rows);
+      },
+      preview: (columns, rows) => renderNavigationDestinationPreview(this.destination!.preview, columns, rows),
+    });
     return [
       `\x1b[2mFind: ${this.query}▏\x1b[0m`,
       ...this.list.render(width),
@@ -915,19 +956,22 @@ class FuzzyActionMenu implements Component {
     tui.requestRender();
   }
 
-  private createList(): SelectList {
+  private createList(selected?: string): SelectList {
     const filtered = filterActionMenuItems(this.items, this.query);
     const list = new SelectList(
       filtered.map((item) => ({
         value: item.id,
-        label: outlinerActionLink(item.id, actionMenuItemText(item)),
+        label: outlinerActionLink(item.id, this.destination ? item.label : actionMenuItemText(item)),
         description: item.description,
       })),
-      Math.min(this.maxVisible, Math.max(1, filtered.length)),
+      Math.min(this.visibleRows ?? this.maxVisible, Math.max(1, filtered.length)),
       actionMenuTheme,
     );
+    if (selected) list.setSelectedIndex(Math.max(0, filtered.findIndex(item => item.id === selected)));
     list.onSelect = (item) => this.onSelect?.(item.value);
     list.onCancel = () => this.onCancel?.();
+    list.onSelectionChange = item => this.destination?.select(item.value);
+    this.destination?.select(list.getSelectedItem()?.value);
     return list;
   }
 }
@@ -937,22 +981,24 @@ function showActionMenu(
   invoke: (actionId: string) => Promise<void>,
   origin?: TreeMouseClick,
   cancelled?: () => void,
+  destination?: DetailDestinationMenuOptions,
 ): void {
   closeActionMenu();
-  const menu = new FuzzyActionMenu(items, 13);
+  const menu = new FuzzyActionMenu(items, destination ? 7 : 13, destination);
   menu.onSelect = (actionId) => {
     closeActionMenu();
     if (cancelled) void invoke(actionId);
     else serviceEventScheduler.scheduleWork(() => invoke(actionId));
   };
+  actionMenuInvoke = menu.onSelect;
   menu.onCancel = () => {
     cancelled?.();
     closeActionMenu();
     tui.requestRender();
   };
   actionMenuHandle = tui.showOverlay(menu, {
-    width: "70%",
-    maxHeight: "70%",
+    width: destination ? "95%" : "70%",
+    maxHeight: destination ? "90%" : "70%",
     minWidth: 32,
     anchor: "top-right",
     ...(origin ? { row: origin.row, col: origin.column } : {}),
@@ -1184,9 +1230,9 @@ function shouldPassDetailInputToTui(data: string): boolean {
       focusedReader().state.target?.kind === "resource"
     ) {
       const point = focusedPreviewLayout().sourcePointAtViewport(
-        pointer.row,
-        pointer.column - (readingSurface.active === inspection && readerSplitVisible() ? currentReaderWidth() + 1 : 0),
-        terminal.columns,
+        pointer.row - (readingSurface.active === inspection ? readerGeometry().preview.y : 0),
+        pointer.column - (readingSurface.active === inspection ? readerGeometry().preview.x : 0),
+        viewport(focusedReader()).width,
       );
       if (pointer.phase === "down") {
         pendingResourceSelectionRange = point ? { start: point, end: point } : null;
@@ -1253,7 +1299,7 @@ const handleKeypress = createDetailKeyHandler({
   },
 });
 
-const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport, stop: () => { void readingSurface.closePreview(); }, actionKeymap,
+const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap,
   openActionMenu: items => showActionMenu(items, invokeDetailAction),
   navigatePreview: direction => inspectionLayout.navigate(direction),
 });
@@ -1305,6 +1351,7 @@ async function handleDecodedInput(input: PiDetailInput): Promise<void> {
     return;
   }
 
+  if (input.inputAction !== "suppress" && input.key.name === "escape" && await readingSurface.escapePreview()) return;
   const resolved = actionKeymap.resolve("detail", activeDetailActionScopes(), input.str, input.key);
   if (resolved.actionId && await readerAction(resolved.actionId)) return;
   await (readingSurface.active === inspection ? inspectionKeypress : handleKeypress)(input.str, input.key, input.inputAction);
@@ -1354,16 +1401,16 @@ const customFrame = new DetailPiComponent({
   height: () => terminal.rows,
   header: () => {
     const propertyKeys = detailHeaderPropertyKeys;
-    if (!draftSplitActive()) return { surface: "Current", propertyKeys, ...(composed ? {surface: `${focusedRegion === "detail" ? "●" : "○"} Detail`, focused: focusedRegion === "detail"} : {}) };
+    if (!draftSplitActive()) return { surface: currentLabel(), propertyKeys, ...(composed ? {focused: focusedRegion === "detail"} : {}) };
     const focused = (!composed || focusedRegion === "detail") && draftSplitFocus === "editor";
     const linked = controller.state.draftPreviewLinked ? "↔ " : "";
     return {
-      surface: `${linked}${focused ? "●" : "○"} Edit`,
+      surface: `${linked}${focused ? "●" : "○"} Edit${inspectionVisible && readerGeometry().arrangement === "switch" ? ` · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : ""}`,
       focused,
       propertyKeys,
     };
   },
-  helpText: () => `${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
+  helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
 });
 const preview = new DetailPiPreviewLayout(
   controller.state,
@@ -1390,7 +1437,7 @@ const preview = new DetailPiPreviewLayout(
     ...(composed ? {primaryFocused: () => focusedRegion === "detail"} : {}),
     splitActive: draftSplitActive,
     focused: () => (!composed || focusedRegion === "detail") && draftSplitFocus === "preview",
-    surfaceLabel: () => `${readingSurface.focused === "current" ? "●" : "○"} Current`,
+    surfaceLabel: currentLabel,
     helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
     chooserHelpText: () => controller.destinationChooserHelpText(),
     setRegions: (regions) => controller.setPreviewRegions(regions),
@@ -1405,6 +1452,7 @@ const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdown
   setRegions: regions => inspection.setPreviewRegions(regions),
 });
 const readerSplit = new DetailReaderSplitLayout(preview, inspectionLayout);
+const readerVertical = new DetailReaderVerticalLayout(preview, inspectionLayout);
 
 const composer = new BufferComposer(() => {
   const reply = controller.state.annotationReplyDraft;
@@ -1432,15 +1480,11 @@ const composer = new BufferComposer(() => {
     status: controller.state.status,
   };
 });
-let layoutRoot:
-  | DetailPiComponent
-  | DetailPiPreviewLayout
-  | DetailPiDraftSplitLayout
-  | DetailReaderSplitLayout
-  | undefined;
+let layoutRoot: Component | undefined;
 let previousMode = controller.state.mode;
 const composedLayout = composedTree ? new ComposedLayout(composedTree, preview, () => processTerminal.columns) : null;
 let composerWidth = 0;
+let composerHeight = 0;
 
 synchronizeLayout = () => {
   inspectionVisible = readingSurface.previewVisible;
@@ -1471,14 +1515,16 @@ synchronizeLayout = () => {
   }
 
   composedLayout?.resize();
-  if (composerHandle && composerWidth !== terminal.columns) { composerHandle.hide(); composerHandle = null; }
+  if (composerHandle && (composerWidth !== terminal.columns || composerHeight !== terminal.rows)) { composerHandle.hide(); composerHandle = null; }
   if (mode === "comment" && readingSurface.active === controller && !composerHandle) {
     composerWidth = terminal.columns;
+    composerHeight = terminal.rows;
     composerHandle = tui.showOverlay(composer, {
       width: terminal.columns,
       col: composed ? composedWidths(processTerminal.columns).detailX : 0,
       maxHeight: BUFFER_COMPOSER_HEIGHT,
-      anchor: "bottom-center",
+      row: Math.max(0, terminal.rows - BUFFER_COMPOSER_HEIGHT),
+      anchor: "top-left",
       nonCapturing: true,
     });
   } else if ((mode !== "comment" || readingSurface.active !== controller) && composerHandle) {
@@ -1486,19 +1532,23 @@ synchronizeLayout = () => {
     composerHandle = null;
   }
 
-  let nextRoot: DetailPiComponent | DetailPiPreviewLayout | DetailPiDraftSplitLayout | DetailReaderSplitLayout;
+  let nextRoot: Component;
   if (split) nextRoot = draftSplit;
   else if (previewActive) nextRoot = preview;
   else nextRoot = customFrame;
 
   inspectionLayout.setActive(readingSurface.previewVisible);
   if (readingSurface.previewVisible) {
-    const inspectionWidth = readerSplitVisible() ? readerWidth() - currentReaderWidth() - 1 : readerWidth();
+    const geometry = readerGeometry();
+    const inspectionWidth = geometry.preview.width;
     inspectionLayout.syncState(inspectionWidth);
     inspectionLayout.applyPendingFragmentScroll(inspectionWidth);
-    if (readerSplitVisible()) {
+    if (geometry.arrangement === "beside") {
       readerSplit.setLayout(nextRoot, readerWidth());
       nextRoot = readerSplit;
+    } else if (geometry.arrangement === "below") {
+      readerVertical.setLayout(nextRoot, processTerminal.rows);
+      nextRoot = readerVertical;
     } else if (readingSurface.focused === "preview") nextRoot = inspectionLayout;
   }
 
@@ -1519,10 +1569,11 @@ const detailInputListener = createPiDetailInputListener(
 );
 tui.addOutlinerInputListener(data => {
   const detailPointer = parseTreePrimaryPointer(data);
-  if (detailPointer && readingSurface.previewVisible && readerSplitVisible()) {
+  if (!actionMenuHandle && detailPointer?.phase === "down" && readingSurface.previewVisible && ["beside", "below"].includes(readerGeometry().arrangement)) {
     const detailColumn = detailPointer.column - (composed ? composedWidths(processTerminal.columns).detailX : 0);
     if (detailColumn >= 0) {
-      readingSurface.focused = detailColumn > currentReaderWidth() ? "preview" : "current";
+      const rect = readerGeometry().preview;
+      readingSurface.focused = detailColumn >= rect.x && detailPointer.row >= rect.y ? "preview" : "current";
       synchronizeLayout?.();
     }
   }
@@ -1544,7 +1595,7 @@ tui.addOutlinerInputListener(data => {
     scheduleInputFlush();
     return {consume: true};
   }
-  if (pointer) serviceEventScheduler.scheduleWork(() => focusRegion(pointer.region));
+  if (pointer && !actionMenuHandle) serviceEventScheduler.scheduleWork(() => focusRegion(pointer.region));
   if ((pointer?.region ?? focusedRegion) === "tree" && !actionMenuHandle && !controller.state.destinationChooser.active) {
     serviceEventScheduler.scheduleWork(() => composedTree.handleInput(pointer?.data ?? data));
     return {consume: true};
