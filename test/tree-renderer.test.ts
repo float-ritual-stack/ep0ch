@@ -204,6 +204,7 @@ describe("renderTreeFrame", () => {
     const rendered = renderTreeFrame(view([root, child]), 80, 9);
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -702,6 +703,7 @@ describe("renderTreeFrame", () => {
     const rendered = renderTreeFrame(view(rows, { branchStates }), 200, 12);
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -744,6 +746,7 @@ describe("renderTreeFrame", () => {
     );
 
     expect(rendered).toEqual({
+      expandedPage: null,
       mouseTargets: expect.any(Array),
       scrollStartEntryIndex: 0,
       frame: [
@@ -1142,4 +1145,13 @@ test("scrolled deep rows reclaim common indentation while preserving child geome
   const targets=first.mouseTargets.filter(target=>target != null);
   expect(targets.slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
   expect(second.mouseTargets.filter(target=>target != null).slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+});
+
+test("expanded-row reflow cannot flatten newly exposed shallower ancestry", () => {
+  const rows=[physical(block("deep",{depth:10,text:"word ".repeat(20),displayText:"word ".repeat(20),hasChildren:true}),{multilineExpanded:true}),physical(block("parent",{depth:1,hasChildren:true})),physical(block("child",{depth:2,hasChildren:true}))];
+  const rendered=renderTreeFrame(view(rows,{selectedIndex:2}),40,12,0);
+  const targets=rendered.mouseTargets.filter(target=>target != null);
+  const parent=targets.find(target=>target!.rowId === "parent")!;
+  const child=targets.find(target=>target!.rowId === "child")!;
+  expect(child.disclosureColumn-parent.disclosureColumn).toBe(2);
 });

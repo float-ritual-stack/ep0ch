@@ -1,3 +1,4 @@
+import {renderTreeFrame} from "../src/tree-renderer";
 import { gotoCandidates, visibleGotoResults } from "../src/goto-search";
 import { serviceTreeNavigation } from "../src/navigation-routes";
 import { describe, expect, test } from "bun:test";
@@ -259,6 +260,12 @@ function event(
     blockId,
     ...(domain === "browsing-context" ? { contextId } : {}),
   };
+}
+
+function renderViewport(controller: TreeController, width=80, height=12) {
+  const frame=renderTreeFrame(controller.view(),width,height,controller.view().scrollStartEntryIndex ?? 0);
+  controller.setViewportStart(frame.scrollStartEntryIndex,frame.expandedPage);
+  return frame;
 }
 
 function lastCall(calls: readonly RequestInput[], action: RequestInput["action"]): RequestInput | undefined {
@@ -1730,6 +1737,7 @@ describe("createTreeController", () => {
     await second.initialize();
 
     await first.handleKeypress(".", { name: "." }, "modified-enter");
+    renderViewport(first);
     await first.handleKeypress("", { name: "pagedown" }, "pass");
     expect(first.view().expandedBlockOffset).toBeGreaterThan(0);
     expect(second.view().expandedBlockOffset).toBe(0);
@@ -2146,23 +2154,28 @@ describe("createTreeController", () => {
     await controller.initialize();
     await controller.handleKeypress(".", { name: "." }, "modified-enter");
 
+    renderViewport(controller);
     await controller.handleKeypress("", { name: "pagedown" }, "pass");
-    expect(controller.view().expandedBlockOffset).toBe(6);
-    expect(controller.view().status).toBe("Expanded block rows 7-12/20");
+    expect(controller.view().expandedBlockOffset).toBe(5);
+    expect(controller.view().status).toBe("Expanded block rows 6-10/20");
+    renderViewport(controller);
     await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    renderViewport(controller);
     await controller.handleKeypress("", { name: "pagedown" }, "pass");
-    expect(controller.view().expandedBlockOffset).toBe(14);
-    expect(controller.view().status).toBe("Expanded block rows 15-20/20");
+    expect(controller.view().expandedBlockOffset).toBe(15);
+    expect(controller.view().status).toBe("Expanded block rows 16-20/20");
 
+    renderViewport(controller);
     await controller.handleKeypress("", { name: "pageup" }, "pass");
-    expect(controller.view().expandedBlockOffset).toBe(8);
-    expect(controller.view().status).toBe("Expanded block rows 9-14/20");
+    expect(controller.view().expandedBlockOffset).toBe(10);
+    expect(controller.view().status).toBe("Expanded block rows 11-15/20");
 
     await controller.handleConnect();
     expect(controller.view().expandedBlockOffset).toBe(0);
     expect(controller.view().status).toBe("");
+    renderViewport(controller);
     await controller.handleKeypress("", { name: "pagedown" }, "pass");
-    expect(controller.view().expandedBlockOffset).toBe(6);
+    expect(controller.view().expandedBlockOffset).toBe(5);
 
     await controller.handleKeypress("", { name: "down" }, "pass");
     expect(selectedBlockRow(controller).canonicalId).toBe("next");
@@ -2232,10 +2245,11 @@ describe("createTreeController", () => {
       marker: "•",
       author: " ",
     }).length;
-    const pageSize = 6;
+    const pageSize = 5;
 
     for (let index = 0; index < 10; index += 1) {
-      await controller.handleKeypress("", { name: "pagedown" }, "pass");
+      renderViewport(controller);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
     }
 
     const expectedOffset = totalRows - pageSize;
@@ -3388,4 +3402,22 @@ test("breadcrumbs follow the projected occurrence instead of the canonical stora
   expect(controller.view().root?.rowId).toBe("hub");
   await controller.handleKeypress("",{name:"left",meta:true},"pass");
   expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
+});
+
+test("paging uses the reflowed breadcrumb viewport without skipping numbered lines", async () => {
+  const parents=Array.from({length:12},(_,i)=>block(`parent${i}`,{parentId:i ? `parent${i-1}` : null,depth:i,hasChildren:true}));
+  const text=Array.from({length:25},(_,i)=>`line${i+1} body`).join("\n");
+  const note=block("deep-note",{parentId:"parent11",depth:12,text,displayText:text});
+  const fake=harness(input=>input.action === "tree.index" ? snapshot([...parents,note],note) : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();await controller.handleRowClick(note.id);
+  await controller.handleKeypress(".",{name:"."},"modified-enter");
+  const seen=new Set<number>();
+  for(let page=0;page<6;page++) {
+    const rendered=renderViewport(controller,40,12);
+    expect(rendered.expandedPage?.pageSize).toBe(5);
+    expect(rendered.expandedPage?.totalRows).toBe(25);
+    for(const match of rendered.frame.matchAll(/line(\d+) body/g)) seen.add(Number(match[1]));
+    await controller.handleKeypress("",{name:"pagedown"},"pass");
+  }
+  expect([...seen].sort((a,b)=>a-b)).toEqual(Array.from({length:25},(_,i)=>i+1));
 });

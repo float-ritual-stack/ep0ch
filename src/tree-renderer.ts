@@ -172,6 +172,7 @@ export interface TreeRenderResult {
   readonly frame: string;
   readonly scrollStartEntryIndex: number;
   readonly breadcrumbStart?: number;
+  readonly expandedPage?: import("./tree-controller").TreeExpandedPage | null;
   readonly mouseTargets: readonly (TreeMouseTarget | null | undefined)[];
 }
 
@@ -682,19 +683,26 @@ export function renderTreeFrame(
     }
   }
 
-  // Only reclaim ancestry once it has scrolled out of the visible viewport.
-  // One common shift preserves relative child indentation and stays stable while
-  // selection moves within the same viewport. Height calculations above remain
-  // conservative: giving a row more width cannot make it taller.
-  let scanHeight=0;
-  let commonDepth=Infinity;
-  for(let index=scrollStartEntryIndex; index<entryCount && scanHeight<bodyHeight; index++) {
-    const entry=entryAt(index);
-    commonDepth=Math.min(commonDepth,entry.kind === "quick" ? entry.depth : view.rows[entry.blockIndex]!.depth);
-    scanHeight+=getEntryHeight(index);
+  // Rewrapping may expose shallower rows. Reduce the shared shift until every
+  // row in the final viewport fits that ancestry; never flatten parent/child rows.
+  function commonViewportDepth(): number {
+    let scanHeight = 0;
+    let commonDepth = Infinity;
+    for (let index = scrollStartEntryIndex; index < entryCount && scanHeight < bodyHeight; index++) {
+      const entry = entryAt(index);
+      commonDepth = Math.min(commonDepth, entry.kind === "quick" ? entry.depth : view.rows[entry.blockIndex]!.depth);
+      scanHeight += getEntryHeight(index);
+    }
+    return Number.isFinite(commonDepth) ? Math.max(0, commonDepth - 1) : 0;
   }
-  indentOffset=Number.isFinite(commonDepth) ? Math.max(0,commonDepth-1) : 0;
-  if(indentOffset) renderedRows.length=0;
+  indentOffset = commonViewportDepth();
+  if (indentOffset) renderedRows.length = 0;
+  while (indentOffset > 0) {
+    const nextOffset = commonViewportDepth();
+    if (nextOffset >= indentOffset) break;
+    indentOffset = nextOffset;
+    renderedRows.length = 0;
+  }
   let renderedBodyLines = 0;
   for (let entryIndex = scrollStartEntryIndex; entryIndex < entryCount; entryIndex++) {
     if (renderedBodyLines >= bodyHeight) break;
@@ -797,5 +805,8 @@ export function renderTreeFrame(
   const help = view.actionHelpText ??
     DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", view.mode);
   output.push(`\x1b[2m${truncate(options.focused === undefined ? help : `F6 Detail  ${help}`, width)}\x1b[0m`);
-  return { frame: output.join("\n"), scrollStartEntryIndex, mouseTargets, breadcrumbStart:breadcrumb?.start };
+  return { frame: output.join("\n"), scrollStartEntryIndex, mouseTargets, breadcrumbStart:breadcrumb?.start,
+    expandedPage: selectedInfo && isBlockTreeRow(selectedRow) && selectedRow.multilineExpanded
+      ? {rowId:selectedRow.rowId,pageSize:bodyHeight,totalRows:selectedInfo.total,offset:selectedInfo.offset} : null,
+  };
 }

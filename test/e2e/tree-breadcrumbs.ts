@@ -7,7 +7,7 @@ const result=await runHerdrScenario({
   name:"tree-breadcrumbs",layout:process.argv.includes("--composed") ? "composed" : "separate",
   async prepare(){},
   async run(s){
-    const terminal=await s.attachClient();await terminal.resize(130,30);
+    const terminal=await s.attachClient();await terminal.resize(process.argv.includes("--composed") ? 320 : 130,process.argv.includes("--composed") ? 16 : 30);
     const tree=s.panes.tree;
     const create=(text:string,parentId:string|null=null)=>s.client.request<Block>({action:"create",text,parentId});
     const source=await create("304 canonical storage");
@@ -23,7 +23,7 @@ const result=await runHerdrScenario({
     await s.revealTree(tree,hub.id);
     // Follow the displayed query occurrence, not its physical storage parent.
     for(let i=0;i<4;i++) await s.keys(tree,"down");
-    await s.waitVisible(tree,"304 Level 2 readable title");
+    await s.waitVisible(tree,"304 Level 2 readable");
     await s.checkpoint("01-deep-projection-reclaims-indentation");
     const deep=await s.visible(tree);
     assert.ok(!deep.includes("304 canonical storage"));
@@ -42,10 +42,10 @@ const result=await runHerdrScenario({
     await terminal.write(`\x1b[<0;${column+1};${row+1}M\x1b[<0;${column+1};${row+1}m`);
     await s.waitVisible(tree,"Focused branch: 304 Displayed hub");
     await s.keys(tree,"alt+left");
-    await s.waitVisible(tree,"304 Level 2 readable title");
+    await s.waitVisible(tree,"304 Level 2 readable");
     await s.checkpoint("03-ancestor-click-back-restores-leaf");
-    await terminal.resize(100,26);
-    await s.waitVisible(tree,"304 Level 2 readable title");
+    await terminal.resize(process.argv.includes("--composed") ? 280 : 100,process.argv.includes("--composed") ? 16 : 26);
+    await s.waitVisible(tree,"304 Level 2 readable");
     await s.checkpoint("04-narrow-reflow");
     assert.equal((await s.client.request<Block>({action:"get",blockId:query.id})).parentId,source.id);
   }

@@ -32,7 +32,6 @@ import {
   type OutlinerActionMenuItem,
 } from "./outliner-actions";
 import type { TreeNavigation } from "./navigation-routes";
-import { layoutExpandedBlock } from "./tree-layout";
 import {
   historyNavigationDirection,
   isDetailToggle,
@@ -74,7 +73,6 @@ import type {
 } from "./types";
 import {
   buildVirtualBranchCreationText,
-  decorateVirtualBranchDefinitionText,
   isVirtualBranchOccurrence,
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
@@ -178,8 +176,15 @@ export interface TreeControllerEffects {
   readonly actionKeymap?: OutlinerActionKeymap;
 }
 
+export interface TreeExpandedPage {
+  readonly rowId: string;
+  readonly pageSize: number;
+  readonly totalRows: number;
+  readonly offset: number;
+}
+
 export interface TreeController {
-  setViewportStart(index: number): void;
+  setViewportStart(index: number, expandedPage?: TreeExpandedPage | null): void;
   setBreadcrumbStart(index: number): void;
   view(): TreeView;
   revealBlock(blockId: string): Promise<void>;
@@ -300,6 +305,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let baseRows: TreeRow[] = [];
   let rows: TreeDisplayRow[] = [];
   let root: TreeRoot | null = effects.initialRoot ?? null;
+  let expandedPage: TreeExpandedPage | null = null;
   let fullRowsById = new Map<string,TreeRow>();
   let breadcrumbRowId: string | undefined;
   let breadcrumbStart: number | null = null;
@@ -774,20 +780,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     return rows.length > 0;
   }
 
-  function expandedBlockRowCount(row: TreeRow): number {
-    let marker = row.kind === "occurrence" ? "◇" : "•";
-    if (row.hasChildren) marker = row.collapsed ? "▸" : "▾";
-    const branchState = row.kind === "physical" ? branchStates.get(row.canonicalId) : undefined;
-    const displayText = decorateVirtualBranchDefinitionText(expandedDocuments.get(row.canonicalId)?.resolved.text ?? row.block.preview, branchState);
-    return layoutExpandedBlock({
-      text: displayText,
-      width: effects.terminalWidth(),
-      depth: row.depth,
-      marker,
-      author: " ",
-    }).length;
-  }
-
   function scrollSelectedExpandedBlock(direction: "pageup" | "pagedown"): void {
     const selected = rows[selectedIndex];
     if (!isBlockTreeRow(selected) || !selected.multilineExpanded) {
@@ -797,8 +789,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         : "Authored-link rows are single-line";
       return;
     }
-    const totalRows = expandedBlockRowCount(selected);
-    const pageSize = Math.max(1, effects.terminalHeight() - 6);
+    if (!expandedPage || expandedPage.rowId !== selected.rowId) {
+      status = "Waiting for expanded block layout";
+      return;
+    }
+    const { totalRows, pageSize } = expandedPage;
     const maxOffset = Math.max(0, totalRows - pageSize);
     if (maxOffset === 0) {
       expandedBlockOffset = 0;
@@ -2442,7 +2437,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await inbox.refresh();
   }
   return {
-    setViewportStart(index) { scrollStartEntryIndex = index; },
+    setViewportStart(index, page) {
+      scrollStartEntryIndex = index;
+      expandedPage = page ?? null;
+      if (page) expandedBlockOffset = page.offset;
+    },
     setBreadcrumbStart(index) { breadcrumbStart=index;breadcrumbRowId=rows[selectedIndex]?.rowId; },
     view,
     async revealBlock(blockId) {
