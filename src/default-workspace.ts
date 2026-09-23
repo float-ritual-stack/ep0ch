@@ -149,7 +149,7 @@ const FEATURE_TOUR_SECTIONS = [
       "",
       "- In Tree, `g` opens searchable Goto with a selected-result preview. Try `outliner-tour` or words from a note; a UUID is not required.",
       "- Goto: arrows choose a result, Enter reveals it in Tree, Alt+Enter opens Detail, and Esc cancels without changing your place. Jev optionally ranks a bounded set of text candidates; text search still works without it.",
-      "- Tree cursor movement previews in an unlocked Detail. `L` in Detail toggles the distinct 🔓 / 🔐 lock states; a locked reader keeps its target.",
+      "- Tree cursor movement updates local Preview while Current keeps your place. `F7` switches Current/Preview, `Shift+F7` closes Preview, and `Alt+Enter` keeps it. Explicit Open uses your saved Detail link; use ? → Link destination to choose it.",
       "- `.` expands the selected Tree occurrence's inline preview. Other appearances of the same block keep their own expansion state.",
       "- `m` bookmarks a block and `Shift+M` opens the bookmark navigator. A pointer click selects; deletion is an explicit action.",
       "- Option/Alt+Up and Down reorder eligible siblings or unsorted virtual-branch roots. Option/Alt+Shift+Right and Down open independent Details.",
@@ -201,7 +201,7 @@ const FEATURE_TOUR_SECTIONS = [
       "",
       "Opening cached Web content does not fetch the network; refresh is explicit. Provider credentials, Source configuration and capabilities determine available actions. SSH-style file references are application links, not an SSH file provider.",
       "",
-      "A locked Detail is an anchor. Detail's authored Resource links can use its destination chooser. Tree-generated Resource activation does not yet offer that chooser. Closing a view does not delete its Resource or annotations.",
+      "Current stays in place during passive Resource inspection. Detail's authored Resource links offer a destination chooser; Tree-generated Resource activation uses its saved Detail link. Missing destinations, drafts, and active source selections require explicit recovery before replacement. Closing a view does not delete its Resource or annotations.",
     ],
   },
   {
@@ -221,7 +221,7 @@ const FEATURE_TOUR_SECTIONS = [
     lines: [
       "Normal Tree and Detail are separate Herdr panes. A project-scoped SSH socket configuration lets them use a remote service while other projects stay local; start the tunnel before opening that remote workspace.",
       "",
-      "The opt-in Herdr action `open-composed` places Tree and Detail in one application-owned surface. F6 switches regions; q returns from Detail to Tree. Selection, history, scroll, drafts and lock state remain distinct for each region.",
+      "The opt-in Herdr action `open-composed` places Tree and Detail in one application-owned surface. F6 switches regions; q returns from Detail to Tree. Selection, history, scroll, drafts and Current/Preview state remain local to their owning view.",
       "",
       "Independent references and editors can still open in Herdr panes. The combined layout is a fixed split experiment: orientation switching, interactive resizing and multiple embedded Details are not shipped. Browser pane prototypes are separate experiments, not an installed web UI.",
       "",
