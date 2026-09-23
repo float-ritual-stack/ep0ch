@@ -6,7 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createOutlinerClient } from "./client";
 import { listLiveClients, sendClientCommand } from "./client-target";
 import {
-  selectExistingDetailClient,
+  selectLinkedDetailClient,
   selectTreeClientForInvocation,
 } from "./herdr-open-policy";
 import {
@@ -20,6 +20,7 @@ import {
   OUTLINER_PROTOCOL_VERSION,
   clientSupportsRole,
   type OutlinerClientRegistration,
+  type NavigationLinkState,
   type OutlinerServiceStatus,
 } from "./types";
 
@@ -324,7 +325,8 @@ await reportStartupErrors("open", async () => {
     );
     const treePane = tree.runtime?.paneId;
     if (!treePane) throw new Error("The selected Outliner Tree has no live Herdr pane");
-    const existing = selectExistingDetailClient(clients, tree);
+    const link = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: tree.clientId, region: "tree"}});
+    const existing = selectLinkedDetailClient(clients, link.destination);
     if (existing) {
       await sendClientCommand(client, existing.clientId, { command: "focus", targetRegion: "detail" });
       const detailPane = existing.runtime?.paneId;

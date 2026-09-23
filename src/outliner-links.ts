@@ -73,7 +73,7 @@ export interface OutlinerLinkNavigation {
   created?: boolean;
   targetClientId?: string;
   intent?: OutlinerNavigationIntent;
-  resolution?: "unlocked" | "self" | "context" | "same-tab" | "linked" | "chosen";
+  resolution?: "self" | "context" | "same-tab" | "linked" | "chosen";
 }
 
 interface LinkSpan {
@@ -356,6 +356,15 @@ export async function navigateOutlinerLink(
     };
   }
   if (target.kind === "resource" || target.kind === "reference") {
+    if (!targets.sourceClientId && !targets.detailClientId) {
+      throw new Error("Resource Open requires a source view or an explicit Detail destination");
+    }
+    const intent = target.intent ?? targets.intent ?? "open";
+    // Resolve before following authored references, which can create or refresh Resources.
+    if (targets.sourceClientId) await resolve(intent, {preserveSource: target.preserveSource});
+    else await resolveNavigationDestination(requester, targets.detailClientId!, "open", {
+      sourceRegion: "detail", destination: {clientId: targets.detailClientId!, region: "detail"},
+    });
     const followed = target.kind === "reference"
       ? await followResourceOccurrence(requester, target) : null;
     const resource = followed
@@ -383,8 +392,7 @@ export async function navigateOutlinerLink(
         resolution: dispatched.resolution,
       };
     }
-    const detailClientId =
-      targets.detailClientId ?? await requireUniqueClientId(requester, "detail");
+    const detailClientId = targets.detailClientId!;
     await sendClientCommand(requester, detailClientId, {
       command: "open", targetRegion: "detail",
       target: navigationTarget,

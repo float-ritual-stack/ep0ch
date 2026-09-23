@@ -1,5 +1,5 @@
 import { clientSupportsRole } from "./types";
-import type { OutlinerClientRegistration } from "./types";
+import type { OutlinerClientRegistration, OutlinerViewAddress } from "./types";
 
 export function selectTreeClient(
   clients: OutlinerClientRegistration[],
@@ -60,25 +60,15 @@ export function selectTreeClientForInvocation(
   return selectTreeClient(clients);
 }
 
-export function selectExistingDetailClient(
+/** Reuse only the explicitly linked live view, regardless of host geometry. */
+export function selectLinkedDetailClient(
   clients: OutlinerClientRegistration[],
-  tree: OutlinerClientRegistration,
+  destination: OutlinerViewAddress | null,
 ): OutlinerClientRegistration | undefined {
-  const candidates = clients
-    .filter((client) =>
-      clientSupportsRole(client, "detail") &&
-      (!tree.runtime?.tabId || client.runtime?.tabId === tree.runtime.tabId)
-    )
-    .sort((left, right) => {
-      const leftContext = left.contextId === tree.contextId ? 0 : 1;
-      const rightContext = right.contextId === tree.contextId ? 0 : 1;
-      if (leftContext !== rightContext) return leftContext - rightContext;
-      if (left.locked !== right.locked) return left.locked ? 1 : -1;
-      const vertical = (left.runtime?.paneY ?? Number.MAX_SAFE_INTEGER) -
-        (right.runtime?.paneY ?? Number.MAX_SAFE_INTEGER);
-      if (vertical !== 0) return vertical;
-      return (left.runtime?.paneX ?? Number.MAX_SAFE_INTEGER) -
-        (right.runtime?.paneX ?? Number.MAX_SAFE_INTEGER);
-    });
-  return candidates[0];
+  if (!destination) return undefined;
+  const client = clients.find(candidate => candidate.clientId === destination.clientId);
+  if (!client || destination.region !== "detail" || !clientSupportsRole(client, "detail")) {
+    throw new Error("Linked destination is unavailable · choose a destination or create a new Detail");
+  }
+  return client;
 }
