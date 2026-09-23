@@ -420,9 +420,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
     },
     async open(blockId, destination) {
-      if (destination === "detail") await effects.navigation.dispatch({ kind: "block", blockId }, "open");
-      else await selectVisibleBlock(blockId, { recordNavigation: true, physicalSource: true });
-      mode = "browse";
+      if (destination === "detail") {
+        const state = await effects.request<NavigationLinkState>({action:"navigation.link.get", source:{clientId:effects.clientId,region:"tree"}});
+        if (!state.destination || !state.destinations.some(d=>d.view.clientId===state.destination!.clientId && d.view.region===state.destination!.region)) {
+          await handleAction("tree.navigation.once"); return;
+        }
+        await effects.navigation.dispatch({kind:"block",blockId},"open");
+      } else { await selectVisibleBlock(blockId, { recordNavigation: true, physicalSource: true }); mode = "browse"; }
       status = destination === "detail" ? "Inbox result opened in Detail" : "Inbox block revealed in Tree";
       if (refreshPending) await reload();
       effects.invalidate();
@@ -1340,16 +1344,19 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   async function createLinkedDetail(placement: DetailDestinationPlacement): Promise<void> {
     const selected = rows[selectedIndex];
-    destinationMenu = null; placementDirection = null; destinationPreview.clear(); mode = "browse";
+    const purpose = destinationMenu?.purpose ?? "link";
+    const callerMode = destinationMenu ? actionMenuReturnMode : mode;
+    const blockId = callerMode === "inbox" ? (inbox.targets[inbox.targetIndex]?.role === "diagnostics" ? inbox.selected?.sourceId : inbox.targets[inbox.targetIndex]?.id) : isBlockTreeRow(selected) ? selected.canonicalId : undefined;
+    destinationMenu = null; placementDirection = null; destinationPreview.clear(); mode = callerMode;
     try {
-      if (!isBlockTreeRow(selected)) throw new Error("Select a block to create a Detail destination");
+      if (!blockId) throw new Error("Select a block to create a Detail destination");
       if (!effects.createDetailDestination) throw new Error("Creating a destination is unavailable in this host");
       status = "Creating Detail · waiting for the new reader to connect…";
       effects.invalidate();
-      const destination = await effects.createDetailDestination(selected.canonicalId, placement);
-      await effects.request({action: "navigation.link.set", source: {clientId: effects.clientId, region: "tree"}, destination});
+      const destination = await effects.createDetailDestination(blockId, placement);
+      if (purpose === "link") await effects.request({action: "navigation.link.set", source: {clientId: effects.clientId, region: "tree"}, destination});
       void navigationDisplay.refresh();
-      status = "Linked: Tree → new Detail";
+      status = purpose === "link" ? "Linked: Tree → new Detail" : "Opened once in new Detail";
     } catch (error) { status = errorMessage(error); }
     effects.invalidate();
   }
@@ -1941,10 +1948,17 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();return;
     }
     if(actionId==="tree.preview.focus") {if(localPreview)localPreview={...localPreview,focused:!localPreview.focused};else status="Select an item to preview it here";effects.invalidate();return;}
+    if (actionId.startsWith("tree.inbox.open-target:") && mode === "inbox") {
+      const index=Number(actionId.split(":")[1]);
+      if (Number.isInteger(index) && inbox.targets[index]?.role !== "diagnostics" && inbox.targets[index]) {
+        inbox.targetIndex=index; await inbox.input("",{name:"return",meta:true});
+      }
+      return;
+    }
     if (mode === "goto" && actionId === "tree.goto.detail") { await goto.accept("detail"); return; }
     if (actionId === "tree.navigation.link" || actionId === "tree.navigation.once") {
       const activeMode=mode === "action-menu" ? actionMenuReturnMode : mode;
-      if(activeMode !== "browse") {
+      if(activeMode !== "browse" && activeMode !== "inbox") {
         status="Finish or cancel the active edit/filter before changing destinations";
         effects.invalidate();return;
       }
@@ -1952,7 +1966,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       showOtherDestinations=false;
       placementDirection=null;
       destinationMenu = {state, purpose: actionId === "tree.navigation.link" ? "link" : "open"};
-      actionMenuReturnMode = "browse";
+      actionMenuReturnMode = activeMode;
       mode = "action-menu";
       updateActionMenuQuery("");
       status = navigationDestinationStatus(state,destinationMenu.purpose);
@@ -1966,7 +1980,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const anchor=destinationMenu.state.destinations[Number(actionId.split(":")[1])];
       if (!anchor?.placementPaneId) return;
       const direction=placementDirection;
-      placementDirection=null;destinationMenu=null;destinationPreview.clear();mode="browse";
+      placementDirection=null;destinationPreview.clear();mode=actionMenuReturnMode;
       await createLinkedDetail({kind:"split",direction,targetPaneId:anchor.placementPaneId});return;
     }
     if (actionId.startsWith("destination:") && destinationMenu) {
@@ -1979,19 +1993,24 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
       if(actionId==='destination:other'){showOtherDestinations=!showOtherDestinations;updateActionMenuQuery("");effects.invalidate();return;}
       if(actionId==='destination:new-right'||actionId==='destination:new-below'){
-        destinationMenu=null;destinationPreview.clear();mode='browse';
+        destinationPreview.clear();mode=actionMenuReturnMode;
         await createLinkedDetail({kind:'split',direction:actionId.endsWith('right')?'right':'down'});return;
       }
       const menu = destinationMenu;
       const destination = actionId === "destination:unlink" ? null : menu.state.destinations[Number(actionId.slice(12))]?.view;
       if (destination === undefined) return;
       destinationMenu = null;placementDirection=null;destinationPreview.clear();
-      mode = "browse";
+      mode = actionMenuReturnMode;
       if (menu.purpose === "link") {
         await effects.request({action: "navigation.link.set", source: menu.state.source, destination});
         void navigationDisplay.refresh();
         status = destination ? `Linked: Tree → ${menu.state.destinations.find(entry=>entry.view.clientId===destination.clientId)?.label ?? "Detail"}` : "Open unlinked · choose once or new split";
-      } else if (destination) await focusDetailReader({destination});
+      } else if (destination) {
+        if (mode === "inbox") {
+          const target = inbox.targets[inbox.targetIndex];
+          if (target && target.role !== "diagnostics") await effects.navigation.dispatch({kind:"block",blockId:target.id},"open",{destination});
+        } else await focusDetailReader({destination});
+      }
       effects.invalidate();
       return;
     }

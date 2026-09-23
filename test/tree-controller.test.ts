@@ -403,6 +403,7 @@ describe("createTreeController", () => {
     const output = block("created-output");
     const inboxStatus: InboxStatus = { enabled: true, paused: false, state: "idle", message: "Ready", pending: 0, resultsTruncated: false, attentionCount: 1, attentionOnly: false, resultsOffset: 0, results: [{ id: "result-id", sourceId: source.id, sourceTitle: "Captured idea", summary: "Filed", state: "held", outputIds: [output.id], createdAt: "2026-09-20" }] };
     const fake = harness(input => {
+      if (input.action === "navigation.link.get") return {source:{clientId:"tree-test",region:"tree"},destination:{clientId:"detail-test",region:"detail"},destinations:[{view:{clientId:"detail-test",region:"detail"},label:"Reader"}]};
       if (input.action === "tree.index") return snapshot([source, output], source);
       if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly === true };
       if (input.action.startsWith("inbox.")) return inboxStatus;
@@ -423,10 +424,13 @@ describe("createTreeController", () => {
     await controller.handleServiceEvent(event("content"));
     expect(controller.view().refreshPending).toBe(true);
     await controller.handleKeypress("", { name: "return", meta: true }, "pass");
-    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().mode).toBe("inbox");
     expect(controller.view().refreshPending).toBe(false);
     expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({ target: { kind: "block", blockId: output.id }, intent: "open" });
     expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    await controller.handleKeypress("", {name:"escape"}, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
   });
 
   test("edits the exact on-demand body with the revision from that read, not the compact preview", async () => {
@@ -3645,4 +3649,20 @@ test('late publication preview events cannot reload or replace the latest local 
  expect(fake.calls.filter(i=>i.action==='get').length).toBe(reads);
  await c.handleServiceEvent({id:'explicit-preview',sequence:21,domain:'ui',action:'navigation.dispatch',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:{kind:'block',blockId:a.id}}});await setImmediate();
  expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:a.id});
+});
+
+test('Inbox destination chooser retains selection, cancel returns to Inbox and one-off opens its output',async()=>{
+ const note=block('inbox-source'),output=block('inbox-output');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([note,output],note);
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'detail-test',region:'detail'},label:'Reader'}]};
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
+ await c.handleKeypress('',{name:'return',meta:true},'pass');expect(c.view().mode).toBe('action-menu');
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
+ await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
+ expect(c.view().mode).toBe('inbox');expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:output.id},destination:{clientId:'detail-test',region:'detail'}});
+ await c.handleAction('tree.navigation.link');await c.handleAction('destination:0');expect(lastCall(fake.calls,'navigation.link.set')).toMatchObject({destination:{clientId:'detail-test',region:'detail'}});
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('browse');expect(fake.stops).toBe(0);
 });
