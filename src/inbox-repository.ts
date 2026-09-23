@@ -344,19 +344,19 @@ export class InboxRepository {
     })();
   }
 
-  fail(id: string, source: Block, error: string, usage?: InboxUsage): InboxResult {
+  fail(id: string, source: Block, error: string, usage?: InboxUsage, outcome: "failed" | "canceled" = "failed"): InboxResult {
     text(id, "Inbox operation ID");
     text(error, "Inbox failure");
     revision(source.revision);
     validateUsage(usage);
-    const hash = payloadHash(source, { kind: "fail", error });
+    const hash = payloadHash(source, { kind: outcome, error });
     return this.store.database.transaction(() => {
       const previous = this.replay(id, hash);
       if (previous) return previous;
-      const result = this.result(id, source, "Cleanup failed; the source is unchanged.", usage);
-      result.state = "failed";
+      const result = this.result(id, source, outcome === "canceled" ? "Cleanup canceled; the source is unchanged." : "Cleanup failed; the source is unchanged.", usage);
+      result.state = outcome;
       result.error = error;
-      this.save(result, hash, source.revision);
+      this.save(result, hash, outcome === "canceled" ? null : source.revision);
       return result;
     })();
   }
@@ -514,7 +514,7 @@ export class InboxRepository {
     return JSON.parse(row.result_json) as InboxResult;
   }
 
-  private save(result: InboxResult, hash: string, suppressedRevision: number, recovery?: Recovery): void {
+  private save(result: InboxResult, hash: string, suppressedRevision: number | null, recovery?: Recovery): void {
     this.store.database.query(`
       INSERT INTO inbox_agent_results (id, source_id, suppressed_revision, payload_hash, result_json, recovery_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)

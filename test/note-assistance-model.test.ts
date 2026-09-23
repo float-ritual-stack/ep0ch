@@ -69,7 +69,7 @@ async function fixture(text: string, judgments: Judgments = {}) {
   const requests: JevRequest[] = [];
   const inventoryCalls: string[] = [];
   const options: InboxModelOptions = {
-    workspaceRoot: root, agentDir, promptDirectory, jevApiKey: "fixture-not-a-live-key",
+    workspaceRoot: root, agentDir, promptDirectory, sessionDirectory: join(root, "sessions"), jevApiKey: "fixture-not-a-live-key",
     fetch: async (_url, init) => {
       const body = JSON.parse(init.body as string) as JevRequest; requests.push(body);
       return Response.json(response(body, judgments));
@@ -418,6 +418,9 @@ test("generic answers run the real Pi tools and receive explicit reconsideration
   expect(result.plan.fulfillment).toMatchObject({ operation: "answer", text: finalText });
   expect(result.usage.provider).toBe("typesafe + openai");
   expect(result.usage.inputTokens).toBeGreaterThan(120);
+  expect(result.usage.piSessions).toHaveLength(1);
+  expect(result.usage.piSessions![0]!.outcome).toBe("completed");
+  expect(await Bun.file(result.usage.piSessions![0]!.path!).exists()).toBe(true);
 });
 
 test("the answer uses captured prompt bytes during a job and reloads the next job", async () => {

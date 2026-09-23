@@ -2,12 +2,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createAgentSession, createExtensionRuntime, defineTool, estimateTokens, getAgentDir, ModelRuntime,
-  SessionManager, SettingsManager, type AgentSession, type ResourceLoader,
+  SettingsManager, type AgentSession, type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadInboxPrompts, loadNotePrompts, PromptFileError, type InboxPrompts } from "./ai-prompts";
 import type { InboxModel, InboxModelContext, InboxPlan, InboxUsage } from "./inbox-types";
 import type { Block } from "./types";
+import { AssistantSession } from "./assistant-session";
+import { resolvePaths } from "./paths";
 
 const JEV_MODEL = "jev-1.13.0";
 const JEV_INPUT_PRICE = 0.042 / 1_000_000;
@@ -20,6 +22,7 @@ export interface InboxModelOptions {
   workspaceRoot?: string;
   promptDirectory?: string;
   agentDir?: string;
+  sessionDirectory?: string;
   timeoutMs?: number;
   maxTurns?: number;
   maxTotalTokens?: number;
@@ -177,10 +180,22 @@ function safeTokens(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
+/** Total editing run, including every Pi turn and tool call. Never resets on progress. */
+export function inboxEditingBudget(env: Record<string, string | undefined> = process.env): number {
+  const value = env.OUTLINER_INBOX_TIMEOUT_MS;
+  if (value === undefined) return 300_000;
+  const budget = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(budget) || budget < 1 || budget > 1_800_000) {
+    throw new Error("OUTLINER_INBOX_TIMEOUT_MS must be an integer from 1 to 1800000 (milliseconds)");
+  }
+  return budget;
+}
+
 export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
+  const timeoutMs = options.timeoutMs ?? inboxEditingBudget();
   return async (context: InboxModelContext) => {
     const started = performance.now();
-    const deadline = AbortSignal.timeout(options.timeoutMs ?? 120_000);
+    const deadline = AbortSignal.timeout(timeoutMs);
     const signal = AbortSignal.any([context.signal, deadline]);
     const maxTurns = options.maxTurns ?? 10;
     // This is cumulative across Pi turns (including cached input) and Jev requests,
@@ -193,6 +208,8 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
     const source = structuredClone(context.source);
     let plan: InboxPlan | undefined;
     let session: AgentSession | undefined;
+    let trace: AssistantSession | undefined;
+    let retainAbort: (() => void) | undefined;
     let searches = 0; let turns = 0; let toolCalls = 0; let contextCharacters = source.text.length;
     let stopped: Error | undefined;
     let providerFailed = false;
@@ -206,8 +223,10 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       usage.elapsedMs = Math.round(performance.now() - started);
       return { ...usage };
     };
+    const interruption = () => context.signal.aborted ? new Error("Inbox cleanup canceled")
+      : new InboxNoteError(`Inbox cleanup timed out after ${timeoutMs} ms`);
     const assertActive = () => {
-      if (signal.aborted) throw new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) throw interruption();
       if (stopped) throw stopped;
       if (plan) throw new Error("Inbox cleanup plan is already complete");
     };
@@ -321,13 +340,24 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
         parameters: Type.Object({ key: text(100) }, { additionalProperties: false }),
         async execute(_call, params) { assertActive(); return result(context.inventory!(params.key)); },
       }) as typeof customTools[number]);
+      const workspaceRoot = options.workspaceRoot ?? process.cwd();
+      trace = new AssistantSession(workspaceRoot, options.sessionDirectory ?? join(
+        resolvePaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }).stateDir, "assistant-sessions",
+      ), source.id, context.purpose ?? "edit");
+      const retain = (outcome: "completed" | "failed" | "canceled") => {
+        usage.piSessions = [trace!.finish(outcome)];
+        context.reportUsage?.(snapshotUsage());
+      };
+      retainAbort = () => retain(context.signal.aborted ? "canceled" : "failed");
+      signal.addEventListener("abort", retainAbort, { once: true });
+      assertActive();
       const created = await createAgentSession({
         cwd: options.workspaceRoot ?? process.cwd(), agentDir: config.agentDir, model: config.model,
         modelRuntime: config.runtime, thinkingLevel: config.thinkingLevel,
         tools: [...TOOL_NAMES, ...(context.inventory ? ["property_inventory"] : [])], noTools: "builtin", customTools, resourceLoader: isolatedResources(answerPrompt?.text ?? prompts!.editor),
-        sessionManager: SessionManager.inMemory(options.workspaceRoot ?? process.cwd()),
+        sessionManager: trace.manager,
         settingsManager: SettingsManager.inMemory({
-          compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: options.timeoutMs ?? 120_000 } },
+          compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: timeoutMs } },
           enableSkillCommands: false, enableAnalytics: false, enableInstallTelemetry: false,
         }),
       });
@@ -342,7 +372,9 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
         const inputAllowance = modelContext.messages.reduce((sum, message) => sum + estimateTokens(message), 0)
           + Math.ceil(JSON.stringify({ system: modelContext.systemPrompt, tools: modelContext.tools }).length / 4) + 2048;
         if (consumed + inputAllowance >= maxTokens) budget("Inbox editor token budget exhausted");
-        context.progress(`Editing note · turn ${turns}/${maxTurns}`);
+        const phase = `Editing note · turn ${turns}/${maxTurns}`;
+        trace!.progress(phase);
+        context.progress(phase);
         return stream(model, modelContext, {
           ...streamOptions, maxTokens: Math.min(options.maxOutputTokens ?? 5000, maxTokens - consumed - inputAllowance),
           signal: AbortSignal.any([signal, ...(streamOptions?.signal ? [streamOptions.signal] : [])]), maxRetries: 0,
@@ -358,10 +390,11 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       session.agent.shouldStopAfterTurn = () => !!plan || !!stopped || signal.aborted;
       session.subscribe(event => {
         if (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error") providerFailed = true;
+        if (event.type === "tool_execution_start") trace!.progress(`Tool: ${event.toolName}`);
       });
       let rejectAbort: (() => void) | undefined;
       const aborted = new Promise<never>((_resolve, reject) => {
-        rejectAbort = () => { session?.agent.abort(); reject(new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled")); };
+        rejectAbort = () => { session?.agent.abort(); reject(interruption()); };
         signal.addEventListener("abort", rejectAbort, { once: true });
       });
       try {
@@ -374,16 +407,17 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           }), { expandPromptTemplates: false }), aborted,
         ]);
       } finally { if (rejectAbort) signal.removeEventListener("abort", rejectAbort); }
-      if (signal.aborted) throw new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) throw interruption();
       if (stopped) throw stopped;
       if (providerFailed) throw new InboxModelUnavailableError();
       if (!plan) throw new Error("Inbox editor did not return a cleanup plan");
       const measured = snapshotUsage();
       if (measured.inputTokens + measured.outputTokens > maxTokens) budget("Inbox editor token budget exhausted");
-      return { plan, usage: measured };
+      retain("completed");
+      return { plan, usage: snapshotUsage() };
     } catch (error) {
       let failure: Error;
-      if (signal.aborted) failure = new Error(deadline.aborted ? "Inbox cleanup timed out" : "Inbox cleanup canceled");
+      if (signal.aborted) failure = interruption();
       else if (stopped) failure = new InboxNoteError(stopped.message);
       else if (error instanceof PromptFileError) failure = error;
       else if (error instanceof InboxModelUnavailableError) failure = error;
@@ -392,8 +426,16 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
       else failure = new InboxModelUnavailableError();
       // An interrupted provider may not report its final usage; this is observed usage, not a billing receipt.
       // Configuration failures made no inference attempt and have no valid provider usage to persist.
-      if (usage.provider) Object.assign(failure, { usage: snapshotUsage() });
+      if (trace) usage.piSessions = [trace.finish(context.signal.aborted ? "canceled" : "failed")];
+      if (usage.provider) {
+        const measured = snapshotUsage();
+        Object.assign(failure, { usage: measured });
+        context.reportUsage?.(measured);
+      }
       throw failure;
-    } finally { session?.agent.abort(); session?.dispose(); }
+    } finally {
+      if (retainAbort) signal.removeEventListener("abort", retainAbort);
+      session?.agent.abort(); session?.dispose();
+    }
   };
 }

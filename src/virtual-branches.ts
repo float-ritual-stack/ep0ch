@@ -381,19 +381,22 @@ interface CanonicalContext<T extends ProjectionBlock = VisibleBlock> {
 }
 
 interface CanonicalAdjacency<T extends ProjectionBlock = VisibleBlock> {
+  readonly definitions: ReadonlyMap<string,T>;
   readonly childrenByParentId: ReadonlyMap<string, readonly T[]>;
   readonly contextByRootId: Map<string, CanonicalContext<T>>;
 }
 
 function buildCanonicalAdjacency<T extends ProjectionBlock>(blocks: readonly T[]): CanonicalAdjacency<T> {
   const childrenByParentId = new Map<string, T[]>();
+  const definitions = new Map<string,T>();
   for (const block of blocks) {
+    if(isVirtualBranchDefinition(block)) definitions.set(block.id,block);
     if (!block.parentId) continue;
     const siblings = childrenByParentId.get(block.parentId);
     if (siblings) siblings.push(block);
     else childrenByParentId.set(block.parentId, [block]);
   }
-  return { childrenByParentId, contextByRootId: new Map() };
+  return { childrenByParentId, definitions, contextByRootId: new Map() };
 }
 
 function rootOccurrenceRowId(viewId: string, canonicalId: string): string {
@@ -448,7 +451,7 @@ function canonicalContext<T extends ProjectionBlock>(
   let overflow = false;
 
   function visit(block: T, relativeDepth: number): boolean {
-    if (relativeDepth > 0 && isVirtualBranchDefinition(block)) return false;
+    if (relativeDepth > 0 && adjacency.definitions.has(block.id)) return false;
     const children = adjacency.childrenByParentId.get(block.id) ?? [];
     if (relativeDepth >= VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH) {
       if (children.length > 0) depthTruncated = true;
@@ -563,14 +566,13 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
   }
 
   const rows: VirtualBranchOccurrenceRow<T>[] = [];
-  function appendVisible(row: VirtualBranchOccurrenceRow<T>): void {
+  function appendAllocated(row: VirtualBranchOccurrenceRow<T>): void {
     rows.push(row);
-    if (row.collapsed) return;
-    for (const child of childrenByParentRowId.get(row.rowId) ?? []) appendVisible(child);
+    for (const child of childrenByParentRowId.get(row.rowId) ?? []) appendAllocated(child);
   }
   for (const root of allocatedRoots) {
     const row = rowById.get(root.rowId);
-    if (row) appendVisible(row);
+    if (row) appendAllocated(row);
   }
   return {
     rows,
@@ -779,64 +781,63 @@ export async function projectVirtualBranches<T extends ProjectionBlock>(
     pruneCollapsedPhysicalBlocks(visibleBlocks, presentation.collapsedBlockIds),
     presentation,
   );
-  const definitions = physicalRows.filter((row) => isVirtualBranchDefinition(row.block));
   const adjacency = buildCanonicalAdjacency(physicalBlocks);
-  const projected = await Promise.all(
-    definitions.map((definition) =>
-      projectVirtualBranch(
-        definition,
-        physicalBlocks,
-        adjacency,
-        queryBlocks,
-        ranks,
-        presentation,
-      )
-    ),
-  );
+  const definitions = adjacency.definitions;
   const branchStates = new Map<string, VirtualBranchState>();
   const childrenByView = new Map<string, Map<string, VirtualBranchOccurrenceRow<T>[]>>();
-  for (const branch of projected) {
-    branchStates.set(branch.definitionId, branch.state);
-    const children = new Map<string, VirtualBranchOccurrenceRow<T>[]>();
-    for (const row of branch.rows) {
-      const siblings = children.get(row.parentRowId);
-      if (siblings) siblings.push(row);
-      else children.set(row.parentRowId, [row]);
-    }
-    childrenByView.set(branch.definitionId, children);
-  }
-
-  const rows: TreeRow<T>[] = [];
+  let pending = physicalRows.filter(row => isVirtualBranchDefinition(row.block)).map(row => row.block);
+  let rows: TreeRow<T>[] = [];
   let occurrenceRowCount = 0;
-  for (const physical of physicalRows) {
-    const hasVirtualChildren = (childrenByView.get(physical.canonicalId)?.get(physical.canonicalId)?.length ?? 0) > 0;
-    const row = !physical.hasChildren && hasVirtualChildren
-      ? { ...physical, hasChildren: true }
-      : physical;
-    rows.push(row);
-    if (row.collapsed || !hasVirtualChildren) continue;
-    const composition = composeNestedOccurrences(
-      physical.canonicalId,
-      physical.depth,
-      childrenByView,
-      presentation,
-    );
-    rows.push(...composition.rows);
-    occurrenceRowCount += composition.rows.length;
-    if (composition.depthTruncated || composition.budgetTruncated) {
-      const state = branchStates.get(physical.canonicalId);
-      if (state) {
-        branchStates.set(physical.canonicalId, {
-          ...state,
-          truncation: {
-            ...state.truncation,
-            depth: state.truncation.depth || composition.depthTruncated,
-            budget: state.truncation.budget || composition.budgetTruncated,
-          },
-        });
+  // Discover queries from displayed occurrences, not only their physical source.
+  // Each definition is queried once; composition retains its cycle/depth/row bounds.
+  do {
+    const projected = await Promise.all(pending.map(block => projectVirtualBranch(
+      physicalTreeRow(block, presentation), physicalBlocks, adjacency, queryBlocks, ranks, presentation,
+    )));
+    for (const branch of projected) {
+      branchStates.set(branch.definitionId, branch.state);
+      const children = new Map<string, VirtualBranchOccurrenceRow<T>[]>();
+      for (const row of branch.rows) {
+        const siblings = children.get(row.parentRowId);
+        if (siblings) siblings.push(row); else children.set(row.parentRowId, [row]);
+      }
+      childrenByView.set(branch.definitionId, children);
+    }
+    rows = [];
+    occurrenceRowCount = 0;
+    for (const physical of physicalRows) {
+      const hasVirtualChildren = (childrenByView.get(physical.canonicalId)?.get(physical.canonicalId)?.length ?? 0) > 0;
+      const row = !physical.hasChildren && hasVirtualChildren
+        ? { ...physical, hasChildren: true }
+        : physical;
+      rows.push(row);
+      if (row.collapsed || !hasVirtualChildren) continue;
+      const composition = composeNestedOccurrences(
+        physical.canonicalId,
+        physical.depth,
+        childrenByView,
+        presentation,
+      );
+      rows.push(...composition.rows);
+      occurrenceRowCount += composition.rows.length;
+      if (composition.depthTruncated || composition.budgetTruncated) {
+        const state = branchStates.get(physical.canonicalId);
+        if (state) {
+          branchStates.set(physical.canonicalId, {
+            ...state,
+            truncation: {
+              ...state.truncation,
+              depth: state.truncation.depth || composition.depthTruncated,
+              budget: state.truncation.budget || composition.budgetTruncated,
+            },
+          });
+        }
       }
     }
-  }
+    pending = [...new Set(rows.filter(row => !row.collapsed && definitions.has(row.canonicalId)
+      && !branchStates.has(row.canonicalId)).map(row => row.canonicalId))].map(id => definitions.get(id)!);
+  } while (pending.length);
+
   return {
     rows,
     branchStates,

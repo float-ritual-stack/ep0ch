@@ -5,7 +5,7 @@ import { PRIMARY_DETAIL_LOCKED_ERROR, dispatchNavigation, resolveNavigationDesti
 import type { createDetailController, DetailViewport } from "./detail-controller";
 import type { OutlinerActionKeymap } from "./outliner-actions";
 import { navigateOutlinerLink } from "./outliner-links";
-import { openCapturePopup, openGotoPopup, openVirtualBranchNavigatorPopup } from "./pane-control";
+import { openCapturePopup, openGotoPopup, openTreePane, openVirtualBranchNavigatorPopup } from "./pane-control";
 import { parsePropertySummaryKeys } from "./property-summary";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { createTreeController } from "./tree-controller";
@@ -105,7 +105,6 @@ export class ComposedLayout extends HStack {
 
 export class ComposedTree implements Component {
   readonly controller;
-  private scroll = 0;
   private frameLines: string[] = [];
   private mouseTargets: readonly (TreeMouseTarget | null | undefined)[] = [];
   private readonly input = new PiDetailInputStreamDecoder();
@@ -125,6 +124,7 @@ export class ComposedTree implements Component {
       ...(process.env.HERDR_ENV === "1" ? {
         openGotoPopup: () => openGotoPopup({ workspaceRoot: options.workspaceRoot, sourceClientId: options.clientId, sourceRegion: "tree" }),
       } : {}),
+      async createTreePane(root,direction) { openTreePane({workspaceRoot:options.workspaceRoot,root,direction}); },
       createDetailPane: (blockId, direction = "right") => options.detach({kind: "block", blockId}, direction),
       async openCapturePopup(capturedFromBlockId) { openCapturePopup({workspaceRoot: options.workspaceRoot, capturedFromBlockId}); },
       openVirtualBranchNavigator(viewId, adapter) { openVirtualBranchNavigatorPopup({workspaceRoot: options.workspaceRoot, browsingContextId: options.contextId, sourceClientId: options.clientId, sourceRole: "tree", viewId, ...(adapter ? {adapter} : {})}); },
@@ -134,10 +134,10 @@ export class ComposedTree implements Component {
   }
 
   render(width: number): string[] {
-    const rendered = renderTreeFrame(this.controller.view(), width, this.options.height(), this.scroll, {
+    const rendered = renderTreeFrame(this.controller.view(), width, this.options.height(), this.controller.view().scrollStartEntryIndex ?? 0, {
       clearScreen: false, focused: this.options.focused(), propertyKeys: this.propertyKeys,
     });
-    this.scroll = rendered.scrollStartEntryIndex;
+    this.controller.setViewportStart(rendered.scrollStartEntryIndex);
     this.frameLines = rendered.frame.split("\n").slice(0, this.options.height()).map(line => truncateToWidth(line, width));
     this.mouseTargets = rendered.mouseTargets;
     return this.frameLines;
