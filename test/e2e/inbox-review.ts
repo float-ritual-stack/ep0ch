@@ -1,3 +1,4 @@
+import {visibleWidth} from "@earendil-works/pi-tui";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -10,7 +11,7 @@ import { runHerdrScenario } from "./herdr-runner";
 
 let failedSourceId = "";
 const result = await runHerdrScenario({
-  name: "inbox-preview",
+  name: "inbox-review",
   async prepare(projectRoot, paths) {
     // Seed historical receipts through the real service and worker. The synthetic
     // model provides deterministic fixture data; no claim about AI judgments.
@@ -26,7 +27,7 @@ const result = await runHerdrScenario({
       server.enableInbox(async ({ source }) => {
         if (source.id === failedSourceId) throw Object.assign(new Error("Choose a valid task destination"), { name: "InboxNoteError" });
         return { plan: {
-          summary: "Filed fixture note", source: { text: source.text, disposition: "file" },
+          summary: "Filed fixture note", source: { text: "Cleaned source after editorial pass\n\nCurrent wording.", disposition: "file" },
           notes: [{text:"Output one\n\n> [!summary] Output callout\n> This is rich output with wrapping.\n\n"+Array.from({length:50},(_,i)=>`Paragraph ${i} of the long note.`).join("\n\n")},{text:"Output two\n\nSecond output body"}], tasks: [], updates: [],
         }, usage: { provider: "fixture", model: "fixture", inputTokens: 0, outputTokens: 0, cost: 0, jevCalls: 0, elapsedMs: 0 } };
       });
@@ -50,7 +51,7 @@ const result = await runHerdrScenario({
   },
   async run(session) {
     const terminal=await session.attachClient();const pane=session.panes.tree;
-    await session.focus(pane);
+    await session.focus(pane);await terminal.resize(300,100);
     const clickLabel=async(label:string)=>{
       const text=await session.waitFor(`native ${label}`,terminal.visible,value=>value.includes(label));
       const lines=text.split('\n');const row=lines.findIndex(line=>line.includes(label));const col=lines[row]!.indexOf(label)+1;
@@ -63,6 +64,31 @@ const result = await runHerdrScenario({
     await clickLabel('[Activity');await session.waitVisible(pane,'Needs attention: Choose a valid task destination');
     await clickLabel('[Source');await session.waitVisible(pane,'Source · current');
     await session.keys(pane,'a');await session.waitVisible(pane,'Output 1 · current');
+    await session.waitVisible(pane,'Cleaned source after editorial pass');
+    await clickLabel('[Before');await session.waitVisible(pane,'before this attempt');
+    await session.waitVisible(pane,'PIE301 filed note');
+    await clickLabel('[Current');await session.waitVisible(pane,'Current wording.');
+    const layout=await terminal.visible();const layoutRows=layout.split('\n');
+    const sourceRow=layoutRows.findIndex(line=>line.includes('Source · current'));
+    const outputRow=layoutRows.findIndex(line=>line.includes('Output 1 · current'));
+    if(sourceRow!==outputRow||sourceRow<10)throw Error('Expected side-by-side documents beneath activity');
+    await clickLabel('▸ Technical details');await session.waitVisible(pane,'fixture · fixture');
+    await clickLabel('▾ Technical details');
+    await session.waitFor('technical details collapse immediately',()=>session.visible(pane),text=>!text.includes('fixture · fixture'));
+    await session.checkpoint('combined-activity-source-output');
+    const dividerRow=layoutRows.findIndex(line=>line.includes('drag─to─resize'));
+    if(dividerRow<0)throw Error('No draggable activity divider');
+    const dividerCol=layoutRows[dividerRow]!.indexOf("drag─to─resize")+3;
+    await terminal.write(`\x1b[<0;${dividerCol};${dividerRow+1}M\x1b[<32;${dividerCol};${dividerRow+5}M\x1b[<0;${dividerCol};${dividerRow+5}m`);
+    await session.waitFor('activity divider changes reader height',terminal.visible,text=>text.split('\n').findIndex(line=>line.includes('Source · current'))>sourceRow);
+    await session.checkpoint('resized-activity-height');
+    const resized=await terminal.visible();const resizedRows=resized.split('\n');
+    const readerRow=resizedRows.findIndex(line=>line.includes('Preview · Output'));
+    const outputColumn=resizedRows[readerRow]!.indexOf('Preview · Output');
+    const splitColumn=outputColumn-3;
+    await terminal.write(`\x1b[<0;${splitColumn+1};${readerRow+4}M\x1b[<32;${splitColumn+10};${readerRow+4}M\x1b[<0;${splitColumn+10};${readerRow+4}m`);
+    await session.waitFor('source/output divider changes reader widths',terminal.visible,text=>text.split('\n').some(line=>line.indexOf('Preview · Output')>outputColumn));
+    await session.checkpoint('resized-document-widths');
     await session.waitVisible(pane,'Output callout');
     await clickLabel('[Output 2');await session.waitVisible(pane,'Output 2 · current');await session.waitVisible(pane,'Second output body');
     await clickLabel('[Source');await session.waitVisible(pane,'Source · current');
@@ -79,21 +105,20 @@ const result = await runHerdrScenario({
     // Native content click must focus the rich reader, then Escape returns to the list.
     await session.keys(pane,'1');await session.keys(pane,'2');
     await clickLabel('Paragraph 0');await session.waitFor('Output owns keyboard focus',terminal.visible,text=>text.includes('● Preview · Output'));
-    await session.keys(pane,'down');await session.keys(pane,'esc');await session.waitFor('reader returned focus to list',()=>session.visible(pane),text=>text.includes('○ Preview') && !text.includes('● Preview'));
-    await session.keys(pane,'down');await session.waitVisible(pane,'filed note 29');
+    await session.keys(pane,'down');await session.keys(pane,'esc');await session.waitFor('reader releases focus',terminal.visible,text=>!text.includes('● Preview'));
+    await session.keys(pane,'down');await session.waitVisible(pane,'filed note');
     await session.checkpoint('03-reader-focus-list-navigation');
-    await terminal.resize(160,60);
-    await session.waitFor('compact geometry settled',()=>session.visible(pane),text=>text.includes('Inbox agent') && Math.max(...text.split('\n').map(line=>line.length))<80);
+    await terminal.resize(90,34);
+    await session.waitFor('compact layout settles',()=>session.visible(pane),text=>text.includes('Inbox agent') && Math.max(...text.split('\n').map(visibleWidth))<80);
     await session.keys(pane,'alt+p');
-    await session.waitFor('compact Preview focused',()=>session.visible(pane),text=>text.includes('● Preview'));
     await session.checkpoint('04-narrow-preview');
     await session.keys(pane,'esc');
     await session.keys(pane,'alt+enter');
     await session.waitVisible(session.panes.detail,'Output callout');
     await session.checkpoint('05-explicit-open');
     await session.focus(pane);await terminal.resize(240,74);
-    await session.waitFor('wide geometry settled',()=>session.visible(pane),text=>text.includes('Preview') && Math.max(...text.split('\n').map(line=>line.length))>100);
-    if ((await session.visible(pane)).includes('● Preview')) {await session.keys(pane,'esc');await session.waitFor('Preview focus released',()=>session.visible(pane),text=>text.includes('○ Preview') && !text.includes('● Preview'));}
+    await session.waitVisible(pane,'Preview');
+    if ((await session.visible(pane)).includes('● Preview')) {await session.keys(pane,'esc');await session.waitFor('reader releases focus',terminal.visible,text=>!text.includes('● Preview'));}
     await session.keys(pane,'esc');await session.waitVisible(pane,'[Indent:');
     await session.record('preview-contract',{richSource:true,multipleOutputs:true,nativeRoleClicks:true,previewFocus:true,explicitOpen:true,fixtureModel:true});
   },

@@ -30,12 +30,34 @@ export class DocumentPreview {
   focus(focused = true): void {
     if (this.value && this.value.focused !== focused) { this.value = {...this.value, focused}; this.changed(); }
   }
+  restoreOffset(offset: number): void {
+    if (!this.value || !Number.isSafeInteger(offset) || offset < 0) return;
+    this.value = {...this.value, offset};
+    this.changed();
+  }
   scroll(delta: number, width: number, height: number): void {
     if (!this.value) return;
     const rows = documentPreviewLines(this.value.document, Math.max(1,width)).length;
     this.value = {...this.value, offset: Math.max(0, Math.min(Math.min(this.value.offset, Math.max(0, rows - Math.max(1,height))) + delta, rows - Math.max(1,height)))};
     this.changed();
   }
+  /** Historical text is rendered as saved: do not resolve live embeds into a before-image. */
+  async loadText(target: OutlinerNavigationTarget, title: string, content: Promise<string>): Promise<boolean> {
+    const generation = ++this.generation;
+    this.value = {target, title, document: plain('Loading saved source…'), offset: 0, focused: this.value?.focused ?? false};
+    this.changed();
+    try {
+      const text = await content;
+      if (generation !== this.generation) return false;
+      this.value = {...this.value!, document: plain(text)};
+    } catch (error) {
+      if (generation !== this.generation) return false;
+      this.value = {...this.value!, document: plain(error instanceof Error ? error.message : String(error))};
+    }
+    this.changed();
+    return true;
+  }
+
   async load(target: OutlinerNavigationTarget, refresh = false): Promise<boolean> {
     const generation = ++this.generation;
     let title = target.kind === 'block' ? target.blockId : target.resourceId;

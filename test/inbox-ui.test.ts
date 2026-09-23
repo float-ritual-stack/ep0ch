@@ -365,6 +365,7 @@ describe("Inbox rendering", () => {
     })] }) : undefined);
     await startRecent(h.controller);
     h.controller.showActivity();
+    h.controller.technicalDetails = true;
     const text = stripTerminalSequences(renderInboxFrame(h.controller, 150, 30, "a questions/recent").join("\n"));
     expect(text).toContain("Needs attention: 41");
     expect(text).toContain("Jev 3 attempted / 1 successful");
@@ -388,6 +389,7 @@ describe("Inbox rendering", () => {
       }
     }
     h.controller.showActivity();
+    h.controller.technicalDetails = true;
     const lines = renderInboxFrame(h.controller, 150, 26, "Esc close · p pause · r reconsider\nTab link · ? actions");
     const text = stripTerminalSequences(lines.join("\n"));
     for (const content of ["working", "3 pending", "Looking for related notes", "Current: New capture", "Review project choice", "Output 1", "Source", "provider", "editor-model", "estimated $0.0123", "Jev 2 calls"]) expect(text).toContain(content);
@@ -472,7 +474,8 @@ describe("shared Inbox document preview", () => {
 
   test("Activity wheel scrolls its own receipt; Escape exits preview focus before closing", async()=>{
     const h=harness();await startRecent(h.controller);await setImmediate();
-    h.controller.showActivity();renderInboxFrame(h.controller,130,32,"help");
+    h.controller.showActivity();
+    h.controller.technicalDetails = true;renderInboxFrame(h.controller,130,32,"help");
     const rect=h.controller.activityRect!;
     expect(h.controller.handleActivityMouse(`\x1b[<65;${rect.x+2};${rect.y+2}M`)).toBe(true);
     expect(h.controller.detailOffset).toBe(3);expect(h.controller.index).toBe(0);
@@ -579,4 +582,129 @@ test('choosing Source on the initial match owns that receipt while semantic rank
  h.controller.notice='Pane startup timed out';
  expect(stripTerminalSequences(renderInboxFrame(h.controller,120,32,'help').join('\n'))).toContain('Pane startup timed out');
  await h.controller.close();
+});
+
+test('combined review shows activity and independent source/output readers with mouse resizing and focus',async()=>{
+ const h=harness(request=>{
+  if(request.action==='get')return {id:request.blockId,text:request.blockId+'\n\n'+Array.from({length:70},(_,i)=>`Paragraph ${i}`).join('\n\n'),revision:2};
+  if(request.action==='inbox.result')return {...result(request.resultId),beforeSource:{id:'source-result-one',revision:1,text:'Original rough capture\n\n> [!note] Saved words\n> Before cleanup'}};
+ });
+ await startRecent(h.controller);await setImmediate();
+ let lines=renderInboxFrame(h.controller,160,55,'help');
+ expect(h.controller.comparison).toBe(true);
+ expect(stripTerminalSequences(lines.join('\n'))).toContain('Created a task and filed');
+ expect(h.controller.sourceFrame!.rect.y).toBe(h.controller.outputFrame!.rect.y);
+ expect(h.controller.sourceFrame!.rect.y).toBeGreaterThan(h.controller.activityRect!.y+h.controller.activityRect!.height);
+ const click=(x:number,y:number)=>h.controller.handlePreviewMouse(`\x1b[<0;${x+1};${y+1}M`,()=>{});
+ const source=h.controller.sourceFrame!,output=h.controller.outputFrame!;
+ click(source.content.x+2,source.content.y+2);expect(h.controller.sourceReader.state?.focused).toBe(true);expect(h.controller.outputReader.state?.focused).toBe(false);
+ await h.controller.input('',{name:'down'});expect(h.controller.sourceReader.state!.offset).toBe(1);expect(h.controller.outputReader.state!.offset).toBe(0);
+ click(output.content.x+2,output.content.y+2);expect(h.controller.outputReader.state?.focused).toBe(true);expect(h.controller.sourceReader.state?.focused).toBe(false);
+ await h.controller.input('',{name:'down'});expect(h.controller.outputReader.state!.offset).toBe(1);
+ click(4,6);expect(h.controller.outputReader.state?.focused).toBe(false);
+ const divider=h.controller.horizontalDivider!;click(divider.x,divider.y);
+ h.controller.handlePreviewMouse(`\x1b[<32;10;30M`,()=>{});h.controller.handlePreviewMouse(`\x1b[<0;10;30m`,()=>{});
+ renderInboxFrame(h.controller,160,55,'help');expect(h.controller.sourceFrame!.rect.y).toBeGreaterThan(source.rect.y);
+ const split=h.controller.verticalDivider!;click(split.x,split.y+3);
+ h.controller.handlePreviewMouse(`\x1b[<32;105;40M`,()=>{});h.controller.handlePreviewMouse(`\x1b[<0;105;40m`,()=>{});
+ renderInboxFrame(h.controller,160,55,'help');expect(h.controller.sourceFrame!.rect.width).toBeGreaterThan(source.rect.width);
+ h.controller.setSourceVersion('before');await setImmediate();
+ lines=renderInboxFrame(h.controller,160,55,'help');expect(stripTerminalSequences(lines.join('\n'))).toContain('before this attempt');expect(stripTerminalSequences(lines.join('\n'))).toContain('Saved words');
+ expect(h.controller.sourceReader.state!.document.projectedText).toContain('Original rough capture');
+ h.controller.setSourceVersion('current');await setImmediate();expect(h.controller.sourceReader.state!.document.projectedText).toContain('source-result-one');
+ await h.controller.close();
+});
+
+test.each(['horizontal','vertical'] as const)('cancels %s divider resizing when comparison disappears',async(axis)=>{
+ const h=harness();await startRecent(h.controller);await setImmediate();
+ const mouse=(phase:string,x:number,y:number)=>h.controller.handlePreviewMouse(`\x1b[<${phase==='move'?32:0};${x+1};${y+1}${phase==='up'?'m':'M'}`,()=>{});
+ for(const phase of ['move','up']){
+  renderInboxFrame(h.controller,160,55,'help');
+  const divider=axis==='horizontal'?h.controller.horizontalDivider!:h.controller.verticalDivider!;
+  mouse('down',divider.x,divider.y);
+  const fractions=[h.controller.reviewFraction,h.controller.sourceFraction];
+  renderInboxFrame(h.controller,90,34,'help');expect(h.controller.reviewBody).toBeUndefined();
+  mouse(phase,4,6);
+  renderInboxFrame(h.controller,160,55,'help');
+  expect(mouse('down',4,6)).toBe(false);
+  expect([h.controller.reviewFraction,h.controller.sourceFraction]).toEqual(fractions);
+  mouse('up',4,6);
+ }
+ await h.controller.close();
+});
+
+test('releasing a divider over the source toolbar ends resizing',async()=>{
+ const h=harness();await startRecent(h.controller);await setImmediate();
+ const lines=renderInboxFrame(h.controller,160,55,'help');
+ const source=h.controller.sourceFrame!,divider=h.controller.verticalDivider!;
+ const row=source.rect.y+1;
+ let column=source.rect.x;
+ while(column<source.rect.x+source.rect.width&&getOsc8LinkAtColumn(lines[row]!,column)!=='pi-outliner-action:tree.inbox.preview.before')column++;
+ expect(column).toBeLessThan(source.rect.x+source.rect.width);
+ h.controller.handlePreviewMouse(`\x1b[<0;${divider.x+1};${divider.y+1}M`,()=>{});
+ h.controller.handlePreviewMouse(`\x1b[<0;${column+1};${row+1}m`,()=>{});
+ const fraction=h.controller.sourceFraction;
+ expect(h.controller.handlePreviewMouse('\x1b[<0;5;7M',()=>{})).toBe(false);
+ expect(h.controller.sourceFraction).toBe(fraction);
+ expect(h.controller.sourceVersion).toBe('current');
+ await h.controller.close();
+});
+
+test('source-only comparison spans bottom; missing historical source is explicit and stale notices clear',async()=>{
+ const h=harness(request=>request.action==='inbox.result'?result(request.resultId):undefined);
+ await h.controller.start();await setImmediate();
+ h.controller.nextOutput();expect(h.controller.notice).toContain('No separate output');
+ h.controller.selectTarget(0);expect(h.controller.notice).toBe('');
+ renderInboxFrame(h.controller,150,50,'help');expect(h.controller.outputFrame).toBeUndefined();expect(h.controller.sourceFrame!.rect.width).toBe(146);
+ h.controller.setSourceVersion('before');await setImmediate();expect(h.controller.sourceReader.state!.document.projectedText).toContain('No saved source before this attempt');
+ for(const [width,height] of [[40,20],[90,34],[120,20]]){
+  const lines=renderInboxFrame(h.controller,width!,height!,'help');expect(lines.length).toBe(height!);expect(lines.every(line=>visibleWidth(line)<=width!)).toBe(true);expect(h.controller.comparison).toBe(false);
+ }
+ await h.controller.close();
+});
+
+test('comparison cancel restores both offsets, output choice and source version; historical scrolling survives live events',async()=>{
+ const receipts=[result('match')];
+ const h=harness(request=>{
+  if(request.action==='get')return {id:request.blockId,text:request.blockId+'\n\n'+Array.from({length:100},(_,i)=>`Paragraph ${i}`).join('\n\n'),revision:2};
+  if(request.action==='inbox.search')return searchCollection(receipts);
+  if(request.action==='inbox.result')return {...result(request.resultId),beforeSource:{id:'before',revision:1,text:Array.from({length:100},(_,i)=>`Old paragraph ${i}`).join('\n\n')}};
+ });
+ await startRecent(h.controller);await setImmediate();h.controller.selectTarget(1);await setImmediate();
+ renderInboxFrame(h.controller,160,55,'help');
+ h.controller.sourceReader.scroll(5,77,24);h.controller.outputReader.scroll(8,78,24);
+ h.controller.selectTarget(2);h.controller.focusReader(true);h.controller.startSearch();h.controller.paste('match');await setImmediate();
+ h.controller.setSourceVersion('before');await setImmediate();await h.controller.cancelSearch();
+ expect(h.controller.sourceVersion).toBe('current');expect(h.controller.outputTarget?.id).toBe('second-result-one');
+ expect(h.controller.sourceReader.state?.offset).toBe(5);expect(h.controller.outputReader.state?.offset).toBe(8);expect(h.controller.sourceReader.state?.focused).toBe(true);
+ h.controller.setSourceVersion('before');await setImmediate();renderInboxFrame(h.controller,160,55,'help');h.controller.scrollPreview(15);
+ const document=h.controller.sourceReader.state!.document;h.controller.contentChanged();await setImmediate();
+ expect(h.controller.sourceReader.state?.offset).toBe(15);expect(h.controller.sourceReader.state?.document).toBe(document);
+ await h.controller.close();
+});
+
+test('copy retains the originating reader across the other reader and source toolbar',async()=>{
+ const h=harness(request=>request.action==='get'?{id:request.blockId,text:request.blockId+'\n\nDistinct content words',revision:1}:undefined);
+ await startRecent(h.controller);await setImmediate();renderInboxFrame(h.controller,160,55,'help');
+ const source=h.controller.sourceFrame!,output=h.controller.outputFrame!;const copies:string[]=[];
+ const mouse=(phase:string,x:number,y:number)=>h.controller.handlePreviewMouse(`\x1b[<${phase==='move'?32:0};${x+1};${y+1}${phase==='up'?'m':'M'}`,text=>copies.push(text));
+ mouse('down',output.content.x+8,output.content.y);mouse('move',source.content.x+5,source.content.y);mouse('up',source.content.x+5,source.content.y);
+ expect(copies).toHaveLength(1);expect(copies[0]).not.toContain('source-');expect(h.controller.outputReader.state?.focused).toBe(true);
+ renderInboxFrame(h.controller,160,55,'help');
+ mouse('down',source.content.x+8,source.content.y);mouse('move',source.rect.x+2,source.rect.y+1);mouse('up',source.rect.x+2,source.rect.y+1);
+ expect(copies).toHaveLength(2);expect(h.controller.sourceVersion).toBe('current');
+ const count=h.invalidations;h.controller.toggleTechnicalDetails();expect(h.invalidations).toBeGreaterThan(count);
+ await h.controller.close();
+});
+
+test.each([{outputIds:[]},{outputIds:['output-result-one','second-result-one']}])('cancel restores absolute historical offset for reused receipt %j',async({outputIds})=>{
+ const receipt=result('result-one',{outputIds:[...outputIds]});
+ const h=harness(request=>{
+  if(request.action==='inbox.status')return status({attentionCount:0,attentionOnly:request.attentionOnly===true,results:request.attentionOnly?[]:[receipt]});
+  if(request.action==='inbox.search')return searchCollection([receipt]);
+  if(request.action==='inbox.result')return {...receipt,beforeSource:{id:receipt.sourceId,revision:1,text:Array.from({length:100},(_,i)=>`Old paragraph ${i}`).join('\n\n')}};
+ });
+ await startRecent(h.controller);h.controller.setSourceVersion('before');await setImmediate();renderInboxFrame(h.controller,160,55,'help');h.controller.scrollPreview(5);
+ h.controller.startSearch();h.controller.paste('same receipt');await setImmediate();h.controller.selectTarget(outputIds.length);await setImmediate();renderInboxFrame(h.controller,160,55,'help');h.controller.scrollPreview(3);
+ await h.controller.cancelSearch();expect(h.controller.sourceReader.state?.offset).toBe(5);await h.controller.close();
 });
