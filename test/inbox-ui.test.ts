@@ -388,7 +388,7 @@ describe("Inbox rendering", () => {
     for (const content of ["working", "3 pending", "Looking for related notes", "Current: New capture", "Review project choice", "Output 1", "Source", "provider", "editor-model", "estimated $0.0123", "Jev 2 calls"]) expect(text).toContain(content);
     const output = lines.find(line => stripTerminalSequences(line).includes("Output 1"))!;
     const column = stripTerminalSequences(output).indexOf("Output 1");
-    expect(getOsc8LinkAtColumn(output, column)).toBe("pi-outliner://block/output-result-one");
+    expect(getOsc8LinkAtColumn(output, column)).toBe("pi-outliner-action:tree.inbox.open-target:0");
   });
 
   test("explicitly exposes bounded history, disabled state, and unavailable state", async () => {
@@ -400,4 +400,31 @@ describe("Inbox rendering", () => {
       expect(text).toContain("older results available");
     }
   });
+});
+
+test('in-place cleanup defaults to Source even with a saved session; Escape closes the view',async()=>{
+ const receipt=result('in-place',{outputIds:[],usage:{provider:'pi',model:'fixture',inputTokens:0,outputTokens:0,cost:0,jevCalls:0,elapsedMs:0,piSessions:[{id:'trace',path:'/trace.jsonl',startedAt:'2026-09-23',phase:'complete',outcome:'completed'}]}});
+ const h=harness(r=>r.action==='inbox.status'?status({attentionOnly:!!r.attentionOnly,attentionCount:0,results:r.attentionOnly?[]:[receipt]}):undefined);
+ await startRecent(h.controller);expect(h.controller.targets[0]).toMatchObject({id:receipt.sourceId,role:'source'});
+ await h.controller.input('',{name:'return',meta:true});expect(h.opened).toEqual([{id:receipt.sourceId,destination:'detail'}]);
+ await h.controller.input('',{name:'escape'});expect(h.closed).toBe(1);
+});
+
+test("default open skips missing and trashed outputs, but preserves transport errors", async () => {
+  let disconnected = false;
+  const h = harness(request => {
+    if (request.action !== "get") return undefined;
+    if (disconnected) throw new Error("Workspace disconnected");
+    if (request.blockId === "output-result-one") throw new Error(`Block not found: ${request.blockId}`);
+    if (request.blockId === "second-result-one") return {id: request.blockId, effectiveDeletedRootId: "trash"};
+    return undefined;
+  });
+  await startRecent(h.controller);
+  await h.controller.input("", {name: "return", meta: true});
+  expect(h.opened).toEqual([{id: "source-result-one", destination: "detail"}]);
+  disconnected = true;
+  h.controller.targetIndex = 0;
+  await h.controller.input("", {name: "return", meta: true});
+  expect(h.opened).toHaveLength(1);
+  expect(h.controller.notice).toBe("Workspace disconnected");
 });
