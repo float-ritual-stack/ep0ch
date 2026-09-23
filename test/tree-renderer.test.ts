@@ -1114,3 +1114,15 @@ test("renders a targeted Tree block mark and coalesced return cue", () => {
   expect(rendered).toContain("\x1b[1;4;96m");
   expect(rendered.split("\n").every((line) => visibleWidth(line) <= 44)).toBe(true);
 });
+
+
+test("wide local Preview keeps Tree row hit targets aligned with rendered text", () => {
+  const rows = [block("FIRST TARGET"), block("SECOND TARGET")];
+  const rendered = renderTreeFrame({...view(rows), localPreview: {target: {kind: "block", blockId: rows[1]!.id}, title: "Preview", lines: ["Inspection"], offset: 0, focused: false}}, 180, 16, 0, {clearScreen: false});
+  const lines = rendered.frame.split("\n").map(stripTerminalSequences);
+  for (const row of rows) {
+    const index = lines.findIndex(line => line.includes(row.id));
+    expect(index).toBeGreaterThan(0);
+    expect(rendered.mouseTargets[index]?.rowId).toBe(row.id);
+  }
+});

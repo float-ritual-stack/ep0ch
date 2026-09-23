@@ -298,16 +298,12 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
       const action = parseDetailPreviewActionUri(url);
       if (action) {
         const resolution = resolvePreviewPointerAction(action, pointer.activate);
-        await focusedReader().dispatch(
-          resolution.type === "focus"
-            ? { type: "preview.focus.set", regionId: resolution.regionId }
-            : {
-                type: "preview.action",
-                action: resolution.action,
-                ...(resolution.routing ? { routing: resolution.routing } : {}),
-              },
-          viewport(),
-        );
+        if (resolution.type === "focus") {
+          await focusedReader().dispatch({type: "preview.focus.set", regionId: resolution.regionId}, viewport());
+        } else {
+          await readingSurface.activatePreviewAction(resolution.action, viewport(), resolution.routing);
+          if (readingSurface.active === controller) directSelectionOwner = "current";
+        }
         return;
       }
       await focusedReader().dispatch({
@@ -1274,6 +1270,13 @@ async function readerAction(actionId: string): Promise<boolean> {
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
   if (actionId === "detail.reading.keep") { if (await readingSurface.keepPreview(viewport())) directSelectionOwner = "current"; return true; }
+  if (readingSurface.active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+    const annotationId = inspection.state.selectedAnnotationId;
+    if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return true; }
+    await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport());
+    if (readingSurface.active === controller) directSelectionOwner = "current";
+    return true;
+  }
   if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit") {
     if (!await readingSurface.keepPreview(viewport())) return true;
     directSelectionOwner = "current";

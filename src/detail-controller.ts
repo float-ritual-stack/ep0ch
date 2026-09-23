@@ -730,6 +730,7 @@ export interface DetailController {
   handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void>;
   onServiceEvent(event: OutlinerEvent, viewport: DetailViewport): Promise<void>;
   supersedePassivePreview(): void;
+  releaseDocument(): void;
   handleDestinationChooserKeypress(str: string, key: TerminalKey): Promise<boolean>;
   destinationChooserHelpText(): string;
   onServiceConnect(viewport: DetailViewport): Promise<void>;
@@ -3103,9 +3104,11 @@ export function createDetailController(
         selectAnnotationThread(intent.annotationId, true, viewport);
         break;
       case "annotation.thread.reply":
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations();
         beginAnnotationReply(intent.annotationId);
         break;
       case "annotation.thread.lifecycle":
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations();
         await changeAnnotationLifecycle(intent.annotationId);
         break;
       case "resource.refresh": {
@@ -4168,6 +4171,16 @@ export function createDetailController(
     captureResourcePointerSelection,
     setPreviewRegions(regions) {
       reconcilePreviewRegions(state.previewRegions, regions);
+    },
+    releaseDocument() {
+      loadGeneration += 1;
+      clearDocumentPresentation();
+      state.document = {kind: "empty"};
+      navigationHistory.length = 0;
+      navigationIndex = -1;
+      blockCache.clear();
+      syncNavigationState();
+      emit();
     },
     supersedePassivePreview() {
       loadGeneration += 1;

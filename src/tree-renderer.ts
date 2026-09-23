@@ -375,7 +375,7 @@ export function renderTreeFrame(
     lines.push(truncateToWidth("F7 Tree/Preview · Enter Open linked · Shift+F7 close", previewWidth));
     let frame: string;
     if (wide) {
-      const treeLines = tree.frame.replace(/^\n/, "").split("\n");
+      const treeLines = tree.frame.split("\n");
       frame = lines.map((line, index) => {
         const left = truncateToWidth(treeLines[index] ?? "", treeWidth);
         return left + " ".repeat(Math.max(0, treeWidth - visibleWidth(left))) + "│" + line;

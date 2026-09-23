@@ -606,6 +606,12 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
     if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
     if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
     if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }
+    if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+      const annotationId = inspection.state.selectedAnnotationId;
+      if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return; }
+      await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
+      return;
+    }
     if (actionId && active === inspection && actionKeymap.action(actionId).menuGroup === "Edit") {
       if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
       return;
