@@ -57,13 +57,14 @@ export function treePreviewFrame(preview:TreeLocalPreview,width:number,height:nu
     const text = `[${label}]`;
     if (column + text.length > rect.width) break;
     controls.push({rect: {x: rect.x + column, y: rect.y + 1, width: text.length, height: 1}, action: `tree.preview.${action}`});
-    toolbar += outlinerActionLink(`tree.preview.${action}`, text) + ' ';
-    column += text.length + 1;
+    const active = action === preferences.dock;
+    toolbar += outlinerActionLink(`tree.preview.${action}`, active ? `\x1b[7m${text}\x1b[27m` : text);
+    column += text.length;
   }
   const divider = placement === 'beside' ? {x: treeWidth, y: 0, width: 1, height} : placement === 'below' ? {x: 0, y: treeHeight, width, height: 1} : undefined;
-  const lines=[truncateToWidth(`${preview.focused?'●':'○'} Preview · ${sanitizeDynamicText(preview.title)}`,rect.width),toolbar,...entry.lines.slice(offset,offset+content.height)];
+  const lines=[truncateToWidth(`${preview.focused?'●':'○'} Preview · ${sanitizeDynamicText(preview.title)} · ${preferences.dock === "auto" ? "Auto" : preferences.dock === "right" ? "Dock right" : "Dock below"}`,rect.width),toolbar,...entry.lines.slice(offset,offset+content.height)];
   while(lines.length<rect.height-1)lines.push('');
-  lines.push(truncateToWidth(help,rect.width));
+  lines.push(truncateToWidth("→ right · ↓ below · Auto fit · drag divider · " + help,rect.width));
   return{rect,content,lines:lines.map(line=>shadePreviewLine(line,rect.width)),totalRows:entry.lines.length,offset,treeWidth,treeHeight,placement,controls,divider};
 }
 export function pointInPreview(rect:PreviewRect,column:number,row:number):boolean{return column>=rect.x&&column<rect.x+rect.width&&row>=rect.y&&row<rect.y+rect.height;}

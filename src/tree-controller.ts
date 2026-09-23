@@ -1972,6 +1972,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       } else {
         const selected = rows[selectedIndex];
         if (isBlockTreeRow(selected)) await inspectLocally({kind:"block",blockId:selected.canonicalId});
+        else await publishDisplayRowSelection(selected);
       }
       effects.invalidate(); return;
     }
