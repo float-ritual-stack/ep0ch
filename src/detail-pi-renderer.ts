@@ -235,8 +235,14 @@ export class DetailReaderSplitLayout extends HStack {
   }
 
   setLayout(current: Component, width: number): void {
+    if (this.entries[0]!.component !== current) {
+      const preview = this.entries[1]!.component;
+      this.clear();
+      this.addChild(current);
+      this.addChild(preview);
+    }
     const left = Math.floor((width - 1) / 2);
-    Object.assign(this.entries[0], {component: current, basis: left, minSize: left, maxSize: left, grow: 0, shrink: 0});
+    Object.assign(this.entries[0], {basis: left, minSize: left, maxSize: left, grow: 0, shrink: 0});
     const right = width - left - 1;
     Object.assign(this.entries[1], {basis: right, minSize: right, maxSize: right, grow: 0, shrink: 0});
   }
