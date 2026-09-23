@@ -44,9 +44,16 @@ const result=await runHerdrScenario({
     await s.keys(tree,"alt+left");
     await s.waitVisible(tree,"304 Level 2 readable");
     await s.checkpoint("03-ancestor-click-back-restores-leaf");
-    await terminal.resize(process.argv.includes("--composed") ? 280 : 100,process.argv.includes("--composed") ? 16 : 26);
+    await terminal.resize(process.argv.includes("--composed") ? 220 : 100,process.argv.includes("--composed") ? 16 : 26);
     await s.waitVisible(tree,"304 Level 2 readable");
     await s.checkpoint("04-narrow-reflow");
+    const resizedLines=(await terminal.visible()).split("\n");
+    const stripRow=resizedLines.findIndex(line=>line.includes("⌂ <"));
+    assert.ok(stripRow>=0);
+    const leftColumn=visibleWidth(resizedLines[stripRow]!.slice(0,resizedLines[stripRow]!.indexOf("⌂ <")))+2;
+    await terminal.write(`\x1b[<0;${leftColumn+1};${stripRow+1}M\x1b[<0;${leftColumn+1};${stripRow+1}m`);
+    await s.waitVisible(tree,"⌂ < ◇ 304 Level 1");
+    await s.checkpoint("05-resized-strip-pointer");
     assert.equal((await s.client.request<Block>({action:"get",blockId:query.id})).parentId,source.id);
   }
 });
