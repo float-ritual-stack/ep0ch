@@ -14,7 +14,6 @@ import { visibleBacklinkSources, type DetailBacklinkState } from "./detail-contr
 import { projectDetailRead } from "./detail-embeds";
 import { reportCurrentPaneWorkspace, openDetailPane } from "./pane-control";
 import { resolveClientPaths } from "./paths";
-import { ALL_DETAILS_LOCKED_ERROR } from "./navigation-routes";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
 import {
   BRACKETED_PASTE_DISABLE,
@@ -137,14 +136,11 @@ const controller = new BacklinkPeekController(
         command: { targetClientId: launch.sourceClientId, command: "replace", targetRegion: "detail", target: { kind: "block", blockId: sourceBlockId },  },
       });
     },
-    async openInFirstUnlocked(sourceBlockId) {
+    async openLinked(sourceBlockId) {
       try {
         await client.request({ action: "navigation.dispatch", sourceClientId: launch.sourceClientId, sourceRegion: "detail", target: { kind: "block", blockId: sourceBlockId }, intent: "open", });
         return true;
       } catch (error) {
-        if (error instanceof Error && error.message === ALL_DETAILS_LOCKED_ERROR) {
-          return false;
-        }
         throw error;
       }
     },

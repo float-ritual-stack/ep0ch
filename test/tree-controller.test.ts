@@ -216,7 +216,7 @@ function harness(
             sourceClientId: input.sourceClientId,
             targetClientId: "detail-test",
             intent: input.intent,
-            resolution: "unlocked",
+            resolution: "linked",
           } as T;
         }
         return response as T;

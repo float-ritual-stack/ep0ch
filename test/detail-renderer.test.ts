@@ -95,7 +95,7 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
     context,
     target,
     resource,
-    connectionMode: "unlocked",
+    
     canNavigateBack: false,
     canNavigateForward: false,
     resolvedSelectedText: "",
@@ -662,20 +662,11 @@ test("renders a selection across wrapped rows with the cursor at its active edge
   expect(lines.slice(3, 6).every((line) => visibleWidth(line) <= 18)).toBe(true);
 });
 
-test("renders lock state as a compact clickable icon", () => {
-  const unlocked = renderDetailLines(
-    state({ connectionMode: "unlocked" }),
-    { width: 80, height: 8 },
-  )[0]!;
-  const locked = renderDetailLines(
-    state({ connectionMode: "locked" }),
-    { width: 80, height: 8 },
-  )[0]!;
-
-  expect(stripTerminalSequences(unlocked)).toContain("🔓");
-  expect(stripTerminalSequences(locked)).toContain("🔐");
-  expect(unlocked).not.toContain("Detail");
-  expect(unlocked).not.toContain("Unlocked");
+test("header exposes actions without the retired lock control", () => {
+  const header=renderDetailLines(state(),{width:80,height:8})[0]!;
+  expect(header).toContain("pi-outliner-action:detail.menu.open");
+  expect(header).not.toContain("detail.lock.toggle");
+  expect(stripTerminalSequences(header)).not.toMatch(/[🔓🔐]/u);
 });
 
 test("parses configured Detail header properties deterministically", () => {

@@ -42,7 +42,7 @@ export interface BacklinkPeekEffects {
   loadSource(source: BacklinkSource): Promise<BacklinkPeekPreview>;
   restoreSelection(sourceBlockId: string): Promise<void>;
   replaceSource(sourceBlockId: string): Promise<void>;
-  openInFirstUnlocked(sourceBlockId: string): Promise<boolean>;
+  openLinked(sourceBlockId: string): Promise<boolean>;
   openInNewDetail(
     sourceBlockId: string,
     direction: "right" | "down",
@@ -84,8 +84,8 @@ export class BacklinkPeekController {
         }
       },
       replace: (target) => effects.replaceSource(openDestinationBlockId(target)),
-      openFirstUnlocked: (target) =>
-        effects.openInFirstUnlocked(openDestinationBlockId(target)),
+      openLinked: (target) =>
+        effects.openLinked(openDestinationBlockId(target)),
       openNewDetail: (target, direction) =>
         effects.openInNewDetail(openDestinationBlockId(target), direction),
       opened: () => {

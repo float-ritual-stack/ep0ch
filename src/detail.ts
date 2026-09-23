@@ -179,9 +179,6 @@ const effects: DetailEffects = {
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
   },
-  async setLocked(locked) {
-    await client.request({ action: "clients.update", clientId, locked });
-  },
   async setCurrentTarget(currentTarget) {
     await client.request({ action: "clients.update", clientId, currentTarget });
   },
@@ -492,7 +489,6 @@ function startWatcher(): void {
       clientId,
       role: "detail",
       contextId: browsingContextId,
-      locked: detailPresentation === "property-inspector",
       runtime,
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },

@@ -150,7 +150,7 @@ export type PreviewPointerResolution =
   | {
       type: "activate";
       action: PreviewRegionAction;
-      routing?: "first-unlocked" | "chooser";
+      routing?: "linked" | "chooser";
     };
 
 export function resolvePreviewPointerAction(
@@ -167,7 +167,7 @@ export function resolvePreviewPointerAction(
     return {
       type: "activate",
       action,
-      routing: activate ? "chooser" : "first-unlocked",
+      routing: activate ? "chooser" : "linked",
     };
   }
   return { type: "activate", action };

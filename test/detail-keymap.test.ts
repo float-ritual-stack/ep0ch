@@ -19,7 +19,7 @@ function state(): DetailState {
     context: { selected: null, ancestors: [], children: [] },
     target: null,
     resource: null,
-    connectionMode: "unlocked",
+    
     canNavigateBack: false,
     canNavigateForward: false,
     resolvedSelectedText: "",
@@ -500,7 +500,6 @@ test("maps preview and file navigation history and reference-follow bindings", a
     { type: "navigation.back" },
     { type: "navigation.forward" },
     { type: "reference.follow" },
-    { type: "lock.toggle" },
   ]);
 
   const fileState = state();
@@ -521,7 +520,6 @@ test("maps preview and file navigation history and reference-follow bindings", a
   expect(file.intents).toEqual([
     { type: "navigation.back" },
     { type: "reference.follow" },
-    { type: "lock.toggle" },
   ]);
 });
 
@@ -661,10 +659,6 @@ test("maps Shift+R to current-block reveal without a destination picker", async 
 
   expect(preview.intents).toEqual([
     { type: "current.reveal" },
-    { type: "lock.toggle" },
-    { type: "lock.toggle" },
-    { type: "lock.toggle" },
-    { type: "lock.toggle" },
   ]);
 });
 

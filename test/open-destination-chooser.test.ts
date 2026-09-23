@@ -47,7 +47,7 @@ function harness(options: {
     replace: (opened) => {
       calls.push(`replace:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
     },
-    openFirstUnlocked: (opened) => {
+    openLinked: (opened) => {
       calls.push(`first:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
       return options.firstUnlocked ?? true;
     },
@@ -74,7 +74,7 @@ async function choose(
 ): Promise<void> {
   const input = destination === "replace"
     ? ["R", { name: "r", shift: true }]
-    : destination === "first-unlocked"
+    : destination === "linked"
     ? ["f", { name: "f" }]
     : destination === "split-right"
     ? ["r", { name: "r" }]
@@ -109,14 +109,14 @@ describe("open destination chooser", () => {
 
     const explicitFirst = harness({ firstUnlocked: false });
     explicitFirst.chooser.open(target);
-    await choose("first-unlocked", explicitFirst.chooser);
+    await choose("linked", explicitFirst.chooser);
     expect(explicitFirst.calls).not.toContain("split:right:target-1");
     expect(explicitFirst.chooser.state.active).toBe(true);
     expect(explicitFirst.chooser.state.status).toContain("No linked destination");
   });
 
   test("dispatches every explicit destination through one key model", async () => {
-    const cases: Array<[Exclude<OpenDestination, "default" | "first-unlocked">, string]> = [
+    const cases: Array<[Exclude<OpenDestination, "default" | "linked">, string]> = [
       ["replace", "replace:target-1"],
       ["split-right", "split:right:target-1"],
       ["split-down", "split:down:target-1"],
@@ -197,7 +197,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     });
@@ -225,7 +225,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     }, { scheduler, timeoutMs: 7_500 });
@@ -256,7 +256,7 @@ describe("open destination chooser", () => {
       replace: () => {
         calls.push("replace");
       },
-      openFirstUnlocked: () => true,
+      openLinked: () => true,
       openNewDetail: () => {},
       invalidate: () => {},
     }, { scheduler, timeoutMs: 7_500 });

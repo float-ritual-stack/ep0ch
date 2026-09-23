@@ -9,12 +9,6 @@ import type {
   OutlinerViewAddress,
 } from "./types";
 
-export const PRIMARY_DETAIL_LOCKED_ERROR =
-  "The primary Detail is locked · unlock it or choose an explicit detached destination";
-
-export const ALL_DETAILS_LOCKED_ERROR =
-  "All Details in this tab are locked · unlock one or open another Detail";
-
 export interface NavigationRouteOptions {
   sourceRegion?: OutlinerRegion;
   destination?: OutlinerViewAddress;

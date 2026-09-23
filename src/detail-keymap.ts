@@ -222,9 +222,6 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.property.focus.tree":
         await dispatch({ type: "focus.outliner", announce: true });
         return true;
-      case "detail.lock.toggle":
-        await dispatch({ type: "lock.toggle" });
-        return true;
       case "detail.property.toggle":
         await dispatch({ type: "property-inspector.disclosure.toggle" });
         return true;
