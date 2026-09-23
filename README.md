@@ -1210,6 +1210,14 @@ service and clients together when upgrading.
 
 ### Automatic Inbox agent
 
+Inbox Open selects a live Output, otherwise the current Source. Saved Pi sessions
+are explicit diagnostics (`t`), never the default for an in-place cleanup.
+`Alt+Enter` opens content in the linked reader while retaining the Inbox result;
+with no available destination it offers the shared chooser. Use **Link destination**
+or **Open once** in the Inbox header (also available through `?`). Cancel returns
+to the result; Escape from Inbox returns to Tree.
+
+
 The service uses the default model and authentication already configured in Pi.
 It processes existing unprocessed Inbox notes and newly saved captures without a
 separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
@@ -1789,3 +1797,10 @@ are `Alt+Shift+P` (toggle), `Alt+=` (grow), and `Alt+-` (shrink); all are config
 Dock and size preferences survive hide/show and terminal resizing within that Tree;
 they do not change Herdr panes or persist after closing the Tree. Small windows use
 a compact reader; `Alt+P` switches focus between Tree and Preview.
+
+### New Tree without a Detail
+
+The installer assigns **prefix, Shift+U** to `float.pi-outliner.open-tree`.
+Use `--tree-key CHORD` to customize it. **? → New Tree** in Tree or Detail
+opens an independent Tree at the workspace root. Existing **Tree right/below**
+actions instead use the selected branch. Prefix+U retains Tree+Detail launch.

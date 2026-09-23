@@ -1,7 +1,7 @@
-import { hyperlink, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { InboxController } from "./inbox-controller";
 import type { InboxStatus } from "./inbox-types";
-import { outlinerLinkUri } from "./outliner-links";
+import { outlinerActionLink } from "./outliner-actions";
 import { sanitizeDynamicText } from "./terminal";
 import { basename } from "node:path";
 
@@ -11,11 +11,6 @@ export function inboxStatusCue(snapshot: InboxStatus | null | undefined, error =
   const state = snapshot.state === "unavailable" ? "unavailable" : !snapshot.enabled ? "disabled" : snapshot.state;
   const attention = snapshot.attentionCount;
   return `Inbox ${state}${snapshot.pending ? ` · ${snapshot.pending} pending` : ""}${attention ? ` · ${attention} need attention` : ""}`;
-}
-
-function linkedTarget(id: string, text: string): string {
-  try { return hyperlink(sanitizeDynamicText(text), outlinerLinkUri("block", id)); }
-  catch { return sanitizeDynamicText(text); }
 }
 
 function detailLines(controller: InboxController, width: number): string[] {
@@ -38,7 +33,7 @@ function detailLines(controller: InboxController, width: number): string[] {
   controller.targets.forEach((target, index) => {
     const marker = index === controller.targetIndex ? "›" : " ";
     const label = `${marker} ${target.label} · ${target.id.slice(0, 8)}`;
-    lines.push(truncateToWidth(target.sessionPath ? sanitizeDynamicText(label) : linkedTarget(target.id, label), width));
+    lines.push(truncateToWidth(target.sessionPath ? sanitizeDynamicText(label) : outlinerActionLink(`tree.inbox.open-target:${index}`, label), width));
   });
   const usage = result.usage;
   if (usage) {
@@ -103,7 +98,7 @@ export function renderInboxFrame(controller: InboxController, width: number, hei
   const output = [
     ` ┌${"─".repeat(inner)}┐ `,
     bordered(`\x1b[1;36mInbox agent\x1b[0m · ${state}${snapshot ? ` · ${snapshot.pending} pending` : ""}`),
-    bordered(sanitizeDynamicText(message)),
+    bordered(outlinerActionLink("tree.navigation.link", "[Link destination]")+" "+outlinerActionLink("tree.navigation.once", "[Open once]")+" · "+sanitizeDynamicText(message)),
     bordered(`\x1b[${attention ? "1;33" : "2"}m${current}\x1b[0m`),
   ];
   for (let row = 0; row < body; row++) {
