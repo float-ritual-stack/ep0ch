@@ -1898,10 +1898,10 @@ describe("createTreeController", () => {
       position: 0,
     });
     expect(controller.view().mode).toBe("browse");
-    expect(controller.view().status).toBe("Multiline editor opened and locked in linked Detail");
+    expect(controller.view().status).toBe("Multiline editor opened in linked Detail");
   });
 
-  test("Enter opens the linked Detail while e explicitly edits and locks", async () => {
+  test("Enter opens the linked Detail while e explicitly edits", async () => {
     const selected = block("selected", {
       text: "First line\nSecond line",
       displayText: "First line\nSecond line",
@@ -1923,7 +1923,7 @@ describe("createTreeController", () => {
       command: { targetClientId: "detail-test", command: "edit", targetRegion: "detail", target: { kind: "block", blockId: selected.id } },
     });
     expect(controller.view().status).toBe(
-      "Multiline editor opened and locked in linked Detail",
+      "Multiline editor opened in linked Detail",
     );
   });
 

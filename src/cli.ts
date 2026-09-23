@@ -267,8 +267,8 @@ switch (command) {
       },
       strict: true,
     });
-    if (values.role !== undefined && values.role !== "tree" && values.role !== "detail" && values.role !== "composed") {
-      throw new Error("clients --role must be tree, detail, or composed");
+    if (values.role !== undefined && values.role !== "tree" && values.role !== "detail" && values.role !== "composed" && values.role !== "observer") {
+      throw new Error("clients --role must be tree, detail, composed, or observer");
     }
     request = {
       action: "clients.list",
