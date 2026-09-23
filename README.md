@@ -1210,6 +1210,14 @@ service and clients together when upgrading.
 
 ### Automatic Inbox agent
 
+Inbox Open selects a live Output, otherwise the current Source. Saved Pi sessions
+are explicit diagnostics (`t`), never the default for an in-place cleanup.
+`Alt+Enter` opens content in the linked reader while retaining the Inbox result;
+with no available destination it offers the shared chooser. Use **Link destination**
+or **Open once** in the Inbox header (also available through `?`). Cancel returns
+to the result; Escape from Inbox returns to Tree.
+
+
 The service uses the default model and authentication already configured in Pi.
 It processes existing unprocessed Inbox notes and newly saved captures without a
 separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
