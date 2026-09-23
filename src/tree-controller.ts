@@ -1014,9 +1014,16 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           status = publication.unavailable;
           browsingPublicationStatus = publication.unavailable;
           if (desired.dispatchPreview && desired.target && publication.unavailable.startsWith("No paired reader")) void inspectLocally(desired.target);
-        } else if (status === browsingPublicationStatus) {
-          status = "";
-          browsingPublicationStatus = "";
+        } else {
+          if (localPreview && publication.preview) {
+            localPreviewGeneration += 1;
+            localPreview = null;
+            await effects.request({action: "clients.update", clientId: effects.clientId, previewTarget: null});
+          }
+          if (status === browsingPublicationStatus) {
+            status = "";
+            browsingPublicationStatus = "";
+          }
         }
         effects.invalidate();
       }

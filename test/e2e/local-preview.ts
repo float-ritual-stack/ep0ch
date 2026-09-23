@@ -51,6 +51,7 @@ const result = await runHerdrScenario({
     await session.keys(panes.detail, "f7"); await session.waitVisible(panes.detail, "DRAFT");
     await session.keys(panes.detail, "ctrl+z");
     await session.keys(panes.detail, "escape");
+    await session.waitFor("Current draft cancelled", state, c => !c.navigationProtection);
     await focusDetail(); await session.keys(panes.detail, "f7");
     await (ansi ? session.keys(panes.detail, "alt+enter") : terminal.write("\x1b[13;3u"));
     await session.waitFor("Keep promotes Preview", state, c => current(c, docs[3]!.id) && !c.previewTarget);
