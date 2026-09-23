@@ -15,6 +15,7 @@ import {
   DETAIL_DRAFT_SPLIT_MIN_WIDTH,
   DetailPiComponent,
   DetailPiDraftSplitLayout,
+  DetailReaderSplitLayout,
   detailDraftSplitWidths,
 } from "../src/detail-pi-renderer";
 import { createOpenDestinationChooserState } from "../src/open-destination-chooser";
@@ -306,6 +307,27 @@ describe("Pi TUI Detail component", () => {
     });
     expect(widths.slice(-2)).toEqual([50, 49]);
     expect(visibleWidth(rendered[0])).toBe(DETAIL_DRAFT_SPLIT_MIN_WIDTH);
+  });
+
+  test("replacing Current preserves split order and invalidates only mounted children", () => {
+    const invalidated: string[] = [];
+    const pane = (label: string) => ({
+      render: (width: number) => [label.repeat(width)],
+      invalidate: () => { invalidated.push(label); },
+    });
+    const original = pane("C");
+    const editor = pane("E");
+    const preview = pane("P");
+    const split = new DetailReaderSplitLayout(original, preview);
+    for (const [current, width, label] of [[editor, 10, "E"], [editor, 11, "E"], [original, 10, "C"]] as const) {
+      split.setLayout(current, width);
+      expect(split.children).toEqual([current, preview]);
+      const left = Math.floor((width - 1) / 2);
+      expect(stripTerminalSequences(split.render(width)[0])).toBe(label.repeat(left) + " " + "P".repeat(width - left - 1));
+      invalidated.length = 0;
+      split.invalidate();
+      expect(invalidated).toEqual([label, "P"]);
+    }
   });
 
   test("marks the focused split region and advertises local focus routing", () => {

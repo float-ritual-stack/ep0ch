@@ -3391,7 +3391,19 @@ test("an unpaired independent Tree inspects locally without creating a Detail", 
   expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({action: "navigation.dispatch", sourceClientId: "tree-test", intent: "open", target: {kind: "block", blockId: "local-b"}});
   await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
   expect(controller.view().localPreview).toBeNull();
+  expect(lastCall(fake.calls, "clients.update")).toEqual({action: "clients.update", clientId: "tree-test", previewTarget: null});
   expect(fake.createdDetails).toEqual([]);
+});
+
+test("Shift+F7 without a Tree Preview leaves the shared Detail target alone", async () => {
+  const selected = block("selected");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([selected], selected) : undefined);
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  expect(controller.view().localPreview).toBeNull();
+  const before = fake.calls.length;
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(fake.calls.slice(before)).toEqual([]);
 });
 
 

@@ -4409,6 +4409,28 @@ describe("detail controller completion, navigation, and focus", () => {
     expect(harness.calls.selfFocuses).toBe(0);
   });
 
+  test("targeted focus navigates but cannot replace an active draft", async () => {
+    const harness = createHarness(makeBlock({id: "initial"}));
+    await harness.controller.initialize();
+    const command: OutlinerUiCommand = {
+      command: "focus", targetClientId: "detail-test",
+      target: {kind: "block", blockId: "focused"},
+    };
+    await harness.controller.handleUiCommand(command, viewport);
+    expect(harness.controller.state.target).toEqual(command.target);
+    expect(harness.calls.selfFocuses).toBe(1);
+
+    await harness.controller.dispatch({type: "edit.begin"}, viewport);
+    await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = harness.controller.state.buffer.text;
+    await harness.controller.handleUiCommand({
+      ...command, target: {kind: "block", blockId: "other"},
+    }, viewport);
+    expect(harness.controller.state.target).toEqual(command.target);
+    expect(harness.controller.state.buffer.text).toBe(draft);
+    expect(harness.controller.state.status).toContain("Open rejected");
+  });
+
   test("an ordinary open focuses its unlocked destination without locking it", async () => {
     const first = makeBlock();
     const second = makeBlock({ id: "block-2", text: "second", updatedAt: "version-2" });
@@ -5296,6 +5318,30 @@ describe("retained Current and local Preview", () => {
     await current.controller.dispatch({type: "navigation.back"}, viewport);
     expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
     expect(current.calls.updates).toHaveLength(0);
+  });
+
+  test("a rejected Preview link Open preserves the Current protection error", async () => {
+    const current = createHarness(makeBlock({id: "current"}));
+    let surface: DetailReadingSurface;
+    const preview = createHarness(makeBlock({id: "preview"}), null, undefined, undefined, {
+      openHere: target => surface.openHere(target, viewport),
+    });
+    surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    await current.controller.initialize();
+    await surface.receive({
+      command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "preview"},
+    }, viewport);
+    await current.controller.dispatch({type: "edit.begin"}, viewport);
+    await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = current.controller.state.buffer.text;
+    await preview.controller.dispatch({
+      type: "reference.open", target: {kind: "block", value: "linked"}, routing: "first-unlocked",
+    }, viewport);
+    expect(preview.controller.state.status).toBe("Finish or cancel the Current draft or source selection before keeping Preview");
+    expect(preview.controller.state.destinationChooser.active).toBe(false);
+    expect(surface.previewVisible).toBe(true);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    expect(current.controller.state.buffer.text).toBe(draft);
   });
 
   test("a held older Preview cannot overwrite a newer one or Current", async () => {

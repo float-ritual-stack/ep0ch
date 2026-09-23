@@ -2156,8 +2156,9 @@ export function createDetailController(
         ...(preserveSource ? { preserveSource: true } : {}),
       });
       if (dispatched.targetClientId === effects.clientId) {
-        if (options.openHere) await options.openHere(target.target);
-        else await applyNavigationCommand(dispatched.command);
+        if (options.openHere) {
+          if (!await options.openHere(target.target)) return true;
+        } else await applyNavigationCommand(dispatched.command);
       }
       state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
       return true;
@@ -4100,7 +4101,7 @@ export function createDetailController(
   };
 
   async function handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void> {
-    if (command.command === "focus") { effects.focusSelf(); emit(); return; }
+    if (command.command === "focus" && !command.target) { effects.focusSelf(); emit(); return; }
     if (command.command === "comment.selection") {
       if (!command.renderedSelection) {
         state.status = "Rendered selection payload is missing";
