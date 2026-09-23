@@ -77,7 +77,7 @@ const result = await runHerdrScenario({
     await revealSource();
     await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
     await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "enter"); await s.waitVisible(detail, "Shared file passage");
+    await s.keys(detail, "R"); await s.waitVisible(detail, "Shared file passage");
     const target = (await current()).currentTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
     assert.equal(target.referenceContext.anchor.start, text.lastIndexOf("[file::"));

@@ -3864,6 +3864,17 @@ describe("detail controller saves and annotations", () => {
       },
     };
 
+    // A same-source comment handoff may pass the service selection guard, but
+    // the receiving editor must still refuse it while a draft is active.
+    await harness.controller.dispatch({type: "edit.begin"}, viewport);
+    await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const protectedDraft = harness.controller.state.buffer.text;
+    await harness.controller.onServiceEvent(event, viewport);
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe(protectedDraft);
+    expect(harness.controller.state.status).toContain("Finish or cancel");
+    await harness.controller.dispatch({type: "buffer.cancel"}, viewport);
+
     await harness.controller.onServiceEvent(event, viewport);
     expect(harness.controller.state.mode).toBe("comment");
     expect(harness.controller.state.annotationDraft?.target).toMatchObject({

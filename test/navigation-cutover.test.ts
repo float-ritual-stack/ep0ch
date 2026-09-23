@@ -77,6 +77,8 @@ test("direct Resource opens require an explicit available destination and preser
     for (const command of ["open","replace","focus"] as const) {
       await expect(client.request({action:"ui.command.send",command:{command,targetClientId:"detail",target}})).rejects.toThrow("active draft");
     }
+    // Direct passive Preview is independent of the protected Current document.
+    await client.request({action:"ui.command.send",command:{command:"preview",targetClientId:"detail",target}});
     await client.request({action:"clients.update",clientId:"detail",navigationProtection:null});
     const dispatched = await client.request<OutlinerNavigationDispatch>({action:"navigation.dispatch",sourceClientId:"detail",destination:{clientId:"detail",region:"detail"},intent:"open",target});
     expect(dispatched.command).toMatchObject({target});

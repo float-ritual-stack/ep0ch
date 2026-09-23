@@ -60,7 +60,7 @@ const result = await runHerdrScenario({
     await reveal(host.id);
     await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
     await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "enter"); await s.waitVisible(detail, "GLOBAL PASSAGE");
+    await s.keys(detail, "R"); await s.waitVisible(detail, "GLOBAL PASSAGE");
     await s.waitFor("all threads loaded", threads, ts => ts.length === 4 && ts.find(t => t.block.id === orphan.block.id)?.resolvedTarget === null);
     const target = (await current()).currentTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
@@ -156,7 +156,7 @@ const result = await runHerdrScenario({
     await reveal(host.id, ansi);
     await s.keys(ansi.detail, "o"); await s.waitVisible(ansi.detail, "Choose a reference");
     await s.keys(ansi.detail, "tab", "o"); await s.waitVisible(ansi.detail, "Choose destination");
-    await s.keys(ansi.detail, "enter"); await s.waitVisible(ansi.detail, "GLOBAL PASSAGE");
+    await s.keys(ansi.detail, "R"); await s.waitVisible(ansi.detail, "GLOBAL PASSAGE");
     const ansiCurrent = async () => (await s.registrations()).find(c => c.runtime?.paneId === ansi.detail)!;
     const ansiTarget = (await ansiCurrent()).currentTarget;
     assert.ok(ansiTarget?.kind === "resource" && ansiTarget.referenceContext);

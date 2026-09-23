@@ -2279,6 +2279,7 @@ test("validates direct popup commands and targets only the invoking Detail", asy
   });
   await replaced.promise;
   expect(events[2]?.command).toEqual({ targetClientId: "popup-detail", command: "replace", target: { kind: "block", blockId: source.id },  });
+  await client.request({action: "clients.update", clientId: "popup-detail", navigationProtection: "active source selection"});
   const renderedSelection = {
     quote: "Backlink source",
     capturedAt: "2026-01-02T03:04:05.000Z",

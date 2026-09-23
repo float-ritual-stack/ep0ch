@@ -1577,7 +1577,7 @@ export class OutlinerServer {
           if (region !== undefined && (region !== "tree" && region !== "detail" || !clientSupportsRole(target, region))) throw new Error("Command target region is unavailable");
           const targetsDetail = target.role === "detail" || region === "detail";
           if (targetsDetail && target.navigationProtection &&
-            (("target" in request.command && request.command.target) || request.command.command === "edit" || request.command.command === "comment.selection")) {
+            ("target" in request.command && request.command.target && request.command.command !== "preview")) {
             throw new Error(`Destination is protected: ${target.navigationProtection}`);
           }
           if (target.role === "composed" && region === "tree" && !["focus", "reveal"].includes(request.command.command)) throw new Error("This command requires the Detail region");
