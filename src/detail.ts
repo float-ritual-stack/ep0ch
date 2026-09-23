@@ -1,8 +1,11 @@
+import {KeyInspector} from "./key-inspector";
+import {PassThrough} from "node:stream";
+import {openOutlinerDetailSidebar} from "./detail-pane-placement";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { DetailReadingSurface, detailReaderGeometry } from "./detail-reading-surface";
 import { renderDetailDestinationPicker } from "./detail-pi-renderer";
-import { navigationDestinationItems, navigationDestinationStatus, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
+import { navigationDestinationItems, navigationDestinationStatus, navigationPlacementItems, navigationPlacementStatus, NavigationDestinationDisplay, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import { emitKeypressEvents } from "node:readline";
@@ -86,8 +89,10 @@ const paths = resolveClientPaths();
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
+const destinationDisplay = new NavigationDestinationDisplay(client, {clientId, region: "detail"}, draw);
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;
 const actionKeymap = OutlinerActionKeymap.load();
+const keyInspector = new KeyInspector({actionKeymap, invalidate: draw});
 const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
   process.env.OUTLINER_OPEN_DESTINATION_TIMEOUT_MS,
 );
@@ -110,12 +115,13 @@ let pendingPaste: string | null = null;
 
 interface DetailDestinationPicker {
   state: NavigationLinkState; purpose: "link" | "open"; showOther: boolean;
+  placement: "right" | "down" | null;
   query: string; index: number; preview: NavigationDestinationPreview; reader: DetailController;
   resolve(value: OutlinerViewAddress | null | undefined): void;
 }
 let destinationPicker: DetailDestinationPicker | null = null;
 function destinationItems(picker: DetailDestinationPicker): OutlinerActionMenuItem[] {
-  return filterActionMenuItems(navigationDestinationItems(picker.state, picker.purpose === "link", picker.showOther), picker.query);
+  return filterActionMenuItems(picker.placement ? navigationPlacementItems(picker.state) : navigationDestinationItems(picker.state, picker.purpose === "link", picker.showOther), picker.query);
 }
 function refreshDestinationPreview(): void {
   const picker = destinationPicker;
@@ -123,7 +129,7 @@ function refreshDestinationPreview(): void {
   const items = destinationItems(picker);
   picker.index = Math.max(0, Math.min(picker.index, items.length - 1));
   const item = items[picker.index];
-  void picker.preview.select(item ? picker.state.destinations[Number(item.id.slice(12))] : undefined);
+  void picker.preview.select(item ? picker.state.destinations[Number(item.id.split(":")[1])] : undefined);
   draw();
 }
 async function handleDestinationInput(str: string, key: TerminalKey): Promise<void> {
@@ -138,9 +144,24 @@ async function handleDestinationInput(str: string, key: TerminalKey): Promise<vo
     if (item.id === "destination:other") {
       picker.showOther = !picker.showOther; picker.query = ""; picker.index = 0; refreshDestinationPreview(); return;
     }
+    if (item.id === "destination:place-right" || item.id === "destination:place-below" || item.id === "placement:back") {
+      picker.placement = item.id === "placement:back" ? null : item.id === "destination:place-right" ? "right" : "down";
+      picker.query = ""; picker.index = 0; refreshDestinationPreview(); return;
+    }
     picker.preview.clear(); destinationPicker = null;
-    if (item.id === "destination:new-right" || item.id === "destination:new-below") {
+    if (item.id.startsWith("destination:sidebar-")) {
+      const [, scope, side] = item.id.split("-") as [string, "outliner" | "tab", "left" | "right"];
+      try { await picker.reader.dispatch({type: "pane.sidebar", scope, side}, viewport(picker.reader)); }
+      catch (error) { picker.reader.onServiceError(error); }
+      finally { picker.resolve(undefined); }
+    } else if (picker.placement) {
+      const targetPaneId = picker.state.destinations[Number(item.id.slice(10))]?.placementPaneId;
+      try { if (targetPaneId) await picker.reader.dispatch({type: "pane.open", direction: picker.placement, targetPaneId}, viewport(picker.reader)); }
+      catch (error) { picker.reader.onServiceError(error); }
+      finally { picker.resolve(undefined); }
+    } else if (item.id === "destination:new-right" || item.id === "destination:new-below") {
       try { await picker.reader.dispatch({type: "pane.open", direction: item.id === "destination:new-right" ? "right" : "down"}, viewport(picker.reader)); }
+      catch (error) { picker.reader.onServiceError(error); }
       finally { picker.resolve(undefined); }
     } else picker.resolve(item.id === "destination:unlink" ? null : picker.state.destinations[Number(item.id.slice(12))]?.view);
     draw(); return;
@@ -171,6 +192,7 @@ function errorMessage(error: unknown): string {
 async function openTargetInNewDetail(
   target: OutlinerNavigationTarget,
   direction: "right" | "down",
+  targetPaneId?: string,
 ): Promise<void> {
   const contextId = crypto.randomUUID();
   await client.request({
@@ -184,6 +206,7 @@ async function openTargetInNewDetail(
     workspaceRoot: paths.workspaceRoot,
     browsingContextId: contextId,
     direction,
+    targetPaneId,
     initialTarget: target,
   });
 }
@@ -234,12 +257,13 @@ const effects: DetailEffects = {
     const reader = readingSurface.active;
     const state = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId, region: "detail"}});
     return new Promise<OutlinerViewAddress | null | undefined>(resolve => {
-      destinationPicker = {state, purpose, reader, query: "", index: 0, showOther: false, preview: new NavigationDestinationPreview(client, draw), resolve};
+      destinationPicker = {state, purpose, reader, placement: null, query: "", index: 0, showOther: false, preview: new NavigationDestinationPreview(client, draw), resolve};
       refreshDestinationPreview();
     });
   },
   async setDestination(destination) {
     const state = await client.request<NavigationLinkState>({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+    await destinationDisplay.refresh();
     return state.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region)?.label;
   },
   async setNavigationProtection(navigationProtection) {
@@ -293,6 +317,9 @@ const effects: DetailEffects = {
     return client.request<Block>({ action: "bookmarks.root" });
   },
   openDetailPane: openTargetInNewDetail,
+  async openDetailSidebar(target, scope, side) {
+    await openOutlinerDetailSidebar(client, clientId, {workspaceRoot: paths.workspaceRoot, initialTarget: target, scope, side});
+  },
   copyText(text) {
     process.stdout.write(osc52ClipboardWrite(text));
   },
@@ -478,12 +505,16 @@ const effects: DetailEffects = {
 };
 
 function draw(): void {
+  if (keyInspector.active) {
+    process.stdout.write("\x1b[H\x1b[2J" + keyInspector.render(process.stdout.columns ?? 100, process.stdout.rows ?? 30).join("\n"));
+    return;
+  }
   if (destinationPicker) {
     const picker = destinationPicker;
     const items = destinationItems(picker);
     const lines = renderDetailDestinationPicker({
       width: process.stdout.columns ?? 100, height: process.stdout.rows ?? 30,
-      purpose: picker.purpose, query: picker.query, status: navigationDestinationStatus(picker.state, picker.purpose, picker.showOther),
+      purpose: picker.placement ? "place" : picker.purpose, query: picker.query, status: picker.placement ? navigationPlacementStatus(picker.placement) : navigationDestinationStatus(picker.state, picker.purpose, picker.showOther),
       list: (width, height) => {
         const visibleItems = Math.max(1, Math.floor(height / 2));
         const start = Math.max(0, picker.index - visibleItems + 1);
@@ -501,7 +532,7 @@ function draw(): void {
   const render = (reader: DetailController, label: string) => {
     reader.setPreviewRegions(detailPropertyInspectorRegions(reader.state));
     return renderDetailLines(reader.state, viewport(reader), {
-      header: {surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
+      header: {destinationLabel: destinationDisplay.text, surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
       helpPrefix: readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview · Alt+Enter Keep · Esc close Preview` : "",
       helpText: actionKeymap.helpText("detail", detailActionScopes(reader.state, {bufferMode: reader.isBufferMode()})),
       chooserHelpText: reader.destinationChooserHelpText(),
@@ -609,6 +640,7 @@ function startWatcher(): void {
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },
     onConnect: async () => {
+      void destinationDisplay.refresh();
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
@@ -623,13 +655,16 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => serviceEventScheduler.schedule(event),
+    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); },
   });
 }
 
 function stop(): void {
+  destinationDisplay.dispose();
   if (stopping) return;
   stopping = true;
+  keyInspector.dispose();
+  keyInput.destroy();
   watcher?.stop();
   void runtimeSync?.stop();
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
@@ -637,8 +672,8 @@ function stop(): void {
   process.exit(0);
 }
 
-const handleKeypress = createDetailKeyHandler({ controller, viewport: () => viewport(controller), stop, actionKeymap });
-const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap});
+const handleKeypress = createDetailKeyHandler({ controller, viewport: () => viewport(controller), stop, actionKeymap, openKeyInspector: () => keyInspector.open() });
+const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap, openKeyInspector: () => keyInspector.open()});
 
 async function initialize(): Promise<void> {
   await waitForService();
@@ -657,7 +692,12 @@ try {
   process.exit(1);
 }
 
-emitKeypressEvents(process.stdin);
+// Keep inspected bytes out of readline without changing the terminal protocol.
+const keyInput = new PassThrough();
+emitKeypressEvents(keyInput);
+process.stdin.on("data", (data: string | Buffer) => {
+  if (!keyInspector.handle(data)) keyInput.write(data);
+});
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}`);
 
@@ -699,7 +739,8 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
   await (active === inspection ? inspectionKeypress : handleKeypress)(str, key, inputAction);
 }
 
-process.stdin.on("keypress", (str: string, key: TerminalKey) => {
+keyInput.on("keypress", (str: string, key: TerminalKey) => {
+  if (keyInspector.active) return;
   if (destinationPicker) { void handleDestinationInput(str, key).catch(error => controller.onServiceError(error)); return; }
   serviceEventScheduler.scheduleWork(() => handleInput(str, key));
 });
@@ -709,4 +750,5 @@ process.stdout.on("resize", () => {
     controller.dispatch({ type: "viewport.changed" }, viewport())
   );
 });
+if (process.env.OUTLINER_DEBUG_KEYS === "1") keyInspector.open();
 draw();

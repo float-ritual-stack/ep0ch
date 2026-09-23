@@ -1,5 +1,7 @@
+import {KeyInspector} from "./key-inspector";
+import {openOutlinerDetailSidebar} from "./detail-pane-placement";
 import { ComposedLayout, ComposedTree, composedTreeNavigation, composedPointer, composedWidths } from "./composed-surface";
-import { navigationDestinationItems, navigationDestinationStatus, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
+import { navigationDestinationItems, navigationDestinationStatus, navigationPlacementItems, navigationPlacementStatus, NavigationDestinationDisplay, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
@@ -189,6 +191,7 @@ const paths = resolveClientPaths();
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
+const destinationDisplay = new NavigationDestinationDisplay(client, {clientId, region: "detail"}, () => tui.requestRender());
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;
 const actionKeymap = OutlinerActionKeymap.load();
 const rightClickOwnership = outlinerRightClickOwnership();
@@ -362,6 +365,7 @@ function errorMessage(error: unknown): string {
 async function openTargetInNewDetail(
   target: OutlinerNavigationTarget,
   direction: "right" | "down",
+  targetPaneId?: string,
 ): Promise<void> {
   const contextId = crypto.randomUUID();
   await client.request({
@@ -375,6 +379,7 @@ async function openTargetInNewDetail(
     workspaceRoot: paths.workspaceRoot,
     browsingContextId: contextId,
     direction,
+    targetPaneId,
     initialTarget: target,
   });
 }
@@ -427,23 +432,38 @@ const effects: DetailEffects = {
     const state = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId, region: "detail"}});
     const document = new NavigationDestinationPreview(client, () => tui.requestRender());
     let showOther = false;
+    let placement: "right" | "down" | null = null;
     return new Promise<OutlinerViewAddress | null | undefined>(resolve => {
-      const show = () => showActionMenu(navigationDestinationItems(state, purpose === "link", showOther), async id => {
+      const show = () => showActionMenu(placement ? navigationPlacementItems(state) : navigationDestinationItems(state, purpose === "link", showOther), async id => {
         if (id === "destination:other") { showOther = !showOther; show(); return; }
+        if (id === "destination:place-right" || id === "destination:place-below") { placement = id === "destination:place-right" ? "right" : "down"; show(); return; }
+        if (id === "placement:back") { placement = null; show(); return; }
         document.clear();
-        if (id === "destination:new-right" || id === "destination:new-below") {
+        if (id.startsWith("destination:sidebar-")) {
+          const [, scope, side] = id.split("-") as [string, "outliner" | "tab", "left" | "right"];
+          try { await invokingReader.dispatch({type: "pane.sidebar", scope, side}, viewport(invokingReader)); }
+          catch (error) { invokingReader.onServiceError(error); }
+          finally { resolve(undefined); }
+        } else if (placement) {
+          const targetPaneId = state.destinations[Number(id.slice(10))]?.placementPaneId;
+          try { if (targetPaneId) await invokingReader.dispatch({type: "pane.open", direction: placement, targetPaneId}, viewport(invokingReader)); }
+          catch (error) { invokingReader.onServiceError(error); }
+          finally { resolve(undefined); }
+        } else if (id === "destination:new-right" || id === "destination:new-below") {
           try { await invokingReader.dispatch({type: "pane.open", direction: id === "destination:new-right" ? "right" : "down"}, viewport(invokingReader)); }
+          catch (error) { invokingReader.onServiceError(error); }
           finally { resolve(undefined); }
         } else resolve(id === "destination:unlink" ? null : state.destinations[Number(id.slice(12))]?.view);
       }, undefined, () => { document.clear(); resolve(undefined); }, {
-        purpose, status: () => navigationDestinationStatus(state, purpose, showOther), preview: document,
-        select: id => { void document.select(id ? state.destinations[Number(id.slice(12))] : undefined); },
+        purpose: placement ? "place" : purpose, status: () => placement ? navigationPlacementStatus(placement) : navigationDestinationStatus(state, purpose, showOther), preview: document,
+        select: id => { void document.select(id ? state.destinations[Number(id.split(":")[1])] : undefined); },
       });
       show();
     });
   },
   async setDestination(destination) {
     const state = await client.request<NavigationLinkState>({action: "navigation.link.set", source: {clientId, region: "detail"}, destination});
+    await destinationDisplay.refresh();
     return state.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region)?.label;
   },
   isSourceSelectionActive: () => directSelectionOwner === "current" && (latestDirectSelection !== null || pendingDirectSelection !== null),
@@ -498,6 +518,9 @@ const effects: DetailEffects = {
     return client.request<Block>({ action: "bookmarks.root" });
   },
   openDetailPane: openTargetInNewDetail,
+  async openDetailSidebar(target, scope, side) {
+    await openOutlinerDetailSidebar(client, clientId, {workspaceRoot: paths.workspaceRoot, initialTarget: target, scope, side});
+  },
   copyText(text) {
     process.stdout.write(osc52ClipboardWrite(text));
   },
@@ -828,6 +851,7 @@ function startWatcher(): void {
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },
     onConnect: async () => {
+      void destinationDisplay.refresh();
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
@@ -847,11 +871,12 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => serviceEventScheduler.schedule(event),
+    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); },
   });
 }
 
 async function stop(exitCode = 0): Promise<void> {
+  destinationDisplay.dispose();
   if (stopping) return;
   if (rightClickOwnership === "outliner") {
     try {
@@ -861,6 +886,9 @@ async function stop(exitCode = 0): Promise<void> {
     }
   }
   stopping = true;
+  keyInspector.dispose();
+  keyInspectorHandle?.hide();
+  composedTree?.dispose();
   if (inputFlushTimer) clearTimeout(inputFlushTimer);
   await runtimeSync?.stop();
   await watcher?.stop();
@@ -877,6 +905,29 @@ async function stop(exitCode = 0): Promise<void> {
 let actionMenuHandle: OverlayHandle | null = null;
 let actionMenuInvoke: ((id: string) => void) | null = null;
 let composerHandle: OverlayHandle | null = null;
+let keyInspectorHandle: OverlayHandle | null = null;
+let keyInspectorGeometry = "";
+const keyInspector = new KeyInspector({actionKeymap, invalidate: refreshKeyInspectorOverlay});
+function refreshKeyInspectorOverlay(): void {
+  const width = readerWidth(), height = processTerminal.rows;
+  const column = composed ? composedWidths(processTerminal.columns).detailX : 0;
+  const geometry = `${width}/${height}/${column}`;
+  if (!keyInspector.active || geometry !== keyInspectorGeometry) {
+    keyInspectorHandle?.hide(); keyInspectorHandle = null;
+  }
+  if (keyInspector.active && !keyInspectorHandle) {
+    keyInspectorGeometry = geometry;
+    keyInspectorHandle = tui.showOverlay({render: columns => keyInspector.render(columns, height), invalidate() {}},
+      {width, maxHeight: height, row: 0, col: column, anchor: "top-left", margin: 0});
+  }
+  tui.requestRender();
+}
+function openKeyInspector(): void {
+  closeActionMenu();
+  inputGeneration++;
+  if (inputFlushTimer) {clearTimeout(inputFlushTimer); inputFlushTimer = undefined;}
+  keyInspector.open();
+}
 
 function closeActionMenu(): void {
   actionMenuHandle?.hide();
@@ -893,7 +944,7 @@ const actionMenuTheme: SelectListTheme = {
 };
 
 interface DetailDestinationMenuOptions {
-  purpose: "link" | "open"; status(): string; preview: NavigationDestinationPreview; select(id: string | undefined): void;
+  purpose: "link" | "open" | "place"; status(): string; preview: NavigationDestinationPreview; select(id: string | undefined): void;
 }
 
 class FuzzyActionMenu implements Component {
@@ -1277,6 +1328,7 @@ const handleKeypress = createDetailKeyHandler({
   stop: requestStop,
   actionKeymap,
   openActionMenu: items => showActionMenu(items, invokeDetailAction),
+  openKeyInspector,
   focusDraftSplit,
   navigatePreview,
   previewFocused: () => draftSplitActive() && draftSplitFocus === "preview",
@@ -1301,6 +1353,7 @@ const handleKeypress = createDetailKeyHandler({
 
 const inspectionKeypress = createDetailKeyHandler({controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap,
   openActionMenu: items => showActionMenu(items, invokeDetailAction),
+  openKeyInspector,
   navigatePreview: direction => inspectionLayout.navigate(direction),
 });
 async function readerAction(actionId: string): Promise<boolean> {
@@ -1391,7 +1444,7 @@ function scheduleInputFlush(): void {
   inputFlushTimer = setTimeout(() => {
     inputFlushTimer = undefined;
     serviceEventScheduler.scheduleWork(() => {
-      if (generation === inputGeneration && !stopping) return composedTree && focusedRegion === "tree" ? composedTree.flushInput() : flushInput();
+      if (generation === inputGeneration && !stopping && !keyInspector.active && !composedTree?.keyInspectorActive) return composedTree && focusedRegion === "tree" ? composedTree.flushInput() : flushInput();
     });
   }, INPUT_IDLE_FLUSH_MS);
 }
@@ -1401,13 +1454,15 @@ const customFrame = new DetailPiComponent({
   height: () => terminal.rows,
   header: () => {
     const propertyKeys = detailHeaderPropertyKeys;
-    if (!draftSplitActive()) return { surface: currentLabel(), propertyKeys, ...(composed ? {focused: focusedRegion === "detail"} : {}) };
+    const destinationLabel = destinationDisplay.text;
+    if (!draftSplitActive()) return { surface: currentLabel(), propertyKeys, destinationLabel, ...(composed ? {focused: focusedRegion === "detail"} : {}) };
     const focused = (!composed || focusedRegion === "detail") && draftSplitFocus === "editor";
     const linked = controller.state.draftPreviewLinked ? "↔ " : "";
     return {
       surface: `${linked}${focused ? "●" : "○"} Edit${inspectionVisible && readerGeometry().arrangement === "switch" ? ` · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : ""}`,
       focused,
       propertyKeys,
+      destinationLabel,
     };
   },
   helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
@@ -1420,6 +1475,7 @@ const preview = new DetailPiPreviewLayout(
   {
     calloutTheme: calloutThemeResolution.theme,
     headerPropertyKeys: detailHeaderPropertyKeys,
+    destinationLabel: () => destinationDisplay.text,
     draftText: () => draftSplitActive() ? controller.state.buffer.text : null,
     async projectDraft(text) {
       const projection = await effects.projectRead(
@@ -1446,6 +1502,7 @@ const preview = new DetailPiPreviewLayout(
 const draftSplit = new DetailPiDraftSplitLayout(customFrame, preview);
 const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdownTheme(), hyperlinksEnabled, () => tui.requestRender(), {
   calloutTheme: calloutThemeResolution.theme,
+  destinationLabel: () => destinationDisplay.text,
   surfaceLabel: () => `${readingSurface.focused === "preview" ? "●" : "○"} Preview`,
   helpText: () => `${readingHelp()}${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}`,
   chooserHelpText: () => inspection.destinationChooserHelpText(),
@@ -1556,7 +1613,7 @@ synchronizeLayout = () => {
     layoutRoot = nextRoot;
     if (composedLayout) composedLayout.setDetail(nextRoot);
   }
-  tui.setLayoutRoot(composedTree?.controller.view().mode === "goto" ? composedTree : composedLayout ?? nextRoot);
+  tui.setLayoutRoot(composedTree && (composedTree.controller.view().mode === "goto" || composedTree.keyInspectorActive) ? composedTree : composedLayout ?? nextRoot);
   tui.requestRender();
 };
 synchronizeLayout();
@@ -1568,6 +1625,12 @@ const detailInputListener = createPiDetailInputListener(
   data => shouldPassDetailInputToTui(data),
 );
 tui.addOutlinerInputListener(data => {
+  // Inspect delivered bytes before focus routing, native overlays, or our decoders.
+  if (keyInspector.handle(data)) return {consume: true};
+  if (composedTree?.keyInspectorActive) {
+    serviceEventScheduler.scheduleWork(() => composedTree.handleInput(data));
+    return {consume: true};
+  }
   const detailPointer = parseTreePrimaryPointer(data);
   if (!actionMenuHandle && detailPointer?.phase === "down" && readingSurface.previewVisible && ["beside", "below"].includes(readerGeometry().arrangement)) {
     const detailColumn = detailPointer.column - (composed ? composedWidths(processTerminal.columns).detailX : 0);
@@ -1606,6 +1669,7 @@ tui.addOutlinerInputListener(data => {
 });
 
 function handleResize(): void {
+  if (keyInspector.active) refreshKeyInspectorOverlay();
   serviceEventScheduler.scheduleWork(() =>
     controller.dispatch({ type: "viewport.changed" }, viewport())
   );

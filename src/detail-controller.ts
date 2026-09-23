@@ -528,7 +528,9 @@ export interface DetailEffects {
   openDetailPane(
     target: OutlinerNavigationTarget,
     direction: "right" | "down",
+    targetPaneId?: string,
   ): void | Promise<void>;
+  openDetailSidebar?(target: OutlinerNavigationTarget, scope: "outliner" | "tab", side: "left" | "right"): void | Promise<void>;
   copyText(text: string): void;
   editExternalDraft(
     input:
@@ -665,7 +667,8 @@ export type DetailIntent =
   | { type: "preview.action"; action: PreviewRegionAction; routing?: DetailOpenRouting }
   | { type: "property-inspector.disclosure.toggle" }
   | { type: "property-inspector.pane.open" }
-  | { type: "pane.open"; direction: "right" | "down" }
+  | { type: "pane.open"; direction: "right" | "down"; targetPaneId?: string }
+  | { type: "pane.sidebar"; scope: "outliner" | "tab"; side: "left" | "right" }
   | { type: "property-inspector.target.open"; occurrenceId: string; intent: "open" | "reveal"; routing?: DetailOpenRouting }
   | { type: "property-inspector.group.cycle" }
   | { type: "property-inspector.filter.begin" }
@@ -3373,19 +3376,27 @@ export function createDetailController(
         state.status = `Revealed ${blockDisplayTitle(resolved.block)}`;
         break;
       }
+      case "pane.sidebar": {
+        if (!state.target) { state.status = "No target selected"; break; }
+        if (!effects.openDetailSidebar) throw new Error("Sidebar placement is unavailable in this reader");
+        await effects.openDetailSidebar(state.target, intent.scope, intent.side);
+        state.status = `New ${intent.side} sidebar created · use Change to link it`;
+        break;
+      }
       case "pane.open": {
         const target = state.target;
         if (!target) {
           state.status = "No target selected";
           break;
         }
-        await effects.openDetailPane(target, intent.direction);
+        await effects.openDetailPane(target, intent.direction, intent.targetPaneId);
         const title = state.resource
           ? resourceAddressLabel(state.resource.address)
           : (state.context.selected ? blockDisplayTitle(state.context.selected) : "target");
         state.status = intent.direction === "right"
           ? `Opened ${title} to the right`
           : `Opened ${title} below`;
+        state.status += " · New Detail created; use Change to link it";
         break;
       }
       case "preview.focus.set": {
@@ -4142,6 +4153,8 @@ export function createDetailController(
       return destinationChooser!.helpText();
     },
     async onServiceEvent(event, viewport) {
+      // Destination headers consume these independently; no document changed.
+      if (event.domain === "view" && ["clients.update", "clients.unregister", "navigation.link.set"].includes(event.action)) return;
       if (event.domain === "attention") {
         if (!event.attention || event.attention.targetClientId !== effects.clientId) return;
         state.attention = event.attention;

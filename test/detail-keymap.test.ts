@@ -82,6 +82,7 @@ function harness(
   bufferMode = true,
   options: {
     actionKeymap?: OutlinerActionKeymap;
+    openKeyInspector?(): void;
     openActionMenu?: (
       items: readonly OutlinerActionMenuItem[],
       invoke: (actionId: string) => Promise<void>,
@@ -658,7 +659,37 @@ test("maps Shift+R to current-block reveal without a destination picker", async 
   expect(preview.intents.filter(intent=>intent.type !== "redraw")).toEqual([
     { type: "current.reveal" },
     { type: "navigation.link" },
+    { type: "navigation.link" },
   ]);
+});
+
+test("Properties read mode links with Shift+L while editors and property filters retain uppercase input", async () => {
+  const properties = state();
+  properties.mode = "preview";
+  properties.propertyInspector.presentation = "dedicated";
+  const reader = harness(properties, false);
+  await reader.press({name: "l", shift: true}, "L");
+  expect(reader.intents).toEqual([{type: "navigation.link"}]);
+  properties.propertyInspector.filterDraft = "";
+  await reader.press({name: "l", shift: true}, "L");
+  expect(reader.intents.at(-1)).toEqual({type: "property-inspector.filter.input", text: "L"});
+  const editor = harness();
+  await editor.press({name: "l", shift: true}, "L");
+  expect(editor.intents).toEqual([{type: "buffer.insert", text: "L"}]);
+});
+
+test("destination header clicks and Alt+L explain active editors instead of discarding their input", async () => {
+  const detail = state();
+  const editor = harness(detail);
+  const before = detail.buffer.text;
+  await editor.invoke("detail.navigation.link");
+  await editor.press({name: "l", meta: true}, "l");
+  expect(editor.intents).toEqual([
+    {type: "status.set", message: "Finish or cancel the active edit or filter before changing the destination"},
+    {type: "status.set", message: "Finish or cancel the active edit or filter before changing the destination"},
+  ]);
+  expect(detail.buffer.text).toBe(before);
+  expect(detail.mode).toBe("edit");
 });
 
 test("maps property inspector disclosure, pane, grouping, filtering, target, and viewport keys", async () => {
@@ -800,4 +831,28 @@ test("an absent Properties inspector cannot steal Resource evidence scrolling", 
   const h = harness(detail, false);
   await h.press({ name: "g", shift: true }, "G");
   expect(h.intents).toEqual([{ type: "preview.navigate", direction: "bottom" }]);
+});
+
+
+test("key inspector action is unbound, discoverable and opens without touching the reader", async () => {
+  const reading = state(); reading.mode = "preview"; reading.selectionAnchor = 0;
+  let opened = 0;
+  const detail = harness(reading, false, {openKeyInspector: () => {opened++;}});
+  const menu = new OutlinerActionKeymap("<test>").menuItems("detail", "preview");
+  expect(menu).toContainEqual(expect.objectContaining({id: "detail.debug.keys", label: "Inspect received keys", binding: "unbound", group: "System"}));
+  await detail.invoke("detail.debug.keys");
+  expect(opened).toBe(1);
+  expect(detail.intents).toEqual([]);
+  expect(detail.stops.count).toBe(0);
+  expect(reading.selectionAnchor).toBe(0);
+  expect(reading.buffer.text).toBe("alpha beta");
+});
+
+test("key inspector action does not interrupt an active Detail draft", async () => {
+  let opened = 0;
+  const detail = harness(state(), true, {openKeyInspector: () => {opened++;}});
+  await detail.invoke("detail.debug.keys");
+  expect(opened).toBe(0);
+  expect(detail.intents).toEqual([{type: "status.set", message: "Inspect received keys is unavailable here"}]);
+  expect(detail.stops.count).toBe(0);
 });

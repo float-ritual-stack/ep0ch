@@ -5,9 +5,59 @@ import { loadDetailReadPreview } from "./detail-read-preview";
 import { renderDetailReadPreviewLines, type DetailReadPreviewDocument } from "./detail-pi-preview";
 import { sanitizeDynamicText } from "./terminal";
 import type { OutlinerActionMenuItem } from "./outliner-actions";
-import type { Block, NavigationLinkState, ResourceDescription } from "./types";
+import type { Block, NavigationLinkState, OutlinerEvent, OutlinerViewAddress, ResourceDescription } from "./types";
 
 type Destination = NavigationLinkState["destinations"][number];
+
+/** A cached header projection of the service-owned link, never a routing authority. */
+export class NavigationDestinationDisplay {
+  text = "Loading destination…";
+  private state: NavigationLinkState | undefined;
+  private pending: Promise<void> | undefined;
+  private requested = false;
+  private disposed = false;
+
+  constructor(private readonly client: OutlinerRequester, private readonly source: OutlinerViewAddress, private readonly invalidate: () => void) {}
+
+  refresh(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    this.requested = true;
+    return this.pending ??= this.load().finally(() => { this.pending = undefined; });
+  }
+
+  private async load(): Promise<void> {
+    while (this.requested && !this.disposed) {
+      this.requested = false;
+      try {
+        const state = await this.client.request<NavigationLinkState>({action: "navigation.link.get", source: this.source});
+        if (this.disposed || this.requested) continue;
+        this.state = state;
+        const destination = state.destinations.find(item => item.view.clientId === state.destination?.clientId && item.view.region === state.destination.region);
+        this.text = sanitizeDynamicText(destination?.label || (state.destination ? "Destination unavailable" : "Not linked"));
+      } catch {
+        if (this.disposed || this.requested) continue;
+        this.text = "Destination unavailable";
+      }
+      this.invalidate();
+    }
+  }
+
+  onEvent(event: OutlinerEvent): Promise<void> {
+    const destination = this.state?.destination;
+    const entry = this.state?.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region);
+    if ((event.domain === "view" && (
+      (event.action === "navigation.link.set" && event.clientId === this.source.clientId) ||
+      // Until the pending snapshot settles, the cached destination may be absent
+      // or may still name the reader from before a relink.
+      (["clients.update", "clients.unregister"].includes(event.action) &&
+        (this.pending !== undefined || this.state === undefined || (!!destination && event.clientId === destination.clientId)))
+    )) || (event.domain === "content" && (this.pending !== undefined || this.state === undefined ||
+      (entry?.target?.kind === "block" && (!event.blockId || event.blockId === entry.target.blockId))))) return this.refresh();
+    return Promise.resolve();
+  }
+
+  dispose(): void { this.disposed = true; }
+}
 
 /** Lists existing logical Details without resolving targets or touching Resources. */
 export function navigationDestinationItems(state: NavigationLinkState, unlink: boolean, showOther = false): OutlinerActionMenuItem[] {
@@ -22,8 +72,32 @@ export function navigationDestinationItems(state: NavigationLinkState, unlink: b
     {id: "destination:new-right", label: "New Detail right", description: "Open a new reader to the right; choose Link destination again to link it", binding: "", group: "Pane"},
     {id: "destination:new-below", label: "New Detail below", description: "Open a new reader below; choose Link destination again to link it", binding: "", group: "Pane"},
   );
+  if (unlink && state.destinations.some(item => item.placementPaneId)) items.push(
+    {id: "destination:place-right", label: "New Detail right of another…", description: "Choose a local reader beside which to create the new Detail", binding: "", group: "Pane"},
+    {id: "destination:place-below", label: "New Detail below another…", description: "Choose a local reader below which to create the new Detail", binding: "", group: "Pane"},
+  );
+  if (unlink) items.push(
+    {id: "destination:sidebar-outliner-left", label: "Sidebar left · Outliner area", description: "Create a Detail along the left edge of the Outliner area; existing links stay unchanged", binding: "", group: "Pane"},
+    {id: "destination:sidebar-outliner-right", label: "Sidebar right · Outliner area", description: "Create a Detail along the right edge of the Outliner area; existing links stay unchanged", binding: "", group: "Pane"},
+    {id: "destination:sidebar-tab-left", label: "Sidebar left · Whole Herdr tab", description: "Create a Detail along the left edge of the whole tab; existing links stay unchanged", binding: "", group: "Pane"},
+    {id: "destination:sidebar-tab-right", label: "Sidebar right · Whole Herdr tab", description: "Create a Detail along the right edge of the whole tab; existing links stay unchanged", binding: "", group: "Pane"},
+  );
   if (unlink && state.destination) items.push({id: "destination:unlink", label: "Unlink destination", description: "Explicit Open will ask for a destination", binding: "", group: "Pane"});
   return items;
+}
+
+export function navigationPlacementItems(state: NavigationLinkState): OutlinerActionMenuItem[] {
+  return [
+    ...state.destinations.flatMap<OutlinerActionMenuItem>((item, index) => item.placementPaneId ? [{
+      id: `placement:${index}`, label: sanitizeDynamicText(item.label),
+      description: sanitizeDynamicText(item.description ?? "Local Detail"), binding: "", group: "Pane",
+    }] : []),
+    {id: "placement:back", label: "Back to destinations", description: "Return without creating a pane", binding: "", group: "Pane"},
+  ];
+}
+
+export function navigationPlacementStatus(direction: "right" | "down"): string {
+  return `Create ${direction === "right" ? "to the right of" : "below"} the selected reader · Enter creates · Esc cancels`;
 }
 
 export function navigationDestinationStatus(state: NavigationLinkState, purpose: "link" | "open" = "link", showOther = false): string {
