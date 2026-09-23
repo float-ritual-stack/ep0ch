@@ -31,7 +31,8 @@ import {
   type OutlinerActionKeymap,
   type OutlinerActionMenuItem,
 } from "./outliner-actions";
-import type { TreeNavigation } from "./navigation-routes";
+import { navigationDestinationItems } from "./navigation-destination-menu";
+import type { TreeNavigation, NavigationRouteOptions } from "./navigation-routes";
 import {
   historyNavigationDirection,
   isDetailToggle,
@@ -63,6 +64,7 @@ import type {
   InternResourceReceipt,
   OutlinerEvent,
   OutlinerNavigationIntent,
+  NavigationLinkState,
   OutlinerNavigationTarget,
   PageAddressCollection,
   PropertyCatalogItem,
@@ -411,7 +413,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await routeGotoMouse(goto, sequence, effects.terminalWidth(), effects.terminalHeight());
   }
 
+  let destinationMenu: {state: NavigationLinkState; purpose: "link" | "open"} | null = null;
+
   function filteredActionMenuItems(): OutlinerActionMenuItem[] {
+    if (destinationMenu) return filterActionMenuItems(navigationDestinationItems(destinationMenu.state, destinationMenu.purpose === "link"), actionMenuQuery);
     const selected = rows[selectedIndex];
     let items = actionKeymap.menuItems("tree", actionMenuScope);
     if (actionMenuScope !== "browse") return filterActionMenuItems(items
@@ -1193,7 +1198,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     effects.invalidate();
   }
 
-  async function focusDetailReader(): Promise<void> {
+  async function focusDetailReader(routeOptions: NavigationRouteOptions = {}): Promise<void> {
     const selected = rows[selectedIndex];
     if (!selected) return;
     if (selected.kind === "authored-link-header") {
@@ -1210,6 +1215,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         return;
       }
       try {
+        await effects.navigation.resolve("open", routeOptions);
         let target: OutlinerNavigationTarget;
         let createdPage = false;
         let createdResource = false;
@@ -1233,7 +1239,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         await effects.navigation.dispatch(
           target,
           "open",
-          { preserveSource: true },
+          { ...routeOptions, preserveSource: true },
         );
         status = createdPage
           ? `Page created and opened in ${effects.navigation.readerLabel}`
@@ -1250,7 +1256,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await effects.navigation.dispatch({
         kind: "block",
         blockId: selected.canonicalId,
-      }, "open");
+      }, "open", routeOptions);
       status = `Reader opened in ${effects.navigation.readerLabel}`;
     } catch (error) {
       status = errorMessage(error);
@@ -1825,7 +1831,31 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     origin?: { column: number; row: number },
   ): Promise<void> {
     if (mode === "goto" && actionId === "tree.goto.detail") { await goto.accept("detail"); return; }
+    if (actionId === "tree.navigation.link" || actionId === "tree.navigation.once") {
+      const state = await effects.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: effects.clientId, region: "tree"}});
+      destinationMenu = {state, purpose: actionId === "tree.navigation.link" ? "link" : "open"};
+      actionMenuReturnMode = "browse";
+      mode = "action-menu";
+      updateActionMenuQuery("");
+      status = `${state.destination ? `Open → ${state.destination.clientId} / detail` : "Open unlinked"} · choose ${destinationMenu.purpose === "link" ? "permanent destination" : "once"}`;
+      effects.invalidate();
+      return;
+    }
+    if (actionId.startsWith("destination:") && destinationMenu) {
+      const menu = destinationMenu;
+      const destination = actionId === "destination:unlink" ? null : menu.state.destinations[Number(actionId.slice(12))]?.view;
+      if (destination === undefined) return;
+      destinationMenu = null;
+      mode = "browse";
+      if (menu.purpose === "link") {
+        await effects.request({action: "navigation.link.set", source: menu.state.source, destination});
+        status = destination ? `Open → ${destination.clientId} / detail` : "Open unlinked · choose once or new split";
+      } else if (destination) await focusDetailReader({destination});
+      effects.invalidate();
+      return;
+    }
     if (actionId === "tree.menu.open") {
+      destinationMenu = null;
       if (mode !== "action-menu") {
         actionMenuReturnMode = mode;
         actionMenuScope = actionScope();
@@ -1838,6 +1868,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     if (mode === "action-menu" && actionId === "tree.cancel") {
+      destinationMenu = null;
       mode = actionMenuReturnMode;
       status = "";
       effects.invalidate();

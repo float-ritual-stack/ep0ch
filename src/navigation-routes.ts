@@ -5,6 +5,8 @@ import type {
   OutlinerNavigationResolution,
   OutlinerNavigationTarget,
   BrowsingContextPublication,
+  OutlinerRegion,
+  OutlinerViewAddress,
 } from "./types";
 
 export const PRIMARY_DETAIL_LOCKED_ERROR =
@@ -14,6 +16,8 @@ export const ALL_DETAILS_LOCKED_ERROR =
   "All Details in this tab are locked · unlock one or open another Detail";
 
 export interface NavigationRouteOptions {
+  sourceRegion?: OutlinerRegion;
+  destination?: OutlinerViewAddress;
   preserveSource?: boolean;
   focusTarget?: boolean;
 }
@@ -28,7 +32,7 @@ export interface TreeNavigation {
 
 export function serviceTreeNavigation(requester: OutlinerRequester, clientId: string, contextId: string): TreeNavigation {
   return {
-    readerLabel: "first unlocked Detail",
+    readerLabel: "linked Detail",
     publish: (target, preview) => requester.request({action: "browsing-context.publish", sourceClientId: clientId, contextId, target, ...(preview ? {} : {dispatchPreview: false})}),
     resolve: (intent, options) => resolveNavigationDestination(requester, clientId, intent, options),
     dispatch: (target, intent, options) => dispatchNavigation(requester, clientId, target, intent, options),
@@ -49,6 +53,8 @@ export async function resolveNavigationDestination(
     action: "navigation.resolve",
     sourceClientId,
     intent,
+    ...(options.sourceRegion ? { sourceRegion: options.sourceRegion } : {}),
+    ...(options.destination ? { destination: options.destination } : {}),
     ...(options.preserveSource ? { preserveSource: true } : {}),
   });
 }
@@ -74,6 +80,8 @@ export async function dispatchNavigation(
     sourceClientId,
     target,
     intent,
+    ...(options.sourceRegion ? { sourceRegion: options.sourceRegion } : {}),
+    ...(options.destination ? { destination: options.destination } : {}),
     ...(options.preserveSource ? { preserveSource: true } : {}),
     ...(options.focusTarget ? { focusTarget: true } : {}),
   });

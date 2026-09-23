@@ -702,8 +702,8 @@ test("renders the shared destination prompt over ordinary Detail help", () => {
     stripTerminalSequences,
   );
   expect(rendered.at(-2)).toContain("Choose destination");
-  expect(rendered.at(-1)).toContain("f first unlocked");
-  expect(rendered.at(-1)).toContain("Enter default");
+  expect(rendered.at(-1)).toContain("f linked destination");
+  expect(rendered.at(-2)).toContain("Choose destination");
 });
 
 

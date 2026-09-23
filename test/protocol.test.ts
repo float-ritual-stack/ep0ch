@@ -297,6 +297,7 @@ test("persists resources and dispatches resource targets without synthetic block
     "# Daily\n\nEdited through Detail.\n",
   );
 
+  await client.request({action: "navigation.link.set", source: {clientId: "resource-tree", region: "tree"}, destination: {clientId: "resource-detail", region: "detail"}});
   const dispatch = await client.request<OutlinerNavigationDispatch>({
     action: "navigation.dispatch",
     sourceClientId: "resource-tree",
@@ -2652,7 +2653,7 @@ test("stopping a connected watcher does not report a disconnect", async () => {
   expect(disconnectCount).toBe(0);
 });
 
-test("routes previews and opens to the first spatially unlocked Detail", async () => {
+test("routes explicit opens through links while passive preview retains its pool", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-routes-"));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const target = store.create("Navigation target\n\n## Decision ^durable-decision");
@@ -2709,6 +2710,9 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   await Promise.all(connected.map(({ promise }) => promise));
   const client = new OutlinerClient(socket);
 
+  for (const [source, destination] of [["tree-a", "detail-c"], ["detail-c", "detail-d"], ["tree-oi", "detail-oi"]]) {
+    await client.request({action: "navigation.link.set", source: {clientId: source!, region: source!.startsWith("tree") ? "tree" : "detail"}, destination: {clientId: destination!, region: "detail"}});
+  }
   const launchClients = await client.request<OutlinerClientRegistration[]>({
     action: "clients.list",
   });
@@ -2720,7 +2724,7 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   await firstOpenReceived;
   expect(firstOpen).toMatchObject({
     targetClientId: "detail-c",
-    resolution: "unlocked",
+    resolution: "linked",
     command: { targetClientId: "detail-c", command: "open", target: { kind: "block", blockId: target.id } },
   });
   const fragmentOpenReceived = nextCommand("detail-c", "open");
@@ -2733,6 +2737,7 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   await fragmentOpenReceived;
   expect(fragmentOpen.command).toEqual({
     targetClientId: "detail-c",
+    targetRegion: "detail",
     command: "open",
     target: { kind: "block", blockId: target.id, fragmentId: "durable-decision" },
   });
@@ -2750,7 +2755,7 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   expect(sourcePreservingOpen).toMatchObject({
     sourceClientId: "detail-c",
     targetClientId: "detail-d",
-    resolution: "unlocked",
+    resolution: "linked",
   });
 
   await client.request({
@@ -2771,7 +2776,7 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   await nextOpenReceived;
   expect(nextOpen).toMatchObject({
     targetClientId: "detail-d",
-    resolution: "unlocked",
+    resolution: "linked",
   });
 
   const previewReceived = nextCommand("detail-d", "preview");
@@ -2814,10 +2819,11 @@ test("routes previews and opens to the first spatially unlocked Detail", async (
   focusTarget: true, })).rejects.toThrow("Focused navigation dispatch requires reveal intent");
 
   await client.request({ action: "clients.update", clientId: "detail-d", locked: true });
-  await expect(client.request({ action: "navigation.dispatch", sourceClientId: "tree-b", target: { kind: "block", blockId: target.id }, intent: "open", })).rejects.toThrow("All Details in this tab are locked · unlock one or open another Detail");
+  await expect(client.request({ action: "navigation.dispatch", sourceClientId: "tree-b", target: { kind: "block", blockId: target.id }, intent: "open", })).rejects.toThrow("No linked destination");
+  await client.request({action: "clients.update", clientId: "detail-d", navigationProtection: "active draft"});
   await expect(client.request({ action: "navigation.dispatch", sourceClientId: "detail-c", target: { kind: "block", blockId: target.id }, intent: "open",
   preserveSource: true, })).rejects.toThrow(
-    "No other unlocked Detail is available · unlock one or open another Detail",
+    "Destination is protected: active draft",
   );
 
   expect(pendingCommands).toEqual([]);
@@ -2965,7 +2971,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   await expect(client.request({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).rejects.toThrow();
 
   replaceTopology([
@@ -2993,7 +2999,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).toMatchObject({ targetClientId: "detail-a-live" });
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve",
@@ -3013,7 +3019,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   await expect(client.request({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).rejects.toThrow();
 
   replaceTopology([
@@ -3038,7 +3044,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).toMatchObject({ targetClientId: "detail-b-live" });
 
   replaceTopology([
@@ -3061,7 +3067,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).toMatchObject({ targetClientId: "detail-a-live" });
 
   replaceTopology([
@@ -3077,7 +3083,7 @@ test("reconciles long-lived clients against live Herdr pane topology", async () 
   await expect(client.request({
     action: "navigation.resolve",
     sourceClientId: "tree-live",
-    intent: "open",
+    intent: "preview",
   })).rejects.toThrow("No Detail is available in this tab · open another Detail");
   await expect(client.request({
     action: "navigation.resolve",
@@ -3122,7 +3128,7 @@ test("requires known hostnames for same-tab routing without a registry", async (
       runtime: { ...runtime, ...(treeHostname ? { hostname: treeHostname } : {}) },
     });
     await expect(client.request({
-      action: "navigation.resolve", sourceClientId: "tree", intent: "open",
+      action: "navigation.resolve", sourceClientId: "tree", intent: "preview",
     })).rejects.toThrow("No Detail is available in this tab");
     await expect(client.request({
       action: "navigation.resolve", sourceClientId: "detail", intent: "reveal",
@@ -3135,7 +3141,7 @@ test("requires known hostnames for same-tab routing without a registry", async (
     runtime: { ...runtime, hostname: "laptop.invalid" },
   });
   expect(await client.request<OutlinerNavigationDispatch>({
-    action: "navigation.resolve", sourceClientId: "tree", intent: "open",
+    action: "navigation.resolve", sourceClientId: "tree", intent: "preview",
   })).toMatchObject({ targetClientId: "detail", resolution: "unlocked" });
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve", sourceClientId: "detail", intent: "reveal",
@@ -3219,7 +3225,7 @@ test("preserves client-owned topology and routes only within its host", async ()
   expect(await client.request<OutlinerNavigationDispatch>({
     action: "navigation.resolve",
     sourceClientId: "remote-tree",
-    intent: "open",
+    intent: "preview",
   })).toMatchObject({
     targetClientId: "remote-detail",
     resolution: "unlocked",
@@ -3243,7 +3249,7 @@ test("preserves client-owned topology and routes only within its host", async ()
   await expect(client.request({
     action: "navigation.resolve",
     sourceClientId: "remote-tree",
-    intent: "open",
+    intent: "preview",
   })).rejects.toThrow("No Detail is available in this tab");
 });
 

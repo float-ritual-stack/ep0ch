@@ -139,7 +139,7 @@ const controller = new BacklinkPeekController(
     },
     async openInFirstUnlocked(sourceBlockId) {
       try {
-        await client.request({ action: "navigation.dispatch", sourceClientId: launch.sourceClientId, target: { kind: "block", blockId: sourceBlockId }, intent: "open", });
+        await client.request({ action: "navigation.dispatch", sourceClientId: launch.sourceClientId, sourceRegion: "detail", target: { kind: "block", blockId: sourceBlockId }, intent: "open", });
         return true;
       } catch (error) {
         if (error instanceof Error && error.message === ALL_DETAILS_LOCKED_ERROR) {

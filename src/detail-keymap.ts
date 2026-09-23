@@ -204,6 +204,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.cancel":
         await cancelBuffer();
         return true;
+      case "detail.navigation.link":
+        await dispatch({type: "navigation.link"});
+        return true;
       case "detail.menu.open":
         options.openActionMenu?.(
           actionKeymap.menuItems("detail", activeScopes()),
