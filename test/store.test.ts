@@ -2100,6 +2100,41 @@ Second paragraph`;
     );
   });
 
+  test("human text edits remove a primary page while preserving aliases and identity", () => {
+    const store = makeStore();
+    const page = store.create("Scratch [page::pie]\n\nMy writing");
+    store.addPageAlias(page.id, "scratch-alias");
+    const updated = store.update(page.id, "Scratch\n\nMy revised writing", page.revision, {author: "user", actorId: "detail"});
+    expect(updated.id).toBe(page.id);
+    expect(updated.text).toBe("Scratch\n\nMy revised writing");
+    expect(store.resolvePageAddress("pie").status).toBe("missing");
+    expect(store.resolvePageAddress("scratch-alias").block?.id).toBe(page.id);
+  });
+
+  test("human property patches can remove the primary page declaration", () => {
+    const store = makeStore();
+    const page = store.create("Scratch [page::pie]\n\nBody");
+    const updated = store.patchProperties(page.id, page.revision, [{op: "remove", ordinal: 0}], {author: "user", actorId: "detail"});
+    expect(updated.text).toContain("Body");
+    expect(updated.text).not.toContain("[page::");
+    expect(store.resolvePageAddress("pie").status).toBe("missing");
+  });
+
+  test("page removal through text remains guarded for stale edits, agents and Work IDs", () => {
+    const store = makeStore();
+    store.configureWorkIdPrefix("PIE");
+    const page = store.create("Scratch [page::pie] [work-id::PIE-132]");
+    for (const author of ["agent", "system"] as const) {
+      expect(() => store.update(page.id, "Scratch [work-id::PIE-132]", page.revision, {author, actorId: "fixture"})).toThrow("pages.remove");
+    }
+    expect(() => store.update(page.id, "Scratch", page.revision + 1, {author: "user"})).toThrow("Block changed");
+    expect(() => store.update(page.id, "Scratch", page.revision, {author: "user"})).toThrow("immutable");
+    expect(store.require(page.id).text).toBe(page.text);
+    expect(store.require(page.id).revision).toBe(page.revision);
+    expect(store.resolvePageAddress("pie").block?.id).toBe(page.id);
+    expect(store.resolvePageAddress("PIE-132").block?.id).toBe(page.id);
+  });
+
   test("renames pages explicitly while preserving old and added aliases", () => {
     const store = makeStore();
     const page = store.create("Knowledge [page::Old Address]");
