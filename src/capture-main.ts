@@ -1,5 +1,7 @@
+import {attachCaptureInput} from './capture-input';
+import {referenceCompletionProvider} from './reference-completion';
+import {parseTreePlainClick,treeLinkAtClick} from './tree-mouse';
 import { reportCurrentPaneWorkspace } from "./pane-control";
-import { emitKeypressEvents } from "node:readline";
 import { createOutlinerClient } from "./client";
 import {
   CapturePopupController,
@@ -9,10 +11,8 @@ import { resolveClientPaths } from "./paths";
 import {
   BRACKETED_PASTE_DISABLE,
   BRACKETED_PASTE_ENABLE,
-  TerminalInputDecoder,
-  type TerminalKey,
 } from "./terminal";
-import type { QuickCaptureDraft } from "./types";
+import type { QuickCaptureDraft, WorkIdAllocatorStatus } from "./types";
 
 if (process.env.HERDR_ENV !== "1") {
   throw new Error("Quick capture popup requires Herdr");
@@ -25,6 +25,9 @@ await client.requireCompatibleService();
 const requestId = process.env.OUTLINER_CAPTURE_REQUEST_ID?.trim() || crypto.randomUUID();
 const capturedFromBlockId = process.env.OUTLINER_CAPTURE_FROM_BLOCK_ID?.trim() || undefined;
 const draft = await client.request<QuickCaptureDraft | null>({ action: "capture.draft.get" });
+const workIds=await client.request<WorkIdAllocatorStatus>({action:'work-ids.status'});
+let detachInput:(()=>void)|undefined;
+let renderedLines:string[]=[];
 let stopping = false;
 let workQueue = Promise.resolve();
 
@@ -33,7 +36,8 @@ function stop(exitCode = 0): void {
   stopping = true;
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdout.off("resize", draw);
-  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
+  detachInput?.();
+  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l`);
   process.exit(exitCode);
 }
 
@@ -47,6 +51,7 @@ function stopAfterRetainingDraft(exitCode: number): void {
 }
 
 const controller = new CapturePopupController({
+  completionProvider:referenceCompletionProvider(client,"capture"),
   async save(input) {
     await client.request({
       action: "capture.create",
@@ -77,16 +82,19 @@ const controller = new CapturePopupController({
   },
 }, {
   requestId,
+  workIdPrefix:workIds.prefix,
   capturedFromBlockId,
   draft: draft ?? undefined,
 });
 
 function draw(): void {
-  process.stdout.write(renderCapturePopupFrame(
+  const frame=renderCapturePopupFrame(
     controller,
     process.stdout.columns ?? 80,
     process.stdout.rows ?? 20,
-  ));
+  );
+  renderedLines=frame.replace(/^\x1b\[H\x1b\[2J/,"").split("\n");
+  process.stdout.write(frame);
 }
 
 function enqueueWork(task: () => void | Promise<void>): void {
@@ -96,16 +104,17 @@ function enqueueWork(task: () => void | Promise<void>): void {
   });
 }
 
-const inputDecoder = new TerminalInputDecoder((text) => controller.handlePaste(text));
-emitKeypressEvents(process.stdin);
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}`);
-process.stdin.on("keypress", (str: string | undefined, key: TerminalKey) => {
-  const text = str ?? "";
-  const sequence = key.sequence ?? text;
-  if (!sequence && !key.name) return;
-  const inputAction = inputDecoder.consume(text, key);
-  enqueueWork(() => controller.handleKeypress(text, key, inputAction));
+process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}\x1b[?1000h\x1b[?1006h`);
+detachInput=attachCaptureInput(process.stdin,{
+ keypress:(text,key,action)=>enqueueWork(()=>controller.handleKeypress(text,key,action)),
+ paste:text=>enqueueWork(()=>controller.handlePaste(text)),
+ mouse:sequence=>{
+  if(!parseTreePlainClick(sequence))return;
+  const uri=treeLinkAtClick(renderedLines,sequence);
+  const match=uri?.match(/^pi-outliner-action:completion.choose:(\d+):(\d+)$/);
+  if(match)enqueueWork(()=>controller.chooseCompletion(Number(match[1]),Number(match[2])));
+ },
 });
 process.stdout.on("resize", draw);
 process.on("SIGINT", () => stopAfterRetainingDraft(130));
