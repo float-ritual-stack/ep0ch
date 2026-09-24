@@ -4011,6 +4011,26 @@ test('Tree Enter keeps focus; a quick repeat focuses only the same unchanged rou
  }finally{clock.mockRestore();}
 });
 
+test('Tree Enter repeat window starts when a slow Open completes',async()=>{
+ let now=1000;
+ const clock=spyOn(Date,'now').mockImplementation(()=>now);
+ const a=block('read-a');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a]);
+  if(input.action==='navigation.dispatch'&&input.intent==='open')now+=1500;
+ });
+ const c=createTreeController(fake.effects);
+ const opens=()=>fake.calls.filter(call=>call.action==='navigation.dispatch'&&call.intent==='open');
+ try{
+  await c.initialize();
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  now+=200;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true});
+ }finally{clock.mockRestore();}
+});
+
 test('failed Open and changed destinations never arm a focus transfer',async()=>{
  const a=block('read-a');let fail=true,targetClientId='detail-test';
  const fake=harness(input=>{

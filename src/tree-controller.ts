@@ -1338,7 +1338,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (sequence !== readSequence || origin !== originKey()) return;
     const opened = await focusDetailReader({focusTarget, ...(destination ? {destination} : {})});
     if (opened && sequence === readSequence && origin === originKey() && !focusTarget) {
-      lastRead = {origin, at, destination: {clientId: opened.targetClientId, region: opened.targetRegion ?? "detail"}};
+      lastRead = {origin, at: Date.now(), destination: {clientId: opened.targetClientId, region: opened.targetRegion ?? "detail"}};
       status += ` · Enter again within 1s or ${actionKeymap.primaryBinding("tree.read.focus")} to focus`;
       effects.invalidate();
     }
