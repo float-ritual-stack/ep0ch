@@ -1,3 +1,5 @@
+import { parsePropertyRecords } from "./properties";
+import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";
 import type {RenderedLink} from './rendered-links';
 import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, type DetailAnnotationGroup } from "./detail-annotations";
@@ -24,7 +26,7 @@ import {
 } from "./detail-callouts";
 import type { DetailCalloutTheme } from "./detail-callout-theme";
 import { detailEmbedIds } from "./detail-embeds";
-import { linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLinks } from "./outliner-links";
+import { linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
 import {
   detailBlockTarget,
   detailResourceDescription,
@@ -68,6 +70,7 @@ export interface DetailDraftProjection {
 }
 
 export interface DetailReadPreviewDocument {
+  sourceBlock?: Pick<Block,"id"|"revision"|"text">;
   preserveMetadata?: boolean;
   truncated?: boolean;
   canonicalText: string;
@@ -506,6 +509,7 @@ export function renderDetailReadPreviewLines(
     projectedText,
     linksEnabled,
     input.workIdPrefix,
+    input.sourceBlock?resourceOccurrenceLinks(input.sourceBlock,projectedText,renderedLineForAuthoredLine):new Map(),
   );
   const callouts = renderedAuthoredCallouts(
     parseDetailCallouts(input.canonicalText, calloutTheme),
@@ -526,9 +530,16 @@ export function renderDetailReadPreviewLines(
     calloutTheme,
   );
   markdown.setContent(document, embedRanges, true, callouts);
-  const historyLinks=input.preserveMetadata?[]:authoredResourceReferenceOccurrences(input.canonicalText)
-    .flatMap(link=>link.kind==="authored-resource"&&link.reference.kind==="resource"?[`[${link.label}](${outlinerLinkUri("resource",link.reference.resourceId)})`]:[]);
-  return [...(historyLinks.length?new Markdown(historyLinks.join(" · "),0,0,markdownTheme).render(Math.max(1,width)):[]),...markdown.render(Math.max(1, width))];
+  const metadataSpans = new Set(parsePropertyRecords(input.canonicalText).filter(record => record.scope === "block").map(record => record.start));
+  const metadataLinks = input.preserveMetadata ? [] : authoredResourceReferenceOccurrences(input.canonicalText).flatMap(link => {
+    if (link.kind !== "authored-resource") return [];
+    if (link.reference.kind === "resource") return [`[${link.label}](${outlinerLinkUri("resource", link.reference.resourceId)})`];
+    if (link.reference.kind !== "filesystem" || !input.sourceBlock || !metadataSpans.has(link.start)) return [];
+    const target = resourceOccurrenceLink(input.sourceBlock, link);
+    const label = sanitizeMarkdownDocument(link.label).replace(/([\\[\]`*_])/g, "\\$1");
+    return [`[File: ${label}](${outlinerLinkUri(target.kind, target.value, target)})`];
+  });
+  return [...(metadataLinks.length ? new Markdown(metadataLinks.join(" · "), 0, 0, markdownTheme).render(Math.max(1, width)) : []), ...markdown.render(Math.max(1, width))];
 }
 
 const PREVIEW_HELP = DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail", "preview");
@@ -1590,7 +1601,7 @@ export class DetailPiPreviewLayout extends VStack {
       this.renderedEmbedPresentation = embedPresentation;
       this.renderedDraftProjectionError = this.draftProjectionError;
       const document = !selected
-        ? sourceText
+        ? renderPreviewDocument(sourceText, sourceText, true, workIdPrefix)
         : referencesReady
         ? renderPreviewDocument(
             sourceText,
