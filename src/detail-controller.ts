@@ -2449,7 +2449,7 @@ export function createDetailController(
     if(choice.action==="later") {
       if(choice.record.state==="discarded"&&state.recovery?.id===choice.record.id)state.recovery=undefined;
       state.recoveryCount=(await effects.recovery.list(selected.id)).length;
-      state.status=state.recoveryCount ? "Writing retained · Recover writing in the header or actions menu" : "Recovery closed; canonical note unchanged";
+      state.status=state.recoveryCount ? "Writing retained · Writing history in the header or actions menu" : "Recovery closed; canonical note unchanged";
       return;
     }
     if(choice.action==="separate") {
@@ -2860,7 +2860,7 @@ export function createDetailController(
     state.mode = detailDisplayMode(state.context.selected);
     state.annotationDraft = undefined;
     state.status = cancelledMode === "comment" ? "Comment cancelled" : "Edit cancelled";
-    if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Recover writing in the header or actions menu";
+    if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Writing history in the header or actions menu";
     const cancelStatus = state.status;
     await focusOutliner(false);
     if (retentionNotice) state.status = state.status === cancelStatus ? retentionNotice : `${retentionNotice} · ${state.status}`;

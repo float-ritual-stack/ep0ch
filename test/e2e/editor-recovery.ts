@@ -41,7 +41,7 @@ const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed"
   assert.ok(retained[0]!.draftText.includes("LOCAL ENDING"));assert.equal(retained[0]!.proposal,null);
   await s.keys(s.panes.detail,"escape");
   const reopened=await s.openRemoteBrowsingContext({name:"recovery-reopen",renderer:ansi?"ansi":"pi-tui"});
-  await s.revealTree(reopened.tree,base.id);await s.keys(reopened.tree,"enter");await s.waitVisible(reopened.detail,"Recover writing");
+  await s.revealTree(reopened.tree,base.id);await s.keys(reopened.tree,"enter");await s.waitVisible(reopened.detail,"Writing history");
   await s.focus(reopened.detail);await s.keys(reopened.detail,"alt+r");await s.waitVisible(reopened.detail,"Recoverable writing");
   await s.keys(reopened.detail,"2");await s.waitVisible(reopened.detail,"LOCAL ENDING");
   await s.keys(reopened.detail,"6");await s.waitVisible(reopened.detail,"other-writer");
