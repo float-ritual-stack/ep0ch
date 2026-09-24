@@ -902,3 +902,40 @@ test("custom destination chords leave modified Backspace with active filters", a
     expect(editor.intents).toEqual([{type: property ? "property-inspector.filter.backspace" : "backlinks.filter.backspace"}]);
   }
 });
+
+test('empty completion states retain editor keys and Escape dismisses without cancelling',async()=>{
+ for(const status of [{loading:true},{message:'No matching addresses'},{message:'Lookup failed: offline'}]){
+  const current=state();current.completion={start:0,end:4,index:0,items:[],...status};
+  const editor=harness(current);
+  await editor.press({name:'return'});await editor.press({name:'tab'});
+  await editor.press({name:'up'});await editor.press({name:'down'});await editor.press({name:'escape'});
+  expect(editor.intents).toEqual([
+   {type:'buffer.newline'},{type:'completion.open'},
+   {type:'buffer.move',direction:'up',extend:undefined},{type:'buffer.move',direction:'down',extend:undefined},
+   {type:'completion.dismiss'},
+  ]);
+  current.completion=null;await editor.press({name:'escape'});
+  expect(editor.intents.at(-1)).toEqual({type:'buffer.cancel'});
+ }
+});
+
+test('completion keeps configured editor actions and configurable selection controls',async()=>{
+ const current=state();current.completion={start:0,end:4,index:0,items:[{label:'Home',insertion:'[[home]]'}]};
+ const actionKeymap=new OutlinerActionKeymap('<test>',{'detail.buffer.save':['Alt+S'],'detail.completion.next':['Alt+J'],'detail.completion.accept':['Alt+I']});
+ const editor=harness(current,true,{actionKeymap});
+ await editor.press({name:'s',meta:true});await editor.press({name:'j',meta:true});await editor.press({name:'i',meta:true});
+ await editor.press({name:'down'});await editor.press({name:'tab'});await editor.press({name:'escape'});
+ expect(editor.intents).toEqual([{type:'buffer.save'},{type:'completion.move',delta:1},{type:'completion.accept'},{type:'completion.dismiss'}]);
+});
+
+test('empty completion leaves Enter as newline and Escape dismisses before editor cancellation',async()=>{
+ const current=state();current.completion={start:0,end:4,index:0,items:[],message:'No matches'};const editor=harness(current,true);
+ await editor.press({name:'return'});await editor.press({name:'escape'});
+ expect(editor.intents).toEqual([{type:'buffer.newline'},{type:'completion.dismiss'}]);
+});
+
+test('empty lookup respects configured dismissal while preserving newline',async()=>{
+ const current=state();current.completion={start:0,end:4,index:0,items:[]};const editor=harness(current,true,{actionKeymap:new OutlinerActionKeymap('<test>',{'detail.completion.dismiss':['Alt+D']})});
+ await editor.press({name:'escape'});await editor.press({name:'return'});await editor.press({name:'d',meta:true});
+ expect(editor.intents).toEqual([{type:'buffer.newline'},{type:'completion.dismiss'}]);
+});

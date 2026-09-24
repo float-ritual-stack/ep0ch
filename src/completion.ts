@@ -62,7 +62,7 @@ export function pageAddressCompletion(
         authoredQuery.trim() !== address.address
       ? authoredQuery.trim()
       : title;
-  const safeLabel = authoredLabel && !/[\]\r\n]/.test(authoredLabel)
+  const safeLabel = authoredLabel && !/[\[\]\r\n]/.test(authoredLabel) && !/\(\(|\)\)/.test(authoredLabel)
     ? authoredLabel
     : null;
   return {
@@ -105,10 +105,14 @@ export function completionTargetAtCursor(
 
     if (start < 0) continue;
     if (!target || start > target.start) {
+      const closing = line.indexOf(syntax.closing, end);
+      const intervening = closing >= 0 ? line.slice(end, closing) : "";
+      const replacementEnd = closing >= 0 && !/[\[\]\r\n]|\(\(|\)\)/.test(intervening)
+        ? closing + syntax.closing.length : end;
       target = {
         kind: syntax.kind,
         start,
-        end,
+        end: replacementEnd,
         query: beforeCursor.slice(start + syntax.opening.length),
       };
     }

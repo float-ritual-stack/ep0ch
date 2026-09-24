@@ -1,3 +1,4 @@
+import { renderReferenceCompletion } from "./reference-completion-renderer";
 import type {DocumentPreviewFrame} from "./document-preview-renderer";
 import {renderNavigationDestinationPreview} from './navigation-destination-menu';
 import {treePreviewFrame} from './tree-preview';
@@ -297,24 +298,11 @@ function renderQuickCompletionRows(
   completion: TreeQuickCompletion | null,
   depth: number,
   width: number,
+  help?: string,
 ): string[] {
   if (!completion) return [];
-  const prefix = `${"  ".repeat(depth)}  `;
-  const window = completionWindow(completion.items.length, completion.index, 6);
-  const truncationLabel =
-    completion.truncatedLimit === null ? "" : ` · Showing first ${completion.truncatedLimit} matches`;
-  const rows = [
-    `${prefix}\x1b[2m${truncate(
-      `Completions ${completion.index + 1}/${completion.items.length}${truncationLabel}`,
-      Math.max(1, width - prefix.length),
-    )}\x1b[0m`,
-  ];
-  for (let index = window.start; index < window.end; index++) {
-    const item = completion.items[index];
-    const label = truncate(item.label, Math.max(1, width - prefix.length - 2));
-    rows.push(index === completion.index ? `${prefix}\x1b[7m› ${label}\x1b[0m` : `${prefix}  ${label}`);
-  }
-  return rows;
+  const indent=Math.min(depth*2+2,Math.max(0,Math.floor(width/5)));
+  return renderReferenceCompletion({...completion,items:[...completion.items]},width-indent,8,"completion.choose",help).map(line=>" ".repeat(indent)+line);
 }
 function authoredHeaderStateText(row: AuthoredLinkHeaderRow): string {
   const { state } = row;
@@ -606,7 +594,7 @@ export function renderTreeFrame(
     if (editingInline) {
       const result = [
         renderQuickInputRow(view.quickInput, view.quickColumn, row.depth, marker, author, width),
-        ...renderQuickCompletionRows(view.quickCompletion, row.depth + 1, width),
+        ...renderQuickCompletionRows(view.quickCompletion, row.depth + 1, width, view.actionHelpText),
       ];
       renderedRows[index] = result;
       return result;
@@ -699,7 +687,7 @@ export function renderTreeFrame(
     if (entry.kind === "block") return getBlockRows(entry.blockIndex);
     return [
       renderQuickInputRow(view.quickInput, view.quickColumn, displayDepth(entry.depth), "•", AUTHOR_MARKERS.user, width),
-      ...renderQuickCompletionRows(view.quickCompletion, displayDepth(entry.depth) + 1, width),
+      ...renderQuickCompletionRows(view.quickCompletion, displayDepth(entry.depth) + 1, width, view.actionHelpText),
     ];
   }
 

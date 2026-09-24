@@ -12,12 +12,12 @@ import {
 } from "./attention-render";
 import { currentAttentionMark } from "./attention";
 import { annotationScopeLabel, annotationTargetText, buildDetailAnnotationView, detailAnnotationGroups } from "./detail-annotations";
-import { completionWindow } from "./completion";
+import { renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries } from "./property-inspector";
 import { blockDisplayTitle } from "./references";
 import { resourceAddressLabel } from "./resources";
-import { outlinerActionLink } from "./outliner-actions";
+import { DEFAULT_OUTLINER_ACTION_KEYMAP, outlinerActionLink } from "./outliner-actions";
 import {
   detailBlockTarget,
   detailResourceDescription,
@@ -265,18 +265,11 @@ function appendCompletion(
   state: Readonly<DetailState>,
   width: number,
   height: number,
+  help?: string,
 ): void {
   const completion = state.completion;
   if (!completion) return;
-  const available = Math.min(6, height - output.length - 3);
-  if (available < 1) return;
-  const window = completionWindow(completion.items.length, completion.index, available);
-  const title = `Completions ${completion.index + 1}/${completion.items.length}`;
-  output.push(`\x1b[2m${fitToWidth(title, width)}\x1b[0m`);
-  for (let index = window.start; index < window.end; index++) {
-    const label = fitDynamicText(completion.items[index].label, Math.max(1, width - 2));
-    output.push(index === completion.index ? `\x1b[7m› ${label}\x1b[0m` : `  ${label}`);
-  }
+  output.push(...renderReferenceCompletion(completion,width,Math.min(8,Math.max(0,height-output.length-2)),"completion.choose",help ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail",["completion"])));
 }
 
 export interface DetailRenderOptions {
@@ -360,12 +353,12 @@ export function renderDetailLines(
     );
     const visibleRows = layout.rows.slice(
       state.editorVisualOffset,
-      state.editorVisualOffset + editorHeight,
+      state.completion ? Math.min(state.editorVisualOffset + editorHeight,layout.cursorRow+1) : state.editorVisualOffset + editorHeight,
     );
     visibleRows.forEach((row, index) => {
       output.push(renderTextBufferEditorRow(layout, row, state.editorVisualOffset + index));
     });
-    appendCompletion(output, state, width, height);
+    appendCompletion(output, state, width, height, options.helpText);
   } else if (state.propertyInspector.model &&
       (state.propertyInspector.expanded || state.propertyInspector.presentation === "dedicated")) {
     const inspector = state.propertyInspector;
