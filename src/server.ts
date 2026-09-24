@@ -1357,7 +1357,7 @@ export class OutlinerServer {
           break;
         }
         case "ping":
-          result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION };
+          result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:dirname(this.store.database.filename)} };
           break;
         case "blocks.query":
           result = this.store.queryBlocks(request.query);
