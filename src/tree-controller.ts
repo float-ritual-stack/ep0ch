@@ -456,6 +456,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   const recoveryResolvers=new WeakMap<OpenDestinationTarget,()=>Promise<OutlinerNavigationTarget>>();
   let recoveryOrigin='';
   let navigationGeneration=0;
+  let readSequence = 0;
+  let lastRead: {origin: string; at: number; destination: OutlinerViewAddress} | null = null;
+  function cancelReadSequence(): void { lastRead = null; readSequence++; }
   let closed=false;
   const originKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId,mode==='inbox'?inbox.selected?.id:null,mode==='inbox'?inbox.targetIndex:null,mode==='inbox'?inbox.reader.state?.target:localReader.state?.target]);
   async function materializeRecovery(target:OpenDestinationTarget):Promise<OutlinerNavigationTarget>{
@@ -1254,7 +1257,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     effects.invalidate();
   }
 
-  async function focusDetailReader(routeOptions: NavigationRouteOptions = {}): Promise<void> {
+  async function focusDetailReader(routeOptions: NavigationRouteOptions = {}) {
     const selected = rows[selectedIndex];
     if (!selected) return;
     if (selected.kind === "authored-link-header") {
@@ -1287,8 +1290,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         if(closed || generation!==navigationGeneration || origin!==originKey())return;
         const target=await resolveTarget();
         if(closed || generation!==navigationGeneration || origin!==originKey())return;
-        if (await dispatchRecoverable(target, "open", {...routeOptions, preserveSource:true})) {
+        const opened = await dispatchRecoverable(target, "open", {...routeOptions, preserveSource:true});
+        if (opened) {
           status = `Authored target opened in ${effects.navigation.readerLabel}`;
+          effects.invalidate();
+          return opened;
         }
       } catch (error) {
         if (missingNavigationDestination(error) && !routeOptions.destination) {
@@ -1299,15 +1305,43 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     try {
-      if (!await dispatchRecoverable({
+      const opened = await dispatchRecoverable({
         kind: "block",
         blockId: selected.canonicalId,
-      }, "open", routeOptions)) return;
+      }, "open", routeOptions);
+      if (!opened) return;
       status = `Reader opened in ${effects.navigation.readerLabel}`;
+      effects.invalidate();
+      return opened;
     } catch (error) {
       status = errorMessage(error);
     }
     effects.invalidate();
+  }
+
+  async function readSelected(focusImmediately = false): Promise<void> {
+    const row = rows[selectedIndex];
+    if (row?.kind === "authored-link-header") { cancelReadSequence(); await handleDisclosure(row.rowId); return; }
+    const origin = originKey(), at = Date.now(), sequence = readSequence;
+    const previous = lastRead;
+    lastRead = null;
+    let focusTarget = focusImmediately;
+    let destination: OutlinerViewAddress | undefined;
+    if (!focusImmediately && previous?.origin === origin && at >= previous.at && at - previous.at <= 1000) {
+      try {
+        const route = await effects.navigation.resolve("open");
+        if (sequence !== readSequence || origin !== originKey()) return;
+        destination = {clientId: route.targetClientId, region: route.targetRegion ?? "detail"};
+        focusTarget = destination.clientId === previous.destination.clientId && destination.region === previous.destination.region;
+      } catch { /* The ordinary Open below owns error and destination recovery. */ }
+    }
+    if (sequence !== readSequence || origin !== originKey()) return;
+    const opened = await focusDetailReader({focusTarget, ...(destination ? {destination} : {})});
+    if (opened && sequence === readSequence && origin === originKey() && !focusTarget) {
+      lastRead = {origin, at, destination: {clientId: opened.targetClientId, region: opened.targetRegion ?? "detail"}};
+      status += ` · Enter again within 1s or ${actionKeymap.primaryBinding("tree.read.focus")} to focus`;
+      effects.invalidate();
+    }
   }
 
   async function createLinkedDetail(placement: DetailDestinationPlacement): Promise<void> {
@@ -1596,6 +1630,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleServiceEvent(event: OutlinerEvent): Promise<void> {
+    if (event.domain === "content" ||
+        (event.domain === "ui" && event.command?.targetClientId === effects.clientId && event.command.targetRegion !== "detail" && ["focus", "reveal"].includes(event.command.command)) ||
+        (event.domain === "view" && event.action === "navigation.link.set")) cancelReadSequence();
     navigationDisplay.onEvent(event);
     if (event.domain === "view" && (event.action === "navigation.link.set" || event.action.startsWith("clients."))) return;
     if (event.domain === "inbox") {
@@ -1706,6 +1743,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleConnect(): Promise<void> {
+    cancelReadSequence();
     void navigationDisplay.refresh();
     resetExpandedBlockPaging();
     status = "";
@@ -1727,6 +1765,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function handleDisconnect(): void {
+    cancelReadSequence();
     status = "Workspace service disconnected; reconnecting…";
     inbox.disconnected();
     effects.invalidate();
@@ -1806,6 +1845,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleDisclosure(rowId: string): Promise<void> {
+    cancelReadSequence();
     const rowIndex = rows.findIndex((row) => row.rowId === rowId);
     const row = rows[rowIndex];
     if (!row) return;
@@ -1835,6 +1875,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleRowClick(rowId: string, activate = false): Promise<void> {
+    cancelReadSequence();
     if (mode !== "browse") return;
     navigationGeneration++;
     const rowIndex = rows.findIndex((row) => row.rowId === rowId);
@@ -1864,6 +1905,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     actionId: string,
     origin?: { column: number; row: number },
   ): Promise<void> {
+    if (actionId !== "tree.read") cancelReadSequence();
     if(actionId==='tree.workspace.inspect'){
       const generation=++navigationGeneration;
       mode='viewer';viewerWrap=true;viewerPath='Workspace and connection';viewerOffset=0;viewerLines=['Checking workspace and connection…'];effects.invalidate();
@@ -2035,6 +2077,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     if (mode === "action-menu") mode = actionMenuReturnMode;
+    if (mode === "browse" && (actionId === "tree.read" || actionId === "tree.read.focus")) {
+      await readSelected(actionId === "tree.read.focus");
+      return;
+    }
     if (actionId === "tree.debug.keys") {
       if(effects.openKeyInspector) effects.openKeyInspector();
       else status="Key inspector is unavailable in this host";
@@ -2277,6 +2323,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handlePaste(text: string): Promise<void> {
+    cancelReadSequence();
     if (mode === "goto") { goto.paste(text); return; }
     if (mode === "inbox") { inbox.paste(text); return; }
     if (mode === "action-menu") {
@@ -2296,6 +2343,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     treePointer = false,
   ): Promise<void> {
     if(openRecovery.state.active&&inputAction!=='suppress'){
+      cancelReadSequence();
       if(recoveryOrigin!==originKey()){openRecovery.dismiss();}
       else if(key.name==='return'||key.name==='escape'||str.toLowerCase()==='l'){
         await openRecovery.handleKeypress(str,key);return;
@@ -2309,6 +2357,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
     }
     if (!treePointer && inputAction !== "suppress" && mode === "browse" && localReader.state?.focused) {
+      cancelReadSequence();
       if(key.name==="escape"){localReader.focus(false);return;}
       const action=actionKeymap.canonicalize("tree","browse",str,key);
       if(action.suppressed)return;
@@ -2332,6 +2381,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       key = mapped.key;
     }
     if (inputAction === "suppress") return;
+    if (key.name !== "return" || key.ctrl || key.meta || key.shift || mode !== "browse") cancelReadSequence();
     if (key.ctrl && key.name === "q") {
       closed=true;navigationGeneration++;openRecovery.dispose();
       effects.stop();
@@ -2488,7 +2538,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         await handleDisclosure(selected.rowId);
         return;
       } else if (key.name === "return" || detailHandoffRequested) {
-        await focusDetailReader();
+        await readSelected(detailHandoffRequested);
         return;
       } else if (key.name === "pageup" || key.name === "pagedown" || isDetailToggle(str, key)) {
         status = "Authored-link rows are single-line";
@@ -2584,7 +2634,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await beginInput("purge");
       return;
     } else if (key.name === "return" && selected) {
-      await focusDetailReader();
+      await readSelected();
       return;
     } else if (str === "e" && selected) {
       if (selected.block.effectiveDeletedRootId) {

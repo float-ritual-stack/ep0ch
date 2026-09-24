@@ -1636,8 +1636,8 @@ export class OutlinerServer {
           break;
         case "navigation.dispatch": {
           const intent = this.navigationIntent(request.intent);
-          if (request.focusTarget && intent !== "reveal") {
-            throw new Error("Focused navigation dispatch requires reveal intent");
+          if (request.focusTarget !== undefined && intent !== "reveal" && intent !== "open") {
+            throw new Error("Explicit focus requires open or reveal intent");
           }
           const navigationTarget = this.normalizeNavigationTarget(request.target);
           const route = this.resolveNavigationTarget(
@@ -1665,6 +1665,7 @@ export class OutlinerServer {
               ...(route.targetRegion ? {targetRegion: route.targetRegion} : {}),
               command: intent,
               target: navigationTarget,
+              ...(request.focusTarget !== undefined ? {focus: request.focusTarget} : {}),
             };
           }
           result = { ...route, command } satisfies OutlinerNavigationDispatch;

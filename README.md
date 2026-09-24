@@ -421,7 +421,10 @@ trail. Missing pages are reported without creating notes; unsupported links
 remain visible as such. Tree and Detail selection stay unchanged while browsing.
 
 Tree `Enter` explicitly opens the selected target through that Tree's saved
-Detail destination link. **Alt+L**, **Shift+L**, or the clickable **Opens in / Change** header sets or changes the link; **Open once
+Detail destination link and keeps focus in Tree. Press Enter again within one
+second on the same row and destination to focus Detail, or use **Alt+Enter**
+to open and focus immediately. Moving the selection or performing another action
+ends that repeat sequence. **Alt+L**, **Shift+L**, or the clickable **Opens in / Change** header sets or changes the link; **Open once
 in…** chooses a destination for one action. Several sources can share a reader,
 and receiving a target never forwards it through the receiver's own link.
 Moving or resizing panes does not change links. An absent destination reports

@@ -245,7 +245,7 @@ export const resourceAuthoringScenario = {
     await session.record("catalog-before-activation", catalogEvidence(beforeActivation));
     await session.checkpoint("04-resource-row-selected");
 
-    await session.keys(session.panes.tree, "enter");
+    await session.keys(session.panes.tree, "alt+enter");
     const firstCatalog = await session.waitFor(
       "first authored Resource activation",
       () => readCatalogIds(session),
@@ -277,7 +277,7 @@ export const resourceAuthoringScenario = {
 
     const beforeRepeat = readCatalogIds(session);
     assertCatalogUnchanged(firstCatalog, beforeRepeat, "Refocusing and reselecting the canonical Resource");
-    await session.keys(session.panes.tree, "enter");
+    await session.keys(session.panes.tree, "alt+enter");
     const repeatedDetail = await waitForDetailTarget(session, resourceId, true);
     await session.waitVisible(session.panes.detail, README_SENTINEL);
 

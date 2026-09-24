@@ -809,7 +809,7 @@ const serviceEventScheduler = new DetailEventScheduler({
         focusRegion("tree");
       } else if (event.command.targetRegion === "detail") await readingSurface.onServiceEvent(event, viewport());
       else throw new Error("Composed UI commands require an explicit region");
-      if (event.command.command !== "preview" && process.env.HERDR_ENV === "1") focusCurrentPane();
+      if (event.command.command !== "preview" && (!('focus' in event.command) || event.command.focus !== false) && process.env.HERDR_ENV === "1") focusCurrentPane();
       return;
     }
     if (event.domain === "attention" && event.attentionInstruction) {

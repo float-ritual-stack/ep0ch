@@ -3,7 +3,7 @@ initTheme(undefined,false);
 import {renderTreeFrame} from "../src/tree-renderer";
 import { gotoCandidates, visibleGotoResults } from "../src/goto-search";
 import { serviceTreeNavigation } from "../src/navigation-routes";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import { setImmediate } from "node:timers/promises";
 import {
   attentionClientState,
@@ -580,7 +580,7 @@ describe("createTreeController", () => {
       target: { kind: "block", blockId: first.id },
       intent: "open",
     });
-    expect(controller.view().status).toBe("Reader opened in linked Detail");
+    expect(controller.view().status).toContain("Reader opened in linked Detail");
   });
   test("keeps generated links on their exact owner occurrence and opens typed targets explicitly", async () => {
     const definition = block("view0001", {
@@ -706,6 +706,7 @@ describe("createTreeController", () => {
       sourceClientId: "tree-test",
       target: { kind: "resource", resourceId },
       intent: "open",
+      focusTarget: false,
       preserveSource: true,
     });
   });
@@ -891,6 +892,7 @@ describe("createTreeController", () => {
     expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({
       target: { kind: "resource", resourceId },
       intent: "open",
+      focusTarget: false,
       preserveSource: true,
     });
   });
@@ -1973,8 +1975,8 @@ describe("createTreeController", () => {
 
     await controller.handleKeypress("", { name: "return" }, "pass");
     expect(controller.view().mode).toBe("browse");
-    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: selected.id }, intent: "open", });
-    expect(controller.view().status).toBe("Reader opened in linked Detail");
+    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: selected.id }, intent: "open", focusTarget: false, });
+    expect(controller.view().status).toContain("Reader opened in linked Detail");
 
     await controller.handleKeypress("e", { name: "e" }, "pass");
     expect(lastCall(fake.calls, "ui.command.send")).toEqual({
@@ -3977,4 +3979,54 @@ test('refresh preserves a surviving generated selection and refreshes hidden des
  const group=c.view().rows.find(r=>r.kind==='authored-link-header'&&r.owner.rowId===a.id&&r.group==='outlinks')!;
  await c.handleDisclosure(group.rowId);const before=readsB;await c.handleServiceEvent(event('content',b.id));
  expect(readsB).toBe(before);await c.handleDisclosure(group.rowId);expect(readsB).toBe(before+1);
+});
+
+test('Tree Enter keeps focus; a quick repeat focuses only the same unchanged route',async()=>{
+ let now=1000;
+ const clock=spyOn(Date,'now').mockImplementation(()=>now);
+ const a=block('read-a'),b=block('read-b');
+ const fake=harness(input=>input.action==='tree.index'?snapshot([a,b]):undefined);
+ const c=createTreeController(fake.effects);
+ const opens=()=>fake.calls.filter(call=>call.action==='navigation.dispatch'&&call.intent==='open');
+ try{
+  await c.initialize();
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false,target:{blockId:a.id}});
+  now+=200;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true,target:{blockId:a.id}});
+  await c.handleKeypress('',{name:'down'},'pass');
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false,target:{blockId:b.id}});
+  now+=1001;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  await c.handleKeypress('',{name:'return',meta:true},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true});
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  await c.handleRowClick(b.id);
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+ }finally{clock.mockRestore();}
+});
+
+test('failed Open and changed destinations never arm a focus transfer',async()=>{
+ const a=block('read-a');let fail=true,targetClientId='detail-test';
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a]);
+  if(input.action==='navigation.resolve')return {sourceClientId:'tree-test',targetClientId,intent:input.intent,resolution:'linked'};
+  if(input.action==='navigation.dispatch'&&input.intent==='open'){
+   if(fail)throw Error('Destination is protected');
+   return {sourceClientId:'tree-test',targetClientId,intent:'open',resolution:'linked',command:{command:'open',targetClientId,target:input.target}};
+  }
+ });
+ const c=createTreeController(fake.effects);await c.initialize();
+ const open=()=>c.handleAction('tree.read');
+ const last=()=>lastCall(fake.calls,'navigation.dispatch');
+ await open();expect(c.view().status).toContain('protected');
+ fail=false;await open();expect(last()).toMatchObject({focusTarget:false});
+ targetClientId='another-detail';await open();expect(last()).toMatchObject({focusTarget:false,destination:{clientId:targetClientId,region:'detail'}});
+ await c.handleServiceEvent({...event('view'),action:'navigation.link.set'});
+ await open();expect(last()).toMatchObject({focusTarget:false});
 });

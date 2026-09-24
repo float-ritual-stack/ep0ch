@@ -77,6 +77,6 @@ export async function dispatchNavigation(
     ...(options.sourceRegion ? { sourceRegion: options.sourceRegion } : {}),
     ...(options.destination ? { destination: options.destination } : {}),
     ...(options.preserveSource ? { preserveSource: true } : {}),
-    ...(options.focusTarget ? { focusTarget: true } : {}),
+    ...(options.focusTarget !== undefined ? { focusTarget: options.focusTarget } : {}),
   });
 }

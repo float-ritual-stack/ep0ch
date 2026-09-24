@@ -5671,3 +5671,20 @@ test('an older authored file resolution cannot replace the newer Preview intent'
  expect(previewed).toHaveLength(1);
  expect(previewed[0]?.kind==='resource'&&previewed[0].referenceContext?.anchor.kind==='text-quote'&&previewed[0].referenceContext.anchor.exact).toContain('second.md');
 });
+
+test('an explicit non-focusing Open loads Current and still protects its draft',async()=>{
+ const h=createHarness(makeBlock({id:'original'}));
+ await h.controller.initialize();
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'read-target'},focus:false},viewport);
+ expect(h.controller.state.target).toEqual({kind:'block',blockId:'read-target'});
+ expect(h.calls.selfFocuses).toBe(0);
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'read-target'},focus:true},viewport);
+ expect(h.calls.selfFocuses).toBe(1);
+ await h.controller.dispatch({type:'edit.begin'},viewport);
+ await h.controller.dispatch({type:'buffer.insert',text:'KEEP THIS DRAFT'},viewport);
+ const draft=h.controller.state.buffer.text;
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'other'},focus:false},viewport);
+ expect(h.controller.state.target).toEqual({kind:'block',blockId:'read-target'});
+ expect(h.controller.state.buffer.text).toBe(draft);
+ expect(h.calls.selfFocuses).toBe(1);
+});
