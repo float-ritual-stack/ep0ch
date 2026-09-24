@@ -47,7 +47,8 @@ export function mergeEdits(base: string, local: string, latest: string): EditMer
   if (!base.endsWith("\n")) {
     for (const ending of ["\r\n", "\n"]) {
       const other = local === base + ending ? latest : latest === base + ending ? local : null;
-      if (other !== null && (!other.endsWith("\n") || other.endsWith(ending))) {
+      if (other !== null && other.startsWith(base + ending) &&
+          (!other.endsWith("\n") || other.endsWith(ending))) {
         return {text: other.endsWith(ending) ? other : other + ending, conflicts: [], incomplete: false};
       }
     }

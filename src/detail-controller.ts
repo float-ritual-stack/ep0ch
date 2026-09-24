@@ -2420,15 +2420,20 @@ export function createDetailController(
       prelaunchText:state.buffer.text,draftText:state.buffer.text,source:"save-conflict"};
   };
 
+  let mechanicalAcceptance: {buffer: TextBuffer; recovery: EditRecovery; text: string; undone: boolean} | undefined;
+  const mechanicalMergeUndone = (): boolean =>
+    mechanicalAcceptance?.buffer === state.buffer && mechanicalAcceptance.undone;
+
   // Accept only the deterministic comparison for this active draft. Historical
   // recoveries and model proposals still require an explicit choice.
   const acceptMechanicalRecovery = (): boolean => {
     const recovery = state.recovery;
-    if (!recovery || !recovery.proposal || recovery.proposal.source !== "mechanical" ||
+    if (mechanicalMergeUndone() || !recovery || !recovery.proposal || recovery.proposal.source !== "mechanical" ||
         recovery.proposal.unresolved.length || recovery.merge.incomplete ||
         recovery.merge.conflicts.length || recovery.merge.propertyConflicts?.length ||
         state.buffer.text !== recovery.draftText) return false;
     state.buffer.replaceText(recovery.proposal.text);
+    mechanicalAcceptance = {buffer: state.buffer, recovery, text: state.buffer.text, undone: false};
     replaceSelectedBlock(recovery.latest);
     state.recoveryAccepted = true;
     return true;
@@ -2437,9 +2442,11 @@ export function createDetailController(
   const recoverWriting = async (viewport:DetailViewport, records?:EditRecovery[]):Promise<void> => {
     const selected=state.context.selected;
     if (!selected || !effects.recovery || !effects.reviewRecovery) {state.status="No block recovery is available in this view";return;}
-    if (!records && state.mode === "edit" && state.buffer.text !== selected.text && state.recovery?.draftText !== state.buffer.text) {
+    if ((!records || mechanicalMergeUndone()) && state.mode === "edit" &&
+        (state.buffer.text !== selected.text || mechanicalMergeUndone()) && state.recovery?.draftText !== state.buffer.text) {
       state.recovery=await effects.recovery.retain(recoveryInput());
       state.recoveryAccepted=false;
+      if (records) records=[state.recovery];
     }
     records ??= await effects.recovery.list(selected.id,true);
     state.recoveryNotice=effects.recovery.warnings?.join(" · ") || undefined;
@@ -2460,6 +2467,7 @@ export function createDetailController(
       return;
     }
     state.recovery=choice.record;
+    mechanicalAcceptance=undefined;
     state.recoveryAccepted=true;
     replaceSelectedBlock(choice.record.latest);
     state.buffer=new TextBuffer(choice.action==="proposal" ? choice.record.proposal!.text : choice.record.draftText);
@@ -2868,7 +2876,9 @@ export function createDetailController(
 
   const saveBuffer = async (viewport:DetailViewport): Promise<void> => {
     if (state.busy) return;
-    if (state.mode === "edit" && state.recovery && !state.recoveryAccepted && !acceptMechanicalRecovery()) {
+    if (state.mode === "edit" && state.recovery &&
+        (mechanicalMergeUndone() || !state.recoveryAccepted) && !acceptMechanicalRecovery()) {
+      state.recoveryAccepted=false;
       state.status="Review the retained writing against Latest before saving";
       await recoverWriting(viewport,[state.recovery]);
       return;
@@ -4018,15 +4028,21 @@ export function createDetailController(
         break;
       }
       case "buffer.undo":
+      case "buffer.redo": {
         state.completion = null;
-        state.status = state.buffer.undo() ? "Undo" : "Nothing to undo";
+        const before = state.buffer.text;
+        const undo = intent.type === "buffer.undo";
+        const changed = undo ? state.buffer.undo() : state.buffer.redo();
+        state.status = changed ? (undo ? "Undo" : "Redo") : (undo ? "Nothing to undo" : "Nothing to redo");
+        if (changed && mechanicalAcceptance?.buffer === state.buffer) {
+          if (state.buffer.text === mechanicalAcceptance.text) mechanicalAcceptance.undone = false;
+          else if (undo && before === mechanicalAcceptance.text) mechanicalAcceptance.undone = true;
+          if (mechanicalAcceptance.undone) state.recoveryAccepted = false;
+          else if (state.recovery === mechanicalAcceptance.recovery) state.recoveryAccepted = true;
+        }
         ensureEditorCursorVisible(viewport);
         break;
-      case "buffer.redo":
-        state.completion = null;
-        state.status = state.buffer.redo() ? "Redo" : "Nothing to redo";
-        ensureEditorCursorVisible(viewport);
-        break;
+      }
       case "buffer.save":
         await saveBuffer(viewport);
         return;

@@ -3402,6 +3402,54 @@ describe("detail controller saves and annotations", () => {
     }finally{store.close();}
   });
 
+  for(const scenario of ["undo","undo twice","edit after undo","redo","undo later edit","redo later edit","reopen editor"] as const){
+    test(`automatic merge acceptance follows buffer history: ${scenario}`,async()=>{
+      const {OutlinerStore}=await import("../src/store");
+      const {EditRecoveryRepository}=await import("../src/edit-recovery");
+      const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+      try{
+        const base=store.create("Note\n\nOriginal body"),h=createHarness(base);
+        const draft=base.text+"\n\nNew writing",latestText=base.text.replace("Note","Note [type::note]");
+        const merged=draft.replace("Note","Note [type::note]");
+        let reviews=0,choice:"later"|"manual"="later";
+        h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+        h.effects.reviewRecovery=async records=>{reviews++;return {action:choice,record:records[0]!};};
+        h.setExternalEdit(async()=>{
+          store.update(base.id,latestText,base.revision);
+          return {text:draft,changed:true,recoveryPath:"draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:draft,source:"external-editor"}};
+        });
+        await h.controller.initialize();await h.controller.dispatch({type:"edit.external"},viewport);
+        expect(h.controller.state.buffer.text).toBe(merged);
+        if(scenario==="reopen editor"){
+          const current=store.get(base.id)!;
+          h.setExternalEdit(async()=>({text:merged,changed:false,recoveryPath:"draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:current.revision,baseText:current.text,prelaunchText:merged,draftText:merged,source:"external-editor"}}));
+          await h.controller.dispatch({type:"edit.external"},viewport);
+        }
+        if(scenario==="undo later edit"||scenario==="redo later edit")await h.controller.dispatch({type:"buffer.insert",text:" extra"},viewport);
+        await h.controller.dispatch({type:"buffer.undo"},viewport);
+        if(scenario==="undo twice")await h.controller.dispatch({type:"buffer.undo"},viewport);
+        if(scenario==="edit after undo")await h.controller.dispatch({type:"buffer.insert",text:" extra"},viewport);
+        if(scenario==="redo"||scenario==="redo later edit")await h.controller.dispatch({type:"buffer.redo"},viewport);
+        const accepted=scenario==="redo"||scenario==="undo later edit"||scenario==="redo later edit";
+        expect(h.controller.state.recoveryAccepted).toBe(accepted);
+        const beforeSave=h.controller.state.buffer.text;
+        await h.controller.dispatch({type:"buffer.save"},viewport);
+        expect(reviews).toBe(accepted?0:1);
+        expect(store.get(base.id)?.text).toBe(accepted?beforeSave:latestText);
+        if(!accepted){
+          expect(h.controller.state.buffer.text).toBe(beforeSave);
+          expect(repository.list(base.id).some(record=>record.originalDraft===draft)).toBe(true);
+          if(scenario==="undo"||scenario==="edit after undo"){
+            choice="manual";
+            await h.controller.dispatch({type:"buffer.save"},viewport);
+            await h.controller.dispatch({type:"buffer.save"},viewport);
+            expect(reviews).toBe(2);expect(store.get(base.id)?.text).toBe(beforeSave);
+          }
+        }
+      }finally{store.close();}
+    });
+  }
+
   test("unchanged external editor return preserves an existing unsaved Detail draft",async()=>{
     const {OutlinerStore}=await import("../src/store");
     const {EditRecoveryRepository}=await import("../src/edit-recovery");
@@ -5670,7 +5718,7 @@ test('an older authored file resolution cannot replace the newer Preview intent'
  expect(previewed[0]?.kind==='resource'&&previewed[0].referenceContext?.anchor.kind==='text-quote'&&previewed[0].referenceContext.anchor.exact).toContain('second.md');
 });
 
-test('a later overlapping edit invalidates an automatically combined editor draft',async()=>{
+for(const undoAfterConflict of [false,true])test(`a later overlapping edit invalidates an automatically combined editor draft with undo ${undoAfterConflict}`,async()=>{
  const {OutlinerStore}=await import('../src/store');
  const {EditRecoveryRepository}=await import('../src/edit-recovery');
  const store=new OutlinerStore(':memory:'),repository=new EditRecoveryRepository(store);
@@ -5684,12 +5732,17 @@ test('a later overlapping edit invalidates an automatically combined editor draf
    return {text:draft,changed:true,recoveryPath:'draft.md',cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:draft,source:'external-editor'}};
   });
   await h.controller.initialize();await h.controller.dispatch({type:'edit.external'},viewport);
-  expect(reviews).toBe(0);
-  const current=store.get(base.id)!;
-  const latest=store.update(base.id,current.text.replace('Original body','Other body'),current.revision);
-  await h.controller.dispatch({type:'buffer.save'},viewport);
-  expect(h.controller.state.status).toContain('Save did not apply');
-  await h.controller.dispatch({type:'buffer.save'},viewport);
+   expect(reviews).toBe(0);
+   if(undoAfterConflict)await h.controller.dispatch({type:'buffer.insert',text:' extra'},viewport);
+   const current=store.get(base.id)!;
+   const latest=store.update(base.id,current.text.replace('Original body','Other body'),current.revision);
+   await h.controller.dispatch({type:'buffer.save'},viewport);
+   expect(h.controller.state.status).toContain('Save did not apply');
+   if(undoAfterConflict){
+    await h.controller.dispatch({type:'buffer.undo'},viewport);
+    expect(h.controller.state.recoveryAccepted).toBe(false);
+   }
+   await h.controller.dispatch({type:'buffer.save'},viewport);
   expect(reviews).toBe(1);expect(store.get(base.id)?.text).toBe(latest.text);
   expect(h.controller.state.buffer.text).toContain('My body');
   expect(repository.list(base.id).some(r=>r.originalDraft===draft)).toBe(true);

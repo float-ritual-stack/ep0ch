@@ -41,6 +41,21 @@ test('an editor-added final newline does not conflict with writing into a nearly
   }
 });
 
+test('an editor-added final newline leaves final-line deletions for review',()=>{
+  for(const ending of ['\n','\r\n'])for(const [base,deleted] of [
+    ['Note',''],
+    [`Title${ending}Note`,`Title${ending}`],
+    [`Title${ending}Note`,'Title'],
+    [`Note${ending}Note`,`Note${ending}`],
+  ]){
+    for(const [local,latest] of [[deleted,base+ending],[base+ending,deleted]]){
+      const result=mergeEdits(base,local,latest);
+      expect(result.text).toBe(local);
+      expect(result.conflicts.length).toBeGreaterThan(0);
+    }
+  }
+});
+
 test('newline handling does not discard Markdown hard breaks or indentation changes',()=>{
   expect(mergeEdits('Line','Local line\n','Line  \n').conflicts.length).toBeGreaterThan(0);
   expect(mergeEdits('    code','    local code\n','  code\n').conflicts.length).toBeGreaterThan(0);
