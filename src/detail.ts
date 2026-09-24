@@ -1,3 +1,8 @@
+import {EditRecoveryInput} from "./edit-recovery-input";
+import {EditRecoveryClient} from "./edit-recovery-client";
+import {EditRecoveryReview,type RecoveryChoice} from "./edit-recovery-review";
+import type {EditRecovery} from "./edit-recovery";
+import type {ExternalEditorOptions} from "./external-editor";
 import {KeyInspector} from "./key-inspector";
 import {PassThrough} from "node:stream";
 import {createDetailDestination, type DetailDestinationPlacement} from "./detail-pane-placement";
@@ -90,6 +95,8 @@ initTheme(undefined, false);
 const paths = resolveClientPaths();
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
+initTheme();
+const editRecovery = new EditRecoveryClient(client,paths.stateDir);
 const clientId = crypto.randomUUID();
 const destinationDisplay = new NavigationDestinationDisplay(client, {clientId, region: "detail"}, draw);
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;
@@ -328,15 +335,14 @@ const effects: DetailEffects = {
   copyText(text) {
     process.stdout.write(osc52ClipboardWrite(text));
   },
+  recovery: editRecovery,
+  reviewRecovery: showRecoveryReview,
   editExternalDraft(input) {
     const configuration = resolveExternalEditorConfiguration();
     const expectedRevision = input.kind === "block"
       ? String(input.expectedRevision)
       : JSON.stringify(input.expectedRevision);
-    return editTextInExternalEditor({
-      text: input.text,
-      expectedRevision,
-    }, {
+    const options: ExternalEditorOptions = {
       editor: configuration.editor,
       environment: configuration.environment,
       cwd: paths.workspaceRoot,
@@ -378,7 +384,8 @@ const effects: DetailEffects = {
         }
         return JSON.stringify(description.filesystem.revision);
       },
-    });
+    };
+    return input.kind === "block" ? editRecovery.files.edit(input,options) : editTextInExternalEditor({text:input.text,expectedRevision},options);
   },
   writeFilesystemResource(input) {
     return client.request<ResourceDescription>({
@@ -509,6 +516,16 @@ const effects: DetailEffects = {
   },
 };
 
+let recoveryReview:EditRecoveryReview|null=null;
+let recoveryInputDecoder = new EditRecoveryInput();
+function showRecoveryReview(records:EditRecovery[]):Promise<RecoveryChoice> {
+  recoveryInputDecoder.dispose();recoveryInputDecoder=new EditRecoveryInput();
+  return new Promise(resolve=>{
+    recoveryReview=new EditRecoveryReview(records,editRecovery,draw,choice=>{recoveryInputDecoder.dispose();recoveryReview=null;draw();resolve(choice);},editRecovery.warnings);
+    draw();
+  });
+}
+
 let actionMenu: {
   items: readonly OutlinerActionMenuItem[];
   invoke: (id: string) => Promise<void>;
@@ -522,6 +539,11 @@ function openActionMenu(items: readonly OutlinerActionMenuItem[], invoke: (id: s
 }
 
 function draw(): void {
+  if (recoveryReview) {
+    const lines=recoveryReview.render(process.stdout.columns??100,process.stdout.rows??30);
+    process.stdout.write(`\x1b[H${lines.join("\r\n")}\x1b[J`);
+    return;
+  }
   if (actionMenu) {
     const width = process.stdout.columns ?? 100;
     const height = process.stdout.rows ?? 30;
@@ -694,8 +716,10 @@ function startWatcher(): void {
 }
 
 function stop(): void {
-  destinationDisplay.dispose();
   if (stopping) return;
+  try {controller.checkpointRecovery();inspection.checkpointRecovery();}
+  catch(error){controller.onServiceError(error);return;}
+  destinationDisplay.dispose();
   stopping = true;
   keyInspector.dispose();
   keyInput.destroy();
@@ -730,6 +754,7 @@ try {
 const keyInput = new PassThrough();
 emitKeypressEvents(keyInput);
 process.stdin.on("data", (data: string | Buffer) => {
+  if(recoveryReview){recoveryInputDecoder.accept(typeof data==="string"?data:data.toString(),decoded=>recoveryReview?.key(decoded.str,decoded.key));return;}
   if (!keyInspector.handle(data)) keyInput.write(data);
 });
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -742,6 +767,7 @@ process.on("SIGTERM", stop);
 process.on("SIGHUP", stop);
 
 async function handleInput(str: string, key: TerminalKey): Promise<void> {
+  if(recoveryReview)return;
   const inputAction = inputDecoder.consume(str, key);
   if (actionMenu && inputAction !== "suppress") {
     const menu = actionMenu;
@@ -792,6 +818,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
 }
 
 keyInput.on("keypress", (str: string, key: TerminalKey) => {
+  if (recoveryReview) {inputDecoder.consume(str,key);pendingPaste=null;return;}
   if (keyInspector.active) return;
   if (destinationPicker) { void handleDestinationInput(str, key).catch(error => controller.onServiceError(error)); return; }
   serviceEventScheduler.scheduleWork(() => handleInput(str, key));
