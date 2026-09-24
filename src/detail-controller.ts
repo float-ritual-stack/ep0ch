@@ -2389,9 +2389,11 @@ export function createDetailController(
         state.recoveryCount = Math.max(1,state.recoveryCount ?? 0);
         result.cleanup();
         if (state.recovery.latest.revision !== selected.revision) {
-          state.status = "Your writing is retained. The note also changed; review both versions.";
-          await recoverWriting(viewport,[state.recovery]);
-          return;
+          if (!acceptMechanicalRecovery()) {
+            state.status = "Your writing is retained. The note also changed; review both versions.";
+            await recoverWriting(viewport,[state.recovery]);
+            return;
+          }
         }
       } else result.cleanup();
       const layout = editorLayout(viewport);
@@ -2401,7 +2403,9 @@ export function createDetailController(
       );
       state.editorVisualOffset = Math.min(previousViewportOffset, maximumOffset);
       state.completion = null;
-      state.status = "Imported $EDITOR changes into the draft · Undo restores the prior draft";
+      state.status = state.recovery && state.recovery.latest.revision !== selected.revision
+        ? "Combined independent changes · Ctrl+S saves · original writing retained"
+        : "Imported $EDITOR changes into the draft · Ctrl+S saves · Undo restores the prior draft";
     } catch (error) {
       state.status = errorMessage(error);
     } finally {
@@ -2414,6 +2418,20 @@ export function createDetailController(
     if (!selected) throw Error("Recovery requires an ordinary note");
     return {id:crypto.randomUUID(),blockId:selected.id,baseText:selected.text,baseRevision:selected.revision,
       prelaunchText:state.buffer.text,draftText:state.buffer.text,source:"save-conflict"};
+  };
+
+  // Accept only the deterministic comparison for this active draft. Historical
+  // recoveries and model proposals still require an explicit choice.
+  const acceptMechanicalRecovery = (): boolean => {
+    const recovery = state.recovery;
+    if (!recovery || !recovery.proposal || recovery.proposal.source !== "mechanical" ||
+        recovery.proposal.unresolved.length || recovery.merge.incomplete ||
+        recovery.merge.conflicts.length || recovery.merge.propertyConflicts?.length ||
+        state.buffer.text !== recovery.draftText) return false;
+    state.buffer.replaceText(recovery.proposal.text);
+    replaceSelectedBlock(recovery.latest);
+    state.recoveryAccepted = true;
+    return true;
   };
 
   const recoverWriting = async (viewport:DetailViewport, records?:EditRecovery[]):Promise<void> => {
@@ -2850,7 +2868,7 @@ export function createDetailController(
 
   const saveBuffer = async (viewport:DetailViewport): Promise<void> => {
     if (state.busy) return;
-    if (state.mode === "edit" && state.recovery && !state.recoveryAccepted) {
+    if (state.mode === "edit" && state.recovery && !state.recoveryAccepted && !acceptMechanicalRecovery()) {
       state.status="Review the retained writing against Latest before saving";
       await recoverWriting(viewport,[state.recovery]);
       return;

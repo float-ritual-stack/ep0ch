@@ -3377,7 +3377,7 @@ describe("detail controller projection and deferred refresh", () => {
 });
 
 describe("detail controller saves and annotations", () => {
-  test("returned editor writing is retained and Later cannot silently overwrite concurrent metadata",async()=>{
+  test("external-editor return combines independent edits without a recovery modal",async()=>{
     const {OutlinerStore}=await import("../src/store");
     const {EditRecoveryRepository}=await import("../src/edit-recovery");
     const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
@@ -3392,13 +3392,11 @@ describe("detail controller saves and annotations", () => {
         return {text:returned,changed:true,recoveryPath:"durable/draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:returned,source:"external-editor"}};
       });
       await harness.controller.initialize();await harness.controller.dispatch({type:"edit.external"},viewport);
-      expect(harness.controller.state.buffer.text).toBe(returned);
-      expect(reviews).toBe(1);expect(harness.controller.state.recoveryAccepted).toBe(false);
+      expect(harness.controller.state.buffer.text).toBe(returned.replace("Note","Note [type::note]"));
+      expect(reviews).toBe(0);expect(harness.controller.state.recoveryAccepted).toBe(true);
+      expect(repository.list(base.id)[0]?.originalDraft).toBe(returned);
       await harness.controller.dispatch({type:"buffer.save"},viewport);
-      expect(reviews).toBe(2);expect(store.get(base.id)?.text).toBe("Note [type::note]\n\nOriginal body");
-      choice="proposal";await harness.controller.dispatch({type:"edit.recover"},viewport);
-      expect(harness.controller.state.buffer.text).toContain("[type::note]");
-      await harness.controller.dispatch({type:"buffer.save"},viewport);
+      expect(reviews).toBe(0);
       expect(store.get(base.id)?.text).toBe("Note [type::note]\n\nOriginal body\n\nLong new writing 日本語");
       expect(repository.list(base.id)).toHaveLength(0);
     }finally{store.close();}
@@ -5670,4 +5668,50 @@ test('an older authored file resolution cannot replace the newer Preview intent'
  slow.resolve(await follow(target('first.md')));await first;
  expect(previewed).toHaveLength(1);
  expect(previewed[0]?.kind==='resource'&&previewed[0].referenceContext?.anchor.kind==='text-quote'&&previewed[0].referenceContext.anchor.exact).toContain('second.md');
+});
+
+test('a later overlapping edit invalidates an automatically combined editor draft',async()=>{
+ const {OutlinerStore}=await import('../src/store');
+ const {EditRecoveryRepository}=await import('../src/edit-recovery');
+ const store=new OutlinerStore(':memory:'),repository=new EditRecoveryRepository(store);
+ try{
+  const base=store.create('Scratch\n\nOriginal body'),h=createHarness(base);let reviews=0;
+  h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:'user',actorId:'detail'}),separate:async record=>repository.separate(record.id,record.revision,{author:'user',actorId:'detail'})};
+  h.effects.reviewRecovery=async records=>{reviews++;return {action:'later',record:records[0]!};};
+  const draft=base.text.replace('Original body','My body');
+  h.setExternalEdit(async()=>{
+   store.update(base.id,base.text.replace('Scratch','Scratch [type::note]'),base.revision);
+   return {text:draft,changed:true,recoveryPath:'draft.md',cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:draft,source:'external-editor'}};
+  });
+  await h.controller.initialize();await h.controller.dispatch({type:'edit.external'},viewport);
+  expect(reviews).toBe(0);
+  const current=store.get(base.id)!;
+  const latest=store.update(base.id,current.text.replace('Original body','Other body'),current.revision);
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(h.controller.state.status).toContain('Save did not apply');
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(reviews).toBe(1);expect(store.get(base.id)?.text).toBe(latest.text);
+  expect(h.controller.state.buffer.text).toContain('My body');
+  expect(repository.list(base.id).some(r=>r.originalDraft===draft)).toBe(true);
+ }finally{store.close();}
+});
+
+test('retrying a clean ordinary save conflict combines without opening recovery review',async()=>{
+ const {OutlinerStore}=await import('../src/store');
+ const {EditRecoveryRepository}=await import('../src/edit-recovery');
+ const store=new OutlinerStore(':memory:'),repository=new EditRecoveryRepository(store);
+ try{
+  const base=store.create('Note\n\nBody'),h=createHarness(base);let reviews=0;
+  h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:'user',actorId:'detail'}),separate:async record=>repository.separate(record.id,record.revision,{author:'user',actorId:'detail'})};
+  h.effects.updateBlock=async input=>store.update(input.blockId,input.text,input.expectedRevision);
+  h.effects.reviewRecovery=async records=>{reviews++;return {action:'later',record:records[0]!};};
+  await h.controller.initialize();await h.controller.dispatch({type:'edit.begin'},viewport);
+  h.controller.state.buffer.replaceText(base.text+'\nMore writing');
+  store.update(base.id,base.text.replace('Note','Note [type::note]'),base.revision);
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(h.controller.state.status).toContain('Save did not apply');
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(reviews).toBe(0);expect(store.get(base.id)?.text).toBe('Note [type::note]\n\nBody\nMore writing');
+  expect(repository.list(base.id)).toHaveLength(0);
+ }finally{store.close();}
 });
