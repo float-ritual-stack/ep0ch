@@ -103,6 +103,7 @@ const result = await runHerdrScenario({
         (d) =>
           d.remoteStatus?.freshness === "failed" &&
           !!d.remoteStatus.lastError?.includes(message),
+        25000,
       );
       for (
         let page = 0;
@@ -145,6 +146,25 @@ const result = await runHerdrScenario({
     );
     await showFailure("credentials are unavailable");
     await s.checkpoint("05-missing-secret-visible");
+    await writeFile(configPath, JSON.stringify(installation));
+    await writeFile(manifestPath, "{broken");
+    await showFailure("invalid");
+    await s.checkpoint("06-malformed-manifest-visible");
+    await writeFile(manifestPath, JSON.stringify(declaration));
+    await writeFile(
+      entryPath,
+      `await Bun.stdin.json();console.log(JSON.stringify({ok:false,code:'forbidden'}));`,
+    );
+    await showFailure("403");
+    await s.checkpoint("07-provider-failure-visible");
+    await writeFile(
+      entryPath,
+      `await Bun.stdin.json();await new Promise(()=>{});`,
+    );
+    await showFailure("timed out");
+    await s.checkpoint("08-timeout-visible");
+    await writeFile(entryPath, script("Extension updated version"));
+
     await writeFile(configPath, JSON.stringify(installation));
     await s.keys(detail, ...Array(50).fill("up"), "r");
     await s.waitVisible(detail, "Extension updated version");
