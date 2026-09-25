@@ -627,7 +627,7 @@ export function renderTreeFrame(
     if (!row.multilineExpanded) {
       const prefix = `${"  ".repeat(row.depth)}${marker} `;
       const branchBadge = branchState ? virtualBranchStateLabel(branchState) : "";
-      const fixedSuffix = `${branchBadge}${trashLabel}`;
+      const fixedSuffix = `${branchBadge}${trashLabel}${row.kind === "occurrence" && row.attention ? "  ! attention" : ""}`;
       const optionalSuffix = `  ${author}`;
       const summary = propertySummarySegments(
         block.properties,
