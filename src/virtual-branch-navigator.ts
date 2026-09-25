@@ -216,6 +216,9 @@ export class VirtualBranchNavigatorController {
       if (generation !== this.refreshGeneration || this.closed) return;
       this.title = projection.title;
       this.rows = projection.rows;
+      for (const row of projection.rows) {
+        if (row.attention && row.hasChildren && !row.collapsed) this.expandedOccurrenceRowIds.add(row.rowId);
+      }
       this.branchState = projection.state;
       this.projectionError = "";
       this.applyFilter(previousRowId, previousIndex);
@@ -617,7 +620,7 @@ function renderListLine(
   const disclosure = row.hasChildren ? (row.collapsed ? "▸" : "▾") : "•";
   const prefix = `${indent}${disclosure} `;
   const title = sanitizeDynamicText(blockDisplayTitle(row.block));
-  const line = truncateToWidth(`${prefix}${title}`, width);
+  const line = truncateToWidth(`${prefix}${row.attention ? "! attention · " : ""}${title}`, width);
   return {
     line: selected ? selectedLine(line) : line,
     disclosureColumn: visibleWidth(indent),

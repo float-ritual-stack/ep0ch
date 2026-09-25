@@ -3,7 +3,7 @@ import {
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
 } from "./block-query";
-import { parsePropertyRecords, patchPropertyText } from "./properties";
+import { matchesFilters, parsePropertyRecords, patchPropertyText } from "./properties";
 import { parsePropertySummaryKeys } from "./property-summary";
 import type {
   BlockQuerySort,
@@ -59,6 +59,7 @@ export interface VirtualBranchOccurrenceRow<T extends ProjectionBlock = VisibleB
   readonly parentRowId: string;
   readonly relativeDepth: number;
   readonly defaultCollapsed?: boolean;
+  readonly attention?: boolean;
   readonly collapsed: boolean;
 }
 
@@ -75,6 +76,7 @@ export interface VirtualBranchConfig {
   readOnly: boolean;
   childDepth?: number;
   expanded?: boolean;
+  expandWhen?: readonly PropertyFilter[];
   summaryPropertyKeys?: readonly string[];
 }
 
@@ -98,6 +100,7 @@ export interface VirtualBranchState extends VirtualBranchConfigResult {
   completeness: BlockCollectionCompleteness | null;
   truncation: VirtualBranchTruncation;
   queried: boolean;
+  attentionCount?: number;
 }
 
 export interface VirtualBranchProjection<T extends ProjectionBlock = VisibleBlock> {
@@ -113,6 +116,10 @@ export type VirtualBranchQueryEffect<T extends ProjectionBlock = VisibleBlock> =
 
 export function virtualBranchStateLabel(state: VirtualBranchState): string {
   const indicators = [`V:${state.count}`];
+  if (state.config?.expandWhen) {
+    indicators.push(state.queryError ? "ATTENTION UNAVAILABLE" : `ATTENTION ${state.attentionCount ?? 0}`);
+    if (state.truncation.depth || state.truncation.nesting || state.truncation.budget || state.truncation.rootQuery) indicators.push("ATTENTION LIMITED");
+  }
   if (state.truncation.rootQuery) indicators.push("ROOT TRUNCATED");
   if (state.truncation.depth) indicators.push(state.config?.childDepth !== undefined ? `CHILD DEPTH ${state.config.childDepth} · DEPTH LIMITED` : "DEPTH TRUNCATED");
   if (state.truncation.nesting) indicators.push("NESTING LIMITED");
@@ -275,6 +282,17 @@ export function parseVirtualBranchConfig(
   const expandedProperty = singleProperty(definition, "expanded", false, configurationErrors);
   if (expandedProperty && !["true", "false"].includes(expandedProperty.value)) configurationErrors.push("Virtual branch expanded must be true or false");
 
+  const expandWhenProperty = singleProperty(definition, "expand-when", false, configurationErrors);
+  let expandWhen: PropertyFilter[] | undefined;
+  if (expandWhenProperty) {
+    try {
+      expandWhen = parsePropertyFilterExpression(expandWhenProperty.value);
+      if (!expandWhen.length) configurationErrors.push("Virtual branch expand-when cannot be empty");
+    } catch (error) {
+      configurationErrors.push(`Invalid virtual branch expand-when: ${errorMessage(error)}`);
+    }
+  }
+
   const summaryProperties = singleProperty(
     definition,
     "summary-properties",
@@ -329,6 +347,7 @@ export function parseVirtualBranchConfig(
       filters,
       sort,
       limit,
+      ...(expandWhen ? {expandWhen} : {}),
       ...(childDepth === undefined ? {} : {childDepth}),
       ...(expandedProperty ? {expanded: expandedProperty.value === "true"} : {}),
       ...(summaryPropertyKeys === undefined ? {} : { summaryPropertyKeys }),
@@ -564,6 +583,20 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
     );
   }
   const allocated = [...allocatedRoots, ...allocatedDescendants];
+  // Inspect only the already bounded canonical allocation. Never follow external Resources
+  // or run another query: attention cannot enlarge membership or escape child-depth.
+  const allocatedById = new Map(allocated.map(row => [row.rowId, row]));
+  const attentionPaths = new Set<string>();
+  const attentionAncestors = new Set<string>();
+  for (const row of allocated) {
+    if (!config.expandWhen || !matchesFilters(row.block.properties, config.expandWhen)) continue;
+    let current: AllocatedOccurrence<T> | undefined = row;
+    while (current && !attentionPaths.has(current.rowId)) {
+      attentionPaths.add(current.rowId);
+      current = allocatedById.get(current.parentRowId);
+      if (current) attentionAncestors.add(current.rowId);
+    }
+  }
   const rowById = new Map<string, VirtualBranchOccurrenceRow<T>>();
   const childrenByParentRowId = new Map<string, VirtualBranchOccurrenceRow<T>[]>();
   for (const occurrence of allocated) {
@@ -571,7 +604,9 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
     const row: VirtualBranchOccurrenceRow<T> = {
       kind: "occurrence",
       ...occurrence,
-      ...(config.expanded === false && occurrence.relativeDepth === 0 ? {defaultCollapsed: true} : {}),
+      ...(config.expanded === false && (occurrence.relativeDepth === 0 || config.expandWhen)
+        && !attentionAncestors.has(occurrence.rowId) ? {defaultCollapsed: true} : {}),
+      ...(attentionPaths.has(occurrence.rowId) ? {attention: true} : {}),
       depth: definition.depth + 1 + occurrence.relativeDepth,
       hasChildren,
       collapsed: hasChildren &&
@@ -650,6 +685,8 @@ async function projectVirtualBranch<T extends ProjectionBlock>(
         ...initialState,
         count: roots.length,
         descendantCount: allocated.descendantCount,
+        ...(parsed.config.expandWhen ? {attentionCount: allocated.rows.filter(row =>
+          matchesFilters(row.block.properties, parsed.config!.expandWhen!)).length} : {}),
         completeness,
         truncation: {
           rootQuery: rootQueryTruncated,

@@ -722,6 +722,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       snapshot.virtualOccurrenceRanks,
       presentation,
     );
+    // Retain revealed paths until an explicit collapse/reset; resolving attention
+    // must not remove the row the reader is currently navigating.
+    for (const row of projection.rows) {
+      if (row.kind === "occurrence" && row.attention && row.hasChildren && !row.collapsed) expandedOccurrenceRowIds.add(row.rowId);
+    }
     fullRowsById = new Map(projection.rows.map(row=>[row.rowId,row]));
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
     let scope = projection.rows;
