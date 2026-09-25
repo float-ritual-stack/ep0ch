@@ -1143,7 +1143,18 @@ presentation-only; ordinary and projected rows continue to read the same
 canonical parsed properties.
 
 Matches appear as disposable `◇` root occurrences. Each matched root also projects
-its canonical descendants as read-only context through relative depth 2. Context
+its canonical descendants as read-only context through relative depth 2 by default.
+`[child-depth::0]` shows matches only, `1` adds their children, and `2` adds
+children and grandchildren; integers through `8` are supported within the row budget.
+`[expanded::false]` starts matched roots collapsed; `true` starts them expanded.
+Omitting these properties preserves the existing behavior. Manual opening and
+closing wins over defaults in that Tree, even after refresh or policy changes.
+Use **Reset view expansion** in `?` on a definition or result to discard that
+view's local overrides. New occurrences use current defaults; a new Tree starts
+fresh. Nested copies retain independent disclosure. A configured depth that hides
+children is labeled **CHILD DEPTH n · DEPTH LIMITED**, separately from row/query
+truncation. These controls apply to Tree and navigator projections; authored
+Detail embeds remain their existing compact result-link lists. Context
 has independent, ephemeral disclosure; `Left` and `Right` navigate its projected
 parent/children without changing canonical text or storage. A canonical block may
 therefore appear beneath a matched ancestor and independently as a matched root,
@@ -1936,6 +1947,28 @@ contract using `mentions.ingest`, or JSON stdin to `bun src/cli.ts mentions inge
 Repeated message identity with identical text is idempotent; different text under
 the same identity is rejected. No Pi or Claude adapter is installed automatically;
 for Claude Code, load the mod in [`claude-mod/`](claude-mod/README.md).
+
+
+### Conditional virtual-branch disclosure
+
+Add `[expanded::false] [expand-when::type=annotation annotation-status=open priority=high]`
+to reveal paths to open, explicitly high-priority comments. Annotation blocks carry
+`annotation-status`; anchor relocation state is separate. Set `priority::high` in the metadata header of
+comments you want to highlight. The condition uses the same positive-AND property
+presence/equality syntax as `query`, including quoted values.
+
+Inspection uses only canonical rows inside the existing depth/row budget. It never
+follows Resources, nested query results or model judgments. `ATTENTION n` counts
+matches in that scope; `ATTENTION LIMITED` means a depth, nesting, row or query
+limit prevents a complete assessment. Query failure says `ATTENTION UNAVAILABLE`.
+No claim is made about material outside the view's bounded canonical context.
+
+Only ancestors of matches open; unrelated branches and replies stay folded. Revealed
+paths remain open until collapse/reset, so resolving the last match cannot displace
+the selected row. An `! attention`
+marker remains when you manually collapse a matching path. Manual open/collapse
+wins over later attention changes; resolving a comment cannot close a path you
+explicitly opened. **Reset view expansion** discards those choices and reevaluates.
 
 ### Installed Resource extensions
 

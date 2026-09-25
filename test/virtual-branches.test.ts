@@ -636,7 +636,7 @@ describe("virtual branch projection", () => {
 
     expect(firstRows.map((row) => row.canonicalId)).toEqual([second.id, first.id]);
     expect(firstRows[1]).toEqual(expect.objectContaining({ hasChildren: false }));
-    expect(projection.branchStates.get(first.id)?.truncation.depth).toBe(true);
+    expect(projection.branchStates.get(first.id)?.truncation.nesting).toBe(true);
   });
 
 
@@ -879,4 +879,55 @@ describe("virtual branch creation text", () => {
       writableConfig,
     )).toThrow("more than one status property");
   });
+});
+
+test('view depth and expansion defaults preserve independent manual occurrence choices', async () => {
+  const root=visibleBlock('ticket',[],{hasChildren:true});
+  const child=visibleBlock('note',[],{parentId:root.id,hasChildren:true});
+  const grandchild=visibleBlock('comment',[],{parentId:child.id});
+  const view=(id:string,depth:number)=>visibleBlock(id,[{key:'type',value:'virtual-branch'},{key:'query',value:'fixture=card'},{key:'child-depth',value:String(depth)},{key:'expanded',value:'false'}]);
+  const views=[view('shallow',0),view('one',1),view('two',2)];
+  const physical=[...views,root,child,grandchild];
+  const project=(expanded=new Set<string>(),collapsed=new Set<string>())=>projectVirtualBranches(physical,physical,async()=>complete([root]),[],{collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:collapsed,expandedOccurrenceRowIds:expanded,multilineExpandedRowIds:new Set()});
+  const initial=await project();
+  expect(initial.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','ticket']);
+  expect(initial.rows.find(r=>r.rowId==='occurrence:shallow:ticket')?.hasChildren).toBe(false);
+  const open=await project(new Set(['occurrence:one:ticket','occurrence:two:ticket']));
+  expect(open.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','note','ticket','note','comment']);
+  const closed=await project(new Set(['occurrence:one:ticket']),new Set(['occurrence:two:ticket']));
+  expect(closed.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','note','ticket']);
+  expect(parseVirtualBranchConfig(view('bad',9),physical).configurationErrors.length).toBeGreaterThan(0);
+});
+
+
+test("configured depth also bounds nested views", async () => {
+  const view = (id: string, childDepth: number) => visibleBlock(id, [
+    {key: "type", value: "virtual-branch"}, {key: "query", value: `area=${id}`},
+    {key: "child-depth", value: String(childDepth)},
+  ]);
+  const outer = view("outer", 0), inner = view("inner", 2), leaf = visibleBlock("leaf");
+  const physical = [outer, inner, leaf];
+  const result = await projectVirtualBranches(physical, physical, async query =>
+    complete(query.filters?.[0]?.value === "outer" ? [inner] : [leaf]));
+  expect(result.rows.filter(r => r.rowId.startsWith("occurrence:outer:")).map(r => r.canonicalId)).toEqual([inner.id]);
+  expect(result.branchStates.get(outer.id)?.truncation.depth).toBe(true);
+});
+
+test('attention opens only matching paths and manual collapse takes precedence', async () => {
+  const view=visibleBlock('attention',[
+    {key:'type',value:'virtual-branch'}, {key:'query',value:'fixture=card'},
+    {key:'expanded',value:'false'}, {key:'child-depth',value:'3'}, {key:'expand-when',value:'type=annotation annotation-status=open priority=high'},
+  ]);
+  const root=visibleBlock('ticket',[],{hasChildren:true});
+  const ordinary=visibleBlock('ordinary',[],{parentId:root.id,hasChildren:true});
+  const ordinaryChild=visibleBlock('ordinary-child',[],{parentId:ordinary.id});
+  const note=visibleBlock('note',[],{parentId:root.id,hasChildren:true});
+  const attention=visibleBlock('comment',[{key:'type',value:'annotation'},{key:'annotation-status',value:'open'},{key:'priority',value:'high'}],{parentId:note.id,hasChildren:true});
+  const reply=visibleBlock('ordinary-reply',[],{parentId:attention.id});
+  const physical=[view,root,ordinary,ordinaryChild,note,attention,reply];
+  const project=(collapsed=new Set<string>())=>projectVirtualBranches([view],physical,async()=>complete([root]),[],{collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:collapsed,multilineExpandedRowIds:new Set()});
+  expect((await project()).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket','ordinary','note','comment']);
+  expect((await project(new Set(['occurrence:attention:ticket']))).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket']);
+  attention.properties[1]!.value='resolved';
+  expect((await project()).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket']);
 });

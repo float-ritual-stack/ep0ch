@@ -661,6 +661,9 @@ describe("createTreeController", () => {
       .toBe(ownerOccurrenceRowId);
     await controller.handleAction("tree.authored-links.toggle");
 
+    await controller.handleDisclosure(ownerOccurrenceRowId);
+    expect(controller.view().rows.some(row => row.kind === "authored-link-header")).toBe(false);
+    await controller.handleDisclosure(ownerOccurrenceRowId);
     const displayed = controller.view().rows;
     expect(displayed.map((row) => row.kind)).toEqual([
       "physical",

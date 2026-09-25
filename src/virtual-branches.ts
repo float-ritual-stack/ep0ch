@@ -3,7 +3,7 @@ import {
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
 } from "./block-query";
-import { parsePropertyRecords, patchPropertyText } from "./properties";
+import { matchesFilters, parsePropertyRecords, patchPropertyText } from "./properties";
 import { parsePropertySummaryKeys } from "./property-summary";
 import type {
   BlockQuerySort,
@@ -37,6 +37,7 @@ interface TreeRowBase<T extends ProjectionBlock = VisibleBlock> {
 export interface TreePresentationState {
   readonly collapsedBlockIds: ReadonlySet<string>;
   readonly collapsedOccurrenceRowIds?: ReadonlySet<string>;
+  readonly expandedOccurrenceRowIds?: ReadonlySet<string>;
   readonly multilineExpandedRowIds: ReadonlySet<string>;
 }
 
@@ -57,6 +58,8 @@ export interface VirtualBranchOccurrenceRow<T extends ProjectionBlock = VisibleB
   readonly matchRootCanonicalId: string;
   readonly parentRowId: string;
   readonly relativeDepth: number;
+  readonly defaultCollapsed?: boolean;
+  readonly attention?: boolean;
   readonly collapsed: boolean;
 }
 
@@ -71,6 +74,9 @@ export interface VirtualBranchConfig {
   create: BlockProperty | null;
   createParentId: string | null;
   readOnly: boolean;
+  childDepth?: number;
+  expanded?: boolean;
+  expandWhen?: readonly PropertyFilter[];
   summaryPropertyKeys?: readonly string[];
 }
 
@@ -82,6 +88,7 @@ export interface VirtualBranchConfigResult {
 
 export interface VirtualBranchTruncation {
   readonly rootQuery: boolean;
+  readonly nesting?: boolean;
   readonly depth: boolean;
   readonly budget: boolean;
 }
@@ -93,6 +100,7 @@ export interface VirtualBranchState extends VirtualBranchConfigResult {
   completeness: BlockCollectionCompleteness | null;
   truncation: VirtualBranchTruncation;
   queried: boolean;
+  attentionCount?: number;
 }
 
 export interface VirtualBranchProjection<T extends ProjectionBlock = VisibleBlock> {
@@ -108,8 +116,13 @@ export type VirtualBranchQueryEffect<T extends ProjectionBlock = VisibleBlock> =
 
 export function virtualBranchStateLabel(state: VirtualBranchState): string {
   const indicators = [`V:${state.count}`];
+  if (state.config?.expandWhen) {
+    indicators.push(state.queryError ? "ATTENTION UNAVAILABLE" : `ATTENTION ${state.attentionCount ?? 0}`);
+    if (state.truncation.depth || state.truncation.nesting || state.truncation.budget || state.truncation.rootQuery) indicators.push("ATTENTION LIMITED");
+  }
   if (state.truncation.rootQuery) indicators.push("ROOT TRUNCATED");
-  if (state.truncation.depth) indicators.push("DEPTH TRUNCATED");
+  if (state.truncation.depth) indicators.push(state.config?.childDepth !== undefined ? `CHILD DEPTH ${state.config.childDepth} · DEPTH LIMITED` : "DEPTH TRUNCATED");
+  if (state.truncation.nesting) indicators.push("NESTING LIMITED");
   if (state.truncation.budget) indicators.push("BUDGET TRUNCATED");
   if (state.configurationErrors.length > 0) indicators.push("CONFIG ERROR");
   if (state.queryError) indicators.push("QUERY ERROR");
@@ -261,6 +274,25 @@ export function parseVirtualBranchConfig(
     }
   }
 
+  const depthProperty = singleProperty(definition, "child-depth", false, configurationErrors);
+  const childDepth = depthProperty ? Number(depthProperty.value) : undefined;
+  if (childDepth !== undefined && (!/^\d+$/.test(depthProperty!.value) || !Number.isInteger(childDepth) || childDepth < 0 || childDepth > 8)) {
+    configurationErrors.push("Virtual branch child-depth must be an integer from 0 through 8");
+  }
+  const expandedProperty = singleProperty(definition, "expanded", false, configurationErrors);
+  if (expandedProperty && !["true", "false"].includes(expandedProperty.value)) configurationErrors.push("Virtual branch expanded must be true or false");
+
+  const expandWhenProperty = singleProperty(definition, "expand-when", false, configurationErrors);
+  let expandWhen: PropertyFilter[] | undefined;
+  if (expandWhenProperty) {
+    try {
+      expandWhen = parsePropertyFilterExpression(expandWhenProperty.value);
+      if (!expandWhen.length) configurationErrors.push("Virtual branch expand-when cannot be empty");
+    } catch (error) {
+      configurationErrors.push(`Invalid virtual branch expand-when: ${errorMessage(error)}`);
+    }
+  }
+
   const summaryProperties = singleProperty(
     definition,
     "summary-properties",
@@ -315,6 +347,9 @@ export function parseVirtualBranchConfig(
       filters,
       sort,
       limit,
+      ...(expandWhen ? {expandWhen} : {}),
+      ...(childDepth === undefined ? {} : {childDepth}),
+      ...(expandedProperty ? {expanded: expandedProperty.value === "true"} : {}),
       ...(summaryPropertyKeys === undefined ? {} : { summaryPropertyKeys }),
       create,
       createParentId,
@@ -442,8 +477,9 @@ function rankedDeduplicatedRoots<T extends ProjectionBlock>(
 function canonicalContext<T extends ProjectionBlock>(
   root: T,
   adjacency: CanonicalAdjacency<T>,
+  maxDepth: number,
 ): CanonicalContext<T> {
-  const cached = adjacency.contextByRootId.get(root.id);
+  const cached = adjacency.contextByRootId.get(`${root.id}:${maxDepth}`);
   if (cached) return cached;
 
   const descendants: ContextualDescendant<T>[] = [];
@@ -453,7 +489,7 @@ function canonicalContext<T extends ProjectionBlock>(
   function visit(block: T, relativeDepth: number): boolean {
     if (relativeDepth > 0 && adjacency.definitions.has(block.id)) return false;
     const children = adjacency.childrenByParentId.get(block.id) ?? [];
-    if (relativeDepth >= VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH) {
+    if (relativeDepth >= maxDepth) {
       if (children.length > 0) depthTruncated = true;
       return overflow && depthTruncated;
     }
@@ -474,7 +510,7 @@ function canonicalContext<T extends ProjectionBlock>(
 
   visit(root, 0);
   const context = { descendants, depthTruncated, overflow };
-  adjacency.contextByRootId.set(root.id, context);
+  adjacency.contextByRootId.set(`${root.id}:${maxDepth}`, context);
   return context;
 }
 
@@ -493,6 +529,7 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
   roots: readonly T[],
   adjacency: CanonicalAdjacency<T>,
   presentation: TreePresentationState,
+  config: VirtualBranchConfig,
 ): {
   readonly rows: VirtualBranchOccurrenceRow<T>[];
   readonly descendantCount: number;
@@ -515,7 +552,7 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
   let budgetTruncated = false;
 
   for (const root of roots) {
-    const context = canonicalContext(root, adjacency);
+    const context = canonicalContext(root, adjacency, config.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH);
     if (context.depthTruncated) depthTruncated = true;
     const remaining = descendantCapacity - allocatedDescendants.length;
     const take = Math.min(remaining, context.descendants.length);
@@ -546,6 +583,20 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
     );
   }
   const allocated = [...allocatedRoots, ...allocatedDescendants];
+  // Inspect only the already bounded canonical allocation. Never follow external Resources
+  // or run another query: attention cannot enlarge membership or escape child-depth.
+  const allocatedById = new Map(allocated.map(row => [row.rowId, row]));
+  const attentionPaths = new Set<string>();
+  const attentionAncestors = new Set<string>();
+  for (const row of allocated) {
+    if (!config.expandWhen || !matchesFilters(row.block.properties, config.expandWhen)) continue;
+    let current: AllocatedOccurrence<T> | undefined = row;
+    while (current && !attentionPaths.has(current.rowId)) {
+      attentionPaths.add(current.rowId);
+      current = allocatedById.get(current.parentRowId);
+      if (current) attentionAncestors.add(current.rowId);
+    }
+  }
   const rowById = new Map<string, VirtualBranchOccurrenceRow<T>>();
   const childrenByParentRowId = new Map<string, VirtualBranchOccurrenceRow<T>[]>();
   for (const occurrence of allocated) {
@@ -553,6 +604,9 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
     const row: VirtualBranchOccurrenceRow<T> = {
       kind: "occurrence",
       ...occurrence,
+      ...(config.expanded === false && (occurrence.relativeDepth === 0 || config.expandWhen)
+        && !attentionAncestors.has(occurrence.rowId) ? {defaultCollapsed: true} : {}),
+      ...(attentionPaths.has(occurrence.rowId) ? {attention: true} : {}),
       depth: definition.depth + 1 + occurrence.relativeDepth,
       hasChildren,
       collapsed: hasChildren &&
@@ -620,7 +674,7 @@ async function projectVirtualBranch<T extends ProjectionBlock>(
     );
     const rootQueryTruncated =
       eligibleRoots.length > parsed.config.limit || result.completeness.kind === "truncated";
-    const allocated = allocateOccurrenceRows(definition, roots, adjacency, presentation);
+    const allocated = allocateOccurrenceRows(definition, roots, adjacency, presentation, parsed.config);
     const completeness: BlockCollectionCompleteness = rootQueryTruncated
       ? { kind: "truncated", limit: parsed.config.limit }
       : { kind: "complete" };
@@ -631,6 +685,8 @@ async function projectVirtualBranch<T extends ProjectionBlock>(
         ...initialState,
         count: roots.length,
         descendantCount: allocated.descendantCount,
+        ...(parsed.config.expandWhen ? {attentionCount: allocated.rows.filter(row =>
+          matchesFilters(row.block.properties, parsed.config!.expandWhen!)).length} : {}),
         completeness,
         truncation: {
           rootQuery: rootQueryTruncated,
@@ -654,6 +710,7 @@ async function projectVirtualBranch<T extends ProjectionBlock>(
 }
 interface NestedOccurrenceComposition<T extends ProjectionBlock = VisibleBlock> {
   readonly rows: VirtualBranchOccurrenceRow<T>[];
+  readonly nestingTruncated: boolean;
   readonly depthTruncated: boolean;
   readonly budgetTruncated: boolean;
 }
@@ -663,8 +720,10 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
   rootDefinitionDepth: number,
   childrenByView: ReadonlyMap<string, ReadonlyMap<string, readonly VirtualBranchOccurrenceRow<T>[]>>,
   presentation: TreePresentationState,
+  states: ReadonlyMap<string, VirtualBranchState>,
 ): NestedOccurrenceComposition<T> {
   const composed: VirtualBranchOccurrenceRow<T>[] = [];
+  let nestingTruncated = false;
   let depthTruncated = false;
   let budgetTruncated = false;
 
@@ -675,6 +734,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
     nestingDepth: number,
     rowIdPrefix: string,
     activeViewIds: ReadonlySet<string>,
+    remainingDepth: number,
   ): void {
     const children = childrenByView.get(viewId);
     if (!children) return;
@@ -687,6 +747,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
         nestingDepth,
         rowIdPrefix,
         activeViewIds,
+        Math.min(remainingDepth, states.get(viewId)?.config?.childDepth ?? Infinity),
       );
     }
   }
@@ -699,6 +760,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
     nestingDepth: number,
     rowIdPrefix: string,
     activeViewIds: ReadonlySet<string>,
+    remainingDepth: number,
   ): void {
     if (composed.length >= VIRTUAL_BRANCH_MAX_ROWS) {
       budgetTruncated = true;
@@ -708,12 +770,15 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
     const physicalChildren = sourceChildren.get(source.rowId) ?? [];
     const nestedRoots = childrenByView.get(source.canonicalId)?.get(source.canonicalId) ?? [];
     const cycle = activeViewIds.has(source.canonicalId);
-    const canNest = nestedRoots.length > 0 && !cycle &&
+    const canNest = remainingDepth > 0 && nestedRoots.length > 0 && !cycle &&
       nestingDepth < VIRTUAL_BRANCH_MAX_NESTING_DEPTH;
-    if (nestedRoots.length > 0 && !canNest) depthTruncated = true;
-    const hasChildren = source.hasChildren || canNest;
-    const collapsed = hasChildren &&
-      (presentation.collapsedOccurrenceRowIds?.has(rowId) ?? false);
+    if (nestedRoots.length > 0 && remainingDepth > 0 && !canNest) nestingTruncated = true;
+    if (remainingDepth === 0 && (physicalChildren.length > 0 || nestedRoots.length > 0)) depthTruncated = true;
+    const hasChildren = remainingDepth > 0 && (source.hasChildren || canNest);
+    const collapsed = hasChildren && (
+      (presentation.collapsedOccurrenceRowIds?.has(rowId) ?? false) ||
+      (!!source.defaultCollapsed && !(presentation.expandedOccurrenceRowIds?.has(rowId) ?? false))
+    );
     const row: VirtualBranchOccurrenceRow<T> = {
       ...source,
       rowId,
@@ -724,7 +789,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
       multilineExpanded: presentation.multilineExpandedRowIds.has(rowId),
     };
     composed.push(row);
-    if (collapsed) return;
+    if (collapsed || remainingDepth === 0) return;
 
     for (const child of physicalChildren) {
       appendOccurrence(
@@ -735,6 +800,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
         nestingDepth,
         rowIdPrefix,
         activeViewIds,
+        remainingDepth - 1,
       );
     }
     if (!canNest) return;
@@ -747,11 +813,12 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
       nestingDepth + 1,
       rowId,
       nestedActiveViewIds,
+      remainingDepth - 1,
     );
   }
 
-  appendBranch(rootViewId, rootViewId, rootDefinitionDepth, 0, "", new Set([rootViewId]));
-  return { rows: composed, depthTruncated, budgetTruncated };
+  appendBranch(rootViewId, rootViewId, rootDefinitionDepth, 0, "", new Set([rootViewId]), Infinity);
+  return { rows: composed, depthTruncated, nestingTruncated, budgetTruncated };
 }
 
 function pruneCollapsedPhysicalBlocks<T extends ProjectionBlock>(
@@ -817,10 +884,11 @@ export async function projectVirtualBranches<T extends ProjectionBlock>(
         physical.depth,
         childrenByView,
         presentation,
+        branchStates,
       );
       rows.push(...composition.rows);
       occurrenceRowCount += composition.rows.length;
-      if (composition.depthTruncated || composition.budgetTruncated) {
+      if (composition.depthTruncated || composition.nestingTruncated || composition.budgetTruncated) {
         const state = branchStates.get(physical.canonicalId);
         if (state) {
           branchStates.set(physical.canonicalId, {
@@ -828,6 +896,7 @@ export async function projectVirtualBranches<T extends ProjectionBlock>(
             truncation: {
               ...state.truncation,
               depth: state.truncation.depth || composition.depthTruncated,
+              ...(composition.nestingTruncated ? {nesting: true} : {}),
               budget: state.truncation.budget || composition.budgetTruncated,
             },
           });

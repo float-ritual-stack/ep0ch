@@ -55,7 +55,10 @@ function branchStatusText(state: VirtualBranchState): string {
   if (state.truncation.rootQuery) {
     details.push(`ROOT QUERY TRUNCATED at ${state.completeness?.kind === "truncated" ? state.completeness.limit : state.count}`);
   }
-  if (state.truncation.depth) details.push("DESCENDANTS TRUNCATED at relative depth 2");
+  if (state.truncation.depth) details.push(state.config?.childDepth === undefined
+    ? "DESCENDANTS TRUNCATED at relative depth 2"
+    : `DEPTH LIMITED by child-depth ${state.config.childDepth}`);
+  if (state.truncation.nesting) details.push("NESTING LIMITED by cycle or nesting ceiling");
   if (state.truncation.budget) details.push("PROJECTION TRUNCATED at 1000 rows");
   if (state.configurationErrors.length > 0) {
     details.push(`CONFIG ERROR: ${state.configurationErrors.join("; ")}`);
@@ -620,11 +623,12 @@ export function renderTreeFrame(
       ? null
       : treeSemanticState(block);
     const semanticTreatment = semanticState ? TREE_SEMANTIC_TREATMENTS[semanticState] : null;
+    const attentionLabel = row.kind === "occurrence" && row.attention ? "  ! attention" : "";
     let result: string[];
     if (!row.multilineExpanded) {
       const prefix = `${"  ".repeat(row.depth)}${marker} `;
       const branchBadge = branchState ? virtualBranchStateLabel(branchState) : "";
-      const fixedSuffix = `${branchBadge}${trashLabel}`;
+      const fixedSuffix = `${branchBadge}${trashLabel}${attentionLabel}`;
       const optionalSuffix = `  ${author}`;
       const summary = propertySummarySegments(
         block.properties,
@@ -645,7 +649,7 @@ export function renderTreeFrame(
       ];
     } else {
       const displayText = decorateVirtualBranchDefinitionText(
-        `${semanticText(document!.resolved.text, semanticTreatment)}${trashLabel}`,
+        `${attentionLabel ? "! attention\n" : ""}${semanticText(document!.resolved.text, semanticTreatment)}${trashLabel}`,
         branchState,
       );
       const expandedRows = layoutExpandedBlock({
