@@ -174,10 +174,11 @@ async function loadPreview(
 }
 
 const controller = new VirtualBranchNavigatorController(launch.sourceRole, {
-  loadProjection: (collapsedOccurrenceRowIds) =>
+  loadProjection: (collapsedOccurrenceRowIds,expandedOccurrenceRowIds) =>
     loadProjection({
       collapsedBlockIds: new Set(),
       collapsedOccurrenceRowIds,
+      expandedOccurrenceRowIds,
       multilineExpandedRowIds: new Set(),
     }),
   loadPreview,

@@ -160,9 +160,9 @@ function harness(
     invalidations: 0,
   };
   const effects: VirtualBranchNavigatorEffects = {
-    async loadProjection(collapsed) {
+    async loadProjection(collapsed,expanded) {
       calls.collapsed.push([...collapsed]);
-      if (loadProjection) return loadProjection(collapsed);
+      if (loadProjection) return loadProjection(collapsed,expanded);
       return projection;
     },
     async loadPreview(item) {

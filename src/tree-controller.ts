@@ -346,6 +346,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   const collapsedBlockIds = new Set<string>();
   const connections=new TreeConnections(effects,()=>{recomposeAuthoredRows();effects.invalidate();});
   const collapsedOccurrenceRowIds = new Set<string>();
+  const expandedOccurrenceRowIds = new Set<string>();
   const multilineExpandedRowIds = new Set<string>();
   const uncollapsedPresentationIds = new Set<string>();
   const navigationHistory: TreeNavigationEntry[] = [];
@@ -657,7 +658,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function connectionCollapsed(row:TreeRow):boolean {
-    return row.kind==='occurrence'?collapsedOccurrenceRowIds.has(row.rowId):collapsedBlockIds.has(row.canonicalId);
+    return row.kind==='occurrence'?row.collapsed:collapsedBlockIds.has(row.canonicalId);
   }
   function recomposeAuthoredRows(preferredRowId?: string): void {
     const previous = rows[selectedIndex];
@@ -711,6 +712,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const presentation: TreePresentationState = {
       collapsedBlockIds: activeFilter ? uncollapsedPresentationIds : collapsedBlockIds,
       collapsedOccurrenceRowIds,
+      expandedOccurrenceRowIds,
       multilineExpandedRowIds,
     };
     const projection = await projectVirtualBranches(
@@ -1758,6 +1760,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const ids = row.kind === "occurrence" ? collapsedOccurrenceRowIds : collapsedBlockIds;
     const id = row.kind === "occurrence" ? row.rowId : row.canonicalId;
     if(collapsed) ids.add(id); else ids.delete(id);
+    if(row.kind === "occurrence"){if(collapsed)expandedOccurrenceRowIds.delete(id);else expandedOccurrenceRowIds.add(id);}
   }
 
   async function changeDepth(expand: boolean): Promise<void> {
@@ -1817,9 +1820,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if (!isBlockTreeRow(row) || !row.hasChildren) return;
     if (isVirtualBranchOccurrence(row)) {
-      if (!collapsedOccurrenceRowIds.delete(row.rowId)) {
-        collapsedOccurrenceRowIds.add(row.rowId);
-      }
+      setCollapsed(row,!row.collapsed);
     } else if (!collapsedBlockIds.delete(row.canonicalId)) {
       collapsedBlockIds.add(row.canonicalId);
     }
@@ -2091,6 +2092,17 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       else await focusRoot(null);
       effects.invalidate();return;
     }
+    if(actionId === "tree.virtual-branch.reset-expansion") {
+      const row=rows[selectedIndex];
+      const viewId=row?.kind === "occurrence" ? row.viewId : isBlockTreeRow(row) ? row.canonicalId : undefined;
+      if(viewId && branchStates.has(viewId)) {
+        for(const set of [collapsedOccurrenceRowIds,expandedOccurrenceRowIds]) for(const id of set) {
+          if(id.split("/").some(part=>part.startsWith(`occurrence:${viewId}:`)))set.delete(id);
+        }
+        await reload(row?.rowId);status="Reset this view to its expansion defaults";
+      } else status="Select a virtual branch or one of its results";
+      effects.invalidate();return;
+    }
     if (["tree.root.focus","tree.root.workspace","tree.root.right","tree.root.below","tree.depth.expand","tree.depth.collapse"].includes(actionId)) {
       const row=rows[selectedIndex];
       if(actionId === "tree.root.workspace") await focusRoot(null);
@@ -2147,7 +2159,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const wasCollapsed=isBlockTreeRow(selected) && connectionCollapsed(selected);
       const opened=connections.toggle(selected);
       if(opened && isBlockTreeRow(selected)){
-        if(selected.kind==='occurrence')collapsedOccurrenceRowIds.delete(selected.rowId);
+        if(selected.kind==='occurrence')setCollapsed(selected,false);
         else collapsedBlockIds.delete(selected.canonicalId);
       }
       if(opened && wasCollapsed) await reload(selected.rowId,{exactRowIdOnly:true});
@@ -2519,7 +2531,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     } else if (key.name === "left" && selected) {
       if (isVirtualBranchOccurrence(selected)) {
         if (!selected.collapsed && selected.hasChildren) {
-          collapsedOccurrenceRowIds.add(selected.rowId);
+          setCollapsed(selected,true);
           preferredRowId = selected.rowId;
           reloadRequired = true;
         } else {
@@ -2540,7 +2552,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     } else if (key.name === "right" && selected) {
       if (isVirtualBranchOccurrence(selected)) {
         if (selected.collapsed) {
-          collapsedOccurrenceRowIds.delete(selected.rowId);
+          setCollapsed(selected,false);
           preferredRowId = selected.rowId;
           reloadRequired = true;
         } else if (selected.hasChildren) {
@@ -2595,9 +2607,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     } else if (key.name === "space" && selected) {
       if (isVirtualBranchOccurrence(selected)) {
         if (selected.hasChildren) {
-          if (!collapsedOccurrenceRowIds.delete(selected.rowId)) {
-            collapsedOccurrenceRowIds.add(selected.rowId);
-          }
+          setCollapsed(selected,!selected.collapsed);
           preferredRowId = selected.rowId;
           reloadRequired = true;
         }

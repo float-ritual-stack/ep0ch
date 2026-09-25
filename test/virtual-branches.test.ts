@@ -880,3 +880,21 @@ describe("virtual branch creation text", () => {
     )).toThrow("more than one status property");
   });
 });
+
+test('view depth and expansion defaults preserve independent manual occurrence choices', async () => {
+  const root=visibleBlock('ticket',[],{hasChildren:true});
+  const child=visibleBlock('note',[],{parentId:root.id,hasChildren:true});
+  const grandchild=visibleBlock('comment',[],{parentId:child.id});
+  const view=(id:string,depth:number)=>visibleBlock(id,[{key:'type',value:'virtual-branch'},{key:'query',value:'fixture=card'},{key:'child-depth',value:String(depth)},{key:'expanded',value:'false'}]);
+  const views=[view('shallow',0),view('one',1),view('two',2)];
+  const physical=[...views,root,child,grandchild];
+  const project=(expanded=new Set<string>(),collapsed=new Set<string>())=>projectVirtualBranches(physical,physical,async()=>complete([root]),[],{collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:collapsed,expandedOccurrenceRowIds:expanded,multilineExpandedRowIds:new Set()});
+  const initial=await project();
+  expect(initial.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','ticket']);
+  expect(initial.rows.find(r=>r.rowId==='occurrence:shallow:ticket')?.hasChildren).toBe(false);
+  const open=await project(new Set(['occurrence:one:ticket','occurrence:two:ticket']));
+  expect(open.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','note','ticket','note','comment']);
+  const closed=await project(new Set(['occurrence:one:ticket']),new Set(['occurrence:two:ticket']));
+  expect(closed.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','note','ticket']);
+  expect(parseVirtualBranchConfig(view('bad',9),physical).configurationErrors.length).toBeGreaterThan(0);
+});
