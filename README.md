@@ -1969,3 +1969,10 @@ the selected row. An `! attention`
 marker remains when you manually collapse a matching path. Manual open/collapse
 wins over later attention changes; resolving a comment cannot close a path you
 explicitly opened. **Reset view expansion** discards those choices and reevaluates.
+
+### Installed Resource extensions
+
+Jira requests use an installed process on the service host. Installation, code updates,
+and enable/disable changes do not require rebuilding the Outliner. See
+[the process contract and configuration guide](docs/extensions/resource-process.md).
+The initial binding is read-only Jira; other Resource providers retain their existing paths.
