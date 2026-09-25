@@ -78,15 +78,10 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
     await expect(runtime.invoke("jira", "read", {})).rejects.toThrow(
       "credentials are unavailable",
     );
-    await write("hang");
-    const abort = new AbortController();
-    const pending = runtime.invoke("jira", "read", {}, abort.signal);
-    abort.abort();
-    await expect(pending).rejects.toThrow("cancelled");
     await write("normal");
     await writeFile(
       entry,
-      `await Bun.stdin.json();await Bun.write(${JSON.stringify(join(dir, "started"))},'yes');await Bun.sleep(80);console.log(JSON.stringify({ok:true,value:'late'}));`,
+      `await Bun.stdin.json();await Bun.write(${JSON.stringify(join(dir, "started"))},'yes');while(!(await Bun.file(${JSON.stringify(join(dir, "release"))}).exists()))await Bun.sleep(5);console.log(JSON.stringify({ok:true,value:'late'}));`,
     );
     const inFlight = runtime.invoke("jira", "read", {}).then(
       () => null,
@@ -100,8 +95,41 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
       await Bun.sleep(2);
     expect(await Bun.file(join(dir, "started")).exists()).toBe(true);
     await write("normal", false);
+    await writeFile(join(dir, "release"), "go");
     expect(await inFlight).toBeInstanceOf(Error);
     expect((await inFlight).message).toContain("disabled");
+    await write("normal");
+    await rm(join(dir, "started"));
+    await rm(join(dir, "release"));
+    const abort = new AbortController();
+    const running = runtime.invoke("jira", "read", {}, abort.signal).then(
+      () => null,
+      (error) => error,
+    );
+    for (
+      let i = 0;
+      i < 100 && !(await Bun.file(join(dir, "started")).exists());
+      i++
+    )
+      await Bun.sleep(2);
+    expect(await Bun.file(join(dir, "started")).exists()).toBe(true);
+    abort.abort();
+    expect((await running).message).toContain("cancelled");
+    await writeFile(entry, program);
+    const secret = 'synthetic-"quoted"-\\token';
+    process.env.OUTLINER_TEST_ESCAPED_CREDENTIAL_380 = secret;
+    try {
+      const secured = registry("normal");
+      secured.providers.jira.credentials = Object.assign(
+        {},
+        { token: { env: "OUTLINER_TEST_ESCAPED_CREDENTIAL_380" } },
+      );
+      await writeFile(config, JSON.stringify(secured));
+      const response = await runtime.invoke("jira", "read", {});
+      expect(response.value).toMatchObject({ secret: "[redacted]" });
+    } finally {
+      delete process.env.OUTLINER_TEST_ESCAPED_CREDENTIAL_380;
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

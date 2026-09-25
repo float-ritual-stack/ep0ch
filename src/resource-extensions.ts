@@ -155,6 +155,30 @@ async function runCommand(
   });
 }
 
+function scrubCredentials(
+  value: unknown,
+  secrets: readonly string[],
+  depth = 0,
+): unknown {
+  if (depth > 64) throw failure("response exceeds nesting limit");
+  if (typeof value === "string") {
+    for (const secret of secrets)
+      for (const token of [secret, Buffer.from(secret).toString("base64")])
+        value = (value as string).split(token).join("[redacted]");
+    return value;
+  }
+  if (Array.isArray(value))
+    return value.map((item) => scrubCredentials(item, secrets, depth + 1));
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        scrubCredentials(key, secrets, depth + 1),
+        scrubCredentials(item, secrets, depth + 1),
+      ]),
+    );
+  return value;
+}
+
 export interface ExtensionResult {
   readonly value: unknown;
   readonly adapter: { id: string; version: number };
@@ -265,13 +289,9 @@ export class ResourceExtensionRuntime {
     // Disable/config changes during a call invalidate its result before the catalog can commit it.
     if ((await this.installation(provider)).stamp !== loaded.stamp)
       throw failure("configuration changed during request; refresh to retry");
-    let clean = output;
-    for (const value of Object.values(secrets))
-      for (const token of [value, Buffer.from(value).toString("base64")])
-        clean = clean.split(token).join("[redacted]");
     let envelope: unknown;
     try {
-      envelope = JSON.parse(clean);
+      envelope = JSON.parse(output);
     } catch {
       throw failure("command returned invalid JSON");
     }
@@ -296,7 +316,7 @@ export class ResourceExtensionRuntime {
     if (!parsed.ok)
       throw failure(ERROR_MESSAGES[parsed.code] ?? "provider operation failed");
     return {
-      value: parsed.value,
+      value: scrubCredentials(parsed.value, Object.values(secrets)),
       adapter: { id: loaded.manifest.id, version: loaded.manifest.version },
       manifestHash: loaded.stamp,
     };
