@@ -2127,12 +2127,6 @@ export class OutlinerStore {
     return this.database.transaction(() => this.childrenFromCurrentRead(parentId))();
   }
 
-  traversePreorder(options: BlockTraversalOptions = {}): VisibleBlock[] {
-    return this.database.transaction(() =>
-      this.traverseLoadedGraph(this.loadGraph(), options)
-    )();
-  }
-
   queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
     const query = normalizeBlockSearchQuery(input);
 

@@ -132,7 +132,7 @@ describe("OutlinerStore", () => {
   test("indexes inline properties and combines filters", () => {
     const store = makeStore();
     const workspace = store
-      .traversePreorder({})
+      .readWorkspaceSnapshot().physical.blocks
       .find((block) => block.properties.some((property) => property.value === "workspace"));
     expect(workspace).toBeDefined();
 
@@ -1069,24 +1069,18 @@ Second paragraph`;
       .blocks.map(block => block.id)).toEqual([second.id, first.id, fallback.id]);
   });
 
-  test("always returns canonical descendants for client-local projection", () => {
-    const store = makeStore();
-    const parent = store.create("Parent");
-    const child = store.create("Child", parent.id);
-
-    expect(store.traversePreorder({}).some((block) => block.id === child.id)).toBe(true);
-  });
-
   test("traverses a subtree with physical depth and hydrated display metadata", () => {
     const store = makeStore();
     const target = store.create("Referenced title");
     const root = store.create("Subtree root");
     const child = store.create(`See ((${target.id}))`, root.id);
 
-    const rows = store.traversePreorder({
+    const result = store.queryBlocks({
       subtreeRootId: root.id,
+      limit: 10,
     });
-    expect(rows).toEqual([
+    expect(result.completeness).toEqual({ kind: "complete" });
+    expect(result.blocks).toEqual([
       expect.objectContaining({
         id: root.id,
         depth: 0,
@@ -2057,7 +2051,7 @@ Second paragraph`;
     store.configureWorkIdPrefix("PIE");
     const source = store.create("Source mentions [[Future Page]]");
     const updated = store.update(source.id, "Source still mentions [[Future Page]]", source.revision);
-    const before = store.traversePreorder({}).length;
+    const before = store.readWorkspaceSnapshot().physical.blocks.length;
     expect(updated.text).toContain("[[Future Page]]");
     expect(store.completePageAddresses("future", 20).addresses).toEqual([]);
 
@@ -2066,7 +2060,7 @@ Second paragraph`;
       normalizedAddress: "future page",
       status: "missing",
     });
-    expect(store.traversePreorder({})).toHaveLength(before);
+    expect(store.readWorkspaceSnapshot().physical.blocks).toHaveLength(before);
     expect(() => store.followPageAddress("PIE-404")).toThrow(
       "Unresolved Work ID cannot create a page stub",
     );
@@ -2089,12 +2083,12 @@ Second paragraph`;
     const store = makeStore();
     store.configureWorkIdPrefix("PIE");
     const owner = store.create("Owner [work-id::PIE-132]");
-    const count = store.traversePreorder({}).length;
+    const count = store.readWorkspaceSnapshot().physical.blocks.length;
 
     expect(() => store.create("Collision [page::pie-132]")).toThrow(
       `Page address already belongs to block ${owner.id}`,
     );
-    expect(store.traversePreorder({})).toHaveLength(count);
+    expect(store.readWorkspaceSnapshot().physical.blocks).toHaveLength(count);
     expect(() => store.create("Duplicate [page::One] [page::Two]")).toThrow(
       "at most one page address",
     );

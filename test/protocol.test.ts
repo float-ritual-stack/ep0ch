@@ -158,7 +158,7 @@ test("serves bounded authored links without loading Resources or mutating storag
   const owner = store.create(
     `Owner ((${target.id}|Target)) [Guide](pi-outliner://resource/${resource.id})`,
   );
-  const blockIdsBefore = store.traversePreorder({}).map((block) => block.id);
+  const blockIdsBefore = store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id);
   const sequenceBefore = store.sequence;
   const socket = join(directory, "outliner.sock");
   const server = new OutlinerServer(store, socket);
@@ -186,7 +186,7 @@ test("serves bounded authored links without loading Resources or mutating storag
   });
   expect(providerCalls).toBe(0);
   expect(store.sequence).toBe(sequenceBefore);
-  expect(store.traversePreorder({}).map((block) => block.id)).toEqual(blockIdsBefore);
+  expect(store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id)).toEqual(blockIdsBefore);
 });
 
 

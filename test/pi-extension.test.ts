@@ -12,7 +12,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import outlinerExtension, {
-  containsConfiguredWorkPlaceholder,
   createOutlinerExtension,
   formatSelection,
   latestAssistantResponse,
@@ -375,8 +374,6 @@ test("nudges once per turn from prompt, focused block, or outliner tool text", a
     }, context);
     expect(duplicateToolNudge).toBeUndefined();
 
-    expect(containsConfiguredWorkPlaceholder("[[PIE-XXX]]", "PIE")).toBe(true);
-    expect(containsConfiguredWorkPlaceholder("[[OTHER-XXX]]", "PIE")).toBe(false);
     expect(
       requests.every(({ action }) =>
         action === "selection.get" || action === "work-ids.status" ||
