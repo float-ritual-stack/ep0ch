@@ -1,3 +1,4 @@
+import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import {captureHistoryProducer,CAPTURE_HISTORY_PRODUCER} from "./capture-history";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
@@ -967,11 +968,11 @@ export class ResourceCatalog {
     this.pdfExtractor = options.pdfExtractor ?? new PdfJsTextExtractor();
     this.now = options.now ?? (() => new Date().toISOString());
     this.remoteEntityClient = options.remoteEntityClient ??
-      new DefaultRemoteEntityProviderClient({
+      new InstalledResourceProviderClient(undefined, new DefaultRemoteEntityProviderClient({
         fetch: this.fetcher,
         resolveCredential: (name) => process.env[name],
         now: this.now,
-      });
+      }));
     this.computedProducerRegistry = options.computedProducerRegistry ??
       createDefaultComputedProducerRegistry();
     if(!options.computedProducerRegistry)this.computedProducerRegistry.register(captureHistoryProducer(database));
