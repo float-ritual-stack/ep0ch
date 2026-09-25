@@ -79,7 +79,7 @@ export type ResourceSource =
         readonly kind: "jira";
         readonly origin: string;
         readonly project: string;
-        readonly credentialEnv: string;
+        readonly credentialEnv?: string;
       };
     }
   | ResourceSourceHeader & {
@@ -138,7 +138,7 @@ export type CreateResourceSourceInput =
       readonly boundary: {
         readonly origin: string;
         readonly project: string;
-        readonly credentialEnv: string;
+        readonly credentialEnv?: string;
       };
       readonly policy?: { readonly deniedCapabilities?: readonly ResourceCapability[] };
     }
@@ -201,7 +201,7 @@ type NormalizedResourceSourceInput =
       readonly boundary: {
         readonly origin: string;
         readonly project: string;
-        readonly credentialEnv: string;
+        readonly credentialEnv?: string;
       };
       readonly policy: ResourcePolicy;
     }
@@ -1271,7 +1271,7 @@ export function normalizeResourceSourceInput(value: unknown): NormalizedResource
         boundary: {
           origin: normalizeRemoteOrigin(boundary.origin, "Jira source origin"),
           project: printable(boundary.project, "Jira source project", 255).toUpperCase(),
-          credentialEnv: credentialEnvironmentName(boundary.credentialEnv),
+          ...(boundary.credentialEnv === undefined ? {} : { credentialEnv: credentialEnvironmentName(boundary.credentialEnv) }),
         },
         policy,
       };

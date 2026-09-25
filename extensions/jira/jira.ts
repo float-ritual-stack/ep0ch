@@ -1,0 +1,400 @@
+// Standalone installed extension: no imports from the Outliner application.
+type UnknownRecord = Record<string, unknown>;
+const MAX_ADF_DEPTH = 32,
+  MAX_ADF_NODES = 20000;
+class ExtensionError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+const providerError = (_message: string) =>
+  new ExtensionError("invalid-response");
+function record(value: unknown, label: string): UnknownRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw providerError(label);
+  return value as UnknownRecord;
+}
+function requiredString(
+  value: unknown,
+  label: string,
+  maximum = 100_000,
+): string {
+  if (typeof value !== "string")
+    throw providerError(`${label} must be a string`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximum) {
+    throw providerError(`${label} must be 1-${maximum} characters`);
+  }
+  return normalized;
+}
+
+function nullableString(
+  value: unknown,
+  label: string,
+  maximum = 100_000,
+): string | null {
+  if (value === null || value === undefined) return null;
+  return requiredString(value, label, maximum);
+}
+
+function namedValue(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  const input = record(value, label);
+  return nullableString(input.name, `${label} name`, 1_000);
+}
+
+function stringArray(value: unknown, label: string): readonly string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw providerError(`${label} must be an array`);
+  const normalized = value.map((entry) =>
+    requiredString(entry, `${label} entry`, 1_000),
+  );
+  return [...new Set(normalized)].sort();
+}
+
+function markdownText(value: string): string {
+  return value.replace(/([\\`*_[\]<>])/g, "\\$1");
+}
+
+function backtickFence(value: string, minimumLength: number): string {
+  let fenceLength = minimumLength;
+  for (const match of value.matchAll(/`+/g)) {
+    fenceLength = Math.max(fenceLength, match[0].length + 1);
+  }
+  return "`".repeat(fenceLength);
+}
+
+function markdownCode(value: string): string {
+  const normalized = value.replace(/\r\n?|\n/g, " ");
+  const fence = backtickFence(normalized, 1);
+  const needsPadding =
+    normalized.startsWith("`") ||
+    normalized.endsWith("`") ||
+    ((normalized.startsWith(" ") || normalized.endsWith(" ")) &&
+      !/^ +$/.test(normalized));
+  const padding = needsPadding ? " " : "";
+  return `${fence}${padding}${normalized}${padding}${fence}`;
+}
+
+interface AdfRenderState {
+  nodes: number;
+}
+
+function adfChildren(node: UnknownRecord, label: string): readonly unknown[] {
+  if (node.content === undefined) return [];
+  if (!Array.isArray(node.content))
+    throw providerError(`${label} content must be an array`);
+  return node.content;
+}
+
+function renderAdfLiteralText(
+  value: unknown,
+  state: AdfRenderState,
+  depth: number,
+): string {
+  state.nodes += 1;
+  if (state.nodes > MAX_ADF_NODES || depth > MAX_ADF_DEPTH) {
+    throw providerError("Jira description exceeds structural limits");
+  }
+  const node = record(value, "Jira description node");
+  const type = requiredString(node.type, "Jira description node type", 100);
+  if (type === "text") return typeof node.text === "string" ? node.text : "";
+  if (type === "hardBreak") return "\n";
+  return adfChildren(node, "Jira description node")
+    .map((child) => renderAdfLiteralText(child, state, depth + 1))
+    .join("");
+}
+
+function renderAdfNode(
+  value: unknown,
+  state: AdfRenderState,
+  depth: number,
+): string {
+  state.nodes += 1;
+  if (state.nodes > MAX_ADF_NODES || depth > MAX_ADF_DEPTH) {
+    throw providerError("Jira description exceeds structural limits");
+  }
+  const node = record(value, "Jira description node");
+  const type = requiredString(node.type, "Jira description node type", 100);
+  if (type === "text") {
+    const text = typeof node.text === "string" ? markdownText(node.text) : "";
+    if (!Array.isArray(node.marks)) return text;
+    return node.marks.reduce((rendered, markValue) => {
+      const mark = record(markValue, "Jira text mark");
+      if (mark.type === "strong") return `**${rendered}**`;
+      if (mark.type === "em") return `_${rendered}_`;
+      if (mark.type === "code")
+        return markdownCode(node.text === undefined ? "" : String(node.text));
+      if (mark.type === "strike") return `~~${rendered}~~`;
+      if (mark.type === "link") {
+        const attributes = record(mark.attrs, "Jira link attributes");
+        const href = requiredString(attributes.href, "Jira link URL", 4_096);
+        return `[${rendered}](${href.replaceAll(")", "%29")})`;
+      }
+      return rendered;
+    }, text);
+  }
+  if (type === "hardBreak") return "  \n";
+  if (type === "rule") return "---\n\n";
+  if (type === "emoji") {
+    const attributes = record(node.attrs, "Jira emoji attributes");
+    return typeof attributes.text === "string" ? attributes.text : "";
+  }
+  if (type === "mention") {
+    const attributes = record(node.attrs, "Jira mention attributes");
+    return typeof attributes.text === "string"
+      ? markdownText(attributes.text)
+      : "";
+  }
+  if (type === "inlineCard") {
+    const attributes = record(node.attrs, "Jira inline card attributes");
+    const url = requiredString(attributes.url, "Jira inline card URL", 4_096);
+    return `<${url}>`;
+  }
+
+  const children = adfChildren(node, "Jira description node");
+  if (type === "bulletList" || type === "orderedList") {
+    return (
+      children
+        .map((child, index) => {
+          const rendered = renderAdfNode(child, state, depth + 1)
+            .trim()
+            .replaceAll("\n", "\n  ");
+          return `${type === "orderedList" ? `${index + 1}.` : "-"} ${rendered}`;
+        })
+        .join("\n") + "\n\n"
+    );
+  }
+  if (type === "listItem") {
+    return children
+      .map((child) => renderAdfNode(child, state, depth + 1))
+      .join("")
+      .trim();
+  }
+  if (type === "codeBlock") {
+    const literal = children
+      .map((child) => renderAdfLiteralText(child, state, depth + 1))
+      .join("");
+    const fence = backtickFence(literal, 3);
+    return `${fence}\n${literal}${literal.endsWith("\n") ? "" : "\n"}${fence}\n\n`;
+  }
+  const renderedChildren = children
+    .map((child) => renderAdfNode(child, state, depth + 1))
+    .join("");
+  if (type === "paragraph") return `${renderedChildren.trimEnd()}\n\n`;
+  if (type === "heading") {
+    const attributes = record(node.attrs, "Jira heading attributes");
+    const rawLevel = attributes.level;
+    const level =
+      typeof rawLevel === "number" && Number.isInteger(rawLevel)
+        ? Math.min(6, Math.max(1, rawLevel))
+        : 2;
+    return `${"#".repeat(level)} ${renderedChildren.trim()}\n\n`;
+  }
+  if (type === "blockquote") {
+    return (
+      renderedChildren
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n") + "\n\n"
+    );
+  }
+  if (type === "doc") return renderedChildren;
+  return renderedChildren;
+}
+
+function jiraDescriptionMarkdown(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  return renderAdfNode(value, { nodes: 0 }, 0).trim();
+}
+
+function detailsMarkdown(
+  entries: readonly (readonly [string, string | readonly string[] | null])[],
+): string {
+  const lines = entries.flatMap(([label, value]) => {
+    if (value === null) return [];
+    if (typeof value !== "string" && value.length === 0) return [];
+    const rendered =
+      typeof value === "string"
+        ? markdownCode(value)
+        : value.map((entry) => markdownCode(entry)).join(", ");
+    return [`- ${label}: ${rendered}`];
+  });
+  return lines.length === 0 ? "" : `\n\n## Details\n\n${lines.join("\n")}`;
+}
+
+function entityMarkdown(
+  title: string,
+  description: string,
+  details: readonly (readonly [string, string | readonly string[] | null])[],
+): string {
+  const body = description.trim();
+  return `# ${markdownText(title)}${body ? `\n\n${body}` : ""}${detailsMarkdown(details)}\n`;
+}
+
+async function main() {
+  const request = record(await Bun.stdin.json(), "request");
+  if (
+    request.contract !== 1 ||
+    !["resolve", "read"].includes(String(request.operation))
+  )
+    throw new ExtensionError("invalid-config");
+  const input = record(request.input, "input");
+  const source = record(input.source, "source");
+  const config = record(request.config, "config");
+  const credentials = record(request.credentials, "credentials");
+  if (!["basic", "bearer"].includes(String(config.authMode)))
+    throw new ExtensionError("invalid-config");
+  const token = credentials.token;
+  if (typeof token !== "string" || !token.trim())
+    throw new ExtensionError("credentials-missing");
+  const email = config.email;
+  if (
+    config.authMode === "basic" &&
+    (typeof email !== "string" || !email.trim() || email.includes(":"))
+  )
+    throw new ExtensionError("invalid-config");
+  const origin = new URL(String(source.origin));
+  if (
+    !["https:", "http:"].includes(origin.protocol) ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  )
+    throw new ExtensionError("invalid-config");
+  // Plain HTTP is useful only for a local test server. Never send real credentials over it.
+  if (
+    origin.protocol === "http:" &&
+    !["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)
+  )
+    throw new ExtensionError("invalid-config");
+  const project = source.project;
+  if (typeof project !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(project))
+    throw new ExtensionError("invalid-config");
+  const target =
+    request.operation === "resolve"
+      ? String(input.locator).trim().toUpperCase()
+      : String(input.entityId);
+  if (
+    request.operation === "resolve" &&
+    (!target.startsWith(project + "-") || !/^[A-Z][A-Z0-9_]*-\d+$/.test(target))
+  )
+    throw new ExtensionError("outside-source");
+  if (request.operation === "read" && !/^\d+$/.test(target))
+    throw new ExtensionError("invalid-config");
+  const url = new URL(
+    "/rest/api/3/issue/" + encodeURIComponent(target),
+    origin,
+  );
+  url.searchParams.set(
+    "fields",
+    request.operation === "resolve"
+      ? "summary"
+      : "summary,description,status,issuetype,priority,assignee,labels,updated",
+  );
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        accept: "application/json",
+        authorization:
+          config.authMode === "basic"
+            ? "Basic " +
+              Buffer.from(String(email) + ":" + token).toString("base64")
+            : "Bearer " + token,
+      },
+    });
+  } catch {
+    throw new ExtensionError("network");
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ExtensionError(
+      (
+        { 401: "unauthorized", 403: "forbidden", 404: "not-found" } as Record<
+          number,
+          string
+        >
+      )[response.status] ?? "network",
+    );
+  }
+  if (!response.body) throw new ExtensionError("invalid-response");
+  const reader = response.body.getReader();
+  let bytes = 0;
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 350000) {
+        await reader.cancel();
+        throw new ExtensionError("invalid-response");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const sourceContent = Buffer.concat(chunks).toString("utf8");
+  const issue = record(JSON.parse(sourceContent), "issue");
+  const entityId = requiredString(issue.id, "id", 255),
+    locator = requiredString(issue.key, "key", 255).toUpperCase();
+  if (!/^\d+$/.test(entityId) || !/^[A-Z][A-Z0-9_]*-\d+$/.test(locator))
+    throw new ExtensionError("invalid-response");
+  if (!locator.startsWith(project + "-"))
+    throw new ExtensionError("outside-source");
+  if (request.operation === "read" && entityId !== target)
+    throw new ExtensionError("invalid-response");
+  if (request.operation === "resolve") return { entityId, locator };
+  const fields = record(issue.fields, "fields");
+  const title = requiredString(fields.summary, "summary", 4000);
+  const metadata = {
+    key: locator,
+    status: namedValue(fields.status, "status"),
+    type: namedValue(fields.issuetype, "type"),
+    priority: namedValue(fields.priority, "priority"),
+    assignee: fields.assignee
+      ? nullableString(
+          record(fields.assignee, "assignee").displayName,
+          "assignee",
+          1000,
+        )
+      : null,
+    labels: stringArray(fields.labels, "labels"),
+  };
+  const markdown = entityMarkdown(
+    title,
+    jiraDescriptionMarkdown(fields.description),
+    Object.entries(metadata),
+  );
+  const updatedAt = requiredString(fields.updated, "updated", 100);
+  if (!Number.isFinite(Date.parse(updatedAt)))
+    throw new ExtensionError("invalid-response");
+  return {
+    entityId,
+    locator,
+    title,
+    sourceContent,
+    markdown,
+    metadata,
+    updatedAt,
+    externalUrl: new URL("/browse/" + encodeURIComponent(locator), origin).href,
+  };
+}
+try {
+  console.log(JSON.stringify({ ok: true, value: await main() }));
+} catch (error) {
+  console.log(
+    JSON.stringify({
+      ok: false,
+      code: error instanceof ExtensionError ? error.code : "invalid-response",
+    }),
+  );
+}
