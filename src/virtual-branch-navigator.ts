@@ -76,6 +76,7 @@ export type VirtualBranchNavigatorPreview = { context?: string } & (
 export interface VirtualBranchNavigatorEffects {
   loadProjection(
     collapsedOccurrenceRowIds: ReadonlySet<string>,
+    expandedOccurrenceRowIds: ReadonlySet<string>,
   ): Promise<VirtualBranchNavigatorProjection>;
   loadPreview(row: VirtualBranchOccurrenceRow): Promise<VirtualBranchNavigatorPreview>;
   replaceTarget(blockId: string): Promise<void>;
@@ -146,6 +147,7 @@ export class VirtualBranchNavigatorController {
   narrowPane: "list" | "preview" = "list";
   readonly destinationChooserState = createOpenDestinationChooserState();
   readonly collapsedOccurrenceRowIds = new Set<string>();
+  readonly expandedOccurrenceRowIds = new Set<string>();
   private readonly actionKeymap: OutlinerActionKeymap;
   private readonly destinationChooser: OpenDestinationChooser;
   private refreshGeneration = 0;
@@ -210,7 +212,7 @@ export class VirtualBranchNavigatorController {
     this.loadingProjection = true;
     this.effects.invalidate();
     try {
-      const projection = await this.effects.loadProjection(this.collapsedOccurrenceRowIds);
+      const projection = await this.effects.loadProjection(this.collapsedOccurrenceRowIds,this.expandedOccurrenceRowIds);
       if (generation !== this.refreshGeneration || this.closed) return;
       this.title = projection.title;
       this.rows = projection.rows;
@@ -480,7 +482,9 @@ export class VirtualBranchNavigatorController {
   }
 
   private async toggleDisclosure(rowId: string): Promise<void> {
-    if (!this.collapsedOccurrenceRowIds.delete(rowId)) this.collapsedOccurrenceRowIds.add(rowId);
+    const row=this.visibleRows.find(row=>row.rowId === rowId);
+    if(row?.collapsed){this.collapsedOccurrenceRowIds.delete(rowId);this.expandedOccurrenceRowIds.add(rowId);}
+    else {this.collapsedOccurrenceRowIds.add(rowId);this.expandedOccurrenceRowIds.delete(rowId);}
     await this.refresh();
   }
 

@@ -1143,7 +1143,18 @@ presentation-only; ordinary and projected rows continue to read the same
 canonical parsed properties.
 
 Matches appear as disposable `◇` root occurrences. Each matched root also projects
-its canonical descendants as read-only context through relative depth 2. Context
+its canonical descendants as read-only context through relative depth 2 by default.
+`[child-depth::0]` shows matches only, `1` adds their children, and `2` adds
+children and grandchildren; integers through `8` are supported within the row budget.
+`[expanded::false]` starts matched roots collapsed; `true` starts them expanded.
+Omitting these properties preserves the existing behavior. Manual opening and
+closing wins over defaults in that Tree, even after refresh or policy changes.
+Use **Reset view expansion** in `?` on a definition or result to discard that
+view's local overrides. New occurrences use current defaults; a new Tree starts
+fresh. Nested copies retain independent disclosure. A configured depth that hides
+children is labeled **CHILD DEPTH n · DEPTH LIMITED**, separately from row/query
+truncation. These controls apply to Tree and navigator projections; authored
+Detail embeds remain their existing compact result-link lists. Context
 has independent, ephemeral disclosure; `Left` and `Right` navigate its projected
 parent/children without changing canonical text or storage. A canonical block may
 therefore appear beneath a matched ancestor and independently as a matched root,
