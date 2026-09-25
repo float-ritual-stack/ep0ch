@@ -2099,7 +2099,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if(actionId === "tree.virtual-branch.reset-expansion") {
       const row=rows[selectedIndex];
-      const viewId=row?.kind === "occurrence" ? row.viewId : isBlockTreeRow(row) ? row.canonicalId : undefined;
+      const viewId=row?.kind === "occurrence" ? (branchStates.has(row.canonicalId) ? row.canonicalId : row.viewId) : isBlockTreeRow(row) ? row.canonicalId : undefined;
       if(viewId && branchStates.has(viewId)) {
         for(const set of [collapsedOccurrenceRowIds,expandedOccurrenceRowIds]) for(const id of set) {
           if(id.split("/").some(part=>part.startsWith(`occurrence:${viewId}:`)))set.delete(id);
@@ -2164,7 +2164,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const wasCollapsed=isBlockTreeRow(selected) && connectionCollapsed(selected);
       const opened=connections.toggle(selected);
       if(opened && isBlockTreeRow(selected)){
-        if(selected.kind==='occurrence')setCollapsed(selected,false);
+        if(selected.kind==='occurrence'){if(wasCollapsed)setCollapsed(selected,false);}
         else collapsedBlockIds.delete(selected.canonicalId);
       }
       if(opened && wasCollapsed) await reload(selected.rowId,{exactRowIdOnly:true});
