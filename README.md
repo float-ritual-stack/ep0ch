@@ -1936,3 +1936,10 @@ contract using `mentions.ingest`, or JSON stdin to `bun src/cli.ts mentions inge
 Repeated message identity with identical text is idempotent; different text under
 the same identity is rejected. No Pi or Claude adapter is installed automatically;
 for Claude Code, load the mod in [`claude-mod/`](claude-mod/README.md).
+
+### Installed Resource extensions
+
+Jira requests use an installed process on the service host. Installation, code updates,
+and enable/disable changes do not require rebuilding the Outliner. See
+[the process contract and configuration guide](docs/extensions/resource-process.md).
+The initial binding is read-only Jira; other Resource providers retain their existing paths.
