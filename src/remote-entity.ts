@@ -20,8 +20,6 @@ import {
 
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-const MAX_ADF_DEPTH = 32;
-const MAX_ADF_NODES = 20_000;
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type UnknownRecord = Static<typeof UnknownRecordSchema>;
 
@@ -63,19 +61,6 @@ export interface RemoteEntityProviderClient {
 export const REMOTE_ENTITY_MARKDOWN_ADAPTER: ResourceRepresentationAdapter = {
   id: "remote-entity-markdown",
   version: 1,
-};
-
-const JIRA_COMMENT_CREATE_DESCRIPTOR: ResourceProviderCommandDescriptor = {
-  provider: "jira",
-  command: "comment.create",
-  label: "Add comment",
-  input: {
-    body: {
-      type: "string",
-      required: true,
-      maxLength: MAX_REMOTE_ENTITY_COMMENT_LENGTH,
-    },
-  },
 };
 
 const LINEAR_COMMENT_CREATE_DESCRIPTOR: ResourceProviderCommandDescriptor = {
@@ -127,13 +112,6 @@ function namedValue(value: unknown, label: string): string | null {
   return nullableString(input.name, `${label} name`, 1_000);
 }
 
-function stringArray(value: unknown, label: string): readonly string[] {
-  if (value === null || value === undefined) return [];
-  if (!Array.isArray(value)) throw providerError(`${label} must be an array`);
-  const normalized = value.map((entry) => requiredString(entry, `${label} entry`, 1_000));
-  return [...new Set(normalized)].sort();
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -158,112 +136,6 @@ function markdownCode(value: string): string {
     ((normalized.startsWith(" ") || normalized.endsWith(" ")) && !/^ +$/.test(normalized));
   const padding = needsPadding ? " " : "";
   return `${fence}${padding}${normalized}${padding}${fence}`;
-}
-
-interface AdfRenderState {
-  nodes: number;
-}
-
-function adfChildren(node: UnknownRecord, label: string): readonly unknown[] {
-  if (node.content === undefined) return [];
-  if (!Array.isArray(node.content)) throw providerError(`${label} content must be an array`);
-  return node.content;
-}
-
-function renderAdfLiteralText(value: unknown, state: AdfRenderState, depth: number): string {
-  state.nodes += 1;
-  if (state.nodes > MAX_ADF_NODES || depth > MAX_ADF_DEPTH) {
-    throw providerError("Jira description exceeds structural limits");
-  }
-  const node = record(value, "Jira description node");
-  const type = requiredString(node.type, "Jira description node type", 100);
-  if (type === "text") return typeof node.text === "string" ? node.text : "";
-  if (type === "hardBreak") return "\n";
-  return adfChildren(node, "Jira description node")
-    .map((child) => renderAdfLiteralText(child, state, depth + 1))
-    .join("");
-}
-
-function renderAdfNode(value: unknown, state: AdfRenderState, depth: number): string {
-  state.nodes += 1;
-  if (state.nodes > MAX_ADF_NODES || depth > MAX_ADF_DEPTH) {
-    throw providerError("Jira description exceeds structural limits");
-  }
-  const node = record(value, "Jira description node");
-  const type = requiredString(node.type, "Jira description node type", 100);
-  if (type === "text") {
-    const text = typeof node.text === "string" ? markdownText(node.text) : "";
-    if (!Array.isArray(node.marks)) return text;
-    return node.marks.reduce((rendered, markValue) => {
-      const mark = record(markValue, "Jira text mark");
-      if (mark.type === "strong") return `**${rendered}**`;
-      if (mark.type === "em") return `_${rendered}_`;
-      if (mark.type === "code") return markdownCode(node.text === undefined ? "" : String(node.text));
-      if (mark.type === "strike") return `~~${rendered}~~`;
-      if (mark.type === "link") {
-        const attributes = record(mark.attrs, "Jira link attributes");
-        const href = requiredString(attributes.href, "Jira link URL", 4_096);
-        return `[${rendered}](${href.replaceAll(")", "%29")})`;
-      }
-      return rendered;
-    }, text);
-  }
-  if (type === "hardBreak") return "  \n";
-  if (type === "rule") return "---\n\n";
-  if (type === "emoji") {
-    const attributes = record(node.attrs, "Jira emoji attributes");
-    return typeof attributes.text === "string" ? attributes.text : "";
-  }
-  if (type === "mention") {
-    const attributes = record(node.attrs, "Jira mention attributes");
-    return typeof attributes.text === "string" ? markdownText(attributes.text) : "";
-  }
-  if (type === "inlineCard") {
-    const attributes = record(node.attrs, "Jira inline card attributes");
-    const url = requiredString(attributes.url, "Jira inline card URL", 4_096);
-    return `<${url}>`;
-  }
-
-  const children = adfChildren(node, "Jira description node");
-  if (type === "bulletList" || type === "orderedList") {
-    return children.map((child, index) => {
-      const rendered = renderAdfNode(child, state, depth + 1).trim().replaceAll("\n", "\n  ");
-      return `${type === "orderedList" ? `${index + 1}.` : "-"} ${rendered}`;
-    }).join("\n") + "\n\n";
-  }
-  if (type === "listItem") {
-    return children.map((child) => renderAdfNode(child, state, depth + 1)).join("").trim();
-  }
-  if (type === "codeBlock") {
-    const literal = children
-      .map((child) => renderAdfLiteralText(child, state, depth + 1))
-      .join("");
-    const fence = backtickFence(literal, 3);
-    return `${fence}\n${literal}${literal.endsWith("\n") ? "" : "\n"}${fence}\n\n`;
-  }
-  const renderedChildren = children
-    .map((child) => renderAdfNode(child, state, depth + 1))
-    .join("");
-  if (type === "paragraph") return `${renderedChildren.trimEnd()}\n\n`;
-  if (type === "heading") {
-    const attributes = record(node.attrs, "Jira heading attributes");
-    const rawLevel = attributes.level;
-    const level = typeof rawLevel === "number" && Number.isInteger(rawLevel)
-      ? Math.min(6, Math.max(1, rawLevel))
-      : 2;
-    return `${"#".repeat(level)} ${renderedChildren.trim()}\n\n`;
-  }
-  if (type === "blockquote") {
-    return renderedChildren.trim().split("\n").map((line) => `> ${line}`).join("\n") + "\n\n";
-  }
-  if (type === "doc") return renderedChildren;
-  return renderedChildren;
-}
-
-function jiraDescriptionMarkdown(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.trim();
-  return renderAdfNode(value, { nodes: 0 }, 0).trim();
 }
 
 function detailsMarkdown(entries: readonly (readonly [string, string | readonly string[] | null])[]): string {
@@ -377,9 +249,7 @@ async function readJsonResponse(
 }
 
 function commandDescriptors(provider: RemoteEntityProvider): readonly ResourceProviderCommandDescriptor[] {
-  return provider === "jira"
-    ? [JIRA_COMMENT_CREATE_DESCRIPTOR]
-    : [LINEAR_COMMENT_CREATE_DESCRIPTOR];
+  return provider === "linear" ? [LINEAR_COMMENT_CREATE_DESCRIPTOR] : [];
 }
 
 function revision(
@@ -437,59 +307,6 @@ function providerPair(
       "Remote entity Resource and source do not match",
     );
   }
-}
-
-function jiraDocument(
-  resource: Extract<RemoteEntityResource, { provider: "jira" }>,
-  source: Extract<RemoteEntitySource, { provider: "jira" }>,
-  response: JsonResponse,
-  observedAt: string,
-): RemoteEntityDocument {
-  const issue = record(response.value, "Jira issue");
-  const entityId = requiredString(issue.id, "Jira issue ID", 255);
-  if (entityId !== resource.address.entityId) {
-    invalidProviderResponse("jira", "a different immutable issue ID");
-  }
-  const key = requiredString(issue.key, "Jira issue key", 255).toUpperCase();
-  if (!key.startsWith(`${source.boundary.project}-`)) {
-    throw new ResourceCatalogError("outside-source", "Jira issue is outside its source project");
-  }
-  const fields = record(issue.fields, "Jira issue fields");
-  const title = requiredString(fields.summary, "Jira issue summary");
-  const description = jiraDescriptionMarkdown(fields.description);
-  const status = namedValue(fields.status, "Jira issue status");
-  const issueType = namedValue(fields.issuetype, "Jira issue type");
-  const priority = namedValue(fields.priority, "Jira issue priority");
-  const assignee = fields.assignee === null || fields.assignee === undefined
-    ? null
-    : nullableString(record(fields.assignee, "Jira issue assignee").displayName, "Jira assignee name", 1_000);
-  const labels = stringArray(fields.labels, "Jira issue labels");
-  const metadata: RemoteEntityMetadata = {
-    key,
-    status,
-    type: issueType,
-    priority,
-    assignee,
-    labels,
-  };
-  const markdown = entityMarkdown(title, description, [
-    ["Key", key],
-    ["Status", status],
-    ["Type", issueType],
-    ["Priority", priority],
-    ["Assignee", assignee],
-    ["Labels", labels],
-  ]);
-  const revisionRef = revision(resource, fields.updated);
-  return {
-    title,
-    metadata,
-    markdown,
-    externalUrl: new URL(`/browse/${encodeURIComponent(key)}`, source.boundary.origin).href,
-    sourceSnapshot: sourceSnapshot(resource, key, sha256(response.text), revisionRef, observedAt),
-    representation: representation(markdown, observedAt),
-    commandDescriptors: commandDescriptors("jira"),
-  };
 }
 
 function linearLabels(value: unknown): readonly string[] {
@@ -576,19 +393,6 @@ function linearDocument(
   };
 }
 
-function jiraCommentBody(body: string): UnknownRecord {
-  return {
-    body: {
-      type: "doc",
-      version: 1,
-      content: body.split("\n").map((line) => ({
-        type: "paragraph",
-        content: line ? [{ type: "text", text: line }] : [],
-      })),
-    },
-  };
-}
-
 const LINEAR_ISSUE_QUERY = `query RemoteEntityIssue($id: String!) {
   issue(id: $id) {
     id
@@ -644,6 +448,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
   }
 
   private async credential(source: RemoteEntitySource): Promise<string> {
+    if (source.provider !== "linear") throw providerError("Jira requires an installed Resource extension");
     const resolved = await this.credentialResolver(source.boundary.credentialEnv);
     if (typeof resolved !== "string" || !resolved.trim()) {
       throw providerError(`${source.provider} credentials are unavailable`);
@@ -668,67 +473,14 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
     return readJsonResponse(response, provider, this.maximumResponseBytes);
   }
 
-  async resolveLocator(
-    source: RemoteEntitySource,
-    locator: string,
-  ): Promise<RemoteEntityLocatorResolution> {
-    const credential = await this.credential(source);
-    if (source.provider === "jira") {
-      const key = locator.trim().toUpperCase();
-      if (!key.startsWith(`${source.boundary.project}-`)) {
-        throw new ResourceCatalogError("outside-source", "Jira issue key is outside its source project");
-      }
-      const url = new URL(
-        `/rest/api/3/issue/${encodeURIComponent(key)}`,
-        source.boundary.origin,
-      );
-      url.searchParams.set("fields", "summary");
-      const response = await this.request("jira", url.href, {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${credential}`,
-        },
-      });
-      const issue = record(response.value, "Jira issue");
-      const entityId = requiredString(issue.id, "Jira issue ID", 255);
-      const resolvedKey = requiredString(issue.key, "Jira issue key", 255).toUpperCase();
-      if (!resolvedKey.startsWith(`${source.boundary.project}-`)) {
-        throw new ResourceCatalogError("outside-source", "Jira issue is outside its source project");
-      }
-      return { entityId, locator: resolvedKey };
-    }
-    throw new ResourceCatalogError(
-      "provider-mismatch",
-      `${source.provider} does not support locator-based Resource creation`,
-    );
-  }
-
   async observe(
     resource: RemoteEntityResource,
     source: RemoteEntitySource,
   ): Promise<RemoteEntityDocument> {
     providerPair(resource, source);
+    if (resource.provider === "jira") throw providerError("Jira requires an installed Resource extension");
     const credential = await this.credential(source);
     const observedAt = this.observedAt();
-    if (resource.provider === "jira" && source.provider === "jira") {
-      const url = new URL(
-        `/rest/api/3/issue/${encodeURIComponent(resource.address.entityId)}`,
-        source.boundary.origin,
-      );
-      url.searchParams.set(
-        "fields",
-        "summary,description,status,issuetype,priority,assignee,labels,updated",
-      );
-      const response = await this.request("jira", url.href, {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${credential}`,
-        },
-      });
-      return jiraDocument(resource, source, response, observedAt);
-    }
     if (resource.provider === "linear" && source.provider === "linear") {
       const response = await this.request("linear", new URL("/graphql", source.boundary.origin).href, {
         method: "POST",
@@ -754,6 +506,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
   ): Promise<ResourceProviderCommandReceipt> {
     const command = normalizeResourceProviderCommandInput(input);
     providerPair(resource, source);
+    if (resource.provider === "jira") throw providerError("Jira requires an installed Resource extension");
     if (command.provider !== resource.provider) {
       throw new ResourceCatalogError(
         "provider-mismatch",
@@ -762,26 +515,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
     }
     const credential = await this.credential(source);
     let externalId: string | null;
-    if (resource.provider === "jira" && source.provider === "jira" && command.provider === "jira") {
-      const response = await this.request(
-        "jira",
-        new URL(
-          `/rest/api/3/issue/${encodeURIComponent(resource.address.entityId)}/comment`,
-          source.boundary.origin,
-        ).href,
-        {
-          method: "POST",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${credential}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(jiraCommentBody(command.payload.body)),
-        },
-      );
-      const comment = record(response.value, "Jira comment");
-      externalId = nullableString(comment.id, "Jira comment ID", 255);
-    } else if (
+    if (
       resource.provider === "linear" &&
       source.provider === "linear" &&
       command.provider === "linear"

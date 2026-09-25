@@ -93,12 +93,12 @@ test("a competing owner cannot interrupt computed execution or remote entity ref
       sourceId: computedSource.id, producerId: "fixture.ownership", inputs: {}, dependencies: [],
     });
     const remoteSource = owner.resources.createSource({
-      name: "Remote fixture", provider: "jira",
-      boundary: { origin: "https://example.com", project: "OWN", credentialEnv: "FIXTURE_TOKEN" },
+      name: "Remote fixture", provider: "linear",
+      boundary: { origin: "https://example.com", workspace: "own", credentialEnv: "FIXTURE_TOKEN" },
     });
     const remote = owner.resources.intern({
       sourceId: remoteSource.id,
-      address: { kind: "jira", entityId: "10001", key: "OWN-1" },
+      address: { kind: "linear", entityId: "10001", identifier: "OWN-1" },
     }).resource;
     const computation = owner.resources.executeComputedResource(invocation.resourceId, true);
     const refresh = owner.resources.refreshRemoteEntity(remote.id, true);
@@ -115,13 +115,7 @@ test("a competing owner cannot interrupt computed execution or remote entity ref
     expect(owner.resources.describe(invocation.resourceId, true).computedStatus?.state).toBe("executing");
     expect(owner.resources.describe(remote.id, true).remoteStatus?.freshness).toBe("refreshing");
     release.resolve();
-    response.resolve(Response.json({
-      id: "10001", key: "OWN-1",
-      fields: {
-        summary: "Owner remote result", description: null, status: null, issuetype: null,
-        priority: null, assignee: null, labels: [], updated: "2026-09-19T12:00:00.000Z",
-      },
-    }));
+    response.resolve(Response.json({data:{issue:{id:"10001",identifier:"OWN-1",title:"Owner remote result",description:null,url:"https://example.com/issue/OWN-1",updatedAt:"2026-09-19T12:00:00.000Z"}}}));
     expect((await computation).output.kind).toBe("immutable-snapshot");
     const refreshed = await refresh;
     expect(refreshed.remoteStatus?.freshness).toBe("fresh");
