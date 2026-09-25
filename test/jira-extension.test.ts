@@ -21,6 +21,7 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     hostname: "127.0.0.1",
     port: 0,
     fetch(req) {
+      if (status === 408) return new Promise<Response>(() => {});
       requests++;
       const url = new URL(req.url);
       if (req.headers.get("authorization") !== expectedAuth)
@@ -32,12 +33,26 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
         id: wrongIdentity ? "99999" : "10001",
         key: "PC-762",
         fields: {
-          summary: "Transfer switches",
+          summary: "Transfer *switches*",
           updated: "2026-09-25T12:00:00Z",
           description: {
             type: "doc",
             version: 1,
             content: [
+              {
+                type: "paragraph",
+                content: [
+                  {
+                    type: "text",
+                    text: "`literal`",
+                    marks: [{ type: "code" }],
+                  },
+                ],
+              },
+              {
+                type: "codeBlock",
+                content: [{ type: "text", text: "```\n*raw*" }],
+              },
               {
                 type: "heading",
                 attrs: { level: 2 },
@@ -131,6 +146,9 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     });
     const document = await client.observe(resource, source);
     expect(document.markdown).toContain("## Plan");
+    expect(document.markdown).toContain("Transfer \\*switches\\*");
+    expect(document.markdown).toContain("`` `literal` ``");
+    expect(document.markdown).toContain("````\n```\n*raw*\n````");
     expect(document.markdown).toContain("**One safe change**");
     expect(document.markdown).toContain("- Verify it");
     expect(document.externalUrl).toBe(origin + "/browse/PC-762");
@@ -142,7 +160,7 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     await expect(client.observe(resource, source)).rejects.toThrow("403");
     expectedAuth = "Bearer " + token;
     expect((await client.observe(resource, source)).title).toBe(
-      "Transfer switches",
+      "Transfer *switches*",
     );
     for (const [code, message] of [
       [401, "401"],
@@ -152,6 +170,9 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
       status = code;
       await expect(client.observe(resource, source)).rejects.toThrow(message);
     }
+    status = 200;
+    status = 408;
+    await expect(client.observe(resource, source)).rejects.toThrow("timed out");
     status = 200;
     const before = requests;
     await expect(client.resolveLocator(source, "OTHER-1")).rejects.toThrow(
@@ -171,4 +192,4 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     else process.env[secretName] = previous;
     await rm(dir, { recursive: true, force: true });
   }
-});
+}, 20000);

@@ -310,8 +310,12 @@ async function main() {
             : "Bearer " + token,
       },
     });
-  } catch {
-    throw new ExtensionError("network");
+  } catch (error) {
+    throw new ExtensionError(
+      error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "network",
+    );
   }
   if (!response.ok) {
     await response.body?.cancel();
@@ -394,7 +398,12 @@ try {
   console.log(
     JSON.stringify({
       ok: false,
-      code: error instanceof ExtensionError ? error.code : "invalid-response",
+      code:
+        error instanceof ExtensionError
+          ? error.code
+          : error instanceof Error && error.name === "TimeoutError"
+            ? "timeout"
+            : "invalid-response",
     }),
   );
 }
