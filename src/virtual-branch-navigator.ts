@@ -620,7 +620,7 @@ function renderListLine(
   const disclosure = row.hasChildren ? (row.collapsed ? "▸" : "▾") : "•";
   const prefix = `${indent}${disclosure} `;
   const title = sanitizeDynamicText(blockDisplayTitle(row.block));
-  const line = truncateToWidth(`${prefix}${title}`, width);
+  const line = truncateToWidth(`${prefix}${row.attention ? "! attention · " : ""}${title}`, width);
   return {
     line: selected ? selectedLine(line) : line,
     disclosureColumn: visibleWidth(indent),
