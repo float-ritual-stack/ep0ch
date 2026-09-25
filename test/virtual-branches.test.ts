@@ -636,7 +636,7 @@ describe("virtual branch projection", () => {
 
     expect(firstRows.map((row) => row.canonicalId)).toEqual([second.id, first.id]);
     expect(firstRows[1]).toEqual(expect.objectContaining({ hasChildren: false }));
-    expect(projection.branchStates.get(first.id)?.truncation.depth).toBe(true);
+    expect(projection.branchStates.get(first.id)?.truncation.nesting).toBe(true);
   });
 
 
@@ -897,4 +897,18 @@ test('view depth and expansion defaults preserve independent manual occurrence c
   const closed=await project(new Set(['occurrence:one:ticket']),new Set(['occurrence:two:ticket']));
   expect(closed.rows.filter(r=>r.kind==='occurrence').map(r=>r.canonicalId)).toEqual(['ticket','ticket','note','ticket']);
   expect(parseVirtualBranchConfig(view('bad',9),physical).configurationErrors.length).toBeGreaterThan(0);
+});
+
+
+test("configured depth also bounds nested views", async () => {
+  const view = (id: string, childDepth: number) => visibleBlock(id, [
+    {key: "type", value: "virtual-branch"}, {key: "query", value: `area=${id}`},
+    {key: "child-depth", value: String(childDepth)},
+  ]);
+  const outer = view("outer", 0), inner = view("inner", 2), leaf = visibleBlock("leaf");
+  const physical = [outer, inner, leaf];
+  const result = await projectVirtualBranches(physical, physical, async query =>
+    complete(query.filters?.[0]?.value === "outer" ? [inner] : [leaf]));
+  expect(result.rows.filter(r => r.rowId.startsWith("occurrence:outer:")).map(r => r.canonicalId)).toEqual([inner.id]);
+  expect(result.branchStates.get(outer.id)?.truncation.depth).toBe(true);
 });

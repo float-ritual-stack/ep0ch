@@ -658,7 +658,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function connectionCollapsed(row:TreeRow):boolean {
-    return row.kind==='occurrence'?row.collapsed:collapsedBlockIds.has(row.canonicalId);
+    return row.kind==='occurrence'?(row.collapsed || collapsedOccurrenceRowIds.has(row.rowId)):collapsedBlockIds.has(row.canonicalId);
   }
   function recomposeAuthoredRows(preferredRowId?: string): void {
     const previous = rows[selectedIndex];
