@@ -623,11 +623,12 @@ export function renderTreeFrame(
       ? null
       : treeSemanticState(block);
     const semanticTreatment = semanticState ? TREE_SEMANTIC_TREATMENTS[semanticState] : null;
+    const attentionLabel = row.kind === "occurrence" && row.attention ? "  ! attention" : "";
     let result: string[];
     if (!row.multilineExpanded) {
       const prefix = `${"  ".repeat(row.depth)}${marker} `;
       const branchBadge = branchState ? virtualBranchStateLabel(branchState) : "";
-      const fixedSuffix = `${branchBadge}${trashLabel}${row.kind === "occurrence" && row.attention ? "  ! attention" : ""}`;
+      const fixedSuffix = `${branchBadge}${trashLabel}${attentionLabel}`;
       const optionalSuffix = `  ${author}`;
       const summary = propertySummarySegments(
         block.properties,
@@ -648,7 +649,7 @@ export function renderTreeFrame(
       ];
     } else {
       const displayText = decorateVirtualBranchDefinitionText(
-        `${semanticText(document!.resolved.text, semanticTreatment)}${trashLabel}`,
+        `${attentionLabel ? "! attention\n" : ""}${semanticText(document!.resolved.text, semanticTreatment)}${trashLabel}`,
         branchState,
       );
       const expandedRows = layoutExpandedBlock({

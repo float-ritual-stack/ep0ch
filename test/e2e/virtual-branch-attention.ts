@@ -24,10 +24,16 @@ const result=await runHerdrScenario({name:'virtual-branch-attention',async prepa
   await focus(view);await s.waitVisible(tree,'Comment on');
   let frame=await s.visible(tree);assert(!frame.includes('Hidden sibling detail'));assert(!frame.includes('Review transfer'));await s.checkpoint('01-attention-path');
   await s.keys(tree,'down','left');await s.waitFor('manual collapse',()=>s.visible(tree),f=>!f.includes('Review registration'));
-  await annotate(an,'[priority::high]\nFresh attention');await s.waitVisible(tree,'ATTENTION 2');assert(!(await s.visible(tree)).includes('Review registration'));await s.checkpoint('02-manual-collapse-wins');
-  await s.keys(tree,'right');await s.waitVisible(tree,'Review registration');
+  const fresh=await annotate(an,'[priority::high]\nFresh attention');await s.waitVisible(tree,'ATTENTION 2');assert(!(await s.visible(tree)).includes('Review registration'));await s.checkpoint('02-manual-collapse-wins');
+  const screen=await s.waitFor('collapsed attention row',terminal.visible,f=>f.split('\n').some(l=>l.includes('PC-985 fixture')&&l.includes('▸')));
+  const lines=screen.split('\n'),y=lines.findIndex(l=>l.includes('PC-985 fixture')&&l.includes('▸')),x=lines[y]!.indexOf('▸');
+  await terminal.write(`\x1b[<0;${x+1};${y+1}M\x1b[<0;${x+1};${y+1}m`);await s.waitVisible(tree,'Review registration');
   await s.client.request({action:'annotations.lifecycle',input:{annotationId:important.block.id,lifecycle:'resolved'},mutation:{author:'agent',actorId:'fixture379'}});
-  await s.waitVisible(tree,'ATTENTION 1');assert((await s.visible(tree)).includes('Review registration'));
+  await s.waitVisible(tree,'ATTENTION 1');
+  await s.keys(tree,'down','right');
+  await s.client.request({action:'annotations.lifecycle',input:{annotationId:fresh.block.id,lifecycle:'resolved'},mutation:{author:'agent',actorId:'fixture379'}});
+  await s.waitVisible(tree,'ATTENTION 0');assert((await s.visible(tree)).includes('Review registration'));
+  await s.checkpoint('02b-last-match-resolved-keeps-path');
   await focus(compact);assert(!(await s.visible(tree)).includes('Review registration'));await s.checkpoint('03-independent-view');
   // Depth policy changes are exercised against both matched tickets and real comment grandchildren.
   for(const depth of [0,1,2]){
@@ -37,5 +43,5 @@ const result=await runHerdrScenario({name:'virtual-branch-attention',async prepa
     await s.waitFor(`depth ${depth}`,()=>s.visible(tree),f=>depth===0?!f.includes('Review registration'):f.includes('Review registration')&&(depth===2?f.includes('Comment on'):!f.includes('Comment on')));
     await s.checkpoint(`04-depth-${depth}`);
   }
-  await terminal.resize(150,48);await s.waitVisible(tree,'Comment on');await s.checkpoint('05-resize');
+  await s.keys(tree,'down','down','down');await s.waitVisible(tree,'Comment on');await terminal.resize(150,48);await s.waitVisible(tree,'Comment on');await s.checkpoint('05-resize');
 }});console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

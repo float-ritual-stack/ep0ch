@@ -1953,7 +1953,7 @@ for Claude Code, load the mod in [`claude-mod/`](claude-mod/README.md).
 
 Add `[expanded::false] [expand-when::type=annotation annotation-status=open priority=high]`
 to reveal paths to open, explicitly high-priority comments. Annotation blocks carry
-`annotation-status`; anchor relocation state is separate. Set `priority::high` on
+`annotation-status`; anchor relocation state is separate. Set `priority::high` in the metadata header of
 comments you want to highlight. The condition uses the same positive-AND property
 presence/equality syntax as `query`, including quoted values.
 
@@ -1963,7 +1963,9 @@ matches in that scope; `ATTENTION LIMITED` means a depth, nesting, row or query
 limit prevents a complete assessment. Query failure says `ATTENTION UNAVAILABLE`.
 No claim is made about material outside the view's bounded canonical context.
 
-Only paths to matches open; unrelated branches stay folded. An `! attention`
+Only ancestors of matches open; unrelated branches and replies stay folded. Revealed
+paths remain open until collapse/reset, so resolving the last match cannot displace
+the selected row. An `! attention`
 marker remains when you manually collapse a matching path. Manual open/collapse
 wins over later attention changes; resolving a comment cannot close a path you
 explicitly opened. **Reset view expansion** discards those choices and reevaluates.

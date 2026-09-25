@@ -916,14 +916,15 @@ test("configured depth also bounds nested views", async () => {
 test('attention opens only matching paths and manual collapse takes precedence', async () => {
   const view=visibleBlock('attention',[
     {key:'type',value:'virtual-branch'}, {key:'query',value:'fixture=card'},
-    {key:'expanded',value:'false'}, {key:'expand-when',value:'type=annotation annotation-status=open priority=high'},
+    {key:'expanded',value:'false'}, {key:'child-depth',value:'3'}, {key:'expand-when',value:'type=annotation annotation-status=open priority=high'},
   ]);
   const root=visibleBlock('ticket',[],{hasChildren:true});
   const ordinary=visibleBlock('ordinary',[],{parentId:root.id,hasChildren:true});
   const ordinaryChild=visibleBlock('ordinary-child',[],{parentId:ordinary.id});
   const note=visibleBlock('note',[],{parentId:root.id,hasChildren:true});
-  const attention=visibleBlock('comment',[{key:'type',value:'annotation'},{key:'annotation-status',value:'open'},{key:'priority',value:'high'}],{parentId:note.id});
-  const physical=[view,root,ordinary,ordinaryChild,note,attention];
+  const attention=visibleBlock('comment',[{key:'type',value:'annotation'},{key:'annotation-status',value:'open'},{key:'priority',value:'high'}],{parentId:note.id,hasChildren:true});
+  const reply=visibleBlock('ordinary-reply',[],{parentId:attention.id});
+  const physical=[view,root,ordinary,ordinaryChild,note,attention,reply];
   const project=(collapsed=new Set<string>())=>projectVirtualBranches([view],physical,async()=>complete([root]),[],{collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:collapsed,multilineExpandedRowIds:new Set()});
   expect((await project()).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket','ordinary','note','comment']);
   expect((await project(new Set(['occurrence:attention:ticket']))).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket']);

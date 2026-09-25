@@ -216,6 +216,9 @@ export class VirtualBranchNavigatorController {
       if (generation !== this.refreshGeneration || this.closed) return;
       this.title = projection.title;
       this.rows = projection.rows;
+      for (const row of projection.rows) {
+        if (row.attention && row.hasChildren && !row.collapsed) this.expandedOccurrenceRowIds.add(row.rowId);
+      }
       this.branchState = projection.state;
       this.projectionError = "";
       this.applyFilter(previousRowId, previousIndex);

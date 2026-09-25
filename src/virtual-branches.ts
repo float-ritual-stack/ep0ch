@@ -587,12 +587,14 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
   // or run another query: attention cannot enlarge membership or escape child-depth.
   const allocatedById = new Map(allocated.map(row => [row.rowId, row]));
   const attentionPaths = new Set<string>();
+  const attentionAncestors = new Set<string>();
   for (const row of allocated) {
     if (!config.expandWhen || !matchesFilters(row.block.properties, config.expandWhen)) continue;
     let current: AllocatedOccurrence<T> | undefined = row;
     while (current && !attentionPaths.has(current.rowId)) {
       attentionPaths.add(current.rowId);
       current = allocatedById.get(current.parentRowId);
+      if (current) attentionAncestors.add(current.rowId);
     }
   }
   const rowById = new Map<string, VirtualBranchOccurrenceRow<T>>();
@@ -603,7 +605,7 @@ function allocateOccurrenceRows<T extends ProjectionBlock>(
       kind: "occurrence",
       ...occurrence,
       ...(config.expanded === false && (occurrence.relativeDepth === 0 || config.expandWhen)
-        && !attentionPaths.has(occurrence.rowId) ? {defaultCollapsed: true} : {}),
+        && !attentionAncestors.has(occurrence.rowId) ? {defaultCollapsed: true} : {}),
       ...(attentionPaths.has(occurrence.rowId) ? {attention: true} : {}),
       depth: definition.depth + 1 + occurrence.relativeDepth,
       hasChildren,
