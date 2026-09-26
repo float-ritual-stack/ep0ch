@@ -32,3 +32,31 @@ test("concurrent property edits on separate lines still require review",()=>{
   expect(result.propertyConflicts).toContain("type");
   expect(result.text).toBe(base.replace("Note","Note [type::progress]"));
 });
+
+test('an editor-added final newline does not conflict with writing into a nearly empty note',()=>{
+  for(const ending of ['\n','\r\n']){
+    const base='Scratch note',draft=`Scratch note${ending}${ending}My writing${ending}`;
+    expect(mergeEdits(base,draft,base+ending)).toEqual({text:draft,conflicts:[],incomplete:false});
+    expect(mergeEdits(base,base+ending,draft)).toEqual({text:draft,conflicts:[],incomplete:false});
+  }
+});
+
+test('an editor-added final newline leaves final-line deletions for review',()=>{
+  for(const ending of ['\n','\r\n'])for(const [base,deleted] of [
+    ['Note',''],
+    [`Title${ending}Note`,`Title${ending}`],
+    [`Title${ending}Note`,'Title'],
+    [`Note${ending}Note`,`Note${ending}`],
+  ]){
+    for(const [local,latest] of [[deleted,base+ending],[base+ending,deleted]]){
+      const result=mergeEdits(base,local,latest);
+      expect(result.text).toBe(local);
+      expect(result.conflicts.length).toBeGreaterThan(0);
+    }
+  }
+});
+
+test('newline handling does not discard Markdown hard breaks or indentation changes',()=>{
+  expect(mergeEdits('Line','Local line\n','Line  \n').conflicts.length).toBeGreaterThan(0);
+  expect(mergeEdits('    code','    local code\n','  code\n').conflicts.length).toBeGreaterThan(0);
+});
