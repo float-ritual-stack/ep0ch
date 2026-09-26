@@ -93,7 +93,9 @@ const result = await runHerdrScenario({
     await session.keys(pane, "q");
     await goto(reference.id);
     await session.waitVisible(pane, "Detached canonical bytes");
-    await session.keys(pane, "enter", "e");
+    await session.keys(pane, "alt+enter");
+    await session.waitFor("Detail focus during registry outage", session.registrations, entries => entries[0]?.focusedRegion === "detail");
+    await session.keys(pane, "e");
     await session.waitVisible(pane, "Editing");
     await session.text(pane, " during registry outage");
     await terminal.write("\u0013");
