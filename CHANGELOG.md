@@ -4,6 +4,10 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- ANSI Detail keeps the writing-recovery dialog visible when its pane is resized; redraw no longer waits for the open dialog to finish.
+
+- Remove redundant test-only Store/Pi surfaces while retaining coverage through production APIs. PIE-369.
+
 - Tree Enter opens the selected note without leaving Tree; repeat within one second to focus the same Detail, or use Alt+Enter to open and focus immediately. Draft protection and missing-destination recovery still apply. Protocol 75 requires updating the service and clients together. PIE-364.
 
 - Jira is an installed read-only Resource extension with explicit Basic/Bearer authentication; built-in Jira HTTP, ADF and comment code is removed. Source credentials now belong to extension configuration. Protocol 74 fences the changed Source contract; service and clients must be updated together. PIE-380/381.

@@ -18,9 +18,10 @@ const result = await runHerdrScenario({
     const page = await s.client.request<Block>({action: "create", text: "PAGE EDIT JOURNEY\n[page::pie]\n\nKeep my writing"});
     await s.client.request({action: "pages.alias", blockId: page.id, address: "scratch-alias"});
     await s.revealTree(s.panes.tree, page.id);
-    await s.keys(s.panes.tree, "enter");
+    await s.keys(s.panes.tree, "alt+enter");
     await s.waitVisible(s.panes.detail, "Keep my writing");
     await s.focus(s.panes.detail);
+    if (composed) await s.waitFor("Detail region ready for editor", s.registrations, entries => entries.some(c => c.runtime?.paneId === s.panes.detail && c.focusedRegion === "detail"));
     await s.checkpoint("01-page-before-edit");
     await s.keys(s.panes.detail, "ctrl+e");
     await s.waitVisible(s.panes.detail, "draft.md");

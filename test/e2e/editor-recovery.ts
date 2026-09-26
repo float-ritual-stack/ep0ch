@@ -7,7 +7,8 @@ const nvim=Bun.which("nvim");if(!nvim)throw Error("Neovim is required for the ed
 const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed":ansi?"ansi":"pi"}`,layout:composed?"composed":"separate",detailRenderer:ansi?"ansi":"pi-tui",editor:`${nvim} --clean`,async prepare(){},async run(s){
   const terminal=await s.attachClient();await terminal.resize(160,55);
   const base=await s.client.request<Block>({action:"create",text:"RECOVERY JOURNEY\n\nOriginal paragraph\n\nEnding paragraph"});
-  await s.revealTree(s.panes.tree,base.id);await s.keys(s.panes.tree,"enter");await s.waitVisible(s.panes.detail,"Original paragraph");await s.focus(s.panes.detail);
+  await s.revealTree(s.panes.tree,base.id);await s.keys(s.panes.tree,"alt+enter");await s.waitVisible(s.panes.detail,"Original paragraph");await s.focus(s.panes.detail);
+  if(composed)await s.waitFor("Detail region ready for editor",s.registrations,entries=>entries.some(c=>c.runtime?.paneId===s.panes.detail&&c.focusedRegion==="detail"));
   await s.checkpoint("01-writing-before-editor");
   await s.keys(s.panes.detail,"ctrl+e");await s.waitVisible(s.panes.detail,"draft.md");
   const latest=await s.client.request<Block>({action:"update",blockId:base.id,text:base.text.replace("RECOVERY JOURNEY","RECOVERY JOURNEY [type::note]"),expectedRevision:base.revision,mutation:{author:"agent",actorId:"fixture-assistance"}});
@@ -47,14 +48,16 @@ const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed"
   await s.keys(reopened.detail,"6");await s.waitVisible(reopened.detail,"other-writer");
   await s.checkpoint("04-new-client-recovers-conflict");
   await terminal.resize(120,42);
-  await s.keys(reopened.detail,"3");await s.waitVisible(reopened.detail,"LATEST ENDING");
+  await s.keys(reopened.detail,"3");
+  await s.waitFor("latest version after resize",()=>s.visible(reopened.detail),frame=>frame.includes("3 latest ●")&&frame.includes("LATEST ENDING"));
   await s.keys(reopened.detail,"escape");
   await s.closeDetached(reopened.detail);await s.closeDetached(reopened.tree);
   assert.equal((await s.client.request<Block>({action:"get",blockId:base.id})).text,newer.text);
   await s.checkpoint("05-cancel-reopen-keeps-writing");
   const scratch=await s.client.request<Block>({action:"create",text:"NEARLY EMPTY SCRATCH"});
-  await s.revealTree(s.panes.tree,scratch.id);await s.keys(s.panes.tree,"enter");
+  await s.revealTree(s.panes.tree,scratch.id);await s.keys(s.panes.tree,"alt+enter");
   await s.waitVisible(s.panes.detail,"NEARLY EMPTY SCRATCH");await s.focus(s.panes.detail);
+  if(composed)await s.waitFor("Detail region ready for editor",s.registrations,entries=>entries.some(c=>c.runtime?.paneId===s.panes.detail&&c.focusedRegion==="detail"));
   await s.keys(s.panes.detail,"ctrl+e");await s.waitVisible(s.panes.detail,"draft.md");
   await s.client.request({action:"update",blockId:scratch.id,text:scratch.text+"\n",expectedRevision:scratch.revision,mutation:{author:"agent",actorId:"fixture-newline"}});
   await terminal.write("GoMy scratch writing\x1b:wq\r");
