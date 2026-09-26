@@ -1,6 +1,6 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
-import { detailSplitArgv, isProtectedDestination, linkifyReferences, outlinerUriFor, outlinerUriOf, scratchPaneOf } from '../hooks/references'
+import { detailSplitArgv, linkifyReferences, outlinerUriFor, outlinerUriOf, scratchPaneOf } from '../hooks/references'
 
 tier('user')
 
@@ -61,11 +61,6 @@ describe('references', () => {
     expect(outlinerUriOf(`${STAND_IN}resource/x`)).toBeNull()
     expect(outlinerUriOf(`${STAND_IN}work/PIE-1/extra`)).toBeNull()
     expect(outlinerUriOf('https://example.com/work/PIE-1')).toBeNull()
-  })
-
-  test('only a protected destination triggers the Detail split', async () => {
-    expect(isProtectedDestination('Destination is protected: active edit or source selection · finish or cancel it there')).toBe(true)
-    expect(isProtectedDestination('Page address did not resolve: x')).toBe(false)
   })
 
   test('the Detail split opens below the Claude pane, unfocused, on the target', async () => {

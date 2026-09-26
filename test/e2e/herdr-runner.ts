@@ -56,6 +56,7 @@ export interface HerdrScenarioSession {
   enableComposedResponseBarriers(): Promise<void>;
   holdComposedResponse(match: ComposedResponseMatch): ResponseBarrier;
   focus(paneId: string): Promise<void>;
+  focusedPane(): Promise<string>;
   revealTree(paneId: string, blockId: string): Promise<void>;
   keys(paneId: string, ...keys: string[]): Promise<void>;
   text(paneId: string, text: string): Promise<void>;
@@ -1068,6 +1069,10 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         requireOwned(paneId);
         await runHerdr(["plugin", "pane", "focus", paneId]);
         await artifacts.event("input", { kind: "focus", paneId });
+      },
+      async focusedPane() {
+        const result = parseResult((await runHerdr(["api", "snapshot"])).stdout, "session_snapshot", "focus oracle");
+        return stringValue(recordValue(result.snapshot, "focus snapshot"), "focused_pane_id", "focus snapshot");
       },
       async revealTree(paneId, blockId) {
         requireOwned(paneId);

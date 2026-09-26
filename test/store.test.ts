@@ -132,7 +132,7 @@ describe("OutlinerStore", () => {
   test("indexes inline properties and combines filters", () => {
     const store = makeStore();
     const workspace = store
-      .traversePreorder({})
+      .readWorkspaceSnapshot().physical.blocks
       .find((block) => block.properties.some((property) => property.value === "workspace"));
     expect(workspace).toBeDefined();
 
@@ -1069,24 +1069,18 @@ Second paragraph`;
       .blocks.map(block => block.id)).toEqual([second.id, first.id, fallback.id]);
   });
 
-  test("always returns canonical descendants for client-local projection", () => {
-    const store = makeStore();
-    const parent = store.create("Parent");
-    const child = store.create("Child", parent.id);
-
-    expect(store.traversePreorder({}).some((block) => block.id === child.id)).toBe(true);
-  });
-
   test("traverses a subtree with physical depth and hydrated display metadata", () => {
     const store = makeStore();
     const target = store.create("Referenced title");
     const root = store.create("Subtree root");
     const child = store.create(`See ((${target.id}))`, root.id);
 
-    const rows = store.traversePreorder({
+    const result = store.queryBlocks({
       subtreeRootId: root.id,
+      limit: 10,
     });
-    expect(rows).toEqual([
+    expect(result.completeness).toEqual({ kind: "complete" });
+    expect(result.blocks).toEqual([
       expect.objectContaining({
         id: root.id,
         depth: 0,
@@ -2057,7 +2051,7 @@ Second paragraph`;
     store.configureWorkIdPrefix("PIE");
     const source = store.create("Source mentions [[Future Page]]");
     const updated = store.update(source.id, "Source still mentions [[Future Page]]", source.revision);
-    const before = store.traversePreorder({}).length;
+    const before = store.readWorkspaceSnapshot().physical.blocks.length;
     expect(updated.text).toContain("[[Future Page]]");
     expect(store.completePageAddresses("future", 20).addresses).toEqual([]);
 
@@ -2066,7 +2060,7 @@ Second paragraph`;
       normalizedAddress: "future page",
       status: "missing",
     });
-    expect(store.traversePreorder({})).toHaveLength(before);
+    expect(store.readWorkspaceSnapshot().physical.blocks).toHaveLength(before);
     expect(() => store.followPageAddress("PIE-404")).toThrow(
       "Unresolved Work ID cannot create a page stub",
     );
@@ -2089,15 +2083,50 @@ Second paragraph`;
     const store = makeStore();
     store.configureWorkIdPrefix("PIE");
     const owner = store.create("Owner [work-id::PIE-132]");
-    const count = store.traversePreorder({}).length;
+    const count = store.readWorkspaceSnapshot().physical.blocks.length;
 
     expect(() => store.create("Collision [page::pie-132]")).toThrow(
       `Page address already belongs to block ${owner.id}`,
     );
-    expect(store.traversePreorder({})).toHaveLength(count);
+    expect(store.readWorkspaceSnapshot().physical.blocks).toHaveLength(count);
     expect(() => store.create("Duplicate [page::One] [page::Two]")).toThrow(
       "at most one page address",
     );
+  });
+
+  test("human text edits remove a primary page while preserving aliases and identity", () => {
+    const store = makeStore();
+    const page = store.create("Scratch [page::pie]\n\nMy writing");
+    store.addPageAlias(page.id, "scratch-alias");
+    const updated = store.update(page.id, "Scratch\n\nMy revised writing", page.revision, {author: "user", actorId: "detail"});
+    expect(updated.id).toBe(page.id);
+    expect(updated.text).toBe("Scratch\n\nMy revised writing");
+    expect(store.resolvePageAddress("pie").status).toBe("missing");
+    expect(store.resolvePageAddress("scratch-alias").block?.id).toBe(page.id);
+  });
+
+  test("human property patches can remove the primary page declaration", () => {
+    const store = makeStore();
+    const page = store.create("Scratch [page::pie]\n\nBody");
+    const updated = store.patchProperties(page.id, page.revision, [{op: "remove", ordinal: 0}], {author: "user", actorId: "detail"});
+    expect(updated.text).toContain("Body");
+    expect(updated.text).not.toContain("[page::");
+    expect(store.resolvePageAddress("pie").status).toBe("missing");
+  });
+
+  test("page removal through text remains guarded for stale edits, agents and Work IDs", () => {
+    const store = makeStore();
+    store.configureWorkIdPrefix("PIE");
+    const page = store.create("Scratch [page::pie] [work-id::PIE-132]");
+    for (const author of ["agent", "system"] as const) {
+      expect(() => store.update(page.id, "Scratch [work-id::PIE-132]", page.revision, {author, actorId: "fixture"})).toThrow("pages.remove");
+    }
+    expect(() => store.update(page.id, "Scratch", page.revision + 1, {author: "user"})).toThrow("Block changed");
+    expect(() => store.update(page.id, "Scratch", page.revision, {author: "user"})).toThrow("immutable");
+    expect(store.require(page.id).text).toBe(page.text);
+    expect(store.require(page.id).revision).toBe(page.revision);
+    expect(store.resolvePageAddress("pie").block?.id).toBe(page.id);
+    expect(store.resolvePageAddress("PIE-132").block?.id).toBe(page.id);
   });
 
   test("renames pages explicitly while preserving old and added aliases", () => {

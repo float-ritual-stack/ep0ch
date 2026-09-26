@@ -196,7 +196,7 @@ test("seeds working documentation tours and preserves local edits on restart", a
       .filter(row => row.parentRowId === examplesView.id && row.relativeDepth === 0)
       .map(row => row.canonicalId)).toEqual([source.id, reader.id]);
 
-    const beforeRestartIds = store.traversePreorder({}).map((block) => block.id);
+    const beforeRestartIds = store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id);
     const locallyEdited = store.update(
       guide.id,
       `${guide.text}\n\nLocal documentation convention.`,
@@ -207,7 +207,7 @@ test("seeds working documentation tours and preserves local edits on restart", a
     store.close();
     store = new OutlinerStore(path);
 
-    expect(store.traversePreorder({}).map((block) => block.id)).toEqual(beforeRestartIds);
+    expect(store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id)).toEqual(beforeRestartIds);
     expect(store.get(guide.id)).toMatchObject({
       id: guide.id,
       text: locallyEdited.text,

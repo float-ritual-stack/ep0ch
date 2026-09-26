@@ -17,10 +17,10 @@ test("cancelled model work cannot replace review state when its late result arri
   const work=view.action("agent");view.key("",{name:"escape"});pending.resolve({...record,proposal:{...record.proposal!,text:"Obsolete"}});await work;
   expect(cancelled).toBe(1);expect(view.record.proposal?.text).toBe("Both");expect(view.render(80,20).join("\n")).toContain("Merge cancelled");
 });
-test("discard requires confirmation; later returns even at narrow widths",async()=>{
+test("first discard is inert; Escape retains the draft",async()=>{
   let discarded=0;let choice:RecoveryChoice|undefined;
   const view=new EditRecoveryReview([record],{refresh:async r=>r,assist:async r=>r,cancel:async()=>{},discard:async r=>{discarded++;return {...r,state:"discarded"};}},()=>{},c=>choice=c);
-  await view.action("discard");expect(discarded).toBe(0);view.render(42,16);view.key("",{name:"escape"});expect(choice?.action).toBe("later");
+  await view.action("discard");expect(discarded).toBe(0);view.key("",{name:"escape"});expect(choice?.action).toBe("later");
 });
 
 test("saved history offers restore and undo as new reviews with no immediate save",async()=>{

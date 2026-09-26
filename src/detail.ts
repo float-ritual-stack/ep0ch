@@ -826,6 +826,9 @@ keyInput.on("keypress", (str: string, key: TerminalKey) => {
 });
 
 process.stdout.on("resize", () => {
+  // Recovery keeps the controller operation open until the dialog closes.
+  // Its screen must resize without waiting behind that suspended operation.
+  if (recoveryReview) draw();
   serviceEventScheduler.scheduleWork(() =>
     controller.dispatch({ type: "viewport.changed" }, viewport())
   );

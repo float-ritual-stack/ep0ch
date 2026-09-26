@@ -109,7 +109,7 @@ describe("Outliner action keymap", () => {
       "tree",
       "browse",
       ["tree.close", "tree.move.down", "tree.read"],
-    )).toBe("⌃Q close  ↓ down  ↵ read");
+    )).toBe("⌃Q close  ↓ down  ↵ open");
     expect(new OutlinerActionKeymap("<test>", {
       "tree.detail.right": ["Alt+D"],
     }).menuItems("tree", "browse")).toContainEqual(

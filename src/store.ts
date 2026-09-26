@@ -1336,7 +1336,7 @@ export class OutlinerStore {
     this.database.transaction(() => {
       this.requireActive(id);
       const editedAt = this.writeBlockText(id, text, expectedRevision);
-      this.replaceProperties(id, parsePropertyRecords(text));
+      this.replaceProperties(id, parsePropertyRecords(text), provenance.author === "user");
       this.database.query(`
         INSERT INTO block_edit_activity
           (block_id, author, actor_id, session_id, task_id, kind, edited_at)
@@ -2125,12 +2125,6 @@ export class OutlinerStore {
 
   children(parentId: string | null): Block[] {
     return this.database.transaction(() => this.childrenFromCurrentRead(parentId))();
-  }
-
-  traversePreorder(options: BlockTraversalOptions = {}): VisibleBlock[] {
-    return this.database.transaction(() =>
-      this.traverseLoadedGraph(this.loadGraph(), options)
-    )();
   }
 
   queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
@@ -3558,7 +3552,7 @@ export class OutlinerStore {
     return true;
   }
 
-  private syncDeclaredPageAddresses(blockId: string, properties: BlockProperty[]): void {
+  private syncDeclaredPageAddresses(blockId: string, properties: BlockProperty[], allowPageRemoval = false): void {
     const pageValues = properties
       .filter((property) => property.key === "page")
       .map((property) => property.value);
@@ -3575,7 +3569,7 @@ export class OutlinerStore {
     if (page && workId && page.normalizedAddress === workId.normalizedAddress) {
       throw new Error(`Page address duplicates the block Work ID: ${page.displayAddress}`);
     }
-    this.syncDeclaredPageAddressKind(blockId, "page", page);
+    this.syncDeclaredPageAddressKind(blockId, "page", page, allowPageRemoval);
     this.syncDeclaredPageAddressKind(blockId, "work-id", workId);
   }
 
@@ -3583,6 +3577,7 @@ export class OutlinerStore {
     blockId: string,
     kind: Extract<PageAddressKind, "page" | "work-id">,
     desired: NormalizedPageAddress | null,
+    allowPageRemoval = false,
   ): void {
     const current = this.database.query(
       "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE block_id = ? AND kind = ?",
@@ -3594,6 +3589,10 @@ export class OutlinerStore {
     if (!desired) {
       if (kind === "work-id") {
         throw new Error(`Work IDs are immutable once registered: ${blockId}`);
+      }
+      if (allowPageRemoval) {
+        this.database.query("DELETE FROM page_addresses WHERE normalized_address = ?").run(current.normalized_address);
+        return;
       }
       throw new Error(`Page address removal requires pages.remove: ${blockId}`);
     }
@@ -3636,7 +3635,7 @@ export class OutlinerStore {
     }
   }
 
-  private replaceProperties(blockId: string, properties: readonly PropertyRecord[]): void {
+  private replaceProperties(blockId: string, properties: readonly PropertyRecord[], allowPageRemoval = false): void {
     this.replacePropertyIndex(blockId, properties);
     const blockProperties = properties
       .filter((property) => property.scope === "block")
@@ -3653,7 +3652,7 @@ export class OutlinerStore {
         this.reserveWorkIdForBlockFromCurrentRead(blockId, parsed.workId);
       }
     }
-    this.syncDeclaredPageAddresses(blockId, blockProperties);
+    this.syncDeclaredPageAddresses(blockId, blockProperties, allowPageRemoval);
   }
 
   private roadmapBranchMembershipsFromCurrentRead(

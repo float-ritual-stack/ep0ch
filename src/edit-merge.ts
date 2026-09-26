@@ -42,6 +42,17 @@ function overlaps(a: EditHunk, b: EditHunk): boolean {
 export function mergeEdits(base: string, local: string, latest: string): EditMerge {
   if (local === latest || latest === base) return {text: local, conflicts: [], incomplete: false};
   if (local === base) return {text: latest, conflicts: [], incomplete: false};
+  // An editor commonly adds the missing EOF line ending. Merge that exact
+  // additive edit without treating indentation or Markdown hard breaks as noise.
+  if (!base.endsWith("\n")) {
+    for (const ending of ["\r\n", "\n"]) {
+      const other = local === base + ending ? latest : latest === base + ending ? local : null;
+      if (other !== null && other.startsWith(base + ending) &&
+          (!other.endsWith("\n") || other.endsWith(ending))) {
+        return {text: other.endsWith(ending) ? other : other + ending, conflicts: [], incomplete: false};
+      }
+    }
+  }
   const properties=(text:string)=>{
     const values=new Map<string,string[]>();
     for(const record of parsePropertyRecords(text))if(record.scope==="block")values.set(record.key,[...(values.get(record.key)??[]),record.value]);

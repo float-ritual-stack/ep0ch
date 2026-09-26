@@ -2389,9 +2389,11 @@ export function createDetailController(
         state.recoveryCount = Math.max(1,state.recoveryCount ?? 0);
         result.cleanup();
         if (state.recovery.latest.revision !== selected.revision) {
-          state.status = "Your writing is retained. The note also changed; review both versions.";
-          await recoverWriting(viewport,[state.recovery]);
-          return;
+          if (!acceptMechanicalRecovery()) {
+            state.status = "Your writing is retained. The note also changed; review both versions.";
+            await recoverWriting(viewport,[state.recovery]);
+            return;
+          }
         }
       } else result.cleanup();
       const layout = editorLayout(viewport);
@@ -2401,7 +2403,9 @@ export function createDetailController(
       );
       state.editorVisualOffset = Math.min(previousViewportOffset, maximumOffset);
       state.completion = null;
-      state.status = "Imported $EDITOR changes into the draft · Undo restores the prior draft";
+      state.status = state.recovery && state.recovery.latest.revision !== selected.revision
+        ? "Combined independent changes · Ctrl+S saves · original writing retained"
+        : "Imported $EDITOR changes into the draft · Ctrl+S saves · Undo restores the prior draft";
     } catch (error) {
       state.status = errorMessage(error);
     } finally {
@@ -2416,12 +2420,33 @@ export function createDetailController(
       prelaunchText:state.buffer.text,draftText:state.buffer.text,source:"save-conflict"};
   };
 
+  let mechanicalAcceptance: {buffer: TextBuffer; recovery: EditRecovery; text: string; undone: boolean} | undefined;
+  const mechanicalMergeUndone = (): boolean =>
+    mechanicalAcceptance?.buffer === state.buffer && mechanicalAcceptance.undone;
+
+  // Accept only the deterministic comparison for this active draft. Historical
+  // recoveries and model proposals still require an explicit choice.
+  const acceptMechanicalRecovery = (): boolean => {
+    const recovery = state.recovery;
+    if (mechanicalMergeUndone() || !recovery || !recovery.proposal || recovery.proposal.source !== "mechanical" ||
+        recovery.proposal.unresolved.length || recovery.merge.incomplete ||
+        recovery.merge.conflicts.length || recovery.merge.propertyConflicts?.length ||
+        state.buffer.text !== recovery.draftText) return false;
+    state.buffer.replaceText(recovery.proposal.text);
+    mechanicalAcceptance = {buffer: state.buffer, recovery, text: state.buffer.text, undone: false};
+    replaceSelectedBlock(recovery.latest);
+    state.recoveryAccepted = true;
+    return true;
+  };
+
   const recoverWriting = async (viewport:DetailViewport, records?:EditRecovery[]):Promise<void> => {
     const selected=state.context.selected;
     if (!selected || !effects.recovery || !effects.reviewRecovery) {state.status="No block recovery is available in this view";return;}
-    if (!records && state.mode === "edit" && state.buffer.text !== selected.text && state.recovery?.draftText !== state.buffer.text) {
+    if ((!records || mechanicalMergeUndone()) && state.mode === "edit" &&
+        (state.buffer.text !== selected.text || mechanicalMergeUndone()) && state.recovery?.draftText !== state.buffer.text) {
       state.recovery=await effects.recovery.retain(recoveryInput());
       state.recoveryAccepted=false;
+      if (records) records=[state.recovery];
     }
     records ??= await effects.recovery.list(selected.id,true);
     state.recoveryNotice=effects.recovery.warnings?.join(" · ") || undefined;
@@ -2431,7 +2456,7 @@ export function createDetailController(
     if(choice.action==="later") {
       if(choice.record.state==="discarded"&&state.recovery?.id===choice.record.id)state.recovery=undefined;
       state.recoveryCount=(await effects.recovery.list(selected.id)).length;
-      state.status=state.recoveryCount ? "Writing retained · Recover writing in the header or actions menu" : "Recovery closed; canonical note unchanged";
+      state.status=state.recoveryCount ? "Writing retained · Writing history in the header or actions menu" : "Recovery closed; canonical note unchanged";
       return;
     }
     if(choice.action==="separate") {
@@ -2442,6 +2467,7 @@ export function createDetailController(
       return;
     }
     state.recovery=choice.record;
+    mechanicalAcceptance=undefined;
     state.recoveryAccepted=true;
     replaceSelectedBlock(choice.record.latest);
     state.buffer=new TextBuffer(choice.action==="proposal" ? choice.record.proposal!.text : choice.record.draftText);
@@ -2842,7 +2868,7 @@ export function createDetailController(
     state.mode = detailDisplayMode(state.context.selected);
     state.annotationDraft = undefined;
     state.status = cancelledMode === "comment" ? "Comment cancelled" : "Edit cancelled";
-    if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Recover writing in the header or actions menu";
+    if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Writing history in the header or actions menu";
     const cancelStatus = state.status;
     await focusOutliner(false);
     if (retentionNotice) state.status = state.status === cancelStatus ? retentionNotice : `${retentionNotice} · ${state.status}`;
@@ -2850,7 +2876,9 @@ export function createDetailController(
 
   const saveBuffer = async (viewport:DetailViewport): Promise<void> => {
     if (state.busy) return;
-    if (state.mode === "edit" && state.recovery && !state.recoveryAccepted) {
+    if (state.mode === "edit" && state.recovery &&
+        (mechanicalMergeUndone() || !state.recoveryAccepted) && !acceptMechanicalRecovery()) {
+      state.recoveryAccepted=false;
       state.status="Review the retained writing against Latest before saving";
       await recoverWriting(viewport,[state.recovery]);
       return;
@@ -4000,15 +4028,21 @@ export function createDetailController(
         break;
       }
       case "buffer.undo":
+      case "buffer.redo": {
         state.completion = null;
-        state.status = state.buffer.undo() ? "Undo" : "Nothing to undo";
+        const before = state.buffer.text;
+        const undo = intent.type === "buffer.undo";
+        const changed = undo ? state.buffer.undo() : state.buffer.redo();
+        state.status = changed ? (undo ? "Undo" : "Redo") : (undo ? "Nothing to undo" : "Nothing to redo");
+        if (changed && mechanicalAcceptance?.buffer === state.buffer) {
+          if (state.buffer.text === mechanicalAcceptance.text) mechanicalAcceptance.undone = false;
+          else if (undo && before === mechanicalAcceptance.text) mechanicalAcceptance.undone = true;
+          if (mechanicalAcceptance.undone) state.recoveryAccepted = false;
+          else if (state.recovery === mechanicalAcceptance.recovery) state.recoveryAccepted = true;
+        }
         ensureEditorCursorVisible(viewport);
         break;
-      case "buffer.redo":
-        state.completion = null;
-        state.status = state.buffer.redo() ? "Redo" : "Nothing to redo";
-        ensureEditorCursorVisible(viewport);
-        break;
+      }
       case "buffer.save":
         await saveBuffer(viewport);
         return;

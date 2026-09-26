@@ -28,7 +28,7 @@ const result = await runHerdrScenario({
     await session.focus(pane);
     await goto(host.id);
     await session.waitVisible(pane, "Original body");
-    await session.keys(pane, "enter");
+    await session.keys(pane, "alt+enter");
     await session.waitFor("primary Detail focus", session.registrations, values => values[0]?.focusedRegion === "detail");
     const opened = (await session.registrations())[0]!;
     assert.equal(opened.treeSelection?.target.kind, "block");
@@ -79,7 +79,7 @@ const result = await runHerdrScenario({
     await terminal.write("\u001b[17~");
     await session.waitFor("wide Detail focus", session.registrations, entries => entries[0]?.focusedRegion === "detail");
     await session.keys(pane, "e");
-    await session.waitVisible(pane, "Draft ·");
+    await session.waitVisible(pane, "Editing");
     await session.checkpoint("04-wide-existing-draft-split");
     await terminal.write("\u001b");
 
@@ -93,7 +93,9 @@ const result = await runHerdrScenario({
     await session.keys(pane, "q");
     await goto(reference.id);
     await session.waitVisible(pane, "Detached canonical bytes");
-    await session.keys(pane, "enter", "e");
+    await session.keys(pane, "alt+enter");
+    await session.waitFor("Detail focus during registry outage", session.registrations, entries => entries[0]?.focusedRegion === "detail");
+    await session.keys(pane, "e");
     await session.waitVisible(pane, "Editing");
     await session.text(pane, " during registry outage");
     await terminal.write("\u0013");

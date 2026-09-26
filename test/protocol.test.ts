@@ -158,7 +158,7 @@ test("serves bounded authored links without loading Resources or mutating storag
   const owner = store.create(
     `Owner ((${target.id}|Target)) [Guide](pi-outliner://resource/${resource.id})`,
   );
-  const blockIdsBefore = store.traversePreorder({}).map((block) => block.id);
+  const blockIdsBefore = store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id);
   const sequenceBefore = store.sequence;
   const socket = join(directory, "outliner.sock");
   const server = new OutlinerServer(store, socket);
@@ -186,7 +186,7 @@ test("serves bounded authored links without loading Resources or mutating storag
   });
   expect(providerCalls).toBe(0);
   expect(store.sequence).toBe(sequenceBefore);
-  expect(store.traversePreorder({}).map((block) => block.id)).toEqual(blockIdsBefore);
+  expect(store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id)).toEqual(blockIdsBefore);
 });
 
 
@@ -2814,8 +2814,13 @@ test("routes explicit opens through links while passive Preview stays on its sou
     resolution: "context",
     command: { targetClientId: "tree-a", command: "reveal", target: { kind: "block", blockId: target.id }, focus: true },
   });
-  await expect(client.request({ action: "navigation.dispatch", sourceClientId: "tree-a", target: { kind: "block", blockId: target.id }, intent: "open",
-  focusTarget: true, })).rejects.toThrow("Focused navigation dispatch requires reveal intent");
+  for (const focusTarget of [false, true]) {
+    const received = nextCommand("detail-c", "open");
+    const opened = await client.request<OutlinerNavigationDispatch>({action: "navigation.dispatch", sourceClientId: "tree-a", target: {kind: "block", blockId: target.id}, intent: "open", focusTarget});
+    expect(opened.command).toMatchObject({command: "open", focus: focusTarget});
+    expect((await received).command).toMatchObject({command: "open", focus: focusTarget});
+  }
+  await expect(client.request({action: "navigation.dispatch", sourceClientId: "tree-a", target: {kind: "block", blockId: target.id}, intent: "preview", focusTarget: true})).rejects.toThrow("Explicit focus requires open or reveal intent");
 
   await expect(client.request({ action: "navigation.dispatch", sourceClientId: "tree-b", target: { kind: "block", blockId: target.id }, intent: "open", })).rejects.toThrow("No linked destination");
   await client.request({action: "clients.update", clientId: "detail-d", navigationProtection: "active draft"});
