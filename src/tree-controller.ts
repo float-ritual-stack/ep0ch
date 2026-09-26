@@ -1319,10 +1319,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     effects.invalidate();
   }
 
+  const readOriginKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId,mode==='inbox'?inbox.selected?.id:null,mode==='inbox'?inbox.targetIndex:null]);
   async function readSelected(focusImmediately = false): Promise<void> {
     const row = rows[selectedIndex];
     if (row?.kind === "authored-link-header") { cancelReadSequence(); await handleDisclosure(row.rowId); return; }
-    const origin = originKey(), at = Date.now(), sequence = readSequence;
+    const origin = readOriginKey(), at = Date.now(), sequence = readSequence;
     const previous = lastRead;
     lastRead = null;
     let focusTarget = focusImmediately;
@@ -1330,14 +1331,14 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (!focusImmediately && previous?.origin === origin && at >= previous.at && at - previous.at <= 1000) {
       try {
         const route = await effects.navigation.resolve("open");
-        if (sequence !== readSequence || origin !== originKey()) return;
+        if (sequence !== readSequence || origin !== readOriginKey()) return;
         destination = {clientId: route.targetClientId, region: route.targetRegion ?? "detail"};
         focusTarget = destination.clientId === previous.destination.clientId && destination.region === previous.destination.region;
       } catch { /* The ordinary Open below owns error and destination recovery. */ }
     }
-    if (sequence !== readSequence || origin !== originKey()) return;
+    if (sequence !== readSequence || origin !== readOriginKey()) return;
     const opened = await focusDetailReader({focusTarget, ...(destination ? {destination} : {})});
-    if (opened && sequence === readSequence && origin === originKey() && !focusTarget) {
+    if (opened && sequence === readSequence && origin === readOriginKey() && !focusTarget) {
       lastRead = {origin, at: Date.now(), destination: {clientId: opened.targetClientId, region: opened.targetRegion ?? "detail"}};
       status += ` · Enter again within 1s or ${actionKeymap.primaryBinding("tree.read.focus")} to focus`;
       effects.invalidate();

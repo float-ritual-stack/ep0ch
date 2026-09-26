@@ -4032,6 +4032,7 @@ test('Tree Enter repeat window starts when a slow Open completes',async()=>{
 });
 
 test('failed Open and changed destinations never arm a focus transfer',async()=>{
+ const clock=spyOn(Date,'now').mockImplementation(()=>1000);
  const a=block('read-a');let fail=true,targetClientId='detail-test';
  const fake=harness(input=>{
   if(input.action==='tree.index')return snapshot([a]);
@@ -4041,12 +4042,15 @@ test('failed Open and changed destinations never arm a focus transfer',async()=>
    return {sourceClientId:'tree-test',targetClientId,intent:'open',resolution:'linked',command:{command:'open',targetClientId,target:input.target}};
   }
  });
- const c=createTreeController(fake.effects);await c.initialize();
+ const c=createTreeController(fake.effects);
  const open=()=>c.handleAction('tree.read');
  const last=()=>lastCall(fake.calls,'navigation.dispatch');
- await open();expect(c.view().status).toContain('protected');
- fail=false;await open();expect(last()).toMatchObject({focusTarget:false});
- targetClientId='another-detail';await open();expect(last()).toMatchObject({focusTarget:false,destination:{clientId:targetClientId,region:'detail'}});
- await c.handleServiceEvent({...event('view'),action:'navigation.link.set'});
- await open();expect(last()).toMatchObject({focusTarget:false});
+ try{
+  await c.initialize();
+  await open();expect(c.view().status).toContain('protected');
+  fail=false;await open();expect(last()).toMatchObject({focusTarget:false});
+  targetClientId='another-detail';await open();expect(last()).toMatchObject({focusTarget:false,destination:{clientId:targetClientId,region:'detail'}});
+  await c.handleServiceEvent({...event('view'),action:'navigation.link.set'});
+  await open();expect(last()).toMatchObject({focusTarget:false});
+ }finally{clock.mockRestore();}
 });
