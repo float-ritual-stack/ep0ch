@@ -1,5 +1,13 @@
 # Agent workflow
 
+For AI feature design, semantic judgments, or TypeSafe/Jev integration in this
+project, use the installed `typesafe-ai` skill, resolved through the agent's skill
+catalog. Follow its live-documentation workflow before choosing primitives or
+writing API calls. If the skill is unavailable, start with the
+[TypeSafe documentation index](https://docs.typesafe.ai/llms.txt) and read the
+relevant current API/SDK and cookbook pages; report unavailable sources rather
+than inventing their contracts.
+
 Before planning work, changing roadmap state, or reporting delivery, read the
 live **How this workboard works** block
 `d5b3e557-a166-4c50-baad-7a0ed8db8fe6` through the Outliner service (`get` RPC).
