@@ -273,7 +273,7 @@ describe("InboxRepository", () => {
     const sourceCandidate = notes.candidateFor(source.id)!;
     const assistance: NotePlan = { summary: "An idea", type: "idea", tags: ["navigation"] };
     const beforeSequence = store.sequence;
-    const beforeIds = store.traversePreorder({}).map(block => block.id).sort();
+    const beforeIds = store.readWorkspaceSnapshot().physical.blocks.map(block => block.id).sort();
     const run = () => store.database.transaction(() => {
       const result = repository.apply("atomic-combined", source, plan({ notes: [{ text: "A supporting note" }] }), undefined, { candidate: sourceCandidate, plan: assistance });
       notes.checkpointEditorial(result, sourceCandidate, assistance);
@@ -283,7 +283,7 @@ describe("InboxRepository", () => {
     expect(run).toThrow("injected checkpoint failure");
     expect(store.require(source.id)).toEqual(source);
     expect(store.sequence).toBe(beforeSequence);
-    expect(store.traversePreorder({}).map(block => block.id).sort()).toEqual(beforeIds);
+    expect(store.readWorkspaceSnapshot().physical.blocks.map(block => block.id).sort()).toEqual(beforeIds);
     expect(repository.results()).toEqual([]);
     expect(notes.results()).toEqual([]);
     expect(notes.candidateFor(source.id)?.inferredTags).toEqual([]);
@@ -537,7 +537,7 @@ describe("InboxRepository", () => {
     const source = capture(store);
     const target = store.create("Existing information");
     const sequence = store.sequence;
-    const blocks = store.traversePreorder({}).map(block => block.id).sort();
+    const blocks = store.readWorkspaceSnapshot().physical.blocks.map(block => block.id).sort();
     store.database.exec(`CREATE TRIGGER fail_inbox_receipt BEFORE INSERT ON inbox_agent_results BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END;`);
     expect(() => repository.apply("rollback", source, plan({
       notes: [{ text: "Would be created" }], tasks: [task],
@@ -545,7 +545,7 @@ describe("InboxRepository", () => {
     }))).toThrow("injected receipt failure");
     expect(store.require(source.id)).toEqual(source);
     expect(store.require(target.id)).toEqual(target);
-    expect(store.traversePreorder({}).map(block => block.id).sort()).toEqual(blocks);
+    expect(store.readWorkspaceSnapshot().physical.blocks.map(block => block.id).sort()).toEqual(blocks);
     expect(store.sequence).toBe(sequence);
     expect(store.workIdAllocatorStatus().nextWorkId).toBe("PIE-001");
     expect(repository.results()).toEqual([]);

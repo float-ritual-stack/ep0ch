@@ -508,7 +508,6 @@ interface OutlinerCaptureReceiptEntry {
   capturedAt: number;
 }
 
-export { containsWorkIdPlaceholder as containsConfiguredWorkPlaceholder } from "../src/work-ids";
 
 export function formatWorkPlaceholderNudge(prefix: string): string {
   return [
