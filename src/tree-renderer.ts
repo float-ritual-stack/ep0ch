@@ -500,7 +500,14 @@ export function renderTreeFrame(
   output.push(view.navigationDestinationLabel === undefined ? "─".repeat(width)
     : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));
   }
+  const compactRecovery = compact && view.mode === "browse" && Boolean(view.recoveryHelp);
+  // Recovery controls can displace optional chrome; even a one-row pane must offer an escape.
+  if (compactRecovery) {
+    while (output.length > 1 && output.length > height - 3) output.pop();
+    if (height === 1) output.length = 0;
+  }
   const headerHeight = output.length;
+  const minimumBodyHeight = compactRecovery && height <= 2 ? 0 : 1;
   const selectedRow = view.rows[view.selectedIndex];
   const selectedBranchState =
     selectedRow?.kind === "physical"
@@ -510,20 +517,20 @@ export function renderTreeFrame(
   const branchError = selectedBranchState?.configurationErrors.length
     ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
     : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "";
-  // Short panes keep notices by priority (recovery, its controls, connection/general status, branch error) but render them in reading order.
+  // Short panes keep notices by priority (recovery controls, recovery status, connection/general status, branch error) but render them in reading order.
   const compactNotices = [
-    {text: view.recoveryStatus, priority: 0, sanitize: true},
+    {text: view.recoveryStatus, priority: 1, sanitize: true},
     {text: branchError, priority: 3, sanitize: true},
     {text: view.status, priority: 2, sanitize: true},
-    {text: view.recoveryHelp, priority: 1, sanitize: false},
+    {text: view.recoveryHelp, priority: 0, sanitize: false},
   ].filter((notice, index, all): notice is {text: string; priority: number; sanitize: boolean} =>
     Boolean(notice.text) && all.findIndex(other => other.text === notice.text) === index);
-  const compactCapacity = Math.max(0, height - headerHeight - 1);
+  const compactCapacity = Math.max(0, height - headerHeight - minimumBodyHeight);
   const compactKept = new Set([...compactNotices].sort((a, b) => a.priority - b.priority).slice(0, compactCapacity));
   const compactFooterLines = compactNotices.filter(notice => compactKept.has(notice));
   const compactFooter = compactFooterLines.length;
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
-  const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
+  const bodyHeight = Math.max(minimumBodyHeight, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
     const actionMenuItems = view.actionMenuItems ?? [];
     const actionMenuIndex = view.actionMenuIndex ?? 0;

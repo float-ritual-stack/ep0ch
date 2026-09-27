@@ -1264,6 +1264,15 @@ test("short compact Tree reserves destination recovery controls ahead of lower-p
   expect(lines.slice(2)).toEqual(["Destination missing","↵ choose destination  ⎋ cancel"]);
   const taller=renderTreeFrame(tree,60,5,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
   expect(taller.slice(2)).toEqual(["Destination missing","Workspace service disconnected; reconnecting…","↵ choose destination  ⎋ cancel"]);
+  for (const cue of [{activeFilter:"lane=todo"}, {}, {visibleCompleteness:{kind:"truncated" as const,limit:100}}]) {
+    for (const height of [4,1,2,3,5,6]) {
+      const frame=renderTreeFrame({...tree,...cue},60,height,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+      expect(frame).toHaveLength(height);
+      expect(frame).toContain("↵ choose destination  ⎋ cancel");
+      if(height>=3)expect(frame.some(line=>line.includes("definition"))).toBe(true);
+      if(height>=4)expect(frame).toContain("Destination missing");
+    }
+  }
 });
 
 test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {
