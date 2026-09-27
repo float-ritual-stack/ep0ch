@@ -3,7 +3,7 @@ import {execFile} from "node:child_process";
 import {readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {promisify} from "node:util";
-import {openDetailSidebar} from "../../src/sidebar-placement";
+import {openSidebar} from "../../src/sidebar-placement";
 import {visibleWidth} from "@earendil-works/pi-tui";
 import {outlinerLinkUri} from "../../src/outliner-links";
 import type {Block, NavigationLinkState, OutlinerClientRegistration} from "../../src/types";
@@ -320,9 +320,9 @@ const result = await runHerdrScenario({
       // Only the create callback fails; no user pane or global server is involved.
       const beforeRecovery = await snapshot();
       let rejectedCreation = false;
-      await assert.rejects(openDetailSidebar({sourcePaneId: s.panes.tree,
+      await assert.rejects(openSidebar({sourcePaneId: s.panes.tree,
         outlinerPaneIds: [s.panes.tree, s.panes.detail, secondPane], scope: "outliner", side: "left",
-        async createDetail() { rejectedCreation = true; throw new Error("Injected private fixture creation failure"); },
+        async createPane() { rejectedCreation = true; throw new Error("Injected private fixture creation failure"); },
       }, native), /original layout restored/);
       assert.ok(rejectedCreation, "Failure occurs after native layout parking, not during preflight");
       const recovered = await snapshot();

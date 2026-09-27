@@ -219,17 +219,36 @@ export interface QuickCaptureDraft {
   submittedText?: string;
   cursorRow: number;
   cursorColumn: number;
+  selectionAnchor?: {row: number; column: number};
+  blockId?: string;
+  blockRevision?: number;
   capturedFromBlockId?: string;
   revision: number;
   updatedAt: string;
 }
 
+/** Live Capture ownership follows its subscribed client, never a durable lock. */
+export interface CaptureOwnerLocation {
+  launching?: boolean;
+  hostname: string;
+  herdrSocket: string;
+  paneId: string;
+  popup: boolean;
+}
+export interface CaptureOwner extends CaptureOwnerLocation { clientId: string }
+export interface CaptureOwnerClaim { acquired: boolean; owner: CaptureOwner }
+
 export interface QuickCaptureDraftSaveInput {
+  ownerClientId?: string;
   requestId: string;
   text: string;
   submittedText?: string;
   cursorRow: number;
   cursorColumn: number;
+  selectionAnchor?: {row: number; column: number};
+  prepareBlock?: boolean;
+  /** Explicit writing-history choice, guarded against edits made after review. */
+  recovery?: {id: string; revision: number; basedOnBlockRevision: number};
   capturedFromBlockId?: string;
   expectedRevision: number | null;
 }
@@ -1228,7 +1247,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 75;
+export const OUTLINER_PROTOCOL_VERSION = 76;
 
 
 export interface OutlinerServiceStatus {
@@ -1474,6 +1493,8 @@ export type OutlinerRequest =
       capturedFromBlockId?: string;
       author?: BlockAuthor;
       provenance?: BlockProvenance;
+      expectedDraftRevision?: number;
+      ownerClientId?: string;
     }
   | {
       id: string;
@@ -1483,6 +1504,9 @@ export type OutlinerRequest =
       title: string;
       mutation: MutationProvenance;
     }
+  | { id: string; action: "capture.owner.get" }
+  | { id: string; action: "capture.owner.claim"; clientId: string; location: CaptureOwnerLocation; transferToken?: string }
+  | { id: string; action: "capture.owner.handoff"; clientId: string; requestId: string; expectedDraftRevision: number }
   | { id: string; action: "capture.draft.get" }
   | { id: string; action: "edit-recovery.start"; input: import("./edit-recovery").EditRecoveryStart }
   | { id: string; action: "edit-recovery.get"; recoveryId: string }
@@ -1503,6 +1527,7 @@ export type OutlinerRequest =
   | {
       id: string;
       action: "capture.draft.clear";
+      ownerClientId?: string;
       expectedRevision: number | null;
     }
   | {

@@ -478,6 +478,7 @@ export class InboxRepository {
   }
 
   private eligible(block: Block): boolean {
+    if (this.store.isCaptureDraft(block.id)) return false;
     if (block.author === "system" || block.actorId === "inbox-agent" || has(block, "system-view") || has(block, "system-doc") ||
       has(block, "work-id") || has(block, "work-stage")) return false;
     const types = block.properties.filter(property => property.key === "type").map(property => property.value.toLowerCase());

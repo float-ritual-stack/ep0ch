@@ -1232,7 +1232,30 @@ For local connections the report gives the exact state/database paths and the pr
 
 ### Quick capture Inbox
 
-Tree `c` opens the manifest-owned Herdr popup without navigating away from the selected row. The popup reuses the Detail multiline editor’s `TextBuffer`, command mapping, wrapping, cursor, selection, and row renderer. Enter adds a line and Ctrl+S explicitly saves. Text, cursor, stable request identity, and the original captured-from context are retained in one workspace-owned draft after a short debounce; Esc/Ctrl+C flush and close, while Ctrl+D requires a second press before discarding. Reopening from any pane in the same workspace resumes that draft. A failed save or stale concurrent writer leaves the full draft visible for a safe retry.
+Tree `c` opens Quick Capture without navigating away from the selected row. Enter adds a line. **Save to Inbox** / Ctrl+S submits; **Retain** / Esc closes while keeping the draft; **Discard** / Ctrl+D requires confirmation. Text, cursor, selection, request identity and the original captured-from context are retained in one workspace-owned draft. Reopening Capture in that workspace resumes it. If a Capture surface is already active in the same Herdr session, Tree and global entry return to that surface, including an editor with unsaved writing. A different host/session is reported explicitly rather than opening a competing writer.
+
+Use **Dock** / Ctrl+O, then Left, Right or Down to keep writing beside or below the Outliner. **Popup** returns to the floating editor. Docking transfers the same draft and cursor/selection; it does not submit or duplicate the note. Focus can move to Tree, Preview or another Detail while the capture stays open. Placement shares the Detail sidebar's layout preservation and rollback path.
+
+**Editor** / Ctrl+E opens the draft in VISUAL/EDITOR using the existing local recovery journal. Opening Capture allocates one canonical Inbox draft before accepting keystrokes, including when blank, so closing or reconnecting can retain writing against that identity. Both assistance workers exclude that note until explicit submission. Returning from the editor retains its writing; use **Save to Inbox** when it is ready for processing. A launch failure keeps the draft available for retry. Concurrent changes are revision guarded, and returned editor writing is retained in the note's recovery history.
+
+**History** / Ctrl+R opens retained writing and the existing Base/Draft/Latest comparison. Choosing a version brings it back into Capture without immediately changing the note. Continue editing, retain it, or submit with Ctrl+S; the reviewed save checks the latest revision and keeps the replaced text available through history. If the note changes again, refresh the review instead of overwriting it. Closing a conflicted capture retains its local writing in that same recovery journal.
+
+Short docked panes collapse the controls before hiding the editor; the cursor stays visible while resizing. Ctrl+O still opens placement choices when the full toolbar cannot fit.
+
+For direct entry from an ordinary Herdr shell, the `capture-editor` action creates or resumes the same protected draft in a right sidebar and opens VISUAL/EDITOR immediately. The workspace's compatible service must already be running; an Outliner view need not be open in the current tab. Invoke the action or bind it in the active Herdr config:
+
+```sh
+herdr plugin action invoke capture-editor --plugin float.pi-outliner
+```
+
+```toml
+[[keys.command]]
+key = "prefix+shift+n"
+type = "plugin_action"
+command = "float.pi-outliner.capture-editor"
+```
+
+Merge that optional binding with existing shortcuts and check for collisions; it is not installed automatically. The capture contract requires protocol **76**, so update the service and clients together.
 
 `capture.create` writes one ordinary canonical child beneath the active `[system-view::inbox]` block. Tree, CLI, Pi/OMP tools/commands, and exact standalone dispatch markers are adapters over this same mutation. Captures include:
 

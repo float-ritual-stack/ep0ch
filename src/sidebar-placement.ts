@@ -18,13 +18,13 @@ type Direction = "right" | "down";
 type Branch = {rect: Rect; panes: string[]; split?: {direction: Direction; ratio: number; first: Branch; second: Branch}};
 type Move = {pane: string; target: string; direction: Direction; ratio: number};
 export type SidebarRunner = (args: string[]) => Promise<unknown>;
-export interface OpenDetailSidebarOptions {
+export interface OpenSidebarOptions {
   sourcePaneId: string;
   outlinerPaneIds: string[];
   scope: "outliner" | "tab";
-  side: "left" | "right";
-  /** Create a right split at this anchor. On rejection, clean up any unreported pane. */
-  createDetail(anchorPaneId: string): Promise<string>;
+  side: "left" | "right" | "bottom";
+  /** Create the requested split at this anchor. On rejection, clean up any unreported pane. */
+  createPane(anchorPaneId: string, direction: Direction): Promise<string>;
 }
 export class SidebarPlacementError extends Error {
   constructor(message: string, readonly journalPath?: string) {super(message); this.name = "SidebarPlacementError";}
@@ -86,10 +86,10 @@ function rebuildMoves(tree: Branch): Move[] {
   const {first, second, direction, ratio} = tree.split;
   return [{pane: second.panes[0]!, target: first.panes[0]!, direction, ratio}, ...rebuildMoves(first), ...rebuildMoves(second)];
 }
-function treeShape(tree: Branch, replacement?: {branch: Branch; pane: string; side: "left" | "right"}): unknown {
+function treeShape(tree: Branch, replacement?: {branch: Branch; pane: string; side: "left" | "right" | "bottom"}): unknown {
   if (tree === replacement?.branch) {
     const original = treeShape(tree);
-    return replacement.side === "left" ? ["right", 0.5, replacement.pane, original] : ["right", 0.5, original, replacement.pane];
+    return replacement.side === "left" ? ["right", 0.5, replacement.pane, original] : [replacement.side === "bottom" ? "down" : "right", 0.5, original, replacement.pane];
   }
   if (!tree.split) return tree.panes[0];
   return [tree.split.direction, tree.split.ratio, treeShape(tree.split.first, replacement), treeShape(tree.split.second, replacement)];
@@ -101,7 +101,7 @@ const layoutFingerprint = (layout: Layout) => JSON.stringify({tab: layout.tab_id
 /** Uses Herdr's native park/rebuild maneuver, also used by chmarax/herdr-nvim's sidebar.
  * Planning uses the host snapshot, not a second pane registry; existing processes are only moved.
  */
-export async function openDetailSidebar(options: OpenDetailSidebarOptions, run: SidebarRunner = runHerdr): Promise<string> {
+export async function openSidebar(options: OpenSidebarOptions, run: SidebarRunner = runHerdr): Promise<string> {
   const readLayout = async (pane: string) => Parse(Type.Object({result: Type.Object({layout: LayoutSchema})}), await run(["pane", "layout", "--pane", pane])).result.layout;
   const originalLayout = await readLayout(options.sourcePaneId);
   const tree = treeFromLayout(originalLayout);
@@ -110,7 +110,7 @@ export async function openDetailSidebar(options: OpenDetailSidebarOptions, run: 
   if (options.scope === "outliner" && !requested.has(options.sourcePaneId)) throw new Error("Sidebar source must be an explicit Outliner pane");
   const branch = options.scope === "tab" ? tree : selectedBranch(tree, requested);
   if (options.scope === "outliner" && branch.panes.some(id => !requested.has(id))) throw new Error("Outliner area includes unrelated panes; choose the whole-tab sidebar explicitly");
-  if (branch.rect.width < 4) throw new Error("Outliner area is too narrow for a sidebar");
+  if ((options.side === "bottom" ? branch.rect.height : branch.rect.width) < 4) throw new Error("Outliner area is too narrow for a sidebar");
   const anchor = branch.panes[0]!;
   const rebuild = rebuildMoves(branch);
   if (layoutFingerprint(originalLayout) !== layoutFingerprint(await readLayout(options.sourcePaneId))) throw new Error("Herdr layout changed during planning; retry sidebar placement");
@@ -139,9 +139,9 @@ export async function openDetailSidebar(options: OpenDetailSidebarOptions, run: 
   try {
     if (rebuild.length || options.side === "left") await ensureParking();
     for (const pane of branch.panes.slice(1)) await move(pane, journal.parkingTab!);
-    journal.operation = ["create-detail-right", anchor]; await save();
-    journal.sidebar = await options.createDetail(anchor);
-    if (!journal.sidebar || tree.panes.includes(journal.sidebar)) throw new Error("Detail creation did not return a new pane identity");
+    journal.operation = ["create-sidebar", options.side, anchor]; await save();
+    journal.sidebar = await options.createPane(anchor, options.side === "bottom" ? "down" : "right");
+    if (!journal.sidebar || tree.panes.includes(journal.sidebar)) throw new Error("Sidebar creation did not return a new pane identity");
     await save();
     if (options.side === "left") {
       await move(anchor, journal.parkingTab!);

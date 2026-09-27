@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
-import { openDetailSidebar, SidebarPlacementError } from "../src/sidebar-placement";
+import { openSidebar, SidebarPlacementError } from "../src/sidebar-placement";
 
 type Node = string | {direction: "right" | "down"; ratio: number; first: Node; second: Node};
 const split = (first: Node, second: Node, direction: "right" | "down" = "right", ratio = 0.5): Node => ({first, second, direction, ratio});
@@ -70,16 +70,16 @@ function fixture(initial: Node) {
     throw new Error(`Unexpected command ${args.join(" ")}`);
   };
   return {tabs, operations, run, layout, fail: (predicate: (args: string[]) => boolean) => {failure = predicate;},
-    createDetail: async (anchor: string) => {const tab = tabOf(anchor)!; tabs.set(tab, insert(tabs.get(tab)!, anchor, "new-detail", "right", 0.5)); return "new-detail";}};
+    createPane: async (anchor: string, direction: "right" | "down" = "right") => {const tab = tabOf(anchor)!; tabs.set(tab, insert(tabs.get(tab)!, anchor, "new-detail", direction, 0.5)); return "new-detail";}};
 }
 
-for (const side of ["left", "right"] as const) {
+for (const side of ["left", "right", "bottom"] as const) {
   test(`Outliner ${side} sidebar preserves outside panes and the original subtree`, async () => {
     const subtree = split("tree", split("detail-a", "detail-b", "right", 0.6), "down", 0.3);
     const f = fixture(split("unrelated-shell", subtree, "right", 0.25));
     const outside = f.layout().panes[0];
-    expect(await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail-a", "detail-b", "another-tab"], scope: "outliner", side, createDetail: f.createDetail}, f.run)).toBe("new-detail");
-    expect(f.tabs.get("original")).toEqual(split("unrelated-shell", side === "left" ? split("new-detail", subtree) : split(subtree, "new-detail"), "right", 0.25));
+    expect(await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail-a", "detail-b", "another-tab"], scope: "outliner", side, createPane: f.createPane}, f.run)).toBe("new-detail");
+    expect(f.tabs.get("original")).toEqual(split("unrelated-shell", side === "left" ? split("new-detail", subtree) : split(subtree, "new-detail", side === "bottom" ? "down" : "right"), "right", 0.25));
     expect(f.layout().panes.find(pane => pane.pane_id === "unrelated-shell")).toEqual(outside);
     expect([...f.tabs.keys()]).toEqual(["original"]);
     expect(f.operations.some(args => args[1] === "move" && args[2] === "unrelated-shell")).toBe(false);
@@ -87,16 +87,16 @@ for (const side of ["left", "right"] as const) {
   test(`whole-tab ${side} sidebar preserves every existing pane identity and split ratio`, async () => {
     const initial = split("shell", split("tree", "detail", "down", 0.7), "right", 0.4);
     const f = fixture(initial);
-    await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side, createDetail: f.createDetail}, f.run);
-    expect(f.tabs.get("original")).toEqual(side === "left" ? split("new-detail", initial) : split(initial, "new-detail"));
-    expect(f.layout().panes.find(pane => pane.pane_id === "new-detail")?.rect.height).toBe(80);
+    await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side, createPane: f.createPane}, f.run);
+    expect(f.tabs.get("original")).toEqual(side === "left" ? split("new-detail", initial) : split(initial, "new-detail", side === "bottom" ? "down" : "right"));
+    expect(f.layout().panes.find(pane => pane.pane_id === "new-detail")?.rect.height).toBe(side === "bottom" ? 40 : 80);
     expect([...f.tabs.keys()]).toEqual(["original"]);
   });
 }
 
 test("scoped sidebar rejects interleaved unrelated panes before any mutation", async () => {
   const f = fixture(split("tree", split("shell", "detail", "down")));
-  await expect(openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right", createDetail: f.createDetail}, f.run)).rejects.toThrow("unrelated");
+  await expect(openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right", createPane: f.createPane}, f.run)).rejects.toThrow("unrelated");
   expect(f.operations.every(args => args[1] === "layout")).toBe(true);
 });
 
@@ -105,7 +105,7 @@ test("failed rebuilding restores original panes and ratios without restarting th
   const f = fixture(initial);
   let failed = false;
   f.fail(args => {if (!failed && args[1] === "move" && args[2] === "detail" && args.includes("original")) {failed = true; return true;} return false;});
-  await expect(openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createDetail: f.createDetail}, f.run)).rejects.toThrow("restored");
+  await expect(openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createPane: f.createPane}, f.run)).rejects.toThrow("restored");
   expect(f.tabs.get("original")).toEqual(initial);
   expect([...f.tabs.keys()]).toEqual(["original"]);
   expect(f.operations.every(args => !["run", "restart", "kill"].includes(args[1]!))).toBe(true);
@@ -116,7 +116,7 @@ test("failed recovery retains an actionable original-layout journal", async () =
   const f = fixture(initial);
   f.fail(args => args[1] === "move" && args[2] === "detail" && args.includes("original"));
   try {
-    await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side: "right", createDetail: f.createDetail}, f.run);
+    await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side: "right", createPane: f.createPane}, f.run);
     throw new Error("Expected placement failure");
   } catch (error) {
     expect(error).toBeInstanceOf(SidebarPlacementError);
@@ -134,7 +134,7 @@ test("failed recovery retains an actionable original-layout journal", async () =
 for (const side of ["left", "right"] as const) {
   test(`single-pane ${side} sidebar needs no existing reader and preserves its process`, async () => {
     const f = fixture("tree");
-    await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree"], scope: "outliner", side, createDetail: f.createDetail}, f.run);
+    await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree"], scope: "outliner", side, createPane: f.createPane}, f.run);
     expect(f.tabs.get("original")).toEqual(side === "left" ? split("new-detail", "tree") : split("tree", "new-detail"));
     expect([...f.tabs.keys()]).toEqual(["original"]);
     if (side === "right") expect(f.operations.some(args => args[0] === "tab")).toBe(false);
@@ -148,7 +148,7 @@ test("a layout change during planning aborts before moving any pane", async () =
     if (args[1] === "layout" && ++reads === 2) f.tabs.set("original", split("tree", split("detail", "new-shell"), "down"));
     return f.run(args);
   };
-  await expect(openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right", createDetail: f.createDetail}, run)).rejects.toThrow("changed during planning");
+  await expect(openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right", createPane: f.createPane}, run)).rejects.toThrow("changed during planning");
   expect(f.operations.every(args => args[1] === "layout")).toBe(true);
 });
 
@@ -161,8 +161,8 @@ for (const phase of ["park", "return-anchor", "create"] as const) {
       const matches = phase === "park" ? args[2] === "b" && args.includes("parking") : phase === "return-anchor" && args[2] === "tree" && args.includes("original");
       if (!failed && args[1] === "move" && matches) {failed = true; return true;} return false;
     });
-    const createDetail = phase === "create" ? async () => {throw new Error("create rejected");} : f.createDetail;
-    await expect(openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "a", "b"], scope: "outliner", side: "left", createDetail}, f.run)).rejects.toThrow("original layout restored");
+    const createPane = phase === "create" ? async () => {throw new Error("create rejected");} : f.createPane;
+    await expect(openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "a", "b"], scope: "outliner", side: "left", createPane}, f.run)).rejects.toThrow("original layout restored");
     expect(f.tabs.get("original")).toEqual(initial);
     expect([...f.tabs.keys()]).toEqual(["original"]);
     expect(f.operations.filter(args => args[1] === "close").every(args => ["new-detail", "placeholder"].includes(args[2]!))).toBe(true);
@@ -172,8 +172,8 @@ for (const phase of ["park", "return-anchor", "create"] as const) {
 test("an unreported created pane cannot produce a false successful rollback", async () => {
   const f = fixture(split("tree", "detail", "down"));
   try {
-    await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right",
-      async createDetail(anchor) {await f.createDetail(anchor); throw new Error("creation returned no identity");}}, f.run);
+    await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "right",
+      async createPane(anchor) {await f.createPane(anchor); throw new Error("creation returned no identity");}}, f.run);
     throw new Error("Expected failure");
   } catch (error) {
     expect(error).toBeInstanceOf(SidebarPlacementError);
@@ -195,14 +195,14 @@ test("pane chrome does not make native split geometry ambiguous", async () => {
     }
     return response;
   };
-  await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createDetail: f.createDetail}, run);
+  await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createPane: f.createPane}, run);
   expect(f.tabs.get("original")).toEqual(split("outside", split("new-detail", split("tree", "detail", "down", 0.4)), "right", 0.3));
 });
 
 test("a creation callback using the wrong split direction is detected and rolled back", async () => {
   const f = fixture(split("tree", "detail", "down", 0.3));
-  await expect(openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side: "right",
-    async createDetail(anchor) {f.tabs.set("original", insert(f.tabs.get("original")!, anchor, "new-detail", "down", 0.5)); return "new-detail";}}, f.run)).rejects.toThrow("original layout restored");
+  await expect(openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "tab", side: "right",
+    async createPane(anchor) {f.tabs.set("original", insert(f.tabs.get("original")!, anchor, "new-detail", "down", 0.5)); return "new-detail";}}, f.run)).rejects.toThrow("original layout restored");
   expect(f.tabs.get("original")).toEqual(split("tree", "detail", "down", 0.3));
 });
 
@@ -215,7 +215,7 @@ for (const failure of ["placeholder", "journal"] as const) {
     let path: string | undefined;
     if (failure === "placeholder") f.fail(args => args[1] === "close" && args[2] === "placeholder");
     try {
-      expect(await openDetailSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createDetail: f.createDetail}, f.run)).toBe("new-detail");
+      expect(await openSidebar({sourcePaneId: "tree", outlinerPaneIds: ["tree", "detail"], scope: "outliner", side: "left", createPane: f.createPane}, f.run)).toBe("new-detail");
       expect(f.tabs.get("original")).toEqual(split("new-detail", original));
       expect(f.operations.some(args => args[1] === "close" && args[2] === "new-detail")).toBe(false);
       expect(warnings).toHaveBeenCalledTimes(1);

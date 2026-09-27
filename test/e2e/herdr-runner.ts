@@ -44,10 +44,13 @@ export interface HerdrScenarioSession {
   setKeybindings(bindings: Record<string, string[]>): Promise<void>;
   setRegistryUnavailable(unavailable: boolean): Promise<void>;
   adoptDetached(clientId: string, role?: "tree" | "detail"): Promise<string>;
+  adoptCapture(): Promise<string>;
+  openShellTab(): Promise<string>;
   moveDetachedToNewTab(paneId: string): Promise<void>;
   closeDetached(paneId: string): Promise<void>;
   rejectCompetingService(): Promise<CommandResult>;
-  attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; resize(columns: number, rows: number): Promise<void> }>;
+  restartService(): Promise<void>;
+  attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; cursor(): Promise<{column: number; row: number}>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
   openRemoteBrowsingContext(options?: { name?: string; renderer?: "pi-tui" | "ansi"; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
   forwardedTreeRequests(): readonly ForwardedRequest[];
@@ -878,6 +881,28 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         await artifacts.record("detached-adopted", detached);
         return pane.paneId;
       },
+      async openShellTab() {
+        const origin = parsePane(parseResult((await runHerdr(["pane", "get", ownedPanes.launcher])).stdout, "pane_info", "shell origin").pane, "shell origin pane");
+        const result = parseResult((await runHerdr(["tab", "create", "--workspace", origin.workspaceId,
+          "--cwd", projectRoot, "--label", "Capture from shell", "--focus"])).stdout, "tab_created", "shell tab");
+        const pane = parsePane(result.root_pane, "shell tab pane");
+        if (pane.workspaceId !== origin.workspaceId) throw Error("Shell tab escaped the private workspace");
+        owned.add(pane.paneId);
+        extraPanes["capture-origin-shell"] = pane.paneId;
+        await artifacts.record("shell-tab-created", result);
+        return pane.paneId;
+      },
+      async adoptCapture() {
+        const origin = parsePane(parseResult((await runHerdr(["pane", "get", ownedPanes.launcher])).stdout, "pane_info", "capture fixture origin").pane, "capture fixture origin pane");
+        const snapshot = recordValue(parseResult((await runHerdr(["api", "snapshot"])).stdout, "session_snapshot", "capture topology").snapshot, "capture snapshot");
+        const candidates = (snapshot.panes as JsonRecord[]).filter(p => p.label === "Quick Capture" && p.workspace_id === origin.workspaceId);
+        if (candidates.length !== 1) throw Error(`Expected one capture pane in private workspace; found ${candidates.length}`);
+        const pane = parsePane(candidates[0], "capture pane");
+        processEvidence.push(await verifyProcess(pane.paneId, pluginRoot));
+        owned.add(pane.paneId);
+        await artifacts.record("capture-adopted", pane);
+        return pane.paneId;
+      },
       async moveDetachedToNewTab(paneId) {
         requireOwned(paneId);
         if (Object.values(ownedPanes).includes(paneId)) throw new Error("Only an adopted detached pane may move");
@@ -901,6 +926,29 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           signal: abort.signal,
           expectedExitCode: 1,
         });
+      },
+      async restartService() {
+        const previous = ownedPanes.service;
+        const location = parsePane(parseResult((await runHerdr(["pane", "get", previous])).stdout, "pane_info", "service before restart").pane, "service pane");
+        await runHerdr(["pane", "close", previous]);
+        owned.delete(previous);
+        await poll({label: "private service stopped", signal: abort.signal, artifacts,
+          read: async () => {try {await client.request({action: "ping"}, 300); return false;} catch {return true;}},
+          accept: stopped => stopped,
+        });
+        const opened = parseResult((await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID,
+          "--entrypoint", "service", "--workspace", location.workspaceId, "--no-focus",
+          "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
+          "--env", `OUTLINER_STATE_DIR=${outlinerState}`])).stdout, "plugin_pane_opened", "restarted service");
+        const pane = parsePane(recordValue(opened.plugin_pane, "service plugin pane").pane, "restarted service pane");
+        ownedPanes.service = pane.paneId;
+        owned.add(pane.paneId);
+        await poll({label: "private service ready after restart", signal: abort.signal, artifacts,
+          read: () => client.request<OutlinerServiceStatus>({action: "ping"}, 500),
+          accept: status => status.status === "ready" && status.protocolVersion === OUTLINER_PROTOCOL_VERSION,
+        });
+        processEvidence.push(await verifyProcess(pane.paneId, pluginRoot));
+        await artifacts.record("service-restarted", {previous, current: pane.paneId});
       },
       async attachClient() {
         if (resources.client) throw new Error("This fixture already owns an attached Herdr client");
@@ -942,6 +990,10 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
             const buffer = screen.buffer.active;
             return Array.from({ length: screen.rows }, (_, row) =>
               buffer.getLine(buffer.viewportY + row)?.translateToString(true, 0, screen.cols) ?? "").join("\n");
+          },
+          async cursor() {
+            await new Promise<void>((resolve) => screen.write("", resolve));
+            return {column: screen.buffer.active.cursorX, row: screen.buffer.active.cursorY};
           },
           async write(input) {
             abort.signal.throwIfAborted();
@@ -1062,6 +1114,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", "capture",
           "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
           "--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${blockId}`,
+          "--env", `OUTLINER_CAPTURE_ORIGIN_PANE=${ownedPanes.tree}`,
           "--env", "OUTLINER_REMOTE=1",
           "--env", `OUTLINER_SOCKET_PATH=${socketPath}`]);
       },

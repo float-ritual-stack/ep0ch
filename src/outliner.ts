@@ -1,3 +1,4 @@
+import {focusActiveCapture} from "./capture-owner";
 import {TextViewerInput} from './text-viewer-input';
 import {openExternalUrl} from "./open-external";
 import {DocumentPreviewInput} from './document-preview-input';
@@ -156,6 +157,7 @@ const controller = createTreeController({
   },
   createDetailDestination: (blockId, placement) => createDetailDestination(client,clientId,{workspaceRoot:paths.workspaceRoot,initialTarget:{kind:"block",blockId},placement,timeoutMs:paths.mode === "remote" ? 60_000 : 5_000}),
   async openCapturePopup(capturedFromBlockId) {
+    if (await focusActiveCapture(client)) return;
     openHerdrCapturePopup({
       workspaceRoot: paths.workspaceRoot,
       capturedFromBlockId,

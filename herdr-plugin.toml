@@ -102,6 +102,13 @@ contexts = ["workspace", "tab", "pane"]
 command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-capture.ts"]
 
 [[actions]]
+id = "capture-editor"
+title = "Outliner: capture in sidebar editor"
+description = "Create or resume a protected Inbox draft in the right sidebar and open it in VISUAL/EDITOR."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-capture.ts", "--editor"]
+
+[[actions]]
 id = "comment-selection"
 title = "Outliner: comment on selection"
 description = "Open the invoking Detail composer with Herdr's revision-validated rendered selection."

@@ -32,6 +32,15 @@ export class EditRecoveryReview {
     private changed:()=>void,private finish:(choice:RecoveryChoice)=>void,private warnings:readonly string[]=[]) {}
   private get actions(){return this.record.state==="retained"?retainedActions:historyActions;}
   get record():EditRecovery{return this.records[this.index];}
+  /** End a host-owned review without waiting for an outstanding provider. */
+  dismiss(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.generation++;
+    if (this.pending) void this.client.cancel(this.record).catch(() => {});
+    this.pending = false;
+    this.finish({action: "later", record: this.record});
+  }
   invalidate():void {}
   render(width:number,height:number):string[] {
     const record=this.record;
