@@ -1254,6 +1254,18 @@ test.each(["Workspace service disconnected; reconnecting…", "Failed to open ta
   }
 });
 
+test("short compact Tree reserves destination recovery controls ahead of lower-priority notices", () => {
+  const tree=view([block("definition")],{density:"compact",status:"Workspace service disconnected; reconnecting…",
+    recoveryStatus:"Destination missing",recoveryHelp:"↵ choose destination  ⎋ cancel",
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  const lines=renderTreeFrame(tree,60,4,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(4);
+  expect(lines[1]).toContain("definition");
+  expect(lines.slice(2)).toEqual(["Destination missing","↵ choose destination  ⎋ cancel"]);
+  const taller=renderTreeFrame(tree,60,5,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(taller.slice(2)).toEqual(["Destination missing","Workspace service disconnected; reconnecting…","↵ choose destination  ⎋ cancel"]);
+});
+
 test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {
   const rows = Array.from({length: 20}, (_,index) => block(`Item ${index + 1}`));
   const compact = view(rows, {density:"compact", status:""});

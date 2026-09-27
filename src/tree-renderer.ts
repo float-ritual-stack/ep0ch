@@ -510,8 +510,18 @@ export function renderTreeFrame(
   const branchError = selectedBranchState?.configurationErrors.length
     ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
     : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "";
-  const compactStatuses = [...new Set([view.recoveryStatus, branchError, view.status].filter((text): text is string => Boolean(text)))];
-  const compactFooter = compactStatuses.length + Number(Boolean(view.recoveryHelp));
+  // Short panes keep notices by priority (recovery, its controls, connection/general status, branch error) but render them in reading order.
+  const compactNotices = [
+    {text: view.recoveryStatus, priority: 0, sanitize: true},
+    {text: branchError, priority: 3, sanitize: true},
+    {text: view.status, priority: 2, sanitize: true},
+    {text: view.recoveryHelp, priority: 1, sanitize: false},
+  ].filter((notice, index, all): notice is {text: string; priority: number; sanitize: boolean} =>
+    Boolean(notice.text) && all.findIndex(other => other.text === notice.text) === index);
+  const compactCapacity = Math.max(0, height - headerHeight - 1);
+  const compactKept = new Set([...compactNotices].sort((a, b) => a.priority - b.priority).slice(0, compactCapacity));
+  const compactFooterLines = compactNotices.filter(notice => compactKept.has(notice));
+  const compactFooter = compactFooterLines.length;
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
   const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
@@ -814,8 +824,7 @@ export function renderTreeFrame(
   }
   while (output.length < height - footerHeight) output.push("");
   if (compact && view.mode === "browse") {
-    for (const text of compactStatuses) output.push(truncateToWidth(sanitizeDynamicText(text), width));
-    if (view.recoveryHelp) output.push(truncateToWidth(view.recoveryHelp, width));
+    for (const {text, sanitize} of compactFooterLines) output.push(truncateToWidth(sanitize ? sanitizeDynamicText(text) : text, width));
     const selected = selectedExpandedInfo.current;
     return {frame: clear + output.slice(0,height).join("\n"), scrollStartEntryIndex, mouseTargets,
       expandedPage: selected ? {rowId: view.rows[view.selectedIndex]!.rowId, pageSize:bodyHeight,totalRows:selected.total,offset:selected.offset} : null};
