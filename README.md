@@ -109,7 +109,7 @@ No shared user host is used.
 - Atomic canonical roadmap-item creation discovers the single project work queue, validates UUID relationships and complete routing metadata, allocates the immutable Work ID, and returns matching virtual-branch memberships in one transaction.
 - Plain-clickable Work IDs, canonical UUIDs, exact references, and `[[address]]` links inside Tree/Detail, with OSC 8 `pi-outliner://` links retained for external terminal interoperability.
 - Tree can project a selected block's Outlinks, Resources and Backlinks as read-only generated branches. Enumeration never creates pages, Resources, Sources, or provider traffic. Explicit activation follows or creates unresolved ordinary `[[page]]` links and human-authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` Resources; unresolved Work IDs stay unavailable.
-- Property-driven virtual branches with ranked or timestamp-sorted canonical roots, read-only contextual descendants through relative depth 2, independent occurrence disclosure, a 1,000-row branch budget, property-aware creation, and persisted manual root ordering.
+- Property-driven virtual branches with ranked or timestamp-sorted canonical roots, contextual descendants through relative depth 2, independent occurrence disclosure, a 1,000-row branch budget, property-aware creation, and persisted manual root ordering.
 - Fresh databases seed version 5 of the Documentation hub: an addressable feature tour, the agent documentation guide, native transclusions, a working virtual branch, and authored block, page, file, web, SSH-application, and Jira reference examples. Existing workspaces keep their customized content.
 - Agent-created blocks retain immutable creator provenance. Every later text or property mutation records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator.
 - Recoverable deletion preserves canonical structure and identity, excludes Trash content from normal queries/completions, and requires explicit identifier-confirmed purge.
@@ -1148,7 +1148,7 @@ presentation-only; ordinary and projected rows continue to read the same
 canonical parsed properties.
 
 Matches appear as disposable `◇` root occurrences. Each matched root also projects
-its canonical descendants as read-only context through relative depth 2 by default.
+its canonical descendants as contextual rows through relative depth 2 by default.
 `[child-depth::0]` shows matches only, `1` adds their children, and `2` adds
 children and grandchildren; integers through `8` are supported within the row budget.
 `[expanded::false]` starts matched roots collapsed; `true` starts them expanded.
@@ -1164,6 +1164,15 @@ has independent, ephemeral disclosure; `Left` and `Right` navigate its projected
 parent/children without changing canonical text or storage. A canonical block may
 therefore appear beneath a matched ancestor and independently as a matched root,
 and may still appear in multiple branches.
+
+In Tree, **Add child** (`a`, also in `?`) on a projected result creates a
+canonical first child under that result and selects it in the same occurrence.
+Only the selected occurrence opens; other collapsed results stay collapsed.
+The child does not need to match the view's query. Depth or row-budget limits
+are checked before creation and again on save; a refusal offers Reveal source
+(`Shift+R`) or changing the view bounds. Nested definition rows whose canonical
+children cannot be projected are refused rather than creating an invisible child.
+Adding siblings and indenting/outdenting projected rows remain disabled.
 
 Each branch reserves its bounded, deduplicated roots before allocating contextual
 descendants in root/canonical-preorder order. Unsorted branches apply persisted
