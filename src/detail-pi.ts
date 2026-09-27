@@ -780,7 +780,7 @@ function focusRegion(region: OutlinerRegion): void {
 
 function requestStop(): void {
   if (composed && (controller.state.mode === "edit" || controller.state.mode === "comment" ||
-      ["edit", "add-child", "add-sibling"].includes(composedTree!.controller.view().mode))) {
+      ["edit", "add-child", "add-sibling"].includes(composedTree!.controller.mode))) {
     controller.onServiceError(new Error("Finish or cancel the draft before closing the Outliner"));
     return;
   }
@@ -795,7 +795,7 @@ const localNavigation = composedTreeNavigation({
 const composedTree: ComposedTree | null = composed ? new ComposedTree({
   client, clientId, contextId: browsingContextId, workspaceRoot: paths.workspaceRoot,
   navigation: localNavigation, actionKeymap,
-  width: () => composedTree?.controller.view().mode === "goto" ? processTerminal.columns : composedWidths(processTerminal.columns).tree,
+  width: () => composedTree?.controller.mode === "goto" ? processTerminal.columns : composedWidths(processTerminal.columns).tree,
   height: () => processTerminal.rows,
   focused: () => focusedRegion === "tree", focus: () => focusRegion("tree"),
   invalidate: () => { synchronizeLayout?.(); }, stop: requestStop,
@@ -1667,7 +1667,7 @@ synchronizeLayout = () => {
     layoutRoot = nextRoot;
     if (composedLayout) composedLayout.setDetail(nextRoot);
   }
-  tui.setLayoutRoot(composedTree && (composedTree.controller.view().mode === "goto" || composedTree.keyInspectorActive) ? composedTree : composedLayout ?? nextRoot);
+  tui.setLayoutRoot(composedTree && (composedTree.controller.mode === "goto" || composedTree.keyInspectorActive) ? composedTree : composedLayout ?? nextRoot);
   tui.requestRender();
 };
 synchronizeLayout();
@@ -1678,6 +1678,7 @@ const detailInputListener = createPiDetailInputListener(
   },
   data => shouldPassDetailInputToTui(data),
 );
+let composedViewerDrag=false;
 tui.addOutlinerInputListener(data => {
   if (recoveryReview) {
     const wheel=parseTreeWheelEvent(data);
@@ -1694,6 +1695,18 @@ tui.addOutlinerInputListener(data => {
     return {consume: true};
   }
   const detailPointer = parseTreePrimaryPointer(data);
+  if (composedTree && !actionMenuHandle && detailPointer) {
+    if (detailPointer.phase === "down") composedViewerDrag = detailPointer.column < composedWidths(processTerminal.columns).tree &&
+      composedTree.controller.mode === "viewer" && !!composedTree.controller.view().workspaceReport;
+    if (composedViewerDrag) {
+      if (detailPointer.phase === "up") composedViewerDrag = false;
+      serviceEventScheduler.scheduleWork(async () => {
+        if(detailPointer.phase === "down")focusRegion("tree");
+        await composedTree.handleInput(data);
+      });
+      return {consume:true};
+    }
+  }
   if (!actionMenuHandle && detailPointer?.phase === "down" && readingSurface.previewVisible && ["beside", "below"].includes(readerGeometry().arrangement)) {
     const detailColumn = detailPointer.column - (composed ? composedWidths(processTerminal.columns).detailX : 0);
     if (detailColumn >= 0) {
@@ -1703,7 +1716,7 @@ tui.addOutlinerInputListener(data => {
     }
   }
   if (!composedTree) return detailInputListener(data);
-  if (composedTree.controller.view().mode === "goto") {
+  if (composedTree.controller.mode === "goto") {
     serviceEventScheduler.scheduleWork(() => composedTree.handleInput(data));
     scheduleInputFlush();
     return { consume: true };

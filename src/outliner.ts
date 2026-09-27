@@ -1,3 +1,4 @@
+import {TextViewerInput} from './text-viewer-input';
 import {openExternalUrl} from "./open-external";
 import {DocumentPreviewInput} from './document-preview-input';
 import {KeyInspector} from "./key-inspector";
@@ -69,6 +70,7 @@ let stopping = false;
 let workQueue = Promise.resolve();
 let renderedFrameLines: string[] = [];
 const previewInput = new DocumentPreviewInput();
+const viewerInput = new TextViewerInput();
 let renderedMouseTargets: readonly (TreeMouseTarget | null | undefined)[] = [];
 
 function errorMessage(error: unknown): string {
@@ -88,6 +90,7 @@ function draw(): void {
     { propertyKeys: propertySummaryKeys },
   );
   renderedFrameLines = previewInput.render(result.frame.split("\n"),result.preview,controller.view().mode === "inbox" ? controller.view().inbox?.reader.state : controller.view().localPreview);
+  renderedFrameLines=viewerInput.render(renderedFrameLines,result.viewer);
   renderedMouseTargets = result.mouseTargets;
   controller.setViewportStart(result.scrollStartEntryIndex, result.expandedPage);
   if(result.breadcrumbStart !== undefined) controller.setBreadcrumbStart(result.breadcrumbStart);
@@ -120,6 +123,7 @@ if(initialRoot && ![initialRoot.rowId,initialRoot.canonicalId,initialRoot.label]
   throw new Error("OUTLINER_TREE_ROOT must identify a Tree occurrence");
 }
 const controller = createTreeController({
+  copyText:text=>process.stdout.write(osc52ClipboardWrite(text)),
       openExternal: openExternalUrl,
   openKeyInspector: () => keyInspector.open(),
   initialRoot,
@@ -208,6 +212,7 @@ function handleRawInput(data: string | Buffer): void {
 }
 
 function handleMouseSequence(sequence: string): void {
+  if(viewerInput.handle(sequence,text=>controller.copyViewerSelection(text),id=>enqueueWork(()=>controller.handleAction(id)),draw))return;
   if (controller.view().mode === "inbox" && controller.view().inbox?.handlePreviewMouse(sequence,text=>process.stdout.write(osc52ClipboardWrite(text)))) return;
   if(previewInput.handle(sequence,{focus:v=>controller.focusLocalPreview(v),scroll:d=>controller.scrollLocalPreview(d),resize:f=>controller.resizeLocalPreview(f),invoke:id=>controller.handleAction(id)},text=>process.stdout.write(osc52ClipboardWrite(text)),draw))return;
   if (controller.view().mode === "inbox" && controller.view().inbox?.handleActivityMouse(sequence)) return;
