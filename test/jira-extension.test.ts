@@ -20,6 +20,9 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
+    // Keep the fixture alive past the provider's 10-second timeout. Otherwise
+    // Bun's default idle cutoff races it and tests a socket reset instead.
+    idleTimeout: 60,
     fetch(req) {
       if (status === 408) return new Promise<Response>(() => {});
       requests++;

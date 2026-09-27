@@ -4,6 +4,12 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Collect Tree items with `x` or row checkboxes, inspect the finite set with
+  `Shift+X`, copy canonical references or verified page links, and rank selected
+  roots together in an unsorted virtual branch. Focus stays independent;
+  selections survive restarts with explicit recovery and Clear. Protocol 77.
+  PIE-240.
+
 - Compact Tree, Detail and Preview chrome gives rows back to content. Shared
   searchable menus retain actions and shortcuts, Expanded layout remains
   available, and document titles use the Herdr frame with a standalone fallback
@@ -136,7 +142,7 @@ This file records notable user-facing changes. The project remains active dogfoo
 - Roadmap items use `work-stage` alone, with Queued replacing Next and Superseded separate from accepted Done. Item-side `work-batch` references preserve committed scope through progress, pause, and completion. Resume and unchanged PR synchronization preserve explicit review/rework state. [#137](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/137)
 - Fresh databases use workspace seed version 5. **Explore the Outliner** adds addressable feature guides and working reading/projection examples beside the existing agent documentation guide and authored-links example. Existing databases retain their customized content; package upgrades do not reinstall the seed.
 - The guided installer and portable runtime discovery support source-checkout installation. Actual Herdr keyboard journeys use isolated workspaces and retain failure evidence. [#82](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/82), [#83](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/83), [#114](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/114)
-- The current JSON-lines RPC protocol is **76**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
+- The current JSON-lines RPC protocol is **77**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
 
 ### Known limits
 

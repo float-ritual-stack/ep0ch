@@ -1450,6 +1450,19 @@ export class OutlinerServer {
           }
           result = this.listClients(request.role);
           break;
+        case "working-selection.get":
+          result = this.store.workingSelections.get(request.ownerClientId);
+          break;
+        case "working-selection.save":
+          result = this.store.workingSelections.save(request.input);
+          break;
+        case "working-selection.recoverable":
+          result = this.store.workingSelections.recoverable(request.ownerClientId, this.listClients().map(client => client.clientId));
+          break;
+        case "working-selection.resume":
+          result = this.store.workingSelections.resume(request.ownerClientId, request.selectionId, request.expectedRevision,
+            this.listClients().map(client => client.clientId));
+          break;
         case "clients.update":
           result = this.updateClient(request.clientId, request);
           break;
@@ -2017,6 +2030,12 @@ export class OutlinerServer {
           this.store.purge(request.blockId, request.confirmation);
           result = { purged: request.blockId };
           break;
+        case "virtual.occurrences.order":
+          result = this.store.virtualBranchOrder(request.viewId);
+          break;
+        case "virtual.occurrences.place":
+          result = this.store.placeVirtualOccurrences(request.input);
+          break;
         case "virtual.occurrences.reorder":
           result = this.store.reorderVirtualOccurrences(
             request.viewId,
@@ -2379,6 +2398,10 @@ export class OutlinerServer {
         blockId = followed.block?.id;
         break;
       }
+      case "virtual.occurrences.place":
+        domain = "view";
+        blockId = request.input.expected.viewId;
+        break;
       case "virtual.occurrences.reorder":
         domain = "view";
         blockId = request.viewId;
