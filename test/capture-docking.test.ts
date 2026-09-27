@@ -51,6 +51,26 @@ test("prepared capture retains one protected note through restart, edits and ret
   } finally {store.close();rmSync(directory,{recursive:true,force:true});}
 });
 
+test("a prepared capture note in Trash or purged does not prevent discarding the draft", () => {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-trashed-capture-"));
+  const store = new OutlinerStore(join(directory, "outline.sqlite"));
+  try {
+    const trashed = store.saveQuickCaptureDraft({requestId:"trashed",text:"Trashed draft",
+      cursorRow:0,cursorColumn:0,expectedRevision:null,prepareBlock:true});
+    store.delete(trashed.blockId!);
+    expect(store.clearQuickCaptureDraft(trashed.revision)).toBeNull();
+    expect(store.quickCaptureDraft()).toBeNull();
+    expect(store.require(trashed.blockId!).deletedAt).toBeString();
+
+    const purged = store.saveQuickCaptureDraft({requestId:"purged",text:"Purged draft",
+      cursorRow:0,cursorColumn:0,expectedRevision:null,prepareBlock:true});
+    store.delete(purged.blockId!);
+    store.purge(purged.blockId!, purged.blockId!.slice(0, 8));
+    expect(store.clearQuickCaptureDraft(purged.revision)).toBeNull();
+    expect(store.quickCaptureDraft()).toBeNull();
+  } finally {store.close();rmSync(directory,{recursive:true,force:true});}
+});
+
 test("capture recovery RPC preserves concurrent writing and atomically reconciles the same protected note", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-capture-recovery-"));
   const store = new OutlinerStore(join(root, "outline.sqlite"), {workspaceRoot: root});

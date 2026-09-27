@@ -1369,9 +1369,12 @@ export class OutlinerStore {
         throw new Error("Quick Capture draft changed; close this popup and reopen the current draft");
       }
       if (current?.blockId && this.isCaptureDraft(current.blockId)) {
-        const block = this.requireActive(current.blockId);
-        if (block.revision !== current.blockRevision || this.children(block.id).length) throw new Error("Capture note changed; retain and review before discarding");
-        this.delete(block.id);
+        // A prepared note already in Trash or purged must not block discarding the draft.
+        const block = this.getFromCurrentRead(current.blockId);
+        if (block && !block.effectiveDeletedRootId) {
+          if (block.revision !== current.blockRevision || this.children(block.id).length) throw new Error("Capture note changed; retain and review before discarding");
+          this.delete(block.id);
+        }
       }
       // Keep the revision after clearing; delayed cleanup must never match a new draft.
       if (current) this.database.query(`
