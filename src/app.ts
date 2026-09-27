@@ -1,0 +1,124 @@
+// The door: a stack of screens, one status bar, one paint per change.
+import type { Placement } from "./kitty";
+import { KittyLayer } from "./kitty";
+import type { SocketBoard, OutlineEvent } from "./socket";
+import { bg, C, fg, pad, RESET } from "./style";
+import type { Key, Term, TermInfo } from "./term";
+import { crtUnderlay } from "./crt";
+
+export interface Frame { lines: string[]; placements?: Placement[] }
+
+export type Video = "kitty+crt" | "kitty" | "cells";
+
+export interface Ctx {
+  t: TermInfo;
+  board: SocketBoard;
+  host: string;
+  workspace: string;
+  video: Video;
+  get graphics(): boolean;
+  push(s: Screen): void;
+  pop(): void;
+  replace(s: Screen): void;
+  quit(): void;
+  redraw(): void;
+  flash(msg: string): void;
+  cycleVideo(): void;
+  lastCall: number;
+  events: number;          // outline changes seen since the menu last looked
+}
+
+export interface Screen {
+  title: string;
+  /** Rows available = t.rows - 1 (the last row is the status bar). */
+  render(ctx: Ctx): Frame;
+  key(k: Key, ctx: Ctx): void;
+  enter?(ctx: Ctx): void;
+  /** Called ~30×/s while it returns true (modem-speed reveals). */
+  tick?(ctx: Ctx): boolean;
+  onEvent?(e: OutlineEvent, ctx: Ctx): void;
+}
+
+export class App implements Ctx {
+  private stack: Screen[] = [];
+  private kitty: KittyLayer;
+  private message = "";
+  private messageUntil = 0;
+  private timer: Timer | null = null;
+  private started = Date.now();
+  host = "";
+  workspace = "";
+  video: Video;
+  events = 0;
+
+  constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void) {
+    this.kitty = new KittyLayer(term.write);
+    this.video = term.info.kitty ? "kitty+crt" : "cells";
+    term.onKey(k => this.key(k));
+    term.onResize(() => this.redraw());
+    this.timer = setInterval(() => this.tick(), 33);
+  }
+
+  get t() { return this.term.info; }
+  get graphics() { return this.video !== "cells"; }
+
+  push(s: Screen) { this.stack.push(s); s.enter?.(this); this.redraw(); }
+  pop() { this.stack.pop(); if (!this.stack.length) return this.quit(); this.redraw(); }
+  replace(s: Screen) { this.stack.pop(); this.push(s); }
+  flash(msg: string) { this.message = msg; this.messageUntil = Date.now() + 4000; this.redraw(); }
+  cycleVideo() {
+    if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
+    this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
+    this.term.invalidate();
+    this.flash(`video: ${this.video}`);
+  }
+
+  event(e: OutlineEvent) {
+    if (e.domain !== "content") return;
+    this.events++;
+    this.stack.at(-1)?.onEvent?.(e, this);
+    this.redraw();
+  }
+
+  quit() {
+    if (this.timer) clearInterval(this.timer);
+    this.kitty.dispose();
+    this.done();
+  }
+
+  private key(k: Key) {
+    if (k.kind === "char" && k.ctrl && k.ch === "c") return this.quit();
+    this.stack.at(-1)?.key(k, this);
+  }
+
+  private tick() {
+    const s = this.stack.at(-1);
+    const expired = this.message && Date.now() > this.messageUntil;
+    if (expired) this.message = "";
+    if (s?.tick?.(this) || expired) this.redraw();
+  }
+
+  redraw() {
+    const s = this.stack.at(-1);
+    if (!s) return;
+    const { cols, rows } = this.term.info;
+    const frame = s.render(this);
+    const lines = frame.lines.slice(0, rows - 1);
+    while (lines.length < rows - 1) lines.push("");
+    lines.push(this.statusBar(s, cols));
+    const placements = this.graphics ? [...(frame.placements ?? [])] : [];
+    if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
+    this.term.paint(lines);
+    this.kitty.sync(placements);
+  }
+
+  private statusBar(s: Screen, cols: number): string {
+    const mins = Math.floor((Date.now() - this.started) / 60000);
+    const clock = new Date().toTimeString().slice(0, 5);
+    const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
+    const right = `${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
+    const body = pad(left + middle, Math.max(0, cols - [...right.replace(/\x1b\[[\d;]*m/g, "")].length));
+    return bg(C.blue) + fg(C.lcyan) + body + right + RESET;
+  }
+}
