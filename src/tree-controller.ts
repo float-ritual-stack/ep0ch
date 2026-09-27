@@ -2115,7 +2115,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           if (!["ids","references","pages"].includes(kind)) return;
           if (!effects.copyText) throw Error("Clipboard output is unavailable in this host");
           effects.copyText(await collected.copy(kind as "ids"|"references"|"pages",rows.map(r=>r.rowId)));
-          routineNotice("Selected references sent to terminal clipboard");
+          routineNotice(`Selected ${kind === "ids" ? "block IDs" : kind === "pages" ? "page links" : "block references"} sent to terminal clipboard`);
         }
       } catch (error) { status = errorMessage(error); }
       effects.invalidate(); return;
