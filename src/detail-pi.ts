@@ -222,11 +222,23 @@ let pendingLinkClick: PiDetailLinkClick = {
   routing: "linked",
   suppress: false,
 };
-let directSelectionOwner: "current" | "preview" = "current";
+let directSelectionDocument: {
+  reader: DetailController;
+  document: DetailController["state"]["document"];
+  text: string;
+  file: DetailController["state"]["referencedFile"];
+} | null = null;
 let latestDirectSelection: DetailDirectSelectionCapture | null = null;
 let pendingDirectSelection: Promise<DetailDirectSelectionCapture | null> | null = null;
 let pendingResourceSelectionRange: TextBufferRange | null = null;
 let directSelectionGeneration = 0;
+function retireDirectSelection(): void {
+  directSelectionGeneration++;
+  directSelectionDocument = null;
+  latestDirectSelection = null;
+  pendingDirectSelection = null;
+  pendingResourceSelectionRange = null;
+}
 const composed = process.env.OUTLINER_COMPOSED_SURFACE === "1";
 let focusedRegion: OutlinerRegion = "tree";
 const processTerminal = new ProcessTerminal();
@@ -250,6 +262,8 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
   async copySelection(quote) {
     process.stdout.write(osc52ClipboardWrite(quote));
     const generation = ++directSelectionGeneration;
+    const reader = focusedReader();
+    directSelectionDocument = { reader, document: reader.state.document, text: reader.state.projectedSelectedText, file: reader.state.referencedFile };
     latestDirectSelection = null;
     const resourceCapture = pendingResourceSelectionRange
       ? focusedReader().captureResourcePointerSelection(
@@ -288,7 +302,6 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     const capture = await capturePromise;
     if (generation === directSelectionGeneration) {
       latestDirectSelection = capture;
-      await effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : capture && directSelectionOwner === "current" ? "active source selection" : null);
       pendingDirectSelection = null;
       pendingResourceSelectionRange = null;
     }
@@ -324,7 +337,6 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
           await focusedReader().dispatch({type: "preview.focus.set", regionId: resolution.regionId}, viewport());
         } else {
           await readingSurface.activatePreviewAction(resolution.action, viewport(), resolution.routing);
-          if (readingSurface.active === controller) directSelectionOwner = "current";
         }
         return;
       }
@@ -487,7 +499,6 @@ const effects: DetailEffects = {
     await destinationDisplay.refresh();
     return state.destinations.find(item => item.view.clientId === destination?.clientId && item.view.region === destination.region)?.label;
   },
-  isSourceSelectionActive: () => directSelectionOwner === "current" && (latestDirectSelection !== null || pendingDirectSelection !== null),
   async setNavigationProtection(navigationProtection) {
     await client.request({action: "clients.update", clientId, navigationProtection});
   },
@@ -751,11 +762,10 @@ const inspection = createDetailController({
   getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
   setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
   setNavigationProtection: async () => {},
-  isSourceSelectionActive: () => false,
 }, () => synchronizeLayout?.(), {readerLabel: "linked Detail", actionKeymap, previewHere: target => readingSurface.previewHere(target, viewport()), openHere: target => readingSurface.openHere(target, viewport())});
 const readingSurface = new DetailReadingSurface(controller, inspection, () => synchronizeLayout?.(), async () => {
   await client.request({action: "clients.update", clientId, previewTarget: null});
-}, () => effects.isSourceSelectionActive?.() ?? false);
+});
 const focusedReader = () => readingSurface.active;
 const focusedPreviewLayout = () => readingSurface.focused === "preview" && readingSurface.previewVisible ? inspectionLayout : preview;
 const readingHelp = () => readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview  Alt+Enter Keep Preview  Esc close Preview  ` : "";
@@ -1311,12 +1321,7 @@ function shouldPassDetailInputToTui(data: string): boolean {
   const pointer = parseTreePrimaryPointer(data);
   if (pointer && !pointer.meta && !pointer.ctrl) {
     if (pointer.phase === "down") {
-      directSelectionOwner = readingSurface.active === inspection ? "preview" : "current";
-      directSelectionGeneration += 1;
-      latestDirectSelection = null;
-      pendingDirectSelection = null;
-      if (runtimeInitialized) void effects.setNavigationProtection?.(controller.isBufferMode() ? "active edit or source selection" : null);
-      pendingResourceSelectionRange = null;
+      retireDirectSelection();
     }
     if (
       focusedReader().state.mode === "preview" &&
@@ -1364,6 +1369,18 @@ function shouldPassDetailInputToTui(data: string): boolean {
   return true;
 }
 
+async function directSelectionCapture(reader: DetailController): Promise<DetailDirectSelectionCapture | null> {
+  const generation = directSelectionGeneration;
+  if (directSelectionDocument?.reader !== reader) return null;
+  const capture = latestDirectSelection ?? await pendingDirectSelection;
+  const target = reader.state.target;
+  if (generation !== directSelectionGeneration || !capture || !target) return null;
+  if (capture.kind === "rendered") {
+    return target.kind === "block" && target.blockId === capture.capture.hostBlockId ? capture : null;
+  }
+  return target.kind === "resource" && target.resourceId === capture.resourceId ? capture : null;
+}
+
 const handleKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); },
   controller,
   viewport,
@@ -1375,22 +1392,7 @@ const handleKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane
   navigatePreview,
   previewFocused: () => draftSplitActive() && draftSplitFocus === "preview",
   annotationSelectionSourceLine: () => preview.sourceLineAtScroll(terminal.columns),
-  directSelectionCapture: async () => {
-    const generation = directSelectionGeneration;
-    const capture = latestDirectSelection ?? await pendingDirectSelection;
-    const target = controller.state.target;
-    if (generation !== directSelectionGeneration || !capture || !target) return null;
-    if (capture.kind === "rendered") {
-      return target.kind === "block" &&
-          target.blockId === capture.capture.hostBlockId
-        ? capture
-        : null;
-    }
-    return target.kind === "resource" &&
-        target.resourceId === capture.resourceId
-      ? capture
-      : null;
-  },
+  directSelectionCapture: () => directSelectionCapture(controller),
 });
 
 const inspectionKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); },controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap,
@@ -1401,18 +1403,21 @@ const inspectionKeypress = createDetailKeyHandler({openNewTree: () => { openTree
 async function readerAction(actionId: string): Promise<boolean> {
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
-  if (actionId === "detail.reading.keep") { if (await readingSurface.keepPreview(viewport())) directSelectionOwner = "current"; return true; }
+  if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport()); return true; }
   if (readingSurface.active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
     const annotationId = inspection.state.selectedAnnotationId;
     if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return true; }
     await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport());
-    if (readingSurface.active === controller) directSelectionOwner = "current";
     return true;
   }
   if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
+    // Commenting promotes this same document. Carry the explicit command's
+    // immutable capture through promotion; ordinary navigation still retires it.
+    const capture = actionId === "detail.comment.begin" ? await directSelectionCapture(inspection) : null;
     if (!await readingSurface.keepPreview(viewport())) return true;
-    directSelectionOwner = "current";
-    await handleKeypress.invoke(actionId);
+    if (actionId === "detail.comment.begin") {
+      await controller.dispatch({type: "annotation.comment.direct", capture}, viewport());
+    } else await handleKeypress.invoke(actionId);
     return true;
   }
   return false;
@@ -1586,6 +1591,13 @@ let composerWidth = 0;
 let composerHeight = 0;
 
 synchronizeLayout = () => {
+  // A retained quote is convenience state, never a navigation lock. A new
+  // document retires both completed and in-flight captures before they can be reused.
+  if (directSelectionDocument && (directSelectionDocument.reader.state.document !== directSelectionDocument.document ||
+    directSelectionDocument.reader.state.projectedSelectedText !== directSelectionDocument.text ||
+    directSelectionDocument.reader.state.referencedFile !== directSelectionDocument.file)) {
+    retireDirectSelection();
+  }
   inspectionVisible = readingSurface.previewVisible;
   const mode = controller.state.mode;
   if (mode !== previousMode) editorDragActive = false;
