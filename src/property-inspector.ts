@@ -1,5 +1,5 @@
 import {marked, type Token} from "marked";
-import {linkOutlinerMarkdown} from "./outliner-links";
+import {linkOutlinerMarkdown, parseOutlinerLinkUri} from "./outliner-links";
 import type { DetailState } from "./detail-controller";
 import type { PreviewRegion } from "./detail-preview-regions";
 import { pageAddressReferences, tryNormalizePageAddress } from "./page-addresses";
@@ -137,12 +137,23 @@ export function classifyPropertyInspectorTarget(
   return null;
 }
 
+function isFollowablePropertyLink(href: string): boolean {
+  if (/^https?:\/\//.test(href)) return URL.canParse(href);
+  if (!href.startsWith("pi-outliner:")) return false;
+  try {
+    parseOutlinerLinkUri(href);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function propertyValueParts(value: string, occurrenceId: string): PropertyValuePart[] {
   let links = 0;
   const parts: PropertyValuePart[] = [];
   const visit = (tokens: Token[]) => {
     for (const token of tokens) {
-      if (token.type === "link" && /^(https?:\/\/|pi-outliner:)/.test(token.href)) {
+      if (token.type === "link" && isFollowablePropertyLink(token.href)) {
         const regionId = links++ === 0 ? occurrenceId : `${occurrenceId}:link:${links}`;
         parts.push({text: token.text, uri: token.href, regionId});
       } else if (token.type === "text") {
