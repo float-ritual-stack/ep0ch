@@ -1789,6 +1789,14 @@ export class OutlinerStore {
 
   placeVirtualOccurrences(input: VirtualBranchPlacementInput): VirtualBranchOrder {
     return this.database.transaction(() => {
+      if (input.selection) {
+        const saved = this.workingSelections.get(input.selection.ownerClientId);
+        if (!saved || saved.id !== input.selection.id || saved.revision !== input.selection.revision ||
+          saved.targets.length !== input.selectedBlockIds.length ||
+          saved.targets.some(target => !input.selectedBlockIds.includes(target.blockId))) {
+          throw Error("Selection changed; reopen Selected items before moving");
+        }
+      }
       const current=this.virtualBranchOrder(input.expected.viewId);
       if (current.completeness.kind!=="complete" || input.expected.completeness.kind!=="complete") {
         throw Error("Branch membership is truncated; bulk placement requires a complete list");

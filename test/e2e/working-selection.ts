@@ -72,6 +72,28 @@ const result=await runHerdrScenario({name:'working-selection',async prepare(){},
   await s.waitFor('clear removes selection controls',()=>s.visible(tree),f=>!f.includes('3 selected'));
   for(const block of blocks)assert.deepEqual(await s.client.request<Block>({action:'get',blockId:block.id}),block);
   await s.checkpoint('06-narrow-clear');
+  // Close an actual selected Tree process, then explicitly recover from another pane.
+  await terminal.resize(210,64); await s.revealTree(tree,view.id);
+  const previous=new Set((await s.registrations()).map(c=>c.clientId));
+  await menu('Tree right');
+  const registrations=await s.waitFor('independent Tree',s.registrations,items=>items.some(c=>c.role==='tree'&&!previous.has(c.clientId)));
+  const added=registrations.find(c=>c.role==='tree'&&!previous.has(c.clientId))!;
+  const second=await s.adoptDetached(added.clientId,'tree');
+  await s.waitVisible(second,'Candidate A'); await s.keys(second,'down','x');
+  await s.waitVisible(second,'1 selected');
+  await s.closeDetached(second);
+  await s.waitFor('closed Tree removed',s.registrations,items=>!items.some(c=>c.clientId===added.clientId));
+  await s.focus(tree); await s.keys(tree,'X'); await s.waitVisible(tree,'Recover 1 selected');
+  await s.text(tree,'Recover 1 selected'); await s.waitVisible(tree,'Find: Recover 1 selected'); await s.keys(tree,'enter');
+  await s.waitVisible(tree,'Recovered · 1 selected');
+  await s.checkpoint('07-closed-pane-recovery');
+  await s.client.request({action:'delete',blockId:ids[0]!});
+  await s.waitVisible(tree,'1 outside this view');
+  await menu('Copy selected block IDs'); await s.waitVisible(tree,'unavailable targets');
+  await s.keys(tree,'X'); await s.waitVisible(tree,'Unselect ·');
+  await s.text(tree,'Unselect'); await s.waitVisible(tree,'Find: Unselect'); await s.keys(tree,'enter');
+  await s.waitFor('unavailable target explicitly removed',()=>s.client.request({action:'working-selection.get',ownerClientId:owner.clientId}),selection=>selection===null);
+  await s.checkpoint('08-unavailable-target-removed');
   await s.record('coverage',{input:'Herdr keys and attached-terminal SGR pointer clicks',clipboard:'Exact OSC52 payload; physical host paste not claimed',targets:ids,ranked:ordered});
 }});
 console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

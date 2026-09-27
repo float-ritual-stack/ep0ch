@@ -99,3 +99,12 @@ test("truncated membership cannot authorize a bulk placement",async()=>{
   await expect(f.place(expected,[f.ids[0]!],{kind:"top"})).rejects.toThrow(/complete|truncated/i);
   expect(f.store.sequence).toBe(sequence);
 });
+
+test("placement checks the saved selection in the same transaction as ranking",async()=>{
+  const f=await fixture();
+  const saved=await f.client.request<import('../src/types').WorkingSelection>({action:'working-selection.save',input:{ownerClientId:'ranking-tree',expected:null,targets:[{blockId:f.ids[4]!,rowId:'appearance-e'}]}});
+  const expected=await f.order();
+  await f.client.request({action:'working-selection.save',input:{ownerClientId:'ranking-tree',expected:saved,targets:[]}});
+  await expect(f.client.request({action:'virtual.occurrences.place',input:{expected,selectedBlockIds:[f.ids[4]!],placement:{kind:'top'},selection:saved}})).rejects.toThrow(/selection changed/i);
+  expect((await f.order()).blockIds).toEqual(f.ids);
+});

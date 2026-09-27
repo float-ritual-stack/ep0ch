@@ -1265,6 +1265,7 @@ export type VirtualBranchPlacement =
   | {kind: "before" | "after"; anchorId: string};
 
 export interface VirtualBranchPlacementInput {
+  selection?: Pick<WorkingSelection, "id" | "ownerClientId" | "revision">;
   expected: VirtualBranchOrder;
   selectedBlockIds: string[];
   placement: VirtualBranchPlacement;

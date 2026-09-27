@@ -121,3 +121,36 @@ test("Tree refuses a bulk action after its saved selection changes elsewhere",as
   await c.handleAction("tree.selection.inspect");
   expect(c.view().collectedIds?.size).toBe(0);
 });
+
+test("Tree deduplicates repeated appearances but rejects mixed appearance ranking",async()=>{
+  const f=await fixture();
+  f.store.update(f.view.id,f.view.text+' [fixture-view::selection]',f.view.revision,{author:'user'});
+  f.store.create('Another appearance [type::virtual-branch] [query::fixture-view=selection]');
+  const {controller:c}=await f.open('tree-one');
+  const appearances=(id:string)=>c.view().rows.filter(r=>r.kind==='occurrence'&&r.canonicalId===id&&r.viewId===f.view.id);
+  const a=appearances(f.ids[0]!);const e=appearances(f.ids[4]!);
+  expect(a.length).toBe(2);expect(e.length).toBe(2);
+  const toggle=(rowId:string)=>c.handleAction(`tree.selection.toggle:${encodeURIComponent(rowId)}`);
+  await toggle(a[0]!.rowId);await toggle(a[1]!.rowId);
+  expect(c.view().collectedIds?.size).toBe(0);
+  await toggle(a[0]!.rowId);await toggle(e[1]!.rowId);
+  await c.handleAction('tree.selection.move-top');
+  expect(c.view().status).toContain('one virtual branch appearance');
+  expect((await f.client.request<VirtualBranchOrder>({action:'virtual.occurrences.order',viewId:f.view.id})).blockIds).toEqual(f.ids);
+  await c.handleAction('tree.selection.clear');
+  await toggle(a[1]!.rowId);await toggle(e[1]!.rowId);
+  await c.handleAction('tree.selection.move-top');
+  expect((await f.client.request<VirtualBranchOrder>({action:'virtual.occurrences.order',viewId:f.view.id})).blockIds).toEqual([f.ids[0]!,f.ids[4]!,...f.ids.slice(1,4)]);
+});
+
+test("Tree exposes recovery truncation rather than claiming an exhaustive count",async()=>{
+  const f=await fixture();
+  for(let i=0;i<101;i++)await f.client.request({action:'working-selection.save',input:{ownerClientId:`closed-${i}`,expected:null,targets:[{blockId:f.ids[0]!,rowId:f.ids[0]!}]}});
+  const {controller:c}=await f.open('new-tree');
+  const rendered=renderTreeFrame({...c.view(),localPreview:null},100,40,0,{clearScreen:false}).frame;
+  expect(stripTerminalSequences(rendered)).toContain('100+ retained selections');
+  await c.handleAction('tree.selection.inspect');
+  const recoveries=c.view().actionMenuItems!.filter(item=>item.id.startsWith('tree.selection.resume:'));
+  expect(recoveries.length).toBe(100);
+  expect(recoveries[0]!.description).toContain('newest 100');
+});

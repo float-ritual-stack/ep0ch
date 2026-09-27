@@ -180,6 +180,7 @@ export interface TreeView {
   readonly collectedIds?: ReadonlySet<string>;
   readonly selectionCue?: string;
   readonly recoverableSelections?: number;
+  readonly recoverableSelectionsTruncated?: boolean;
 }
 
 export interface TreeControllerEffects {
@@ -591,7 +592,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     for (const record of collected.recovery?.selections ?? []) {
       result.push({id:`tree.selection.resume:${record.id}`,label:`Recover ${record.targets.length} selected · ${record.updatedAt}`,
-        description:collected.current ? "Clear the current selection before recovering another" : "Resume a retained selection from a closed pane",binding:"",group:"View"});
+        description:(collected.current ? "Clear the current selection before recovering another" : "Resume a retained selection from a closed pane") +
+          (collected.recovery.completeness.kind === "truncated" ? "; newest 100 shown, recover and clear sets to reach older ones" : ""),binding:"",group:"View"});
     }
     return result;
   }
@@ -691,6 +693,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       selectionCue: collected.error ? `Selection: ${collected.error}` : selectedTargets.length
         ? `${collected.recovered ? "Recovered · " : ""}${selectedTargets.length} selected${hidden ? ` · ${hidden} outside this view` : ""}${collected.busy ? " · saving…" : ""}` : "",
       recoverableSelections: collected.recovery?.selections.length ?? 0,
+      recoverableSelectionsTruncated: collected.recovery?.completeness.kind === "truncated",
       workspaceRoot: effects.workspaceRoot,
       ...(openRecovery.state.active&&recoveryOrigin===originKey()?{recoveryHelp:openRecovery.helpText(),recoveryStatus:openRecovery.state.status}:{}),
       root, scrollStartEntryIndex,

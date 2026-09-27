@@ -99,7 +99,7 @@ export class TreeWorkingSelection {
       const targets = this.current!.targets;
       const expected = await this.requester.request<VirtualBranchOrder>({action: "virtual.occurrences.order", viewId: targets[0]!.viewId!});
       if (targets.some(t => !expected.blockIds.includes(t.blockId))) throw Error("Selected targets no longer match this branch; inspect and remove them before ranking");
-      await this.requester.request({action: "virtual.occurrences.place", input: {expected, selectedBlockIds: targets.map(t => t.blockId), placement}});
+      await this.requester.request({action: "virtual.occurrences.place", input: {expected, selectedBlockIds: targets.map(t => t.blockId), placement, selection:this.current!}});
     });
   }
 

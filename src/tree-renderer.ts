@@ -501,7 +501,7 @@ export function renderTreeFrame(
     : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));
   }
   if (view.mode === "browse" && (view.selectionCue || view.recoverableSelections)) {
-    const label = view.selectionCue || `${view.recoverableSelections} retained selections`;
+    const label = view.selectionCue || `${view.recoverableSelections}${view.recoverableSelectionsTruncated ? "+" : ""} retained selections`;
     const clearSelection = view.collectedIds?.size ? ` ${outlinerActionLink("tree.selection.clear","[Clear]")}` : "";
     output.push(truncateToWidth(outlinerActionLink("tree.selection.inspect",sanitizeDynamicText(label)) + clearSelection,width));
   }
