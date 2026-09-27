@@ -64,7 +64,7 @@ Tree owns its selected occurrence, history and scroll. Detail owns its target,
 Current and Preview targets, retained Resource revisions, draft, undo/redo and scroll. Enter opens the
 selected target in the primary Detail; `F6` switches regions, and `q` returns from
 Detail to Tree. Ordinary navigation and focus remain usable while Herdr discovery
-is unavailable, provided the Outliner service is healthy. Current remains in place during passive inspection; drafts and active source selections
+is unavailable, provided the Outliner service is healthy. Current remains in place during passive inspection; drafts and explicit source-selection mode
 protect it from replacement.
 
 The existing `o` destination chooser can replace the primary reader or open a
@@ -122,7 +122,7 @@ No shared user host is used.
 - The property inspector preserves repeated keys and block/line/inline scope, offers inline disclosure plus a dedicated Detail pane, and routes typed block/page/Work-ID values through existing navigation.
 - Grapheme-safe wrapped Detail editing, word motion, selection, deletion, bounded per-session undo/redo, completion, optimistic save, and whole-session Esc cancellation.
 - Targeted ephemeral attention marks exact block/file source ranges in one addressed Tree or Detail without mutating content, selection, navigation history, or durable annotations. Marks expire, become stale instead of drifting when source changes, retain one current plus bounded supporting cues, and coalesce missed activity into a return summary.
-- Detail retains Current alongside a separate passive Preview. Explicit Open uses the source’s saved destination link; drafts and active source selections protect Current from replacement.
+- Detail retains Current alongside a separate passive Preview. Explicit Open uses the source’s saved destination link; drafts and explicit source-selection mode protect Current from replacement.
 - Durable annotations use ordinary blocks for comment and reply content, lifecycle, and promotion presentation. One relational sidecar owns immutable original targets and append-only resolution history for block, filesystem Resource, rendered, web, and provider evidence. Typed anchors share one codec seam. Reconciliation follows a deterministic ladder: unchanged representation, provider-native identity, structural quote verification, unique exact quote, context ranking, then bounded local fuzzy matching. High-confidence matches apply automatically; medium candidates remain probable, low candidates remain unresolved, and candidate targets and scores remain in history. Detail reveals only currently resolved text-quote positions and keeps probable, unresolved, ambiguous, orphaned, unsupported, and rejected outcomes inspectable.
 - Herdr-owned pane placement/focus and current-pane recovery, one remembered service pane, per-process live client discovery, and an ephemeral runtime registry.
 - Pi/OMP commands, tools, selection-context injection, canonical `/send-to-outline` capture, and deterministic configured `PREFIX-XXX` work-placeholder nudging.
@@ -410,7 +410,9 @@ taller narrow readers stack them.
 `Esc` closes a focused Preview, `Shift+F7` also closes it, and `Alt+Enter`
 keeps Preview as Current. Current retains its history, scroll, and draft while
 another target is inspected. Keeping Preview or opening another target is
-refused while Current has a draft or an active source selection.
+refused while Current has a draft or is in explicit source-selection mode.
+
+Text selection and copying in Detail or Preview do not lock navigation. A copied quote can be used for commenting while its document remains current; navigating or replacing that document discards the retained quote. Actual edit/comment drafts and explicit source-selection mode still protect in-progress work.
 
 Tree and Inbox Preview links can be clicked to browse in place. Dragging still
 copies text. Focus Preview and use `Tab`/`Shift+Tab`, then `Enter` to follow a

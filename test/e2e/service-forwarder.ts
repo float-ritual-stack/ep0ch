@@ -22,20 +22,22 @@ export type ComposedResponseMatch = {
   contains: string;
 };
 
+export type HerdrResponseMatch = { method: "pane.read"; contains: string };
+
 export interface ResponseBarrier {
   readonly state: "armed" | "requested" | "held" | "released";
   readonly received: Promise<void>;
   release(error?: string): void;
 }
 
-// Private clients use the existing newline protocol. Only explicitly armed
+// Private clients use newline RPC (Outliner actions or Herdr methods). Only explicitly armed
 // replies can be held; subscription events always pass through.
 export async function forwardService(socketPath: string, upstreamPath: string) {
   const sockets = new Set<Socket>();
   const requests: ForwardedRequest[] = [];
   const errors: string[] = [];
   const barriers: Array<{
-    match: OptionalResponseMatch | ComposedResponseMatch;
+    match: OptionalResponseMatch | ComposedResponseMatch | HerdrResponseMatch;
     state: ResponseBarrier["state"];
     deliver: ((error?: string) => void) | null;
     received: ReturnType<typeof Promise.withResolvers<void>>;
@@ -72,9 +74,9 @@ export async function forwardService(socketPath: string, upstreamPath: string) {
       const request = JSON.parse(line);
       if (pending.size >= 100 || requests.length >= 20_000) throw new Error("Forwarder evidence budget exceeded");
       const barrier = barriers.find(candidate => candidate.state === "armed" &&
-        candidate.match.action === request.action && line.includes(candidate.match.contains));
+        ("method" in candidate.match ? candidate.match.method === request.method : candidate.match.action === request.action) && line.includes(candidate.match.contains));
       if (barrier) barrier.state = "requested";
-      pending.set(request.id, { action: request.action, blockId: request.blockId, bytes: Buffer.byteLength(line) + 1, started: performance.now(), barrier });
+      pending.set(request.id, { action: request.action ?? request.method, blockId: request.blockId, bytes: Buffer.byteLength(line) + 1, started: performance.now(), barrier });
     });
     observe(upstream, line => {
       const started = performance.now();
@@ -95,7 +97,7 @@ export async function forwardService(socketPath: string, upstreamPath: string) {
           responseBytes: Buffer.byteLength(delivered) + 1,
           elapsedMs: performance.now() - request.started,
           observationParseMs,
-          ok: error === undefined && response.ok === true,
+          ok: error === undefined && (response.ok === true || response.result !== undefined),
           ...(request.barrier ? { held: true } : {}),
           ...(error === undefined ? {} : { injectedError: error }),
         });
@@ -117,7 +119,7 @@ export async function forwardService(socketPath: string, upstreamPath: string) {
   });
   return {
     socketPath,
-    holdNext(match: OptionalResponseMatch | ComposedResponseMatch): ResponseBarrier {
+    holdNext(match: OptionalResponseMatch | ComposedResponseMatch | HerdrResponseMatch): ResponseBarrier {
       if (!match.contains || barriers.length >= 16) throw new Error("Invalid or excessive response barriers");
       const barrier: typeof barriers[number] = { match, state: "armed", deliver: null, received: Promise.withResolvers<void>() };
       barriers.push(barrier);

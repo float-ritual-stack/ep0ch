@@ -498,7 +498,6 @@ export interface DetailEffects {
   focusSelf(): void;
   getBrowsingContext(): Promise<BrowsingContextState>;
   loadTarget(target: OutlinerNavigationTarget): Promise<DetailReadyDocument>;
-  isSourceSelectionActive?(): boolean;
   setNavigationProtection?(reason: string | null): Promise<void>;
   chooseDestination?(purpose: "link" | "open"): Promise<OutlinerViewAddress | null | undefined>;
   setDestination?(destination: OutlinerViewAddress | null): Promise<string | void>;
@@ -1126,7 +1125,7 @@ export function createDetailController(
   };
 
   let lastProtection: string | null | undefined;
-  const protection = (): string | null => isBufferMode() ? "active edit or source selection" : (state.selectionAnchor !== null || effects.isSourceSelectionActive?.()) ? "active source selection" : null;
+  const protection = (): string | null => isBufferMode() ? "active edit or source selection" : state.selectionAnchor !== null ? "active source selection" : null;
   const emit = (): void => {
     const reason = protection();
     if (reason !== lastProtection && effects.setNavigationProtection && serviceConnected) {

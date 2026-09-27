@@ -33,7 +33,6 @@ export class DetailReadingSurface {
     readonly preview: DetailController,
     private readonly invalidate: () => void,
     private readonly releasePreview: () => Promise<void>,
-    private readonly currentProtected: () => boolean = () => false,
   ) {}
 
   get active(): DetailController {
@@ -106,7 +105,7 @@ export class DetailReadingSurface {
   }
 
   async openHere(target: OutlinerNavigationTarget, viewport: DetailViewport): Promise<boolean> {
-    if (this.currentProtected() || this.current.isBufferMode() || this.current.state.selectionAnchor !== null) {
+    if (this.current.isBufferMode() || this.current.state.selectionAnchor !== null) {
       this.preview.onServiceError(new Error("Finish or cancel the Current draft or source selection before keeping Preview"));
       return false;
     }

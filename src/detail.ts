@@ -632,7 +632,6 @@ const inspection = createDetailController({
   getBrowsingContext: async () => ({contextId: browsingContextId, target: null}),
   setCurrentTarget: async previewTarget => { await client.request({action: "clients.update", clientId, previewTarget}); },
   setNavigationProtection: async () => {},
-  isSourceSelectionActive: () => false,
 }, draw, {actionKeymap, previewHere: target => readingSurface.previewHere(target, viewport(controller)), openHere: target => readingSurface.openHere(target, viewport(controller))});
 const readingSurface = new DetailReadingSurface(controller, inspection, draw, async () => {
   await client.request({action: "clients.update", clientId, previewTarget: null});
