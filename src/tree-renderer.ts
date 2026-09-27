@@ -507,10 +507,11 @@ export function renderTreeFrame(
       ? view.branchStates.get(selectedRow.canonicalId)
       : undefined;
   // Compact browse omits routine branch detail but must keep failures visible.
-  const compactStatus = view.recoveryStatus || view.status ||
+  const compactStatus = view.recoveryStatus ||
     (selectedBranchState?.configurationErrors.length
       ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
-      : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "");
+      : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "") ||
+    view.status;
   const compactFooter = view.recoveryHelp ? 2 : compactStatus ? 1 : 0;
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
   const bodyHeight = Math.max(1, height - headerHeight - footerHeight);

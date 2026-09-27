@@ -1224,12 +1224,14 @@ test.each([
 
 
 test.each([
-  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}],
-  ["QUERY ERROR", {queryError:"query unavailable"}],
-] as Array<[string, Partial<VirtualBranchState>]>)("compact Tree keeps %s visible at narrow widths", (label, error) => {
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, ""],
+  ["QUERY ERROR", {queryError:"query unavailable"}, ""],
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, "Moved up among siblings"],
+  ["QUERY ERROR", {queryError:"query unavailable"}, "Moved up among siblings"],
+] as Array<[string, Partial<VirtualBranchState>, string]>)("compact Tree keeps %s visible at narrow widths (status %p)", (label, error, status) => {
   const state=branchState({...error});
   const render=renderTreeFrame(view([block("definition")], {
-    density:"compact", status:"", branchStates:new Map([["definition",state]]),
+    density:"compact", status, branchStates:new Map([["definition",state]]),
   }),40,8,0,{clearScreen:false});
   const lines=render.frame.split("\n").map(stripTerminalSequences);
   expect(lines).toHaveLength(8);
