@@ -1226,6 +1226,23 @@ export interface BacklinkCollection {
   completeness: BlockCollectionCompleteness;
 }
 
+export interface VirtualBranchOrder {
+  viewId: string;
+  viewRevision: number;
+  blockIds: string[];
+  completeness: BlockCollectionCompleteness;
+}
+
+export type VirtualBranchPlacement =
+  | {kind: "up" | "down" | "top" | "bottom"}
+  | {kind: "before" | "after"; anchorId: string};
+
+export interface VirtualBranchPlacementInput {
+  expected: VirtualBranchOrder;
+  selectedBlockIds: string[];
+  placement: VirtualBranchPlacement;
+}
+
 export interface VirtualOccurrenceRank {
   viewId: string;
   blockId: string;
@@ -1247,7 +1264,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 76;
+export const OUTLINER_PROTOCOL_VERSION = 77;
 
 
 export interface OutlinerServiceStatus {
@@ -1624,6 +1641,8 @@ export type OutlinerRequest =
       viewId: string;
       orderedBlockIds: string[];
     }
+  | { id: string; action: "virtual.occurrences.order"; viewId: string }
+  | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput }
   | { id: string; action: "references.resolve"; text: string }
   | { id: string; action: "references.backlinks"; query: BacklinkQuery }
   | { id: string; action: "pages.resolve"; address: string }

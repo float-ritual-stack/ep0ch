@@ -2017,6 +2017,12 @@ export class OutlinerServer {
           this.store.purge(request.blockId, request.confirmation);
           result = { purged: request.blockId };
           break;
+        case "virtual.occurrences.order":
+          result = this.store.virtualBranchOrder(request.viewId);
+          break;
+        case "virtual.occurrences.place":
+          result = this.store.placeVirtualOccurrences(request.input);
+          break;
         case "virtual.occurrences.reorder":
           result = this.store.reorderVirtualOccurrences(
             request.viewId,
@@ -2379,6 +2385,10 @@ export class OutlinerServer {
         blockId = followed.block?.id;
         break;
       }
+      case "virtual.occurrences.place":
+        domain = "view";
+        blockId = request.input.expected.viewId;
+        break;
       case "virtual.occurrences.reorder":
         domain = "view";
         blockId = request.viewId;

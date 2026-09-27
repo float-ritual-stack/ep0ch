@@ -1,3 +1,6 @@
+import {parseVirtualBranchConfig} from "./virtual-branches";
+import {placeOrderedItems} from "./virtual-placement";
+import type {VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -1768,6 +1771,33 @@ export class OutlinerStore {
   }
 
 
+
+  virtualBranchOrder(viewId: string): VirtualBranchOrder {
+    return this.database.transaction(() => {
+      const view=this.requireActive(viewId);
+      const parsed=parseVirtualBranchConfig(view, []);
+      if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
+      if (parsed.config.sort) throw Error("This branch is sorted; manual ranking is disabled");
+      // The authored limit bounds display, not rank operations over hidden members.
+      const result=this.queryBlocks({filters:parsed.config.filters,rankViewId:viewId,limit:1000});
+      return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
+    })();
+  }
+
+  placeVirtualOccurrences(input: VirtualBranchPlacementInput): VirtualBranchOrder {
+    return this.database.transaction(() => {
+      const current=this.virtualBranchOrder(input.expected.viewId);
+      if (current.completeness.kind!=="complete" || input.expected.completeness.kind!=="complete") {
+        throw Error("Branch membership is truncated; bulk placement requires a complete list");
+      }
+      if (current.viewRevision!==input.expected.viewRevision || JSON.stringify(current.blockIds)!==JSON.stringify(input.expected.blockIds)) {
+        throw Error("Branch membership or order changed; refresh the selection before moving");
+      }
+      const ordered=placeOrderedItems(current.blockIds,input.selectedBlockIds,input.placement);
+      if (ordered.some((id,index)=>id!==current.blockIds[index])) this.reorderVirtualOccurrences(current.viewId,ordered);
+      return {...current,blockIds:ordered};
+    })();
+  }
 
   reorderVirtualOccurrences(
     viewId: string,
