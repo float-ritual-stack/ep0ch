@@ -14,6 +14,7 @@ import {
 } from "./detail-preview-regions";
 import {
   groupPropertyInspectorEntries,
+  findPropertyInspectorEntry,
   type PropertyInspectorEntry,
 } from "./property-inspector";
 import {
@@ -92,13 +93,24 @@ function propertyEntryValue(
     }`;
   }
   const value = escapeInspectorMarkdown(entry.value) || "_empty_";
-  if (!entry.target) return `[${value}](${propertyEntryFocusUri(entry)})`;
+  const copy = previewRegionActionUri({type: "property-inspector.value.copy", occurrenceId: entry.occurrenceId});
+  if (entry.valueParts.some(part => part.uri)) {
+    const parts = entry.valueParts.map(part => {
+      const label = escapeInspectorMarkdown(part.text);
+      if (!part.uri) return label;
+      const focused = state.previewRegions.focusedRegionId === part.regionId;
+      const uri = previewRegionActionUri({type: "property-inspector.target.open", occurrenceId: part.regionId});
+      return `[${focused ? `**${label}**` : label}](${uri})`;
+    }).join("");
+    return `${parts} · [Copy](${copy})`;
+  }
+  if (!entry.target) return `[${value}](${copy})`;
   return `[${value}](${
     previewRegionActionUri({
       type: "property-inspector.target.open",
       occurrenceId: entry.occurrenceId,
     })
-  })`;
+  }) · [Copy](${copy})`;
 }
 
 function propertyTableLines(
@@ -118,7 +130,7 @@ function propertyTableLines(
       "| :-- | :-- | :-- | :-- |",
     ];
   for (const entry of entries) {
-    const marker = focusedId === entry.occurrenceId ? "▶ " : "";
+    const marker = findPropertyInspectorEntry(state.propertyInspector.model, focusedId) === entry ? "▶ " : "";
     const focusUri = propertyEntryFocusUri(entry);
     const key = `${marker}[**${escapeInspectorMarkdown(entry.key)}**](${focusUri})`;
     const value = propertyEntryValue(state, entry);
@@ -173,7 +185,7 @@ export function renderPropertyInspectorDocument(
     );
   } else {
     lines.push(
-      `_Tab select · Enter/e edit · o open target · / filter · G group · ${
+      `_Tab select · Enter/e edit · y copy value · o open target · / filter · G group · ${
         entries.length
       }/${count} shown · ${inspector.groupBy ?? "source order"}${
         filter ? ` · “${escapeInspectorMarkdown(filter)}”` : ""

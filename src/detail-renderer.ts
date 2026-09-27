@@ -14,7 +14,7 @@ import { currentAttentionMark } from "./attention";
 import { annotationScopeLabel, annotationTargetText, buildDetailAnnotationView, detailAnnotationGroups } from "./detail-annotations";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
-import { filterPropertyInspectorEntries } from "./property-inspector";
+import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
 import { blockDisplayTitle } from "./references";
 import { resourceAddressLabel } from "./resources";
 import { DEFAULT_OUTLINER_ACTION_KEYMAP, outlinerActionLink } from "./outliner-actions";
@@ -365,7 +365,8 @@ export function renderDetailLines(
     const entries = filterPropertyInspectorEntries(inspector.model?.entries ?? [], {
       query: inspector.filterDraft ?? inspector.filter,
     });
-    const focused = entries.findIndex(entry => entry.occurrenceId === state.previewRegions.focusedRegionId);
+    const focusedEntry = findPropertyInspectorEntry(inspector.model, state.previewRegions.focusedRegionId);
+    const focused = entries.indexOf(focusedEntry!);
     const available = Math.max(1, bodyHeight - 2);
     const start = Math.max(0, Math.min(
       focused >= 0 ? focused - Math.floor(available / 2) : inspector.viewportOffset,
@@ -375,11 +376,11 @@ export function renderDetailLines(
     for (const entry of entries.slice(start, start + available)) {
       const edit = inspector.edit?.occurrenceId === entry.occurrenceId ? inspector.edit.buffer : null;
       const value = edit ? `${edit.text.slice(0, edit.column)}▏${edit.text.slice(edit.column)}` : entry.value;
-      output.push(fitDynamicText(`${state.previewRegions.focusedRegionId === entry.occurrenceId ? "▶" : " "} ${entry.key}::${value} · ${entry.scope} · L${entry.line + 1}:C${entry.column + 1}`, width));
+      output.push(fitDynamicText(`${focusedEntry === entry ? "▶" : " "} ${entry.key}::${value} · ${entry.scope} · L${entry.line + 1}:C${entry.column + 1}`, width));
     }
     output.push(fitDynamicText(inspector.filterDraft !== null
       ? `Filter: ${inspector.filterDraft}▏ · Enter applies · Esc cancels`
-      : "Tab selects · o opens · Enter edits · / filters · p closes", width));
+      : "Tab selects · y copies · o opens · Enter edits · / filters · p closes", width));
   } else if (state.mode === "annotation") {
     for (const line of buildDetailAnnotationView(state, width).slice(
       state.previewOffset,

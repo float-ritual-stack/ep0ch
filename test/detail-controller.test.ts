@@ -5785,3 +5785,75 @@ test('retrying a clean ordinary save conflict combines without opening recovery 
   expect(repository.list(base.id)).toHaveLength(0);
  }finally{store.close();}
 });
+
+test("property actions copy the chosen occurrence and follow its URL without editing", async () => {
+  const url = "https://example.test/threads/DEMO-762?thread=123.456&channel=alpha#reply";
+  const source = `Draft [state::waiting] [state::ready] [link::${url}]`;
+  const harness = createHarness(makeBlock({text: source}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  const entries = harness.controller.state.propertyInspector.model!.entries;
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[2]!.occurrenceId}, viewport);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(opened).toEqual([]);
+  expect(harness.controller.state.status).toContain("sent to terminal clipboard");
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entries[2]!.occurrenceId, intent: "open"}, viewport);
+  expect(opened).toEqual([url]);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(harness.controller.state.context.selected?.text).toBe(source);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+  expect(harness.controller.state.propertyInspector.edit).toBeNull();
+  harness.effects.copyText = () => {throw Error("clipboard unavailable");};
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  expect(harness.controller.state.status).toContain("clipboard unavailable");
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: "stale-row"}, viewport);
+  expect(harness.controller.state.status).toContain("no longer available");
+});
+
+
+test.each([
+  {uri: "pi-outliner://resource/30000000-0000-4000-8000-000000000001", target: {kind: "resource", resourceId: "30000000-0000-4000-8000-000000000001"}, intent: "open"},
+  {uri: "pi-outliner://block/30000000-0000-4000-8000-000000000002?fragment=step-two&intent=reveal", target: {kind: "block", blockId: "30000000-0000-4000-8000-000000000002", fragmentId: "step-two"}, intent: "reveal"},
+  {uri: "pi-outliner://block/30000000-0000-4000-8000-000000000002?preserveSource=1", target: {kind: "block", blockId: "30000000-0000-4000-8000-000000000002"}, intent: "open"},
+])("property navigation preserves the complete raw URI: $uri", async ({uri, target, intent}) => {
+  const harness = createHarness(makeBlock({text: `Links\nlink:: ${uri}`}));
+  const navigations: unknown[] = [];
+  const navigate = harness.effects.dispatchNavigation;
+  harness.effects.dispatchNavigation = async (target, intent, options) => {
+    navigations.push({target, intent});
+    return navigate(target, intent, options);
+  };
+  await harness.controller.initialize();
+  const entry = harness.controller.state.propertyInspector.model!.entries[0]!;
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entry.occurrenceId, intent: "open"}, viewport);
+  expect(navigations).toEqual([{target, intent}]);
+  if (uri.includes("preserveSource=1")) {
+    expect(harness.calls.navigationDispatches[0]?.preserveSource).toBe(true);
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
+  }
+});
+
+test("embedded property links retain separate targets while copy and edit own the whole occurrence", async () => {
+  const value = "Read https://example.test/one then [Second](https://example.test/two?mode=read&v=2)";
+  const harness = createHarness(makeBlock({text: `Links\nlinks:: ${value}`}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  await harness.controller.dispatch({type: "property-inspector.disclosure.toggle"}, viewport);
+  const regions = detailPropertyInspectorRegions(harness.controller.state);
+  const targets = regions.filter(region => region.activation?.type === "property-inspector.target.open");
+  expect(targets).toHaveLength(2);
+  for (const target of targets) {
+    await harness.controller.dispatch({type: "preview.action", action: target.activation!}, viewport);
+  }
+  expect(opened).toEqual(["https://example.test/one", "https://example.test/two?mode=read&v=2"]);
+  await harness.controller.dispatch({type: "property-inspector.value.copy"}, viewport);
+  expect(harness.calls.copiedTexts).toEqual([value]);
+  expect(harness.controller.state.previewRegions.focusedRegionId).toBe(targets[1]!.id);
+  await harness.controller.dispatch({type: "property-inspector.edit.begin"}, viewport);
+  expect(harness.controller.state.propertyInspector.edit?.buffer.text).toBe(value);
+  await harness.controller.dispatch({type: "property-inspector.edit.cancel"}, viewport);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+});

@@ -2254,7 +2254,7 @@ describe("structured property inspector presentations", () => {
           type: "property-inspector.target.open",
           occurrenceId: entry.occurrenceId,
         });
-      } else expect(region.activation).toBeNull();
+      } else expect(region.activation).toEqual({type: "property-inspector.value.copy", occurrenceId: entry.occurrenceId});
     }
 
     const wide = renderPropertyInspectorDocument(detail, 100);
