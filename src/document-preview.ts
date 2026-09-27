@@ -1,4 +1,6 @@
-import {annotationSourceHash} from './annotations';
+import {checklistFoldState,restoreChecklistFold,checklistControlId,checklistCommentRange,findChecklistControl,type ChecklistControl} from "./checklist-controls";
+import {CHECKLIST_CHOICES,ChecklistSession,type ChecklistChoice} from "./checklist-session";
+import {annotationSourceHash,createTextQuoteAnchor} from './annotations';
 import {DEFAULT_OUTLINER_ACTION_KEYMAP,displayActionChord,type OutlinerActionKeymap} from './outliner-actions';
 import {blockAnnotationRepresentation,resourceAnnotationRepresentation} from './annotation-representations';
 import {TextBuffer} from './text-buffer';
@@ -13,7 +15,7 @@ import type {DetailReadPreviewDocument} from './detail-pi-preview';
 import {blockDisplayTitle} from './references';
 import {parseOutlinerLinkUri,followResourceOccurrence} from './outliner-links';
 import {isAuthoredFileOccurrence} from './resource-references';
-import {resolveFragmentSlice} from './fragments';
+import {fragmentPresentationText,resolveFragmentSlice} from './fragments';
 import type {TerminalKey} from './terminal';
 import type {Block, AnnotationThread, PageAddressResolution, OutlinerNavigationTarget} from './types';
 import type {ResourceDescription} from './resources';
@@ -48,6 +50,8 @@ export interface PreviewCommentDraft {
 export interface DocumentPreviewState {
   readonly bindings?:{comment:string;select:string};
   readonly comment?:PreviewCommentDraft;
+  readonly checklistPicker?:{control:ChecklistControl;index:number};
+  readonly checklistBusy?:boolean;
   readonly selecting?:boolean;
   readonly passageSelected?:boolean;
   readonly target: OutlinerNavigationTarget;
@@ -73,11 +77,20 @@ export class DocumentPreview {
   private history:DocumentPreviewState[]=[];
   private future:DocumentPreviewState[]=[];
   private value: DocumentPreviewState | null = null;
-  constructor(private client: OutlinerRequester, private changed: () => void, private clientId?: string, private openExternal?: (url:string)=>void|Promise<void>,private selectionInput?:PreviewSelectionInput,private keymap:OutlinerActionKeymap=DEFAULT_OUTLINER_ACTION_KEYMAP) {}
+  private checklist:ChecklistSession;
+  private checklistBusy=false;
+  constructor(private client: OutlinerRequester, private changed: () => void, private clientId?: string, private openExternal?: (url:string)=>void|Promise<void>,private selectionInput?:PreviewSelectionInput,private keymap:OutlinerActionKeymap=DEFAULT_OUTLINER_ACTION_KEYMAP,private copyText?:(text:string)=>void|Promise<void>) {
+    this.checklist=new ChecklistSession((blockId,input)=>this.client.request({action:"checklist.update",blockId,input,mutation:{author:"user",actorId:"preview"}}));
+  }
   get state(): DocumentPreviewState | null { return this.value ? {...this.value,
     bindings:{comment:displayActionChord(this.keymap.primaryBinding('tree.reader.comment')),select:displayActionChord(this.keymap.primaryBinding('tree.reader.select'))},
     passageSelected:!!this.selectionInput?.captureSelection(),selecting:this.selectionInput?.selecting??false,canBack:this.history.length>0,canForward:this.future.length>0} : null; }
   cancelLoad(): void { this.generation++; }
+  async refreshContent():Promise<void> {
+    // A checklist command reloads after its own receipt. An event arriving during
+    // that command must not invalidate its intent or its restored focus.
+    if(this.value&&!this.value.loading&&!this.checklistBusy)await this.load(this.value.target,true);
+  }
   get hasDraft():boolean { return !!this.value?.comment; }
   private protectDraft():boolean {
     if(!this.value?.comment)return false;
@@ -111,12 +124,30 @@ export class DocumentPreview {
   }
   async key(key:TerminalKey,width:number,height:number,open:(target:OutlinerNavigationTarget)=>Promise<void>,str=''):Promise<boolean>{
     if(!this.value?.focused)return false;
+    // A save can replace the document before the next host paint. Resolve input
+    // against its current measured controls, never the previous region table.
+    if(!this.value.comment&&!this.value.checklistPicker)documentPreviewLines(this.value.document,Math.max(1,width));
+    if(this.value.checklistPicker){
+      const picker=this.value.checklistPicker;
+      if(key.name==='escape'){this.value={...this.value,checklistPicker:undefined,notice:undefined};this.changed();}
+      else if(key.name==='up'||key.name==='down'||key.name==='tab'){
+        const delta=key.name==='up'||key.name==='tab'&&key.shift?-1:1;
+        this.value={...this.value,checklistPicker:{...picker,index:(picker.index+delta+CHECKLIST_CHOICES.length)%CHECKLIST_CHOICES.length}};this.changed();
+      } else if(key.name==='return')await this.changeChecklist(CHECKLIST_CHOICES[picker.index]!.id,picker.control);
+      return true;
+    }
     if(this.value.comment){
       if(this.value.comment.saving)return true;
       const result=applyTextBufferEditorCommand(this.value.comment.buffer,textBufferEditorCommand(str,key,false));
       if(result==='save')await this.saveComment();
       else if(result==='cancel'){this.value={...this.value,comment:undefined,notice:'Comment cancelled'};}
       this.changed();return true;
+    }
+    if(key.ctrl&&key.name==='z'&&(this.value.document.sourceBlock||this.value.document.sourceSlice)){await this.changeChecklist('undo');return true;}
+    if(key.name==='space'||str===' '){
+      const action=parsePreviewRegionActionUri(this.value.activeLink??'');
+      const control=action?.type==='checklist.open'?findChecklistControl(this.value.document.previewRegions?.regions??[],action.regionId):undefined;
+      if(control){await this.changeChecklist(control.item.status==='done'?'todo':'done',control);return true;}
     }
     if(this.selectionInput?.selectionKey(key,str)){this.changed();return true;}
     const character=str||key.name;
@@ -126,6 +157,37 @@ export class DocumentPreview {
     if(key.meta&&(key.name==='left'||key.name==='right')){await this.action(key.name==='left'?'preview.back':'preview.forward',open);return true;}
     if(key.name==='return'){await this.action(!key.meta&&this.value.activeLink?'preview.follow':'preview.open',open);return true;}
     return false;
+  }
+  private async changeChecklist(choice:ChecklistChoice|'undo',control?:ChecklistControl):Promise<void> {
+    const value=this.value;
+    if(!value||value.loading||this.checklistBusy||value.comment)return;
+    const contextId=value.target.kind==='block'?value.target.blockId:undefined;
+    if(!contextId)return;
+    const generation=this.generation;
+    const foldExpanded=control&&value.document.previewRegions?checklistFoldState(value.document.previewRegions,control):undefined;
+    this.checklistBusy=true;
+    this.value={...value,checklistPicker:undefined,checklistBusy:true,notice:'Updating step…'};this.changed();
+    try {
+      if(choice==='copy-link'&&!this.copyText)throw Error('Clipboard output is unavailable in this host');
+      const result=choice==='undo'?await this.checklist.undo(contextId):await this.checklist.choose(control!,choice,contextId);
+      if(generation!==this.generation||!this.value)return;
+      if(!result){this.value={...this.value,notice:'No checklist change to undo'};return;}
+      if('link' in result&&result.link)await this.copyText!(result.link);
+      if(generation!==this.generation)return;
+      // Reload canonical content and comments, retaining local folds and reading position.
+      const refreshed=await this.load(value.target,true);
+      if(!refreshed||!this.value)return;
+      const id=checklistControlId(result.receipt.block.id,result.receipt.item,result.receipt.block.revision,result.occurrenceId);
+      if(this.value.document.previewRegions)restoreChecklistFold(this.value.document.previewRegions,id,foldExpanded);
+      this.value={...this.value,activeLink:previewRegionActionUri({type:'checklist.open',regionId:id}),
+        activeLinkLabel:'Checklist step',notice:choice==='copy-link'?'Step link copied':choice==='undo'?'Checklist change undone':'Step updated · Ctrl+Z undo'};
+    } catch(error){
+      if(generation===this.generation&&this.value)this.value={...this.value,notice:error instanceof Error?error.message:String(error)};
+    } finally {
+      this.checklistBusy=false;
+      if(this.value)this.value={...this.value,checklistBusy:false};
+      this.changed();
+    }
   }
   paste(text:string):boolean {
     const draft=this.value?.comment;
@@ -150,6 +212,16 @@ export class DocumentPreview {
         projection:projected&&resolved?'mixed':projected?'generated':resolved?'resolved':'canonical',
       }},anchor:capture.sourceAnchor??{kind:'text-quote',start:null,end:null,exact:capture.quote,prefix:'',suffix:''}};
     }
+    if(!annotationId&&!capture&&target){
+      const active=parsePreviewRegionActionUri(this.value.activeLink??'');
+      const control=active?.type==='checklist.open'?findChecklistControl(this.value.document.previewRegions?.regions??[],active.regionId):undefined;
+      const source=control?.sourceBlock??this.value.document.sourceBlock;
+      if(control&&source&&control.blockId===source.id&&control.revision===source.revision){
+        const range=checklistCommentRange(control);
+        target={representation:control.sourceBlock?blockAnnotationRepresentation(control.sourceBlock):target.representation,
+          anchor:createTextQuoteAnchor(source.text,range.start,range.end)};
+      }
+    }
     if(annotationId&&!this.value.document.annotations?.annotationThreads.some(thread=>thread.block.id===annotationId))return;
     if(!annotationId&&!target){this.value={...this.value,notice:'No captured source available to comment on'};this.changed();return;}
     this.selectionInput?.clearSelection();
@@ -170,10 +242,16 @@ export class DocumentPreview {
         :{action:'annotations.create',requestId:draft.requestId,author:'user',input:{target:draft.target!,body:draft.buffer.text,source:'user'}});
       this.value={...this.value!,comment:undefined,notice:'Comment saved'};
       // Keep the displayed document and position: a refresh must not silently replace a before-image.
-      try { await this.refreshComments(value.document); }
+      try {
+        if((value.document.sourceBlock||value.document.sourceSlice) && receipt.annotations.some(record=>record.originalTarget.listItemId)) await this.load(value.target,true);
+        else await this.refreshComments(value.document);
+      }
       catch(error){ if(this.value?.document===value.document)this.value={...this.value,notice:`Comment saved; refresh failed: ${error instanceof Error?error.message:String(error)}`}; }
       const annotationId=draft.annotationId??receipt.annotations[0]?.block.id;
-      if(annotationId&&value.document.annotations)value.document.annotations.selectedAnnotationId=annotationId;
+      const annotations=this.value?.document.annotations;
+      if(annotationId&&annotations&&JSON.stringify(this.value?.target)===JSON.stringify(value.target)&&
+        annotations.annotationThreads.some(thread=>thread.block.id===annotationId))
+        annotations.selectedAnnotationId=annotationId;
     } catch(error){this.value={...this.value!,notice:error instanceof Error?error.message:String(error)};}
     finally {draft.saving=false;this.changed();}
   }
@@ -214,6 +292,15 @@ export class DocumentPreview {
     this.selectComment(threads[next]!.block.id,width);
   }
   async action(action:string,open:(target:OutlinerNavigationTarget)=>Promise<void>):Promise<void>{
+    if(action==='preview.checklist.cancel'){
+      if(this.value)this.value={...this.value,checklistPicker:undefined};this.changed();return;
+    }
+    if(action.startsWith('preview.checklist.choose:')){
+      const picker=this.value?.checklistPicker;
+      const choice=CHECKLIST_CHOICES.find(option=>option.id===action.slice('preview.checklist.choose:'.length));
+      if(picker&&choice)await this.changeChecklist(choice.id,picker.control);
+      return;
+    }
     if(action==='preview.comment'){this.beginComment();return;}
     if(action==='preview.selection.cancel'){this.selectionInput?.clearSelection();this.changed();return;}
     if(this.protectDraft())return;
@@ -237,7 +324,7 @@ export class DocumentPreview {
         const to=action==='preview.back'?this.future:this.history;
         const next=from.pop();
         if(next&&this.value){
-          to.push(this.value);this.generation++;this.value={...next,focused:this.value.focused,notice:undefined};this.changed();
+          to.push(this.value);this.generation++;this.value={...next,checklistPicker:undefined,checklistBusy:false,focused:this.value.focused,notice:undefined};this.changed();
           // An unfinished visit is an address, not a cached successful document.
           if(next.loading)await this.load(next.target,false,true);
         }
@@ -251,6 +338,14 @@ export class DocumentPreview {
   private async follow(uri:string,generation:number):Promise<void>{
     if(!this.value)return;
     const disclosure = parsePreviewRegionActionUri(uri);
+    if(disclosure?.type==='checklist.open'){
+      const control=findChecklistControl(this.value.document.previewRegions?.regions??[],disclosure.regionId);
+      if(control&&!this.checklistBusy&&!this.value.loading){
+        this.selectionInput?.clearSelection();
+        this.value={...this.value,focused:true,activeLink:uri,activeLinkLabel:'Checklist step',checklistPicker:{control,index:0},notice:undefined};this.changed();
+      }
+      return;
+    }
     if (disclosure?.type === 'document.disclosure.toggle' || disclosure?.type === 'callout.disclosure.toggle' || disclosure?.type === 'annotation.disclosure.toggle') {
       const state = this.value.document.previewRegions;
       if (!state || togglePreviewRegionDisclosure(state, disclosure.regionId) === null) return;
@@ -345,6 +440,11 @@ export class DocumentPreview {
 
   async load(target: OutlinerNavigationTarget, refresh = false, navigating = false): Promise<boolean> {
     if(this.protectDraft())return false;
+    // Tree publications may repeat this address while its menu is open. Refresh
+    // the read, but retain the user's choice and the evidence it was based on.
+    const sameTarget = JSON.stringify(this.value?.target) === JSON.stringify(target);
+    const picker = sameTarget ? this.value?.checklistPicker : undefined;
+    if(picker)refresh=true;
     const generation = ++this.generation;
     const previousDocument = this.value?.document;
     const revealInDocument = target.kind === 'block' && !!target.fragmentId && previousDocument?.sourceBlock?.id === target.blockId;
@@ -370,7 +470,8 @@ export class DocumentPreview {
           if (revealInDocument) {
             document=await loadDetailReadPreview(this.client,block);
             if (!refresh) revealSourceLine=fragment.slice.anchor.lineIndex;
-          } else document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
+          } else document={...await loadDetailReadPreview(this.client,{...block,text:fragmentPresentationText(fragment.slice)}),sourceBlock:undefined,
+            sourceSlice:{block,startLine:fragment.slice.startLine,endLine:fragment.slice.endLine}};
         }else document = await loadDetailReadPreview(this.client,block);
       } else {
         if (!this.clientId) throw new Error('Resource preview requires a registered reader');
@@ -388,18 +489,32 @@ export class DocumentPreview {
         ...(target.kind==='resource'&&target.referenceContext?{referenceContext:target.referenceContext}:{})};
       let notice:string|undefined;
       try {
-        const annotationThreads=await this.client.request<AnnotationThread[]>({action:'annotations.list',query:{
+        let annotationThreads=await this.client.request<AnnotationThread[]>({action:'annotations.list',query:{
           subject:target.kind==='block'?{kind:'block',blockId:target.blockId}:{kind:'resource',resourceId:target.resourceId},includeResolved:true,
         }});
+        if(document.sourceBlock && selected && representation && annotationThreads.some(thread=>thread.originalTarget.listItemId)) {
+          annotationThreads=(await this.client.request<{threads:AnnotationThread[]}>({action:'annotations.reconcile',input:{
+            subject:{kind:'block',blockId:selected.id},newRepresentation:representation,content:selected.text,
+          }})).threads;
+        }
         document.annotations={target,context:{selected:document.sourceBlock?selected:null},selectedAnnotationId:undefined,annotationThreads,
           document:resourceDescription?{kind:'ready',document:{kind:'resource',description:resourceDescription}}:{kind:'empty'}};
       } catch(error) { notice=`Comments unavailable: ${error instanceof Error?error.message:String(error)}`; }
       if(generation!==this.generation)return false;
+      // A background reload must not reset next/previous-thread navigation.
+      // Read the latest selection after awaits, since the user can move while loading.
+      const selectedAnnotationId = refresh && sameTarget ? this.value?.document.annotations?.selectedAnnotationId : undefined;
+      if (selectedAnnotationId && document.annotations?.annotationThreads.some(thread => thread.block.id === selectedAnnotationId)) {
+        document.annotations.selectedAnnotationId = selectedAnnotationId;
+      }
       // Reconcile the saved choices against the new document at its next render.
       // Anonymous identities change on edits; explicit stable IDs may survive.
       if (previous) document.previewRegions = {regions:[],focusedRegionId:previous.focusedRegionId,disclosureOverrides:new Map(previous.disclosureOverrides)};
       if(revealSourceLine!==undefined && previousDocument) offset=revealDocumentPreviewSourceLine(document,revealSourceLine,previousDocument);
-      this.value = {target,title,document,offset,notice,focused:this.value?.focused ?? false};
+      const currentPicker=picker ? this.value?.checklistPicker : undefined;
+      this.value = {target,title,document,offset,notice,focused:this.value?.focused ?? false,
+        ...(refresh&&sameTarget?{activeLink:this.value?.activeLink,activeLinkLabel:this.value?.activeLinkLabel}:{}),
+        ...(currentPicker ? {checklistPicker:currentPicker,activeLink:this.value?.activeLink,activeLinkLabel:'Checklist step'} : {})};
       this.changed(); return true;
     } catch (error) {
       if (generation !== this.generation) return false;

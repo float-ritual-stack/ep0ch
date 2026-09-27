@@ -30,6 +30,152 @@ function makeStore(): OutlinerStore {
   stores.push({ store, directory });
   return store;
 }
+
+test("checklist queries correlate each mark and its own indexed properties without creating IDs", () => {
+  const store = makeStore();
+  const source = [
+    "# Release plan [owner::morgan]",
+    "",
+    "[x] done · [~] waiting · [!] problem · [ ] to do",
+    "",
+    "1. [x] Build, next: deploy [owner::alex] ^build",
+    "2. [~] Deploy [owner::sam] ^deploy",
+    "   - [!] Observe [owner::alex] ^observe",
+    "   - Plain child [owner::morgan]",
+    "3. [ ] Verify [owner::alex]",
+    "   Keep the receipt [channel::test].",
+    "4. Unmarked next step [owner::alex]",
+    "",
+    "```markdown",
+    "- [ ] Example, not work [owner::alex]",
+    "```",
+  ].join("\n");
+  const block = store.create(source);
+  const sequence = store.sequence;
+  const all = store.queryChecklist(block.id, {limit: 20});
+  expect(all).toMatchObject({blockId: block.id, revision: block.revision, completeness: {kind: "complete"}});
+  expect(all.items.map(item => [item.status, item.depth, item.identity])).toEqual([
+    ["done", 0, "unique"], ["waiting", 0, "unique"], ["problem", 1, "unique"], ["todo", 0, "unassigned"],
+  ]);
+  expect(store.queryChecklist(block.id, {limit: 20, filters: [{key: "status", value: "waiting"}, {key: "owner", value: "alex"}]}).items).toEqual([]);
+  expect(store.queryChecklist(block.id, {limit: 20, statuses: ["waiting"], filters: [{key: "owner", value: "morgan"}]}).items).toEqual([]);
+  expect(store.queryChecklist(block.id, {limit: 20, excludeStatuses: ["done"], nested: "top-level"}).items.map(item => item.status)).toEqual(["waiting", "todo"]);
+  expect(store.queryChecklist(block.id, {limit: 20, filters: [{key: "channel"}]}).items.map(item => item.status)).toEqual(["todo"]);
+  expect(store.queryChecklist(block.id, {limit: 20, filters: [{key: "OWNER", value: " alex "}]}).items.map(item => item.status)).toEqual(["done", "problem", "todo"]);
+  expect(() => store.queryChecklist(block.id, {limit: 20, filters: [{key: "owner", value: " "}]})).toThrow("empty");
+  expect(store.queryChecklist(block.id, {limit: 1}).completeness).toEqual({kind: "truncated", limit: 1});
+  expect(store.require(block.id).text).toBe(source);
+  expect(store.sequence).toBe(sequence);
+});
+
+test("workspace checklist search correlates canonical items across plans with bounded, collapse-independent results", () => {
+  const store=makeStore();
+  const folder=store.create('Plans');
+  const a=store.create('# First [project::demo]\n\nKeep the full instructions.\n\n- [x] Done [owner::alex] ^done\n- [~] Someone else [owner::sam] ^other\n- [ ] Prepare [owner::alex]\n  - [!] Inspect [owner::alex] ^inspect',folder.id);
+  const b=store.create('# Second [project::demo]\n\n- [~] Deploy [owner::alex] ^deploy',folder.id);
+  store.create(`Dashboard\n\n!((${a.id}))\n!((${a.id}^inspect))`,folder.id);
+  store.create('# Other project [project::other]\n\n- [~] Ignore [owner::alex]',folder.id);
+  const deleted=store.create('# Deleted [project::demo]\n\n- [~] Ignore [owner::alex]',folder.id);store.delete(deleted.id);
+  const sequence=store.sequence;
+  const query={scope:{subtreeRootId:folder.id,filters:[{key:'project',value:'demo'}]},items:{limit:10,excludeStatuses:['done' as const],filters:[{key:'owner',value:'alex'}]}};
+  const all=store.searchChecklist(query);
+  expect(all.matches.map(match=>[match.block.id,match.item.status,match.item.itemId])).toEqual([[a.id,'todo',undefined],[a.id,'problem','inspect'],[b.id,'waiting','deploy']]);
+  expect(all.matches[0]!.block.text).toContain('Keep the full instructions.');
+  expect(all.matches[0]!.block.revision).toBe(a.revision);
+  expect(all.completeness).toEqual({kind:'complete'});
+  expect(store.searchChecklist({...query,items:{...query.items,limit:2}}).completeness).toEqual({kind:'truncated',limit:2});
+  expect(store.searchChecklist({...query,items:{...query.items,nested:'top-level'}}).matches.map(match=>match.item.status)).toEqual(['todo','waiting']);
+  expect(store.searchChecklist({...query,items:{limit:10,filters:[{key:'status',value:'waiting'},{key:'owner',value:'alex'}]}}).matches.map(match=>match.block.id)).toEqual([b.id]);
+  expect(store.sequence).toBe(sequence);
+  const task=all.matches[2]!;
+  store.updateChecklist(task.block.id,{target:{itemId:task.item.itemId!},expectedEvidence:task.item.evidence,change:{kind:'status',status:'done'}},{author:'user'});
+  expect(store.searchChecklist(query).matches.map(match=>match.item.status)).toEqual(['todo','problem']);
+  expect(()=>store.searchChecklist({items:{limit:0}})).toThrow('limit');
+});
+
+test("checklist changes preserve surrounding bytes, assign identity explicitly and tolerate unrelated edits", () => {
+  const store = makeStore();
+  const mutation = {author: "agent" as const, actorId: "checklist-test"};
+  const source = "# Plan\r\n\r\n1. [ ] Prepare  \r\n   Keep this detail.\r\n2. [~] Deploy ^deploy\r\n";
+  const block = store.create(source);
+  const observed = store.queryChecklist(block.id, {limit: 10});
+  const assigned = store.updateChecklist(block.id, {
+    target: {start: observed.items[0]!.span.start, expectedRevision: block.revision},
+    expectedEvidence: observed.items[0]!.evidence, change: {kind: "ensure-id"},
+  }, mutation);
+  const itemId = assigned.item.itemId!;
+  expect(assigned.block.text).toBe(source.replace("Prepare  \r\n", `Prepare ^${itemId}  \r\n`));
+  expect(assigned.item.status).toBe("todo");
+  const repeat = store.updateChecklist(block.id, {
+    target: {itemId}, expectedEvidence: assigned.item.evidence, change: {kind: "ensure-id"},
+  }, mutation);
+  expect(repeat.changed).toBe(false);
+  expect(repeat.block.revision).toBe(assigned.block.revision);
+  store.update(block.id, assigned.block.text.replace("# Plan", "# Revised plan"), assigned.block.revision, {author: "user"});
+  const changed = store.updateChecklist(block.id, {
+    target: {itemId}, expectedEvidence: assigned.item.evidence, change: {kind: "status", status: "problem"},
+  }, mutation);
+  expect(changed.block.text).toBe(assigned.block.text.replace("# Plan", "# Revised plan").replace("1. [ ]", "1. [!]"));
+  expect(changed.item).toMatchObject({itemId, status: "problem", identity: "unique"});
+  expect(store.recentEditActivity({author: "agent", limit: 10}).entries).toMatchObject([
+    {block: {id: block.id}, author: "agent", actorId: "checklist-test", kind: "text"},
+  ]);
+  expect(() => store.updateChecklist(block.id, {
+    target: {itemId}, expectedEvidence: assigned.item.evidence, change: {kind: "status", status: "done"},
+  }, mutation)).toThrow("Checklist item changed");
+  expect(() => store.updateChecklist(block.id, {
+    target: {start: observed.items[0]!.span.start, expectedRevision: block.revision},
+    expectedEvidence: observed.items[0]!.evidence, change: {kind: "status", status: "done"},
+  }, mutation)).toThrow("Checklist location changed");
+});
+
+test("checklist mutations reject missing or ambiguous identity and stale target wording", () => {
+  const store = makeStore();
+  const mutation = {author: "user" as const};
+  const block = store.create("- [ ] First ^step\n- [ ] Second ^step");
+  const observed = store.queryChecklist(block.id, {limit: 10});
+  expect(observed.items.map(item => item.identity)).toEqual(["duplicate", "duplicate"]);
+  expect(() => store.updateChecklist(block.id, {
+    target: {itemId: "step"}, expectedEvidence: observed.items[0]!.evidence,
+    change: {kind: "status", status: "done"},
+  }, mutation)).toThrow("Duplicate checklist item ID");
+  expect(() => store.updateChecklist(block.id, {
+    target: {itemId: "missing"}, expectedEvidence: observed.items[0]!.evidence,
+    change: {kind: "ensure-id"},
+  }, mutation)).toThrow("Checklist item is missing");
+  const unique = store.create("- [ ] First ^first\n- [ ] Second ^second");
+  const item = store.queryChecklist(unique.id, {limit: 10}).items[0]!;
+  const edited = store.update(unique.id, unique.text.replace("First", "Reworded first"), unique.revision);
+  expect(() => store.updateChecklist(unique.id, {
+    target: {itemId: "first"}, expectedEvidence: item.evidence, change: {kind: "status", status: "done"},
+  }, mutation)).toThrow("Checklist item changed");
+  expect(store.require(unique.id).text).toBe(edited.text);
+});
+
+test("whole-note writes preserve list addresses unless an exact-revision identity change is declared", () => {
+  const store = makeStore();
+  const agent = {author: "agent" as const, actorId: "formatter"};
+  const block = store.create("# Plan\n\n1. [ ] First ^first\n2. [ ] Second ^second");
+  expect(() => store.update(block.id, block.text.replace(" ^first", ""), block.revision, agent))
+    .toThrow("List-item IDs would be removed: ^first");
+  expect(store.require(block.id)).toEqual(block);
+  const relocated = block.text.replace(" ^first", "") + "\n\nUnrelated prose ^first";
+  expect(() => store.update(block.id, relocated, block.revision, agent)).toThrow("List-item IDs would be removed");
+  expect(store.require(block.id)).toEqual(block);
+  const reworded = store.update(block.id, "# Plan\n\n1. [ ] Reworded second ^second\n2. [ ] Reworded first ^first", block.revision, agent);
+  expect(() => store.update(block.id, reworded.text + "\n- [ ] Copied ^first", reworded.revision, agent))
+    .toThrow("Duplicate list-item IDs");
+  const removed = reworded.text.replace("\n2. [ ] Reworded first ^first", "");
+  expect(() => store.update(block.id, removed, block.revision, agent, "text", [{kind: "remove", itemId: "first"}]))
+    .toThrow("Block changed");
+  const deliberate = store.update(block.id, removed, reworded.revision, agent, "text", [{kind: "remove", itemId: "first"}]);
+  expect(deliberate.text).toBe(removed);
+  const renamed = store.update(block.id, removed.replace("^second", "^new-second"), deliberate.revision, agent, "text",
+    [{kind: "rename", itemId: "second", to: "new-second"}]);
+  expect(store.queryChecklist(block.id, {limit: 10}).items.map(item => item.itemId)).toEqual(["new-second"]);
+  expect(() => store.update(block.id, renamed.text, renamed.revision, agent, "text", [{kind: "remove", itemId: "new-second"}]))
+    .toThrow("still present");
+});
 function insertIndexedProperty(
   store: OutlinerStore,
   blockId: string,
@@ -2749,6 +2895,71 @@ Second paragraph`;
     expect(store.get(purged.id)).toBeNull();
     expect(store.database.query("SELECT COUNT(*) AS count FROM annotation_targets").get()).toEqual({ count: 2 });
     expect(store.sequence).toBe(sequence);
+  });
+
+  test("checklist comments follow item identity without replacing captured passage evidence", () => {
+    const store = makeStore();
+    const source = store.create("# Plan\n\n1. [ ] Prepare package\n2. [ ] Ship package ^ship");
+    const start = source.text.indexOf("Prepare package");
+    const original = blockAnnotationTarget(source, start, start + "Prepare package".length, "checklist-original");
+    const input = {target: original, body: "Keep this step safe.", source: "user" as const};
+    const created = store.createAnnotation("checklist-comment", input).annotations[0]!;
+    const saved = store.require(source.id);
+    const itemId = store.queryChecklist(source.id, {limit: 10}).items[0]!.itemId;
+    expect(itemId).toBeString();
+    expect(saved.revision).toBe(source.revision + 1);
+    expect(created.originalTarget).toEqual({...original, listItemId: itemId});
+    expect(created.resolvedTarget).toMatchObject({listItemId: itemId, anchor: {kind: "text-quote", exact: "Prepare package"}});
+    expect(store.createAnnotation("checklist-comment", input).deduplicated).toBe(true);
+    expect(store.require(source.id).revision).toBe(saved.revision);
+    const reconcile = (block: Block) => store.reconcileAnnotationThreads({
+      subject: {kind: "block", blockId: source.id},
+      newRepresentation: blockAnnotationRepresentation(block, `checklist-${block.revision}`),
+    }).threads[0]!;
+    let current = store.update(source.id, saved.text.replace("Ship package", "Ship after review"), saved.revision);
+    expect(reconcile(current).resolvedTarget?.anchor).toMatchObject({kind: "text-quote", exact: "Prepare package"});
+    current = store.update(source.id, current.text.replace("1. [ ]", "1. [x]"), current.revision);
+    expect(reconcile(current).resolvedTarget?.anchor).toMatchObject({kind: "text-quote", exact: "Prepare package"});
+    current = store.update(source.id, `# Plan\n\n1. [ ] Prepare package ^ship\n7. [x] Assemble release ^${itemId}`, current.revision);
+    const reworded = reconcile(current);
+    expect(reworded.currentResolution.status).toBe("resolved");
+    expect(reworded.resolvedTarget?.anchor).toEqual({kind: "list-item", itemId: itemId!});
+    expect(reworded.originalTarget).toEqual(created.originalTarget);
+    expect(reworded.resolutionHistory[0]).toEqual(created.resolutionHistory[0]!);
+    // A matching quote in another step must never steal this comment.
+    current = store.update(source.id, current.text.replace("Assemble release", "Prepare package"), current.revision);
+    expect(reconcile(current).resolvedTarget?.anchor).toMatchObject({kind: "text-quote", start: current.text.lastIndexOf("Prepare package")});
+    current = store.update(source.id, "# Plan\n\n1. [ ] Prepare package ^ship", current.revision, undefined, "text", [{kind: "remove", itemId: itemId!}]);
+    const missing = reconcile(current);
+    expect(missing.currentResolution.status).toBe("orphaned");
+    expect(missing.resolvedTarget).toBeNull();
+    expect(missing.originalTarget).toEqual(created.originalTarget);
+  });
+
+  test("batch checklist comments assign each innermost item once and roll back with the batch", () => {
+    const store = makeStore();
+    const source = store.create("- [ ] Parent\n  - [ ] Child\n- [ ] Last");
+    const operations = ["Child", "Parent", "Last", "Child"].map((quote, index) => ({
+      operationId: String(index), type: "create" as const,
+      input: {target: blockAnnotationTarget(source, source.text.indexOf(quote), source.text.indexOf(quote) + quote.length, "batch-checklist"),
+        body: "Review this.", source: "user" as const},
+    }));
+    const sequence = store.sequence;
+    store.database.exec("CREATE TRIGGER reject_comment BEFORE INSERT ON blocks WHEN NEW.text LIKE 'Comment on%' BEGIN SELECT RAISE(ABORT, 'comment rejected'); END;");
+    expect(() => store.createAnnotationBatch("batch-checklist", operations)).toThrow("comment rejected");
+    expect(store.require(source.id)).toEqual(source);
+    expect(store.sequence).toBe(sequence);
+    store.database.exec("DROP TRIGGER reject_comment");
+    const result = store.createAnnotationBatch("batch-checklist", operations);
+    const items = store.queryChecklist(source.id, {limit: 10}).items;
+    expect(items.every(item => item.identity === "unique")).toBe(true);
+    expect(store.require(source.id).revision).toBe(source.revision + 1);
+    expect(result.annotations.map(record => record.originalTarget.listItemId)).toEqual([
+      items[1]!.itemId, items[0]!.itemId, items[2]!.itemId, items[1]!.itemId,
+    ]);
+    for (const record of result.annotations) expect(record.resolvedTarget?.anchor.kind).toBe("text-quote");
+    expect(store.createAnnotationBatch("batch-checklist", operations).deduplicated).toBe(true);
+    expect(store.require(source.id).revision).toBe(source.revision + 1);
   });
 
   test("keeps annotation originals immutable while resolutions advance", () => {

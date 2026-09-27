@@ -9,6 +9,27 @@ export interface MarkdownSourceToken {
   children: MarkdownSourceToken[];
 }
 
+export interface MarkdownListItem {
+  span: PreviewSourceSpan;
+  depth: number;
+  parentStart?: number;
+}
+
+/** Canonical list extents, including continuations and nested lists, in source order. */
+export function markdownListItems(source: string): MarkdownListItem[] {
+  const items: MarkdownListItem[] = [];
+  const visit = (nodes: MarkdownSourceToken[], depth: number, parentStart?: number): void => {
+    for (const node of nodes) {
+      if (node.token.type === 'list_item') {
+        items.push({span: node.span, depth, ...(parentStart === undefined ? {} : {parentStart})});
+        visit(node.children, depth + 1, node.span.start);
+      } else visit(node.children, depth, parentStart);
+    }
+  };
+  visit(markdownSourceTokens(source), 0);
+  return items;
+}
+
 /** One block-token tree for document layout and interactions, with original-source ranges. */
 export function markdownSourceTokens(source: string): MarkdownSourceToken[] {
   const starts = [0];
@@ -70,4 +91,12 @@ export function markdownSourceTokens(source: string): MarkdownSourceToken[] {
     return result;
   };
   return visit(text, offsets, parser.lexer(text));
+}
+
+/** Present a selected list subtree without turning its original nesting into code.
+ * Line count stays unchanged so callers can retain canonical source spans. */
+export function standaloneListItemText(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const indent = /^[ \t]*/.exec(lines[0] ?? "")![0];
+  return lines.map(line => line.startsWith(indent) ? line.slice(indent.length) : line).join("\n");
 }

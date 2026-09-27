@@ -1,3 +1,5 @@
+import { markdownListItems } from "./markdown-structure";
+import { checklistItems } from "./checklist-items";
 import { createPdfPageRegionAnchor, createTextQuoteAnchor } from "./annotations";
 import type {
   AnnotationAnchor,
@@ -434,6 +436,10 @@ function fuzzyCandidates(
   return { candidates: distinct, exhaustive: search.exhaustive };
 }
 
+function sameBlock(left: AnnotationRepresentation, right: AnnotationRepresentation): boolean {
+  return left.subject.kind === "block" && right.subject.kind === "block" && left.subject.blockId === right.subject.blockId;
+}
+
 export function reanchorAnnotationTarget(
   target: AnnotationTarget,
   representation: AnnotationRepresentation,
@@ -441,6 +447,37 @@ export function reanchorAnnotationTarget(
   pdfPages: readonly PdfPageText[] = [],
 ): AnnotationReanchorResult {
   const anchor = target.anchor;
+  if (target.listItemId) {
+    const itemMethod = (name: string): AnnotationResolutionMethod => ({kind: "codec", codecId: "list-item", codecVersion: 1, method: name});
+    if (content === null || representation.subject.kind !== "block" ||
+      representation.sourceSnapshot.kind !== "block" ||
+      !sameBlock(target.representation, representation)) {
+      return unresolved(itemMethod("content-unavailable"), [], "unresolved");
+    }
+    const matches = checklistItems(content).filter(item => item.itemId === target.listItemId);
+    if (!matches.length) return unresolved(itemMethod("missing-item"), [], "orphaned");
+    if (matches.length !== 1 || matches[0]!.identity !== "unique") {
+      return unresolved(itemMethod("duplicate-item"), [], "ambiguous");
+    }
+    const item = matches[0]!;
+    if (anchor.kind === "text-quote") {
+      const descendants = markdownListItems(content).filter(child => child.parentStart === item.span.start);
+      const offsets: number[] = [];
+      if (anchor.exact) for (let start = content.indexOf(anchor.exact, item.span.start);
+        start >= 0 && start + anchor.exact.length <= item.span.end;
+        start = content.indexOf(anchor.exact, start + 1)) {
+        if (!descendants.some(child => start < child.span.end && start + anchor.exact.length > child.span.start)) offsets.push(start);
+      }
+      if (offsets.length === 1) {
+        const start = offsets[0]!;
+        return resolved(candidate({...textTarget(representation, content, start, start + anchor.exact.length),
+          listItemId: target.listItemId}, itemMethod("item-exact-quote"), 1));
+      }
+    }
+    // Ownership is known, but the original words are not a current passage.
+    return resolved(candidate({representation, listItemId: target.listItemId,
+      anchor: {kind: "list-item", itemId: target.listItemId}}, itemMethod("item-attachment"), 1));
+  }
   if (anchor.kind === "whole-subject") {
     return resolved(candidate(
       { representation, anchor },

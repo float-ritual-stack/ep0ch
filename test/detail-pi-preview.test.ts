@@ -1136,6 +1136,34 @@ describe("Pi Markdown detail preview", () => {
     }
   });
 
+  test("item attachment places the comment at its step without claiming the old quote matches", () => {
+    const old = "# Plan\n\n- [ ] Old wording ^task";
+    const current = "# Plan\n\n- [x] Entirely new wording ^task\n- [ ] Neighbor";
+    const original = {...textTarget(old, old.indexOf("Old wording"), old.indexOf(" ^task")), listItemId: "task"};
+    const resolved: AnnotationTarget = {representation: textTarget(current, 0, 1).representation,
+      anchor: {kind: "list-item", itemId: "task"}};
+    const detail = state(current, current);
+    const thread = {...annotationThread("item-comment", resolved, "Keep the original context."), originalTarget: original};
+    const exact = {...textTarget(current, current.indexOf("Entirely"), current.indexOf(" ^task")), listItemId: "task"};
+    detail.annotationThreads = [thread, annotationThread("current-passage", exact, "Comment on the current words.")];
+    const layout = previewLayout(detail);
+    for (const width of [36, 72]) {
+      const collapsed = layout.render(width).map(stripTerminalSequences).join("\n");
+      expect(collapsed).not.toContain("Unpositioned comments");
+      const region = detail.previewRegions.regions.find(region => region.kind === "annotation")!;
+      expect(detail.previewRegions.regions.filter(region => region.kind === "annotation")).toHaveLength(1);
+      expect(region.sourceSpan?.startLine).toBe(2);
+      togglePreviewRegionDisclosure(detail.previewRegions, region.id);
+      const expanded = layout.render(width).map(stripTerminalSequences).join("\n");
+      expect(expanded).toContain("Item attachment");
+      expect(expanded).toContain("Old wording");
+      expect(expanded).toContain("Keep the original context.");
+      expect(expanded).toContain("Comment on the current words.");
+      expect(annotationScopeLabel(thread, detail)).toContain("original passage changed");
+      togglePreviewRegionDisclosure(detail.previewRegions, region.id);
+    }
+  });
+
   test("keeps a stale source representation unpositioned even when its quote still exists", () => {
     const original = "Title\n\nTarget quote\n\nOriginal ending";
     const current = original.replace("Original ending", "Different ending");
@@ -3291,4 +3319,19 @@ test("compact Detail keeps authored content and source selection aligned when de
   density = "compact";
   detail.status = "Workspace service disconnected; reconnecting…";
   expect(layout.render(40).map(stripTerminalSequences).join("\n")).toContain("Workspace service disconnected");
+});
+
+
+test("focused checklist remains visible when narrower geometry reflows preceding prose", () => {
+  const raw=['# Plan','',...Array.from({length:20},(_,i)=>`Paragraph ${i}. ${'Context prose '.repeat(10)}\n`),'- [ ] Last destination ^last'].join('\n');
+  const detail=state(raw,raw);
+  const layout=new DetailPiPreviewLayout(detail,plainMarkdownTheme,false);
+  layout.syncState(80);renderLayoutFrame(layout,80,20,()=>{});
+  const region=detail.previewRegions.regions.find(r=>r.kind==='checklist')!;
+  detail.previewRegions.focusedRegionId=region.id;
+  layout.syncState(80);layout.ensureFocusVisible(80,20);
+  expect(renderLayoutFrame(layout,80,20,()=>{}).lines.map(stripTerminalSequences).join('\n')).toContain('Last destination');
+  layout.syncState(24);layout.ensureFocusVisible(24,10);
+  expect(renderLayoutFrame(layout,24,10,()=>{}).lines.map(stripTerminalSequences).join('\n')).toContain('Last destination');
+  expect(detail.previewRegions.focusedRegionId).toBe(region.id);
 });

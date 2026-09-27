@@ -1,4 +1,9 @@
 import {blockAnnotationRepresentation, resourceAnnotationRepresentation} from "./annotation-representations";
+import {removedListItemIds} from "./checklist-items";
+import {checklistFoldState, restoreChecklistFold, checklistControlId, checklistCommentRange, findChecklistControl, type ChecklistControl} from "./checklist-controls";
+import {ChecklistSession, type ChecklistChoice, type ChecklistResult} from "./checklist-session";
+import type {ChecklistUpdateInput, ChecklistUpdateReceipt} from "./types";
+import type {ChecklistIdentityChange} from "./types";
 import { COMPLETION_ROWS } from "./reference-completion-renderer";
 import { ReferenceCompletionSession, type ReferenceCompletionItem, type ReferenceCompletionState } from "./reference-completion";
 import { buildDetailAnnotationView, displayedResourceText, detailAnnotationGroups, selectedAnnotationThread } from "./detail-annotations";
@@ -140,6 +145,11 @@ export interface DetailViewport {
   height: number;
   editorBody?: Readonly<{ contentWidth: number; height: number }>;
   preview?: Readonly<{
+    rendered?: boolean;
+    regions?: readonly PreviewRegion[];
+    regionRows?: ReadonlyMap<string, number>;
+    regionColumns?: ReadonlyMap<string, {column: number; width: number}>;
+    sourceLineRow?: (line: number) => number;
     sourceLines: readonly string[];
     annotationLines: readonly string[];
     threadRows: ReadonlyMap<string, number>;
@@ -366,7 +376,12 @@ function sameDisplayedBlockRead(
     const candidate = current.projection.embedRanges[index];
     return candidate !== undefined &&
       range.startLine === candidate.startLine &&
-      range.endLine === candidate.endLine;
+      range.endLine === candidate.endLine &&
+      range.source?.block.id === candidate.source?.block.id &&
+      range.source?.block.revision === candidate.source?.block.revision &&
+      range.source?.startLine === candidate.source?.startLine &&
+      range.source?.endLine === candidate.source?.endLine &&
+      JSON.stringify(range.sources) === JSON.stringify(candidate.sources);
   });
   if (!sameRanges) return false;
   return state.embedStates.every((embed, index) => {
@@ -462,6 +477,7 @@ export interface DetailState {
   buffer: TextBuffer;
   referencedFile: ReferencedFile | null;
   previewOffset: number;
+  previewSourceLine?: number;
   editorVisualOffset: number;
   editorViewportManual?: boolean;
   draftPreviewLinked?: boolean;
@@ -498,6 +514,9 @@ export function detailResourceTarget(
 }
 
 export interface DetailEffects {
+  chooseChecklistAction?(): Promise<ChecklistChoice | undefined>;
+  updateChecklist?(blockId: string, input: ChecklistUpdateInput): Promise<ChecklistUpdateReceipt>;
+  confirmListItemRemoval?(ids: readonly string[]): Promise<boolean>;
   recovery?: Pick<EditRecoveryClient,"retain"|"list"|"commit"|"separate"> & Partial<Pick<EditRecoveryClient,"checkpoint"|"warnings">>;
   reviewRecovery?(records:EditRecovery[]):Promise<RecoveryChoice>;
   readonly clientId: string;
@@ -560,6 +579,7 @@ export interface DetailEffects {
     blockId: string;
     text: string;
     expectedRevision: number;
+    identityChanges?: ChecklistIdentityChange[];
   }): Promise<Block>;
   patchProperties(input: {
     blockId: string;
@@ -665,6 +685,8 @@ export type DetailIntent =
   | { type: "preview.focus.move"; delta: -1 | 1 }
   | { type: "preview.focus.set"; regionId: string }
   | { type: "preview.activate" }
+  | { type: "checklist.toggle" }
+  | { type: "checklist.undo" }
   | { type: "preview.action"; action: PreviewRegionAction; routing?: DetailOpenRouting }
   | { type: "property-inspector.disclosure.toggle" }
   | { type: "property-inspector.pane.open" }
@@ -727,7 +749,7 @@ export interface DetailController {
     anchor: TextBufferPoint,
     focus: TextBufferPoint,
   ): DetailResourceSelectionCapture | null;
-  setPreviewRegions(regions: readonly PreviewRegion[]): void;
+  setPreviewRegions(regions: readonly PreviewRegion[], viewport?: DetailViewport): void;
   handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void>;
   onServiceEvent(event: OutlinerEvent, viewport: DetailViewport): Promise<void>;
   supersedePassivePreview(): void;
@@ -1019,6 +1041,10 @@ export function createDetailController(
     destinationChooser: destinationChooserState,
   };
   const navigationHistory: DetailNavigationEntry[] = [];
+  const checklist = new ChecklistSession((blockId, input) => {
+    if (!effects.updateChecklist) throw Error("Checklist updates are unavailable in this reader");
+    return effects.updateChecklist(blockId, input);
+  });
   let navigationIndex = -1;
   let serviceConnected = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1138,16 +1164,20 @@ export function createDetailController(
     state.readStatus = "ready";
   };
 
+  const applyBlockRead = ({projection, resolved}: DetailBlockRead): void => {
+    state.projectedSelectedText = projection.text;
+    state.embedStates = projection.embeds;
+    state.embedRanges = projection.embedRanges;
+    applyResolvedReferences(resolved);
+  };
+
   const applyReadProjection = async (
     text: string,
     hostBlockId?: string,
   ): Promise<DetailBlockRead> => {
     const projection = await effects.projectRead(text, hostBlockId);
     const resolved = await effects.resolveReferences(projection.text);
-    state.projectedSelectedText = projection.text;
-    state.embedStates = projection.embeds;
-    state.embedRanges = projection.embedRanges;
-    applyResolvedReferences(resolved);
+    applyBlockRead({projection, resolved});
     return { projection, resolved };
   };
 
@@ -1791,12 +1821,13 @@ export function createDetailController(
       clearDocumentPresentation();
     }
     refreshBreadcrumb();
-    if (!preserveAnnotationViewport) state.previewOffset = 0;
+    if (!preserveAnnotationViewport) { state.previewOffset = 0; state.previewSourceLine = undefined; }
     const fragmentId = document.target.fragmentId;
     if (!preserveAnnotationViewport && fragmentId && next.selected) {
       const fragment = resolveFragment(next.selected.text, fragmentId);
       if (fragment.status === "resolved") {
         state.previewOffset = fragment.anchor.lineIndex;
+        state.previewSourceLine = fragment.anchor.lineIndex;
       } else {
         state.status = fragment.status === "duplicate"
           ? `Duplicate fragment · ^${fragmentId}`
@@ -2510,11 +2541,12 @@ export function createDetailController(
 
   const beginComment = async (
     sourceRange?: { start: number; end: number },
+    sourceOverride?: Block,
   ): Promise<void> => {
-    const selected = state.context.selected;
-    const description = detailResourceDescription(state);
+    const selected = sourceOverride ?? state.context.selected;
+    const description = sourceOverride ? null : detailResourceDescription(state);
     const pdf = description?.pdf;
-    const resourceText = displayedResourceText(state);
+    const resourceText = sourceOverride ? null : displayedResourceText(state);
     if (!resourceText && (!selected || selected.effectiveDeletedRootId)) {
       state.status = selected
         ? "Block is in Trash; restore before adding annotations"
@@ -2845,10 +2877,28 @@ export function createDetailController(
       if (state.mode === "edit") {
         const selected = state.context.selected;
         if (selected) {
-          const updated = state.recovery && effects.recovery ? await effects.recovery.commit(state.recovery,state.buffer.text) : await effects.updateBlock({
+          const draftText = state.buffer.text;
+          const basis = state.recovery?.latest ?? selected;
+          const removed = removedListItemIds(basis.text, draftText);
+          let identityChanges: ChecklistIdentityChange[] | undefined;
+          if (removed.length) {
+            if (!await effects.confirmListItemRemoval?.(removed)) {
+              state.status = "Draft kept open · item addresses have not been removed";
+              return;
+            }
+            if (state.mode !== "edit" || state.context.selected?.id !== selected.id ||
+              state.context.selected.revision !== selected.revision || state.buffer.text !== draftText ||
+              (state.recovery?.latest.revision ?? selected.revision) !== basis.revision) {
+              state.status = "Writing changed during confirmation · review the draft and save again";
+              return;
+            }
+            identityChanges = removed.map(itemId => ({kind: "remove", itemId}));
+          }
+          const updated = state.recovery && effects.recovery ? await effects.recovery.commit(state.recovery,draftText,identityChanges) : await effects.updateBlock({
             blockId: selected.id,
-            text: state.buffer.text,
+            text: draftText,
             expectedRevision: selected.revision,
+            ...(identityChanges ? {identityChanges} : {}),
           });
           written = true;
           state.recovery=undefined;
@@ -2895,7 +2945,7 @@ export function createDetailController(
         const draft = state.annotationDraft;
         const body = state.buffer.text.trim();
         if (!body) throw new Error("Annotation body cannot be empty");
-        await effects.createAnnotation({
+        const receipt = await effects.createAnnotation({
           requestId: draft.requestId,
           input: {
             target: draft.target,
@@ -2906,7 +2956,10 @@ export function createDetailController(
         state.mode = draft.returnMode;
         state.annotationDraft = undefined;
         state.selectionAnchor = null;
-        await loadAnnotations();
+        // Saving this comment may have assigned an item ID. Reconcile against the
+        // resulting source, never the pre-save reader snapshot.
+        if (receipt.annotations.some(record => record.originalTarget.listItemId)) await loadCurrentTarget(true);
+        else await loadAnnotations();
         const anchor = draft.target.anchor;
         const range = anchor.kind === "text-quote" &&
             anchor.start !== null &&
@@ -2964,6 +3017,7 @@ export function createDetailController(
     if(await completions.accept())state.status=item?.anchor?`Created fragment · ^${item.anchor.fragmentId}`:"";
   };
 
+  let measuredPreviewFocus = "";
   const navigatePreview = (
     direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom",
     viewport: DetailViewport,
@@ -3000,6 +3054,33 @@ export function createDetailController(
     ensureFileCursorVisible(viewport);
   };
 
+  const showChecklistReceipt = async (result: ChecklistResult, generation: number, hostId:string, foldExpanded?:boolean): Promise<void> => {
+    const receipt = result.receipt;
+    const selected = state.context.selected;
+    if (generation !== openGeneration || state.mode !== "preview" || selected?.id !== hostId) return;
+    const source = selected.id === receipt.block.id ? receipt.block : selected;
+    const projection = await effects.projectRead(source.text, source.id);
+    const resolved = await effects.resolveReferences(projection.text);
+    if (generation !== openGeneration || state.mode !== "preview" || state.context.selected?.id !== hostId || state.context.selected.revision > source.revision) return;
+    const read = {projection, resolved};
+    replaceSelectedBlock(source);
+    applyBlockRead(read);
+    cacheCurrentBlockRead(read);
+    state.previewRegions.focusedRegionId = checklistControlId(receipt.block.id, receipt.item, receipt.block.revision, result.occurrenceId);
+    restoreChecklistFold(state.previewRegions, state.previewRegions.focusedRegionId, foldExpanded);
+    state.status = `Step ${receipt.item.status} · Ctrl+Z undoes the last status change`;
+  };
+
+  const changeChecklist = async (control: ChecklistControl, choice: ChecklistChoice, generation: number): Promise<void> => {
+    const hostId = state.context.selected?.id;
+    if (!hostId) return;
+    const foldExpanded = checklistFoldState(state.previewRegions, control);
+    const result = await checklist.choose(control, choice, hostId);
+    if (generation === openGeneration && result.link) effects.copyText(result.link);
+    await showChecklistReceipt(result, generation, hostId, foldExpanded);
+    if (generation === openGeneration && result.link) state.status = "Step link copied";
+  };
+
   const dispatch = async (intent: DetailIntent, viewport: DetailViewport): Promise<void> => {
     completionViewport=viewport;
     const requestGeneration = ++openGeneration;
@@ -3027,7 +3108,11 @@ export function createDetailController(
         if (property?.target?.kind === "resource-reference" && state.mode === "preview") {
           await beginComment({ start: property.start, end: property.end });
         } else if (!intent.capture) {
-          await beginComment();
+          const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
+          const selected = state.context.selected;
+          if (control && !control.sourceBlock && (control.blockId !== selected?.id || control.revision !== selected.revision)) {
+            state.status = "The checklist changed; focus the current step before commenting";
+          } else await beginComment(control ? checklistCommentRange(control) : undefined, control?.sourceBlock);
         } else {
           await beginDirectComment(intent.capture);
         }
@@ -3443,8 +3528,40 @@ export function createDetailController(
         if (action) await dispatch({ type: "preview.action", action }, viewport);
         break;
       }
+      case "checklist.toggle": {
+        const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
+        if (!control || state.mode !== "preview" || state.busy) break;
+        state.busy = true;
+        try { await changeChecklist(control, control.item.status === "done" ? "todo" : "done", requestGeneration); }
+        finally { state.busy = false; }
+        break;
+      }
+      case "checklist.undo": {
+        const blockId = state.context.selected?.id;
+        if (!blockId || state.mode !== "preview" || state.busy) break;
+        state.busy = true;
+        try {
+          const result = await checklist.undo(blockId);
+          if (result) await showChecklistReceipt(result, requestGeneration, blockId);
+          else state.status = "No checklist status change to undo in this note";
+        } finally { state.busy = false; }
+        break;
+      }
       case "preview.action":
         switch (intent.action.type) {
+          case "checklist.open": {
+            const control = findChecklistControl(state.previewRegions.regions, intent.action.regionId);
+            if (!control || state.mode !== "preview" || state.busy) break;
+            state.previewRegions.focusedRegionId = control.id;
+            state.busy = true;
+            try {
+              const choice = await effects.chooseChecklistAction?.();
+              if (choice && requestGeneration === openGeneration && state.mode === "preview") {
+                await changeChecklist(control, choice, requestGeneration);
+              }
+            } finally { state.busy = false; }
+            break;
+          }
           case "link.open": {
             const uri = intent.action.uri;
             if (uri.startsWith("http://") || uri.startsWith("https://")) {
@@ -3830,6 +3947,13 @@ export function createDetailController(
         }
         annotation = await effects.getAnnotation(annotationId);
         target = annotation.resolvedTarget;
+        if (annotation.currentResolution.status === "resolved" && target?.anchor.kind === "list-item" &&
+          target.representation.subject.kind === "block") {
+          await loadBlock(target.representation.subject.blockId, true, false, target.anchor.itemId);
+          state.mode = "preview";
+          state.status = "Opened checklist step · original passage changed";
+          break;
+        }
         if (
           annotation.currentResolution.status !== "resolved" ||
           !target ||
@@ -4182,8 +4306,24 @@ export function createDetailController(
     handleUiCommand,
     dispatch,
     captureResourcePointerSelection,
-    setPreviewRegions(regions) {
+    setPreviewRegions(regions, viewport) {
       reconcilePreviewRegions(state.previewRegions, regions, state.document.kind === 'loading' || (state.document.kind === 'ready' && state.readStatus === 'pending'));
+      if (viewport?.preview?.regionRows) {
+        const focused = state.previewRegions.focusedRegionId;
+        const key = `${focused}:${viewport.width}:${viewport.previewBodyHeight}`;
+        if (state.previewSourceLine !== undefined && viewport.preview.sourceLineRow) {
+          state.previewOffset = viewport.preview.sourceLineRow(state.previewSourceLine);
+          state.previewSourceLine = undefined;
+          measuredPreviewFocus = key;
+        } else if (key !== measuredPreviewFocus) {
+          const row = viewport.preview.regionRows.get(focused ?? "");
+          const height = viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5);
+          if (row !== undefined && (row < state.previewOffset || row >= state.previewOffset + height)) {
+            state.previewOffset = Math.max(0, row - Math.floor(height / 2));
+          }
+          measuredPreviewFocus = key;
+        }
+      }
     },
     releaseDocument() {
       openGeneration++;destinationChooser!.dispose();
@@ -4245,6 +4385,7 @@ export function createDetailController(
               ? attentionSourceLine(selected.text, mark)
               : 0;
             state.previewOffset = state.attentionRevealSourceLine;
+            state.previewSourceLine = state.attentionRevealSourceLine;
             state.status = mark.target.anchor
               ? `Attention · source range ${mark.target.anchor.start}-${mark.target.anchor.end}`
               : `Attention · ${mark.target.sourceBlockId.slice(0, 8)}`;

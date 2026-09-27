@@ -1,6 +1,7 @@
 import type { RequestInput } from "./client";
+import {isChecklistView,projectChecklistView} from './checklist-views';
 import { MAX_BLOCK_QUERY_LIMIT } from "./block-query";
-import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
+import { fragmentPresentationText, resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
 import { blockDisplayTitle } from "./references";
 import { propertySummarySegments } from "./property-summary";
@@ -49,9 +50,18 @@ export interface DetailEmbedState {
   completeness?: BlockCollectionCompleteness;
 }
 
+export interface DetailEmbedSource {
+  block:Block; startLine:number; endLine:number; contentStartLine:number;
+  /** Query matches are controls; unmatched nested text remains context. */
+  itemStarts?: readonly number[];
+}
+
 export interface DetailEmbedRange {
   startLine: number;
   endLine: number;
+  /** Observed canonical content rendered inside this occurrence. Never inferred from paint. */
+  source?: DetailEmbedSource;
+  sources?: DetailEmbedSource[];
 }
 
 export interface DetailReadProjection {
@@ -63,6 +73,8 @@ export interface DetailReadProjection {
 interface ProjectedEmbed {
   text: string;
   state: DetailEmbedState;
+  source?: {block: Block; startLine: number; endLine: number};
+  sources?: DetailEmbedSource[];
 }
 
 function boundedError(error: unknown): string {
@@ -338,18 +350,26 @@ async function projectEmbed(
     }
     return {
       text: `Embedded fragment: ((${embedReference(blockId, fragmentId)}))\n${
-        resolution.slice.text
+        fragmentPresentationText(resolution.slice)
       }`,
       state: { blockId, fragmentId, status: "ready", count: 1 },
+      source: {block: target, startLine: resolution.slice.startLine, endLine: resolution.slice.endLine},
     };
   }
   if (isRelationViewDefinition(target)) {
     return projectRelationView(target, embeddingSourceId, loadBlock);
   }
+  if(isChecklistView(target.text)){
+    try {
+      const projection=await projectChecklistView(requester,target.text);
+      return {text:projection.text,sources:projection.sources,state:{blockId,status:projection.collection.completeness.kind==='truncated'?'truncated':'ready',count:projection.collection.matches.length,completeness:projection.collection.completeness}};
+    }catch(error){return explicitFallback(blockId,'failed',`CHECKLIST VIEW FAILED · ${boundedError(error)}`);}
+  }
   if (!isVirtualBranchDefinition(target)) {
     return {
-      text: `Embedded block: ((${blockId}))\n${target.text}`,
+      text: `Embedded block: ((${blockId}))\n${stripFragmentAnchors(target.text)}`,
       state: { blockId, status: "ready", count: 1 },
+      source: {block: target, startLine: 0, endLine: target.text.split(/\r?\n/).length - 1},
     };
   }
   try {
@@ -374,7 +394,7 @@ export async function projectDetailRead(
 ): Promise<DetailReadProjection> {
   const projectedSource = stripFragmentAnchors(text);
   const matches = [...projectedSource.matchAll(DETAIL_EMBED_PATTERN)];
-  if (matches.length === 0) return { text: projectedSource, embeds: [], embedRanges: [] };
+  if (matches.length === 0 && !isChecklistView(text)) return { text: projectedSource, embeds: [], embedRanges: [] };
 
   const targetCache = new Map<string, Promise<Block>>();
   const loadTarget = (blockId: string): Promise<Block> => {
@@ -441,9 +461,21 @@ export async function projectDetailRead(
     output += projected.text;
     outputLine += newlineCount(projected.text);
     embeds.push(projected.state);
-    embedRanges.push({ startLine, endLine: outputLine });
+    embedRanges.push({ startLine, endLine: outputLine,
+      ...(projected.sources?{sources:projected.sources.map(source=>({...source,contentStartLine:source.contentStartLine+startLine}))}:{}),
+      ...(projected.source ? {source: {...projected.source, contentStartLine: startLine + 1}} : {}) });
     consumed = start + match[0].length;
   }
   output += projectedSource.slice(consumed);
+  if(isChecklistView(text)){
+    output+='\n\n';
+    const startLine=newlineCount(output);
+    try {
+      const projection=await projectChecklistView(requester,text);
+      output+=projection.text;
+      embedRanges.push({startLine,endLine:newlineCount(output),sources:projection.sources.map(source=>({...source,contentStartLine:source.contentStartLine+startLine}))});
+      embeds.push({blockId:options.hostBlockId??'',status:projection.collection.completeness.kind==='truncated'?'truncated':'ready',count:projection.collection.matches.length,completeness:projection.collection.completeness});
+    }catch(error){output+=`Checklist view unavailable · ${boundedError(error)}`;}
+  }
   return { text: output, embeds, embedRanges };
 }

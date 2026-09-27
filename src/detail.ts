@@ -1,4 +1,9 @@
+import {StdinBuffer, getOsc8LinkAtColumn} from "@earendil-works/pi-tui";
+import {isTreeMouseSequence, parseTreePlainClick, parseTreeWheelEvent} from "./tree-mouse";
+import {parsePreviewRegionActionUri} from "./detail-preview-regions";
 import {PaneDisplay} from "./pane-display";
+import {listItemRemovalMenu, checklistStatusMenu} from "./checklist-ui";
+import type {ChecklistChoice} from "./checklist-session";
 import {ViewPreferences} from "./view-preferences";
 import {adjacentReaderMenu, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
 import {EditRecoveryInput} from "./edit-recovery-input";
@@ -10,7 +15,7 @@ import {KeyInspector} from "./key-inspector";
 import {PassThrough} from "node:stream";
 import {createDetailDestination, type DetailDestinationPlacement} from "./detail-pane-placement";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { DetailReadingSurface, detailReaderGeometry } from "./detail-reading-surface";
 import { renderDetailDestinationPicker } from "./detail-pi-renderer";
 import { navigationDestinationItems, navigationDestinationStatus, navigationPlacementItems, navigationPlacementStatus, NavigationDestinationDisplay, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
@@ -360,11 +365,11 @@ const effects: DetailEffects = {
         });
         process.stdin.pause();
         if (process.stdin.isTTY) process.stdin.setRawMode(false);
-        process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
+        process.stdout.write(`${disableMouse}${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
       },
       restoreTerminal() {
         try {
-          process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}`);
+          process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}${enableMouse}`);
           if (process.stdin.isTTY) process.stdin.setRawMode(true);
           process.stdin.resume();
           if (process.env.HERDR_ENV === "1") focusCurrentPane();
@@ -399,6 +404,19 @@ const effects: DetailEffects = {
       input,
       destinationClientId: clientId,
     });
+  },
+  confirmListItemRemoval(ids) {
+    return new Promise(resolve => {
+      openActionMenu(listItemRemovalMenu(ids), async id => {resolve(id === "remove");}, () => resolve(false), "Remove item addresses?");
+    });
+  },
+  chooseChecklistAction() {
+    return new Promise(resolve => {
+      openActionMenu(checklistStatusMenu(), async id => {resolve(id as ChecklistChoice);}, () => resolve(undefined), "Checklist step");
+    });
+  },
+  updateChecklist(blockId, input) {
+    return client.request({action: "checklist.update", blockId, input, mutation: {author: "user", actorId: "detail"}});
   },
   async updateBlock(input) {
     return client.request<Block>({
@@ -538,10 +556,13 @@ let actionMenu: {
   query: string;
   index: number;
   category?: ReaderMenu;
+  cancelled?: () => void;
+  title?: string;
 } | null = null;
 
-function openActionMenu(items: readonly OutlinerActionMenuItem[], invoke: (id: string) => Promise<void>): void {
-  actionMenu = {items, invoke, query: "", index: 0};
+function openActionMenu(items: readonly OutlinerActionMenuItem[], invoke: (id: string) => Promise<void>, cancelled?: () => void, title?: string): void {
+  actionMenu?.cancelled?.();
+  actionMenu = {items, invoke, query: "", index: 0, cancelled, title};
   draw();
 }
 
@@ -569,6 +590,7 @@ async function chromeAction(id: string): Promise<boolean> {
   return false;
 }
 
+let renderedFrameLines: string[] = [];
 function draw(): void {
   paneDisplay.update(detailTitle(controller.state));
   if (recoveryReview) {
@@ -583,12 +605,13 @@ function draw(): void {
     const count = Math.max(1, height - 3);
     const start = Math.max(0, actionMenu.index - count + 1);
     const lines = [
-      `Actions · ${actionMenu.query}`,
+      actionMenu.title ?? `Actions · ${actionMenu.query}`,
       ...items.slice(start, start + count).map((item, index) =>
         `${start + index === actionMenu!.index ? "▶" : " "} ${item.label} · ${item.binding}`),
     ];
+    if (actionMenu.cancelled) lines.push("", ...wrapTextWithAnsi(sanitizeDynamicText(items[actionMenu.index]?.description ?? ""), Math.max(1, width)));
     while (lines.length < height - 1) lines.push("");
-    lines.push("Type to filter · ↑↓ select · Enter invoke · Esc cancel");
+    lines.push(actionMenu.cancelled ? "↑↓ choose · Enter confirms · Esc cancels" : "Type to filter · ↑↓ select · Enter invoke · Esc cancel");
     process.stdout.write("\x1b[H\x1b[2J" + lines.slice(0, height).map(line => truncateToWidth(sanitizeDynamicText(line), width)).join("\n"));
     return;
   }
@@ -618,8 +641,13 @@ function draw(): void {
   }
   const geometry = detailReaderGeometry(process.stdout.columns ?? 100, process.stdout.rows ?? 30, readingSurface.previewVisible);
   const render = (reader: DetailController, label: string) => {
-    reader.setPreviewRegions(detailPropertyInspectorRegions(reader.state));
-    return renderDetailLines(reader.state, viewport(reader), {
+    const view = viewport(reader);
+    const inspector = reader.state.propertyInspector;
+    const bodyRegions = inspector.expanded || inspector.presentation === "dedicated" ? [] : view.preview?.regions ?? [];
+    if (!reader.isBufferMode()) {
+      reader.setPreviewRegions([...detailPropertyInspectorRegions(reader.state), ...bodyRegions], view);
+    }
+    return renderDetailLines(reader.state, view, {
       header: {density: viewPreferences.density, titleInFrame: reader === controller && paneDisplay.inFrame, destinationLabel: destinationDisplay.text, surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
       helpPrefix: readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview · Alt+Enter Keep · Esc close Preview` : "",
       helpText: actionKeymap.helpText("detail", detailActionScopes(reader.state, {bufferMode: reader.isBufferMode()})),
@@ -638,7 +666,8 @@ function draw(): void {
   } else if (geometry.arrangement === "below") {
     lines = [...render(controller, "Current"), "─".repeat(geometry.current.width), ...render(inspection, "Preview")];
   } else lines = render(readingSurface.active, readingSurface.active === inspection ? "Preview" : "Current");
-  process.stdout.write("\x1b[H\x1b[2J" + lines.join("\n"));
+  renderedFrameLines = lines;
+  process.stdout.write("\x1b[0m\x1b[H\x1b[2J" + lines.map(line => line + "\x1b[0m").join("\n"));
 }
 
 const controller = createDetailController(
@@ -759,7 +788,8 @@ async function stop(): Promise<void> {
   watcher?.stop();
   void runtimeSync?.stop();
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
+  pointerInput.destroy();
+  process.stdout.write(`${disableMouse}${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
   process.exit(0);
 }
 
@@ -786,12 +816,44 @@ try {
 // Keep inspected bytes out of readline without changing the terminal protocol.
 const keyInput = new PassThrough();
 emitKeypressEvents(keyInput);
+const pointerInput = new StdinBuffer();
+const mouseEnabled = process.env.HERDR_ENV === "1";
+const enableMouse = mouseEnabled ? "\x1b[?1000h\x1b[?1006h" : "";
+const disableMouse = mouseEnabled ? "\x1b[?1000l\x1b[?1006l" : "";
+pointerInput.on("paste", text => {
+  pendingPaste = text;
+  serviceEventScheduler.scheduleWork(() => handleInput("", {name:"paste"}));
+});
+pointerInput.on("data", sequence => {
+  if (!isTreeMouseSequence(sequence)) {
+    if (sequence === "\x1b") keyInput.emit("keypress", sequence, {name:"escape",sequence});
+    else keyInput.write(sequence);
+    return;
+  }
+  if (actionMenu || destinationPicker || recoveryReview || keyInspector.active) return;
+  const wheel = parseTreeWheelEvent(sequence);
+  const point = parseTreePlainClick(sequence) ?? wheel;
+  if (!point) return;
+  const geometry = detailReaderGeometry(process.stdout.columns ?? 100, process.stdout.rows ?? 30, readingSurface.previewVisible);
+  const reader = readingSurface.previewVisible && (geometry.arrangement === "beside" || geometry.arrangement === "below")
+    ? point.column >= geometry.preview.x && point.row >= geometry.preview.y ? inspection : controller
+    : readingSurface.active;
+  if (reader.isBufferMode() || reader.state.mode !== "preview") return;
+  const uri = getOsc8LinkAtColumn(renderedFrameLines[point.row] ?? "", point.column);
+  serviceEventScheduler.scheduleWork(async () => {
+    if (readingSurface.active !== reader) readingSurface.toggleFocus();
+    if (wheel) {
+      await reader.dispatch({type:"preview.navigate",direction:wheel.direction}, viewport(reader));
+    } else if (uri?.startsWith("pi-outliner-action:")) await invokeReaderAction(uri.slice("pi-outliner-action:".length));
+    else if (uri) await reader.dispatch({type:"preview.action",action:parsePreviewRegionActionUri(uri) ?? {type:"link.open",uri}},viewport(reader));
+  });
+});
 process.stdin.on("data", (data: string | Buffer) => {
   if(recoveryReview){recoveryInputDecoder.accept(typeof data==="string"?data:data.toString(),decoded=>recoveryReview?.key(decoded.str,decoded.key));return;}
-  if (!keyInspector.handle(data)) keyInput.write(data);
+  if (!keyInspector.handle(data)) pointerInput.process(typeof data === "string" ? data : data.toString());
 });
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}`);
+process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}${enableMouse}`);
 
 process.on("SIGINT", () => {
   if (!externalEditorActive) stop();
@@ -811,7 +873,7 @@ async function invokeReaderAction(actionId: string): Promise<void> {
     await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
     return;
   }
-  if (active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
+  if (active === inspection && !actionId.startsWith("detail.checklist.") && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
     if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
     return;
   }
@@ -825,7 +887,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
     const menu = actionMenu;
     const items = filterActionMenuItems(menu.items, menu.query);
     if (menu.category && (key.name === "left" || key.name === "right")) showReaderMenu(adjacentReaderMenu(menu.category,key.name === "right" ? 1 : -1));
-    else if (key.name === "escape") actionMenu = null;
+    else if (key.name === "escape") { actionMenu = null; menu.cancelled?.(); }
     else if (key.name === "return") {
       const selected = items[menu.index];
       if (selected) { actionMenu = null; await menu.invoke(selected.id); }
@@ -862,13 +924,16 @@ keyInput.on("keypress", (str: string, key: TerminalKey) => {
   if (recoveryReview) {inputDecoder.consume(str,key);pendingPaste=null;return;}
   if (keyInspector.active) return;
   if (destinationPicker) { void handleDestinationInput(str, key).catch(error => controller.onServiceError(error)); return; }
+  // A confirmation resolves the controller's suspended save; do not queue its
+  // input behind that same save operation.
+  if (actionMenu?.cancelled) { void handleInput(str, key).catch(error => controller.onServiceError(error)); return; }
   serviceEventScheduler.scheduleWork(() => handleInput(str, key));
 });
 
 process.stdout.on("resize", () => {
   // Recovery keeps the controller operation open until the dialog closes.
   // Its screen must resize without waiting behind that suspended operation.
-  if (recoveryReview) draw();
+  if (recoveryReview || actionMenu?.cancelled) draw();
   serviceEventScheduler.scheduleWork(() =>
     controller.dispatch({ type: "viewport.changed" }, viewport())
   );
