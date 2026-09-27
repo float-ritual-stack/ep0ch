@@ -3103,11 +3103,18 @@ describe("createTreeController", () => {
     expect(controller.view().status).toContain("Virtual branch is invalid:");
   });
 
-  test("preserves occurrence identity after selection echoes and reorders only that branch", async () => {
+  test.each(["direct", "nested"])("reorders the selected %s appearance when a branch is also projected elsewhere", async (appearance) => {
+    const outer = block("outer", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "folder=views" },
+      ],
+    });
     const definition = block("view", {
       properties: [
         { key: "type", value: "virtual-branch" },
         { key: "query", value: "status=Doing" },
+        { key: "folder", value: "views" },
       ],
     });
     const first = block("first", {
@@ -3120,12 +3127,12 @@ describe("createTreeController", () => {
     let ranks: VirtualOccurrenceRank[] = [];
     const fake = harness((input) => {
       if (input.action === "tree.index") {
-        return snapshot([definition, first, second], definition, {
+        return snapshot([outer, definition, first, second], definition, {
           virtualOccurrenceRanks: ranks,
         });
       }
       if (input.action === "tree.query") {
-        return { blocks: [first, second], completeness: { kind: "complete" } };
+        return { blocks: input.query.filters?.some(filter => filter.key === "folder") ? [definition] : [first, second], completeness: { kind: "complete" } };
       }
       if (input.action === "virtual.occurrences.reorder") {
         ranks = input.orderedBlockIds.map((blockId, rank) => ({
@@ -3139,10 +3146,13 @@ describe("createTreeController", () => {
     });
     const controller = createTreeController(fake.effects);
     await controller.initialize();
-    await controller.handleKeypress("", { name: "down" }, "pass");
+    const selectedRowId = appearance === "direct"
+      ? "occurrence:view:first"
+      : "occurrence:outer:view/occurrence:view:first";
+    await controller.handleRowClick(selectedRowId);
     await controller.handleServiceEvent(event("browsing-context", first.id));
     expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
-      "occurrence:view:first",
+      selectedRowId,
     );
     fake.calls.length = 0;
 
@@ -3157,13 +3167,18 @@ describe("createTreeController", () => {
       controller.view().rows
         .filter((row) => row.kind === "physical")
         .map((row) => row.canonicalId),
-    ).toEqual([definition.id, first.id, second.id]);
+    ).toEqual([outer.id, definition.id, first.id, second.id]);
     expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
-      "occurrence:view:first",
+      selectedRowId,
     );
     expect(controller.view().status).toBe(
       "Moved down within virtual branch; canonical order unchanged",
     );
+    for (const parentRowId of [definition.id, "occurrence:outer:view"]) {
+      expect(controller.view().rows.filter(row => isBlockTreeRow(row) &&
+        row.kind === "occurrence" && row.parentRowId === parentRowId)
+        .map(row => isBlockTreeRow(row) && row.canonicalId)).toEqual([second.id, first.id]);
+    }
     expect(fake.calls.some((call) => call.action === "move")).toBe(false);
 
     fake.calls.length = 0;

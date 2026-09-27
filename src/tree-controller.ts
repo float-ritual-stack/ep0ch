@@ -1582,7 +1582,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       (row): row is VirtualBranchOccurrenceRow =>
         isBlockTreeRow(row) &&
         isVirtualBranchRootOccurrence(row) &&
-        row.viewId === selected.viewId,
+        row.viewId === selected.viewId &&
+        row.parentRowId === selected.parentRowId,
     );
     const currentIndex = branchRows.findIndex((row) => row.rowId === selected.rowId);
     const targetIndex = currentIndex + offset;
