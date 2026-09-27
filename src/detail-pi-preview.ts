@@ -1155,6 +1155,13 @@ export class DetailPiPreviewLayout extends VStack {
   private draftAnchorCache:
     | { sourceText: string; width: number; anchors: number[] }
     | null = null;
+  private readerAnchorCache: {
+    sourceText: string;
+    width: number;
+    folds: DocumentFold[];
+    lines: string[];
+    anchors: Array<{ line: number; row: number }>;
+  } | null = null;
 
   constructor(
     private readonly state: Readonly<DetailState>,
@@ -1291,10 +1298,21 @@ export class DetailPiPreviewLayout extends VStack {
 
   private readerSourceAnchors(sourceText: string, width: number): Array<{line:number;row:number}> {
     if (!this.documentFoldRegions.length) return draftSourceRowAnchors(sourceText, width, this.markdownTheme).map((row,line) => ({line,row}));
-    return sourceText.split(/\r?\n/).flatMap((_,line) => {
+    const lines = this.markdown.render(width);
+    const cache = this.readerAnchorCache;
+    if (
+      cache?.sourceText === sourceText &&
+      cache.width === width &&
+      cache.folds === this.documentFoldRegions &&
+      cache.lines.length === lines.length &&
+      cache.lines.every((line, index) => line === lines[index])
+    ) return cache.anchors;
+    const anchors = sourceText.split(/\r?\n/).flatMap((_,line) => {
       const rendered = this.renderedLineForSourceLine(line);
-      return this.markdown.isSourceLineVisible(rendered) ? [{line, row:this.markdown.sourceLineRow(width,rendered)}] : [];
+      return this.markdown.isSourceLineVisible(rendered) ? [{line, row:this.markdown.sourceLineRow(width,rendered,lines.length)}] : [];
     });
+    this.readerAnchorCache = {sourceText, width, folds: this.documentFoldRegions, lines, anchors};
+    return anchors;
   }
 
   sourcePointAtViewport(

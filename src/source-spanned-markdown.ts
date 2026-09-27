@@ -654,6 +654,7 @@ export class SourceSpannedMarkdown implements Component {
   }
 
   invalidate(): void {
+    this.folded?.renderer.invalidate();
     this.calloutDocument?.invalidate();
     for (const segment of this.segments) segment.component.invalidate();
   }
