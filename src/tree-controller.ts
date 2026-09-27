@@ -382,7 +382,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let selectedIndex = 0;
   let activeFilter = "";
   let branchFilter: TreeBranchFilter | null = null;
-  let branchFilterReturn: {root: TreeRoot | null; scroll: number; collapsed: Set<string>; occurrences: Set<string>; expanded: Set<string>} | null = null;
+  let branchFilterReturn: {root: TreeRoot | null; scroll: number; collapsed: Set<string>; occurrences: Set<string>; expanded: Set<string>; multiline: Set<string>; documentOffset: number} | null = null;
   let placementMenu: "before" | "after" | null = null;
   let mode: TreeMode = "browse";
   let quickBuffer = new TextBuffer();
@@ -789,7 +789,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const currentSelected = rows[selectedIndex];
     const snapshot = await effects.request<TreeIndexSnapshot>({
       action: "tree.index",
-      view: activeFilter
+      view: activeFilter && !branchFilter
         ? {
             query: {
               filters: parsePropertyFilterExpression(activeFilter),
@@ -938,7 +938,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (!branchFilter) {
       if (!isBlockTreeRow(selected)) { status = "Select a block or virtual branch to filter its descendants"; return; }
       branchFilter = new TreeBranchFilter(selected.rowId, selected.block.preview);
-      branchFilterReturn = {root, scroll: scrollStartEntryIndex, collapsed:new Set(collapsedBlockIds), occurrences:new Set(collapsedOccurrenceRowIds), expanded:new Set(expandedOccurrenceRowIds)};
+      branchFilterReturn = {root, scroll: scrollStartEntryIndex, collapsed:new Set(collapsedBlockIds), occurrences:new Set(collapsedOccurrenceRowIds), expanded:new Set(expandedOccurrenceRowIds), multiline:new Set(multilineExpandedRowIds), documentOffset:expandedBlockOffset};
     }
     mode = "branch-filter"; status = "";
     quickBuffer = new TextBuffer(branchFilter.query); quickBuffer.moveEnd(); quickCompletion = null;
@@ -953,12 +953,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     mode = "browse"; resetQuickEditor();
     if (restore) {
       root = restore.root;
-      for (const [target,saved] of [[collapsedBlockIds,restore.collapsed],[collapsedOccurrenceRowIds,restore.occurrences],[expandedOccurrenceRowIds,restore.expanded]] as const) {
+      for (const [target,saved] of [[collapsedBlockIds,restore.collapsed],[collapsedOccurrenceRowIds,restore.occurrences],[expandedOccurrenceRowIds,restore.expanded],[multilineExpandedRowIds,restore.multiline]] as const) {
         target.clear(); for(const id of saved) target.add(id);
       }
     }
     await reload(origin, {exactRowIdOnly:true});
-    if (restore) scrollStartEntryIndex = restore.scroll;
+    if (restore) { scrollStartEntryIndex = restore.scroll; expandedBlockOffset = restore.documentOffset; expandedPage = null; }
     status = rows.some(row=>row.rowId===origin) ? "Branch filter cleared" : "Filter cleared; original occurrence is no longer available";
     await publishDisplayRowSelection(rows[selectedIndex]); effects.invalidate();
   }
@@ -1924,6 +1924,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const previousRow = rows[selectedIndex];
     await reload();
     if (previousRow && !rows.some((row) => row.rowId === previousRow.rowId)) {
+      if (branchFilter) status = `${isBlockTreeRow(previousRow) ? previousRow.block.preview : "Previous item"} is no longer in these results; branch refreshed`;
       await publishDisplayRowSelection(rows[selectedIndex]);
     }
     effects.invalidate();
@@ -1955,6 +1956,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
 
+    if (branchFilter) await clearBranchFilter();
     root = target.root;
     if(root) {
       await reload(target.rowId,{exactRowIdOnly:true});
@@ -2060,6 +2062,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function focusRoot(next: TreeRoot | null): Promise<void> {
+    if (branchFilter) await clearBranchFilter();
     const source = navigationEntry(rows[selectedIndex]);
     root = next;
     scrollStartEntryIndex = 0;

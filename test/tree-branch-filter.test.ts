@@ -6,6 +6,7 @@ import {initTheme} from '@earendil-works/pi-coding-agent';
 import {OutlinerStore} from '../src/store';
 import {OutlinerServer} from '../src/server';
 import {OutlinerClient} from '../src/client';
+import {isBlockTreeRow} from '../src/tree-rows';
 import {createTreeController} from '../src/tree-controller';
 import {serviceTreeNavigation} from '../src/navigation-routes';
 import type {OutlinerEvent,VirtualBranchOrder} from '../src/types';
@@ -93,4 +94,34 @@ test('filter controls preserve an open writing draft',async()=>{
  await c.handleAction('tree.filter.clear');expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
  await c.handleAction('tree.filter');expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
  await c.handleAction('tree.selection.place:before:'+f.items[0]!.id);expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
+});
+
+test('branch search is independent of a prior property query and restores that query on Clear',async()=>{
+ const f=await fixture();
+ const parent=f.store.create('Parent [group::folder]');const child=f.store.create('copper teapot',parent.id);
+ const c=await f.open('properties');await c.handleAction('tree.filter.properties');await c.handlePaste('group=folder');await c.handleKeypress('',{name:'return'},'pass');
+ await c.handleRowClick(parent.id);await c.handleKeypress('/',{},'pass');await c.handlePaste('copper');
+ expect(c.view().rows.filter(isBlockTreeRow).map(r=>r.canonicalId)).toContain(child.id);
+ await c.handleAction('tree.filter.clear');expect(c.view().activeFilter).toBe('group=folder');expect(c.view().rows.filter(isBlockTreeRow).map(r=>r.canonicalId)).not.toContain(child.id);
+});
+
+test('filter restoration includes expanded document state and its viewport',async()=>{
+ const f=await fixture();await f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.branch.revision,text:f.branch.text+'\n\n'+Array.from({length:35},(_,i)=>`Origin line ${i}`).join('\n')});
+ const c=await f.open('viewport');await c.handleRowClick(f.branch.id);await c.handleKeypress('.',{name:'.'},'modified-enter');
+ const {renderTreeFrame}=await import('../src/tree-renderer');
+ const render=()=>{const frame=renderTreeFrame({...c.view(),localPreview:null},70,16,0,{clearScreen:false});c.setViewportStart(frame.scrollStartEntryIndex,frame.expandedPage);};
+ render();await c.handleKeypress('',{name:'pagedown'},'pass');render();const offset=c.view().expandedBlockOffset;expect(offset).toBeGreaterThan(0);
+ await c.handleKeypress('/',{},'pass');await c.handlePaste('DEM-37');await c.handleKeypress('',{name:'return'},'pass');
+ const match=c.view().rows[c.view().selectedIndex]!.rowId;await c.handleKeypress('.',{name:'.'},'modified-enter');
+ await c.handleAction('tree.filter.clear');expect(c.view().expandedBlockOffset).toBe(offset);
+ expect(c.view().rows.filter(isBlockTreeRow).find(r=>r.rowId===match)?.multilineExpanded).toBe(false);
+ expect(c.view().rows.filter(isBlockTreeRow).find(r=>r.rowId===f.branch.id)?.multilineExpanded).toBe(true);
+});
+
+test('a removed filtered target explains the focus change and explicit workspace navigation exits search',async()=>{
+ const f=await fixture(),c=await f.open('membership');await c.handleRowClick(f.branch.id);
+ await c.handleKeypress('/',{},'pass');await c.handlePaste('DEM-37');await c.handleKeypress('',{name:'return'},'pass');
+ await f.notify(c,()=>f.client.request({action:'delete',blockId:f.items[70]!.id}));
+ expect(c.view().status).toContain('DEM-370');expect(c.view().status).toContain('no longer');
+ await c.handleAction('tree.root.workspace');expect(c.view().branchFilterCue).toBeUndefined();expect(c.view().rows.some(r=>r.kind==='physical'&&r.canonicalId===f.other.id)).toBe(true);
 });
