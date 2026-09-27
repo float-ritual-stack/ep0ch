@@ -4,6 +4,12 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Collect Tree items with `x` or row checkboxes, inspect the finite set with
+  `Shift+X`, copy canonical references or verified page links, and rank selected
+  roots together in an unsorted virtual branch. Focus stays independent;
+  selections survive restarts with explicit recovery and Clear. Protocol 77.
+  PIE-240.
+
 - Compact Tree, Detail and Preview chrome gives rows back to content. Shared
   searchable menus retain actions and shortcuts, Expanded layout remains
   available, and document titles use the Herdr frame with a standalone fallback

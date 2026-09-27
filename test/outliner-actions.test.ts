@@ -173,8 +173,8 @@ describe("Outliner action keymap", () => {
 
 
   test("remaps registered actions and suppresses stale defaults", () => {
-    const keymap = new OutlinerActionKeymap("<test>", { "tree.edit": ["x"] });
-    expect(keymap.canonicalize("tree", "browse", "x", { name: "x" })).toMatchObject({
+    const keymap = new OutlinerActionKeymap("<test>", { "tree.edit": ["z"] });
+    expect(keymap.canonicalize("tree", "browse", "z", { name: "z" })).toMatchObject({
       actionId: "tree.edit",
       str: "e",
       suppressed: false,
@@ -187,9 +187,9 @@ describe("Outliner action keymap", () => {
 
   test("rebinds and disables Shift-letter actions for uppercase Pi input", () => {
     const rebound = new OutlinerActionKeymap("<test>", {
-      "tree.current.reveal": ["Shift+X"],
+      "tree.current.reveal": ["Shift+Z"],
     });
-    expect(rebound.canonicalize("tree", "browse", "X", { name: "X" })).toMatchObject({
+    expect(rebound.canonicalize("tree", "browse", "Z", { name: "Z" })).toMatchObject({
       actionId: "tree.current.reveal",
       suppressed: false,
     });

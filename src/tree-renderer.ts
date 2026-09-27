@@ -500,6 +500,11 @@ export function renderTreeFrame(
   output.push(view.navigationDestinationLabel === undefined ? "─".repeat(width)
     : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));
   }
+  if (view.mode === "browse" && (view.selectionCue || view.recoverableSelections)) {
+    const label = view.selectionCue || `${view.recoverableSelections} retained selections`;
+    const clearSelection = view.collectedIds?.size ? ` ${outlinerActionLink("tree.selection.clear","[Clear]")}` : "";
+    output.push(truncateToWidth(outlinerActionLink("tree.selection.inspect",sanitizeDynamicText(label)) + clearSelection,width));
+  }
   const compactRecovery = compact && view.mode === "browse" && Boolean(view.recoveryHelp);
   // Recovery controls can displace optional chrome; even a one-row pane must offer an escape.
   if (compactRecovery) {
@@ -626,6 +631,9 @@ export function renderTreeFrame(
     let marker = row.kind === "occurrence" ? "◇" : "•";
     if (row.hasChildren) marker = row.collapsed ? "▸" : "▾";
     if (clippedLeft) marker = "‹";
+    const selectionMark = view.collectedIds?.has(row.canonicalId) ? "[x]" : "[ ]";
+    const showSelection = view.mode === "browse" && Boolean(view.collectedIds?.size);
+    if (showSelection) marker += ` ${selectionMark}`;
     const author = AUTHOR_MARKERS[block.author];
     const editingInline = view.mode === "edit" && index === view.selectedIndex;
     if (editingInline) {
@@ -710,6 +718,9 @@ export function renderTreeFrame(
       } else {
         result = expandedRows;
       }
+    }
+    if (showSelection && result[0] && (!row.multilineExpanded || index !== view.selectedIndex || view.expandedBlockOffset === 0)) {
+      result[0] = result[0].replace(selectionMark,outlinerActionLink(`tree.selection.toggle:${encodeURIComponent(row.rowId)}`,selectionMark));
     }
     const attention = currentAttentionMark(view.attention, row.canonicalId);
     if (attention) {

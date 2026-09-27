@@ -445,6 +445,25 @@ the target. Outside the chooser, `Shift+R` reveals the block currently shown by
 the Detail, while `Option+Shift+R` reveals its first authored reference.
 Block-fragment targets retain their exact anchor across every destination.
 
+#### Collect and rank several items
+
+In Tree, `x` or **Note → Select / unselect item** starts a working selection.
+Once started, row checkboxes toggle items with the pointer. Cursor navigation
+and reading remain independent of the collected set. `Shift+X` or the selected
+count opens its menu: inspect/read items, copy IDs, block references or verified
+page links, and move the group up, down, to the top or to the bottom.
+
+Bulk ranking applies only to matched roots in one unsorted virtual-branch
+appearance. It preserves canonical parents and other branches' ranks. Up/down
+moves each selected run past one adjacent unselected item. Hidden targets stay
+counted; unavailable targets must be removed before copying or ranking. Unpaged
+items offer block-reference copy rather than an invented page address.
+
+Selections survive a restart. **Selected items** offers explicit recovery from a
+closed pane; it never takes a selection from a live pane. **Clear** removes the
+working set. These are temporary selections, not bookmarks or editing locks.
+Service and clients need protocol 77 for the selection and bulk-placement RPCs.
+
 #### Inspect authored links
 
 Select a block in Tree, press `?`, and invoke **View · Show authored links**.

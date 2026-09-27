@@ -28,11 +28,13 @@ function targets(value: WorkingSelectionTarget[]): WorkingSelectionTarget[] {
     identifier(target.blockId); identifier(target.rowId);
     if (target.viewId !== undefined) identifier(target.viewId);
     if (target.parentRowId !== undefined && target.parentRowId !== null) identifier(target.parentRowId);
+    if (target.rankRoot !== undefined && typeof target.rankRoot !== "boolean") throw Error("Invalid working selection rank context");
     if (seen.has(target.blockId)) throw Error("Duplicate canonical block in working selection");
     seen.add(target.blockId);
     // Persist identity only. Titles and content are always read from their current owner.
     return {blockId: target.blockId, rowId: target.rowId,
       ...(target.viewId !== undefined ? {viewId: target.viewId} : {}),
+      ...(target.rankRoot !== undefined ? {rankRoot: target.rankRoot} : {}),
       ...(target.parentRowId !== undefined ? {parentRowId: target.parentRowId} : {})};
   });
 }

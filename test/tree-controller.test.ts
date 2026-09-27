@@ -1228,12 +1228,12 @@ describe("createTreeController", () => {
       return undefined;
     });
     fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", {
-      "tree.reorder.up": ["x"],
+      "tree.reorder.up": ["z"],
       "tree.reorder.down": ["y"],
     }) };
     const controller = createTreeController(fake.effects);
     await controller.initialize();
-    await controller.handleKeypress("x", { name: "x" }, "pass");
+    await controller.handleKeypress("z", { name: "z" }, "pass");
     expect(siblings.map(block => block.id)).toEqual(["second", "first"]);
     expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
 

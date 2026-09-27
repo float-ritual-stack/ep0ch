@@ -1231,6 +1231,7 @@ export interface WorkingSelectionTarget {
   rowId: string;
   viewId?: string;
   parentRowId?: string | null;
+  rankRoot?: boolean;
 }
 
 export interface WorkingSelection {

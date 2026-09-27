@@ -123,6 +123,11 @@ export function outlinerActionLink(actionId: string, label: string): string {
 }
 
 const ACTION_SPECS = [
+  {id:"tree.selection.toggle",surface:"tree",modes:["browse"],label:"Select / unselect item",description:"Collect this item without opening it or changing focus",defaultChords:["x"],helpPriority:65,menuGroup:"Edit"},
+  {id:"tree.selection.inspect",surface:"tree",modes:["browse"],label:"Selected items",description:"Inspect, read, rank, copy or clear the collected set",defaultChords:["Shift+X"],helpPriority:64,menuGroup:"View"},
+  {id:"tree.selection.clear",surface:"tree",modes:["browse"],label:"Clear selected items",description:"Remove the temporary selection without changing content",defaultChords:[],helpPriority:0,menuGroup:"Edit"},
+  ...(["up","down","top","bottom"] as const).map(direction=>({id:`tree.selection.move-${direction}`,surface:"tree" as const,modes:["browse"],label:`Move selected ${direction}`,description:"Rank selected roots in one virtual branch",defaultChords:[],helpPriority:0,menuGroup:"Edit" as const})),
+  ...(["ids","references","pages"] as const).map(kind=>({id:`tree.selection.copy-${kind}`,surface:"tree" as const,modes:["browse"],label:`Copy selected ${kind === "references" ? "block references" : kind === "pages" ? "page links" : "block IDs"}`,description:"Copy the current finite selection in displayed order",defaultChords:[],helpPriority:0,menuGroup:"Edit" as const})),
   {id: "tree.property.inspect", surface: "tree", modes: ["browse"], label: "Inspect properties", description: "Open the selected block's property inspector", defaultChords: [], helpPriority: 0, menuGroup: "View"},
   {id: "tree.view.inspect", surface: "tree", modes: ["browse"], label: "View status", description: "Inspect workspace, counts, Inbox and selected branch diagnostics", defaultChords: [], helpPriority: 0, menuGroup: "View"},
   ...(["tree", "detail"] as const).flatMap(surface => [
