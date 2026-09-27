@@ -49,7 +49,7 @@ export interface HerdrScenarioSession {
   moveDetachedToNewTab(paneId: string): Promise<void>;
   closeDetached(paneId: string): Promise<void>;
   rejectCompetingService(): Promise<CommandResult>;
-  attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; resize(columns: number, rows: number): Promise<void> }>;
+  attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; cursor(): Promise<{column: number; row: number}>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
   openRemoteBrowsingContext(options?: { name?: string; renderer?: "pi-tui" | "ansi"; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
   forwardedTreeRequests(): readonly ForwardedRequest[];
@@ -966,6 +966,10 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
             const buffer = screen.buffer.active;
             return Array.from({ length: screen.rows }, (_, row) =>
               buffer.getLine(buffer.viewportY + row)?.translateToString(true, 0, screen.cols) ?? "").join("\n");
+          },
+          async cursor() {
+            await new Promise<void>((resolve) => screen.write("", resolve));
+            return {column: screen.buffer.active.cursorX, row: screen.buffer.active.cursorY};
           },
           async write(input) {
             abort.signal.throwIfAborted();

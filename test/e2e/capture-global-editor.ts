@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
+import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import type {Block, CaptureOwner, QuickCaptureDraft} from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 const nvim = Bun.which("nvim");
 if (!nvim) throw Error("Neovim is required for the global capture journey");
+const editorRoot = await mkdtemp(join(tmpdir(), "capture-editor-"));
+const editorScript = join(editorRoot, "editor.sh");
+const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+await writeFile(editorScript, `#!/bin/sh
+if [ ! -e ${shellQuote(join(editorRoot, "attempted"))} ]; then
+  touch ${shellQuote(join(editorRoot, "attempted"))}
+  exit 19
+fi
+exec ${shellQuote(nvim)} --clean "$@"
+`);
+try {
 const result = await runHerdrScenario({
-  name: "capture-global-editor", editor: `${nvim} --clean`,
+  name: "capture-global-editor", editor: `sh ${shellQuote(editorScript)}`,
   commandKeys: [{key: "prefix+shift+n", command: "float.pi-outliner.capture-editor"}],
   async prepare() {},
   async run(session) {
@@ -32,7 +46,14 @@ const result = await runHerdrScenario({
       return captures.length === 2 && captures.every(log => log.status === "succeeded");
     });
     await session.record("concurrent-capture-launches", launches);
+    await wait("exited with status 19");
+    const failedLaunchDraft = (await draft())!;
+    assert.ok(failedLaunchDraft.blockId);
+    await session.record("editor-failure-retains-draft", failedLaunchDraft);
+    await session.checkpoint("editor-launch-failure");
+    await terminal.write("\x05");
     await wait("draft.md");
+    assert.equal((await draft())!.blockId, failedLaunchDraft.blockId);
     const globalDraft = (await draft())!;
     assert.ok(globalDraft.blockId);
     assert.equal(globalDraft.capturedFromBlockId, undefined);
@@ -67,6 +88,12 @@ const result = await runHerdrScenario({
     await wait("PREFIX");
     await terminal.write("l");
     await session.waitFor("back to the global capture", () => session.focusedPane(), pane => pane === globalDock);
+    // Server focus can precede the attached client's matching rendered frame.
+    // Wait for Capture's visible cursor, not a delay or another application key.
+    const captureColumn = (await wait("GLOBAL SIDEBAR NOTE")).split("\n")
+      .find(row => row.includes("GLOBAL SIDEBAR NOTE"))!.indexOf("GLOBAL SIDEBAR NOTE");
+    assert.ok(captureColumn > 0);
+    await session.waitFor("Capture focus is rendered", () => terminal.cursor(), cursor => cursor.column >= captureColumn);
     await click("[Save to Inbox]");
     await session.waitFor("global capture submitted", draft, value => value === null);
     const globalNote = await session.client.request<Block>({action: "get", blockId: globalDraft.blockId!});
@@ -78,3 +105,5 @@ const result = await runHerdrScenario({
 });
 console.log(JSON.stringify(result));
 if (result.status !== "passed") process.exitCode = 1;
+
+} finally {await rm(editorRoot, {recursive: true, force: true});}
