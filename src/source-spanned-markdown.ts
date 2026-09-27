@@ -6,7 +6,8 @@ import {
   type Component,
   type MarkdownTheme,
 } from "@earendil-works/pi-tui";
-import { Marked } from "marked";
+import {markdownSourceTokens} from "./markdown-structure";
+import {foldDocument, type DocumentFold, type FoldedDocument} from "./document-folds";
 import {
   DetailCalloutDocument,
   type DetailCalloutRegion,
@@ -38,7 +39,6 @@ export interface SourceSpannedMarkdownRowRender {
   sourceLineRow: number;
 }
 
-const markdownParser = new Marked();
 
 interface RenderSegment extends SourceSpannedMarkdownSegment {
   component: Component;
@@ -59,43 +59,6 @@ function lineStarts(text: string): number[] {
   return starts;
 }
 
-function normalizeMarkdownSource(text: string): {
-  text: string;
-  originalOffsets: number[];
-} {
-  let normalized = "";
-  const originalOffsets = [0];
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === "\r") {
-      normalized += "\n";
-      if (text[index + 1] === "\n") index += 1;
-    } else {
-      normalized += text[index]!;
-    }
-    originalOffsets.push(index + 1);
-  }
-  return { text: normalized, originalOffsets };
-}
-
-function markdownTokenRange(
-  source: string,
-  raw: string,
-  cursor: number,
-  type: string,
-): { start: number; end: number } {
-  const start = source.indexOf(raw, cursor);
-  if (start >= 0) return { start, end: start + raw.length };
-  const remainingLength = source.length - cursor;
-  if (
-    raw.length === remainingLength + 1 &&
-    raw.endsWith("\n") &&
-    source.startsWith(raw.slice(0, -1), cursor)
-  ) {
-    return { start: cursor, end: source.length };
-  }
-  throw new Error(`Markdown token source span could not be recovered: ${type}`);
-}
-
 function lineAt(starts: readonly number[], offset: number): number {
   let low = 0;
   let high = starts.length;
@@ -110,23 +73,9 @@ function lineAt(starts: readonly number[], offset: number): number {
 
 function markdownRenderBlocks(text: string): MarkdownRenderBlock[] {
   if (!text) return [];
-  const starts = lineStarts(text);
-  const normalized = normalizeMarkdownSource(text);
-  const tokens = markdownParser.lexer(normalized.text);
   const blocks: MarkdownRenderBlock[] = [];
-  let normalizedCursor = 0;
-  for (const token of tokens) {
-    const range = markdownTokenRange(
-      normalized.text,
-      token.raw,
-      normalizedCursor,
-      token.type,
-    );
-    const normalizedStart = range.start;
-    const normalizedEnd = range.end;
-    const start = normalized.originalOffsets[normalizedStart]!;
-    const end = normalized.originalOffsets[normalizedEnd]!;
-    const span = sourceSpan(starts, start, end);
+  for (const {token, span} of markdownSourceTokens(text)) {
+    const {start, end} = span;
     const previous = blocks.at(-1);
     if (token.type === "space" && previous) {
       previous.text += text.slice(start, end);
@@ -139,7 +88,6 @@ function markdownRenderBlocks(text: string): MarkdownRenderBlock[] {
         endLine: span.endLine,
       });
     }
-    normalizedCursor = normalizedEnd;
   }
   return blocks;
 }
@@ -280,31 +228,12 @@ export function sourceSpannedMarkdownSegments(
   if (!text) return [];
   const starts = lineStarts(text);
   const segments: SourceSpannedMarkdownSegment[] = [];
-  const normalized = normalizeMarkdownSource(text);
-  const tokens = markdownParser.lexer(normalized.text);
-  let normalizedCursor = 0;
-
-  for (const token of tokens) {
-    const range = markdownTokenRange(
-      normalized.text,
-      token.raw,
-      normalizedCursor,
-      token.type,
-    );
-    const normalizedTokenStart = range.start;
-    const tokenStart = normalized.originalOffsets[normalizedTokenStart]!;
-    if (tokenStart > normalized.originalOffsets[normalizedCursor]!) {
-      const gapStart = normalized.originalOffsets[normalizedCursor]!;
-      const gapSpan = sourceSpan(starts, gapStart, tokenStart);
-      appendSegment(
-        segments,
-        text.slice(gapStart, tokenStart),
-        gapSpan,
-        intersectsRange(gapSpan, ranges),
-      );
+  let cursor = 0;
+  for (const {token, span: {start: tokenStart, end: tokenEnd}} of markdownSourceTokens(text)) {
+    if (tokenStart > cursor) {
+      const gapSpan = sourceSpan(starts, cursor, tokenStart);
+      appendSegment(segments, text.slice(cursor, tokenStart), gapSpan, intersectsRange(gapSpan, ranges));
     }
-    const normalizedTokenEnd = range.end;
-    const tokenEnd = normalized.originalOffsets[normalizedTokenEnd]!;
     appendSourceLines(
       segments,
       text,
@@ -314,10 +243,9 @@ export function sourceSpannedMarkdownSegments(
       ranges,
       token.type !== "space",
     );
-    normalizedCursor = normalizedTokenEnd;
+    cursor = tokenEnd;
   }
 
-  const cursor = normalized.originalOffsets[normalizedCursor]!;
   if (cursor < text.length) {
     const span = sourceSpan(starts, cursor, text.length);
     appendSegment(
@@ -517,6 +445,8 @@ function traverseCalloutRows(
 }
 
 export class SourceSpannedMarkdown implements Component {
+  private folds: readonly DocumentFold[] = [];
+  private folded: {signature: string; projection: FoldedDocument; visible: ReadonlySet<number>; renderer: SourceSpannedMarkdown} | null = null;
   private segments: RenderSegment[] = [];
   private calloutDocument: DetailCalloutDocument | null = null;
   private sourceText = "";
@@ -540,7 +470,10 @@ export class SourceSpannedMarkdown implements Component {
     ranges: readonly MarkdownLineRange[],
     decorationEnabled: boolean,
     callouts: readonly DetailCalloutRegion[] = [],
+    folds: readonly DocumentFold[] = [],
   ): void {
+    this.folds = folds;
+    this.folded = null;
     this.sourceText = text;
     this.ranges = ranges;
     this.decorationEnabled = decorationEnabled && ranges.length > 0;
@@ -585,6 +518,8 @@ export class SourceSpannedMarkdown implements Component {
     sourceLine: number,
     renderedLineCount = this.render(width).length,
   ): number {
+    const folded = this.foldedDocument();
+    if (folded) return folded.renderer.sourceLineRow(width, folded.projection.lineMap[sourceLine] ?? folded.projection.lineMap.at(-1) ?? 0, renderedLineCount);
     const starts = lineStarts(this.sourceText);
     const targetLine = Math.max(0, Math.min(Math.trunc(sourceLine), starts.length - 1));
     let row = 0;
@@ -676,7 +611,34 @@ export class SourceSpannedMarkdown implements Component {
     };
   }
 
+  visibleSourceLines(): ReadonlySet<number> | null {
+    return this.foldedDocument()?.visible ?? null;
+  }
+
+  private foldedDocument() {
+    if (!this.folds.length || !this.previewRegions) return null;
+    const signature = this.folds.map(fold => `${fold.id}:${this.previewRegions!.disclosureOverrides.get(fold.id) ?? true}`).join("|");
+    if (this.folded?.signature === signature) return this.folded;
+    const projection = foldDocument(this.sourceText, this.folds, this.previewRegions);
+    const visible = new Set(projection.visibleSourceLines);
+    const starts = lineStarts(projection.text);
+    const mapLine = (line: number) => projection.lineMap[line] ?? Math.max(0, starts.length - 1);
+    const callouts = this.callouts.filter(region => visible.has(region.headerLine)).map(region => {
+      const startLine = mapLine(region.headerLine), endLine = mapLine(region.sourceSpan!.endLine);
+      return {...region, headerLine: startLine, sourceSpan: {startLine, endLine, start: starts[startLine]!, end: starts[endLine + 1] ?? projection.text.length}};
+    });
+    const renderer = new SourceSpannedMarkdown(this.theme, this.decorate, this.previewRegions, this.linksEnabled, this.calloutTheme, this.trackLinks);
+    renderer.setContent(projection.text, this.ranges.map(range => ({startLine: mapLine(range.startLine), endLine: mapLine(range.endLine)})), this.decorationEnabled, callouts);
+    return this.folded = {signature, projection, visible, renderer};
+  }
+
   render(width: number): string[] {
+    const folded = this.foldedDocument();
+    if (folded) {
+      const lines = folded.renderer.render(width);
+      this.renderedLinks = folded.renderer.renderedLinks;
+      return lines;
+    }
     const render = () => this.calloutDocument?.render(width) ??
       this.segments.flatMap((segment) => segment.component.render(width));
     if (!this.trackLinks) return render();
@@ -691,6 +653,7 @@ export class SourceSpannedMarkdown implements Component {
   }
 
   invalidate(): void {
+    this.folded?.renderer.invalidate();
     this.calloutDocument?.invalidate();
     for (const segment of this.segments) segment.component.invalidate();
   }

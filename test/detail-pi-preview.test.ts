@@ -460,6 +460,54 @@ function renderedDocument(layout: DetailPiPreviewLayout, width: number): string[
 }
 
 describe("Pi Markdown detail preview", () => {
+  test("heading and list folds retain local choices and exact fragment navigation reveals only its ancestors", () => {
+    const source = "Plan\n\n## First\n- Parent\n  - Hidden [destination](https://example.test) ^step\n\n## Other\nOther body";
+    const detail = state(source, source), layout = previewLayout(detail);
+    const paint = (width = 70) => renderedDocument(layout, width).join('\n');
+    expect(paint()).toContain('Hidden');
+    const folds = detail.previewRegions.regions.filter(region => region.kind === 'document-fold');
+    const first = folds.find(region => region.sourceSpan!.startLine === 2)!;
+    const list = folds.find(region => region.sourceSpan!.startLine === 3)!;
+    const other = folds.find(region => region.sourceSpan!.startLine === 6)!;
+    togglePreviewRegionDisclosure(detail.previewRegions, list.id);
+    togglePreviewRegionDisclosure(detail.previewRegions, first.id);
+    togglePreviewRegionDisclosure(detail.previewRegions, other.id);
+    expect(paint()).not.toContain('Hidden');
+    togglePreviewRegionDisclosure(detail.previewRegions, first.id);
+    expect(paint(25)).toContain('Parent');
+    expect(paint(25)).not.toContain('Hidden');
+    expect(detail.previewRegions.regions.some(region => region.activation?.type === 'link.open' && region.activation.uri === 'https://example.test')).toBe(false);
+    setBlockDocument(detail, detail.context, {kind:'block',blockId:detail.context.selected!.id,fragmentId:'step'});
+    detail.previewOffset = 4;
+    expect(paint(25)).toContain('Hidden');
+    expect(paint(25)).not.toContain('Other body');
+    expect(detail.context.selected!.text).toBe(source);
+    const another = previewLayout(state(source, source));
+    expect(renderedDocument(another, 25).join('\n')).toContain('Other body');
+  });
+
+  test("comments remain reachable under folded content and visible text maps to its original source line", () => {
+    const text = 'Plan\n\n## Hidden section\nSecret target\n\n## Other section\nVisible target';
+    const detail = state(text, text), layout = previewLayout(detail);
+    const start = text.indexOf('Secret target');
+    detail.annotationThreads = [annotationThread('comment-hidden', textTarget(text,start,start+13), 'Check the target')];
+    layout.render(70);
+    const fold = detail.previewRegions.regions.find(region => region.kind === 'document-fold')!;
+    togglePreviewRegionDisclosure(detail.previewRegions,fold.id);
+    const lines = layout.render(70).map(stripTerminalSequences);
+    expect(lines.join('\n')).not.toContain('Secret target');
+    const content = layout.scrollView.render(70).map(stripTerminalSequences);
+    const row = content.findIndex(line => line.includes('Visible target'));
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(layout.sourcePointAtViewport(row+3,content[row]!.indexOf('Visible target'),70)?.row).toBe(6);
+    const comment = detail.previewRegions.regions.find(region => region.kind === 'annotation')!;
+    detail.previewRegions.focusedRegionId = comment.id;
+    togglePreviewRegionDisclosure(detail.previewRegions,comment.id);
+    const revealed = layout.render(70).map(stripTerminalSequences).join('\n');
+    expect(revealed).toContain('Secret target');
+    expect(revealed).toContain('Check the target');
+  });
+
   test("Current, Preview and dedicated Properties retain a live destination header action", () => {
     let label = "Reading notes";
     for (const surface of ["Current", "Preview", "Properties"]) {
@@ -579,9 +627,9 @@ describe("Pi Markdown detail preview", () => {
 
     expect(raw[0]).toContain("\x1b[4m");
     expect(visible[0]!.trimEnd()).toBe("Block title");
-    expect(visible).toContain("Section");
-    expect(visible).toContain("› Subsection");
-    expect(visible).toContain("›› Detail");
+    expect(visible).toContain("▾ Section");
+    expect(visible).toContain("▾ › Subsection");
+    expect(visible).toContain("▾ ›› Detail");
     expect(visible).not.toContain("### Subsection");
     expect(visible.some((line) => line.includes("### literal code"))).toBe(true);
     expect(detail.context.selected?.text).toBe(source);

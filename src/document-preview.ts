@@ -1,4 +1,5 @@
-import {documentPreviewLines,documentPreviewLinks} from './document-preview-renderer';
+import {documentPreviewLines,documentPreviewLinks,revealDocumentPreviewSourceLine} from './document-preview-renderer';
+import {parsePreviewRegionActionUri, previewRegionActionUri, togglePreviewRegionDisclosure} from './detail-preview-regions';
 import type {OutlinerRequester} from './client-target';
 import {loadDetailReadPreview} from './detail-read-preview';
 import type {DetailReadPreviewDocument} from './detail-pi-preview';
@@ -55,8 +56,9 @@ export class DocumentPreview {
   }
   cycleLink(delta:number,width:number,height:number):void {
     if(!this.value)return;
-    const links=[...new Map(documentPreviewLinks(this.value.document,Math.max(1,width)).map(link=>[link.uri,link])).values()];
-    const index=links.findIndex(link=>link.uri===this.value!.activeLink);
+    const focusKey=(uri:string)=>{const action=parsePreviewRegionActionUri(uri);return action?.type==='document.disclosure.toggle'?previewRegionActionUri(action):uri;};
+    const links=[...new Map(documentPreviewLinks(this.value.document,Math.max(1,width)).map(link=>[focusKey(link.uri),link])).values()];
+    const index=links.findIndex(link=>focusKey(link.uri)===focusKey(this.value!.activeLink??''));
     const next=links[index<0?(delta>0?0:links.length-1):(index+delta+links.length)%links.length];
     if(!next){this.value={...this.value,notice:'No links in this Preview'};this.changed();return;}
     const offset=next.row<this.value.offset||next.row>=this.value.offset+height?next.row:this.value.offset;
@@ -91,6 +93,15 @@ export class DocumentPreview {
   }
   private async follow(uri:string,generation:number):Promise<void>{
     if(!this.value)return;
+    const disclosure = parsePreviewRegionActionUri(uri);
+    if (disclosure?.type === 'document.disclosure.toggle' || disclosure?.type === 'callout.disclosure.toggle') {
+      const state = this.value.document.previewRegions;
+      if (!state || togglePreviewRegionDisclosure(state, disclosure.regionId) === null) return;
+      state.focusedRegionId = disclosure.regionId;
+      this.value = {...this.value, activeLink:uri, activeLinkLabel:'Toggle section', notice:undefined};
+      this.changed();
+      return;
+    }
     if(!uri.startsWith('pi-outliner:')){
       if(!/^https?:\/\//i.test(uri)||!this.openExternal)throw Error(`Unsupported link: ${uri}`);
       await this.openExternal(uri);
@@ -145,9 +156,13 @@ export class DocumentPreview {
 
   async load(target: OutlinerNavigationTarget, refresh = false, navigating = false): Promise<boolean> {
     const generation = ++this.generation;
+    const previousDocument = this.value?.document;
+    const revealInDocument = target.kind === 'block' && !!target.fragmentId && previousDocument?.sourceBlock?.id === target.blockId;
+    const previous = (revealInDocument || refresh && JSON.stringify(this.value?.target) === JSON.stringify(target)) ? previousDocument?.previewRegions : undefined;
+    let revealSourceLine:number|undefined;
     if(!refresh&&!navigating){this.history=[];this.future=[];}
     let title = target.kind === 'block' ? target.blockId : target.resourceId;
-    const offset = refresh ? this.value?.offset ?? 0 : 0;
+    let offset = refresh ? this.value?.offset ?? 0 : 0;
     if (!refresh) this.value = {target, title, document: plain('Loading Preview…'), loading:true, offset:0, focused:this.value?.focused ?? false};
     this.changed();
     try {
@@ -159,7 +174,10 @@ export class DocumentPreview {
         if(target.fragmentId){
           const fragment=resolveFragmentSlice(block.text,target.fragmentId);
           if(fragment.status!=='resolved')throw Error(`Fragment ${fragment.status}: ${target.fragmentId}`);
-          document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
+          if (revealInDocument) {
+            document=await loadDetailReadPreview(this.client,block);
+            if (!refresh) revealSourceLine=fragment.slice.anchor.lineIndex;
+          } else document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
         }else document = await loadDetailReadPreview(this.client,block);
       } else {
         if (!this.clientId) throw new Error('Resource preview requires a registered reader');
@@ -171,6 +189,10 @@ export class DocumentPreview {
         }
       }
       if (generation !== this.generation) return false;
+      // Reconcile the saved choices against the new document at its next render.
+      // Anonymous identities change on edits; explicit stable IDs may survive.
+      if (previous) document.previewRegions = {regions:[],focusedRegionId:previous.focusedRegionId,disclosureOverrides:new Map(previous.disclosureOverrides)};
+      if(revealSourceLine!==undefined && previousDocument) offset=revealDocumentPreviewSourceLine(document,revealSourceLine,previousDocument);
       this.value = {target,title,document,offset,focused:this.value?.focused ?? false};
       this.changed(); return true;
     } catch (error) {

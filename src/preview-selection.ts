@@ -1,5 +1,6 @@
 import { sliceByColumn, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import type { TreePrimaryPointer } from "./tree-mouse";
+import {copyRenderedColumns,type CopyExcludedSpan} from './rendered-links';
 
 export interface PreviewContentRect {
   x: number;
@@ -15,6 +16,7 @@ type Selection = {
   anchor: Point;
   head: Point;
   lines: readonly string[];
+  excluded: readonly CopyExcludedSpan[];
 };
 
 function sameRect(a: PreviewContentRect, b: PreviewContentRect): boolean {
@@ -62,12 +64,12 @@ export class PreviewSelection {
   }
 
   /** Lines are the full frame, with one entry per actual terminal row. End columns are exclusive. */
-  pointer(event: Pointer, rect: PreviewContentRect, visibleAnsiLines: readonly string[]): {consumed: boolean; copy?: string} {
+  pointer(event: Pointer, rect: PreviewContentRect, visibleAnsiLines: readonly string[], excluded:readonly CopyExcludedSpan[]=[]): {consumed: boolean; copy?: string} {
     if (event.phase === "down") {
       this.clear();
       this.claimed = rect.width > 0 && rect.height > 0 && event.column >= rect.x &&
         event.column < rect.x + rect.width && event.row >= rect.y && event.row < rect.y + rect.height;
-      if (this.claimed) this.selection = {rect: {...rect}, anchor: {...event}, head: {...event}, lines: [...visibleAnsiLines]};
+      if (this.claimed) this.selection = {rect: {...rect}, anchor: {...event}, head: {...event}, lines: [...visibleAnsiLines], excluded:[...excluded]};
       return {consumed: this.claimed};
     }
     if (!this.claimed) return {consumed: false};
@@ -81,7 +83,7 @@ export class PreviewSelection {
     const selected: string[] = [];
     for (let row = Math.min(anchor.row, head.row); row <= Math.max(anchor.row, head.row); row++) {
       const columns = graphemeRange(this.selection, row, lines[row] ?? "");
-      selected.push(columns ? stripTerminalSequences(sliceByColumn(lines[row] ?? "", columns[0], columns[1] - columns[0], true)).trimEnd() : "");
+      selected.push(columns ? copyRenderedColumns(lines[row] ?? "", columns[0], columns[1], this.selection.excluded.filter(span=>span.row===row)) : "");
     }
     const copy = selected.join("\n");
     return copy.trim() ? {consumed: true, copy} : {consumed: true};

@@ -108,6 +108,7 @@ import {
 } from "./navigation-routes";
 import { openExternalUrl } from "./open-external";
 import { readHerdrPaneSnapshot } from "./herdr-comment-selection";
+import {copyRenderedSelection} from './rendered-links';
 import { TUI_RESOURCE_PRESENTATION_CONTEXT } from "./resource-presentation";
 import { resolveClientPaths } from "./paths";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
@@ -259,8 +260,10 @@ let inputFlushTimer: ReturnType<typeof setTimeout> | undefined;
 let inputGeneration = 0;
 const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
   mouse: true,
-  async copySelection(quote) {
-    process.stdout.write(osc52ClipboardWrite(quote));
+  async copySelection(quote, renderedLines?: readonly string[]) {
+    // Without the pinned Pi TUI hook, keep plain-text copy working.
+    const copied = renderedLines ? copyRenderedSelection(renderedLines) : quote;
+    if (copied) process.stdout.write(osc52ClipboardWrite(copied));
     const generation = ++directSelectionGeneration;
     const reader = focusedReader();
     directSelectionDocument = { reader, document: reader.state.document, text: reader.state.projectedSelectedText, file: reader.state.referencedFile };
@@ -305,7 +308,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
       pendingDirectSelection = null;
       pendingResourceSelectionRange = null;
     }
-    return true;
+    return Boolean(copied);
   },
   openUrl(url) {
     if (recoveryReview) {

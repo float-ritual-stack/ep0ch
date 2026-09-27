@@ -4,6 +4,26 @@ import type {RequestInput} from '../src/client';
 import type {Block} from '../src/types';
 
 const block=(id:string,text:string)=>({id,text,revision:1} as Block);
+test('Preview disclosure clicks and Enter share local state without navigation or writes',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences}=await import('@earendil-works/pi-tui');
+ const text='Plan\n\n## First\nHidden [destination](https://example.test)\n\n## Second\nVisible body';
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('Disclosure must not call the service');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'plan'},'Plan',Promise.resolve(text));reader.focus();
+ const document=reader.state!.document;
+ const paint=(width:number)=>documentPreviewLines(document,width).map(stripTerminalSequences).join('\n');
+ expect(paint(70)).toContain('Hidden');
+ const first=documentPreviewLinks(document,70).find(link=>link.uri.includes('document-toggle'))!;
+ await reader.action('preview.link:'+encodeURIComponent(first.uri),async()=>{throw Error('Disclosure must not open Detail');});
+ expect(paint(70)).not.toContain('Hidden');
+ expect(paint(24)).toContain('Visible body');
+ expect(documentPreviewLinks(document,24).some(link=>link.uri==='https://example.test')).toBe(false);
+ expect(reader.state!.canBack).toBe(false);
+ await reader.key({name:'return'},24,12,async()=>{throw Error('Disclosure must not open Detail');});
+ expect(paint(24)).toContain('Hidden');
+ expect(reader.state!.document.canonicalText).toBe(text);
+});
 test('late reads and failures cannot replace the newly selected preview',async()=>{
   const older=Promise.withResolvers<Block>();
   const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
@@ -159,4 +179,39 @@ test('narrow Preview preserves clickable navigation ahead of optional layout con
   expect(frame.controls?.map(control=>control.action)).toEqual(expect.arrayContaining(['preview.back','preview.forward','preview.open']));
   expect(frame.controls?.every(control=>control.rect.x+control.rect.width<=frame.rect.x+frame.rect.width)).toBe(true);
  }
+});
+
+
+test('refresh retains local folds until a source edit makes their identity ambiguous',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ let text='Plan\n\n## Section\nHidden body ^inside\n\n## Other\nOther body';
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='get')return block('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',text) as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ const target={kind:'block' as const,blockId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'};
+ await reader.load(target);
+ const link=documentPreviewLinks(reader.state!.document,60).find(link=>link.uri.includes('document-toggle'))!;
+ await reader.action('preview.link:'+encodeURIComponent(link.uri),async()=>{});
+ const paint=()=>documentPreviewLines(reader.state!.document,60).join('\n');
+ expect(paint()).not.toContain('Hidden body');
+ await reader.load(target,true);
+ expect(paint()).not.toContain('Hidden body');
+ const other=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Other')!;
+ await reader.action('preview.link:'+encodeURIComponent(other.uri),async()=>{});
+ await reader.action('preview.link:'+encodeURIComponent('pi-outliner://block/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?fragment=inside'),async()=>{});
+ expect(paint()).toContain('Hidden body');
+ expect(paint()).toContain('Other');
+ expect(paint()).not.toContain('Other body');
+ const section=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Section')!;
+ await reader.action('preview.link:'+encodeURIComponent(section.uri),async()=>{});
+ expect(paint()).not.toContain('Hidden body');
+ await reader.load(reader.state!.target,true);
+ expect(paint()).not.toContain('Hidden body');
+ expect(paint()).not.toContain('Other body');
+ text=text.replace('Section','Changed');
+ await reader.load(target,true);
+ expect(paint()).toContain('Hidden body');
 });

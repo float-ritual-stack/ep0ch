@@ -71,3 +71,22 @@ test('links follow on click release, while dragging links copies and never navig
  // A redraw with a different document invalidates a pending link.
  send(pointer(2,12));h.input.render([],undefined,undefined);send(pointer(2,12,'up'));expect(actions).toEqual([]);
 });
+
+
+test('folding during a Preview selection retires the old selection without copying hidden rows',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {DocumentPreview}=await import('../src/document-preview');
+ const {renderDocumentPreview,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('unused');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'plan'},'Plan',Promise.resolve('## Section\nHidden body'));
+ const input=new DocumentPreviewInput(),copies:string[]=[];
+ const actions={focus(){},scroll(){},resize(){},async invoke(action:string){await reader.action(action,async()=>{});}};
+ const paint=()=>{const f=renderDocumentPreview(reader.state!,{x:0,y:0,width:50,height:14},'');input.render(f.lines,f,reader.state);};
+ paint();
+ const link=documentPreviewLinks(reader.state!.document,50).find(link=>link.uri.includes('document-toggle'))!;
+ const send=(s:string)=>input.handle(s,actions,text=>copies.push(text),()=>{});
+ send(pointer(0,2));send(pointer(12,4,'drag'));
+ await reader.action('preview.link:'+encodeURIComponent(link.uri),async()=>{});paint();
+ send(pointer(12,4,'up'));
+ expect(copies).toEqual([]);
+});

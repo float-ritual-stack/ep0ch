@@ -2,6 +2,30 @@ import {getCapabilities, setCapabilities, sliceByColumn, stripTerminalSequences,
 
 export interface RenderedLink {row:number;column:number;width:number;uri:string;label:string;occurrenceId?:string}
 
+export interface CopyExcludedSpan {row:number;column:number;width:number}
+
+/** Generated document controls have their own target; authored glyphs remain text. */
+export function isCopyExcludedLink(uri:string):boolean {
+  return uri.startsWith('pi-outliner-detail://document-control/');
+}
+
+export function copyRenderedColumns(line:string,start:number,end:number,excluded:readonly Pick<CopyExcludedSpan,'column'|'width'>[]=[]):string {
+  const omitted=[...excluded,...measureRenderedLinks([line]).filter(link=>isCopyExcludedLink(link.uri))].sort((a,b)=>a.column-b.column);
+  let cursor=start, text='';
+  for(const span of omitted){
+    const left=Math.max(start,span.column),right=Math.min(end,span.column+span.width);
+    if(right<=cursor || left>=end)continue;
+    if(left>cursor)text+=stripTerminalSequences(sliceByColumn(line,cursor,left-cursor,true));
+    cursor=Math.max(cursor,right);
+  }
+  if(cursor<end)text+=stripTerminalSequences(sliceByColumn(line,cursor,end-cursor,true));
+  return text.trimEnd();
+}
+
+export function copyRenderedSelection(lines:readonly string[]):string {
+  return lines.map(line=>copyRenderedColumns(line,0,visibleWidth(line))).join('\n');
+}
+
 /** Synchronous only: OSC links describe geometry even on terminals without OSC 8. */
 export function withInternalLinks<T>(render:()=>T):T {
   const capabilities=getCapabilities();

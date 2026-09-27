@@ -2,6 +2,7 @@ import {PreviewSelection} from './preview-selection';
 import {parseTreePrimaryPointer,parseTreeWheelEvent,parseTreeSecondaryClick} from './tree-mouse';
 import {pointInPreview,type DocumentPreviewFrame} from './document-preview-renderer';
 import type {DocumentPreviewState} from './document-preview';
+import {isCopyExcludedLink} from './rendered-links';
 
 /** Input is owned by the rendered Preview rectangle, never by rows underneath it. */
 export interface PreviewInputActions {
@@ -21,7 +22,7 @@ export class DocumentPreviewInput {
   get ownsPointer(): boolean { return this.selection.ownsPointer || !!this.resizing; }
   render(lines:string[],frame:DocumentPreviewFrame|undefined,preview:DocumentPreviewState|null|undefined):string[]{
     const visible=frame && (frame.placement!=='compact'||preview?.focused)?frame:undefined;
-    const geometry=visible?JSON.stringify([visible.content,visible.offset]):'';
+    const geometry=visible?JSON.stringify([visible.content,visible.offset,[...(preview?.document.previewRegions?.disclosureOverrides ?? [])]]):'';
     if(preview?.document!==this.document||geometry!==this.geometry){this.selection.clear();this.pressedLink=undefined;}
     this.document=preview?.document;this.geometry=geometry;this.frame=visible;this.lines=lines;
     return visible?this.selection.highlight(lines,visible.content):lines;
@@ -63,7 +64,8 @@ export class DocumentPreviewInput {
         const link=frame?.links?.find(link=>pointInPreview(link.rect,pointer.column,pointer.row));
         this.pressedLink=link?{uri:link.uri,column:pointer.column,row:pointer.row}:undefined;
       }
-      const result=this.selection.pointer(pointer,frame?.content??{x:0,y:0,width:0,height:0},this.lines);
+      const excluded=frame?.links?.filter(link=>isCopyExcludedLink(link.uri)).map(link=>({row:link.rect.y,column:link.rect.x,width:link.rect.width}))??[];
+      const result=this.selection.pointer(pointer,frame?.content??{x:0,y:0,width:0,height:0},this.lines,excluded);
       if(result.consumed){controller.focus();if(result.copy)copy(result.copy);redraw();return true;}
       if(frame&&pointInPreview(frame.rect,pointer.column,pointer.row)){controller.focus();return true;}
       if(frame&&pointer.phase==='down')controller.focus(false);

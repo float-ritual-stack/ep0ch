@@ -6,6 +6,7 @@ export interface PreviewSourceSpan {
 }
 
 export type PreviewRegionKind =
+  | "document-fold"
   | "body-link"
   | "annotation"
   | "annotation-thread"
@@ -17,6 +18,7 @@ export type PreviewRegionKind =
   | "property-entry";
 
 export type PreviewRegionAction =
+  | { type: "document.disclosure.toggle"; regionId: string }
   | { type: "link.open"; uri: string }
   | { type: "preview.region.focus"; regionId: string }
   | { type: "annotation.disclosure.toggle"; regionId: string }
@@ -60,6 +62,8 @@ const DETAIL_PREVIEW_SCHEME = "pi-outliner-detail:";
 
 export function previewRegionActionUri(action: PreviewRegionAction): string {
   switch (action.type) {
+    case "document.disclosure.toggle":
+      return `${DETAIL_PREVIEW_SCHEME}//document-toggle/${encodeURIComponent(action.regionId)}`;
     case "link.open":
       return `${DETAIL_PREVIEW_SCHEME}//link-open/${encodeURIComponent(action.uri)}`;
     case "preview.region.focus":
@@ -112,6 +116,10 @@ export function parsePreviewRegionActionUri(uri: string): PreviewRegionAction | 
   }
 
   switch (parsed.hostname) {
+    case "document-control":
+    case "document-toggle":
+      if (!value) throw new Error("Invalid document disclosure");
+      return {type: "document.disclosure.toggle", regionId: value};
     case "link-open":
       if (!value) throw new Error("Invalid document link");
       return {type:"link.open",uri:value};
@@ -226,6 +234,7 @@ function visibleFocusableRegions(
 export function reconcilePreviewRegions(
   state: PreviewRegionState,
   regions: readonly PreviewRegion[],
+  retainMissingDisclosures = false,
 ): void {
   state.regions = regions.map((region) => {
     const disclosure = region.disclosure
@@ -248,7 +257,7 @@ export function reconcilePreviewRegions(
 
   const liveIds = new Set(state.regions.map((region) => region.id));
   for (const id of state.disclosureOverrides.keys()) {
-    if (!liveIds.has(id)) state.disclosureOverrides.delete(id);
+    if (!retainMissingDisclosures && !liveIds.has(id)) state.disclosureOverrides.delete(id);
   }
 }
 
@@ -281,5 +290,15 @@ export function togglePreviewRegionDisclosure(
   const expanded = !region.disclosure.expanded;
   state.disclosureOverrides.set(regionId, expanded);
   region.disclosure.expanded = expanded;
+  if (!expanded) {
+    const byId = new Map(state.regions.map(candidate => [candidate.id, candidate]));
+    let focused = byId.get(state.focusedRegionId ?? "");
+    const visited = new Set<string>();
+    while (focused?.parentId && !visited.has(focused.id)) {
+      visited.add(focused.id);
+      if (focused.parentId === regionId) {state.focusedRegionId = regionId; break;}
+      focused = byId.get(focused.parentId);
+    }
+  }
   return expanded;
 }

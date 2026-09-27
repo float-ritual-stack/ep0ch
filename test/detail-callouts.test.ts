@@ -357,7 +357,7 @@ describe("Detail Obsidian callouts", () => {
 
     togglePreviewRegionDisclosure(state, regions[0]!.id);
     reconcilePreviewRegions(state, regions);
-    expect(state.focusedRegionId).toBeNull();
+    expect(state.focusedRegionId).toBe(regions[0]!.id);
   });
 
   test("preserves producer disclosure and exposes expanded backlink children to focus", () => {

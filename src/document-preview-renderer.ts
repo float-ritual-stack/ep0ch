@@ -1,7 +1,7 @@
 import {withInternalLinks, stripRenderedLinks, measureRenderedLinks, type RenderedLink} from './rendered-links';
 import {getMarkdownTheme} from '@earendil-works/pi-coding-agent';
 import {truncateToWidth, visibleWidth} from '@earendil-works/pi-tui';
-import {renderDetailReadPreviewLines, type DetailReadPreviewDocument} from './detail-pi-preview';
+import {renderDetailReadPreview, renderDetailReadPreviewLines, type DetailReadPreviewDocument} from './detail-pi-preview';
 import type {DocumentPreviewState} from './document-preview';
 import {sanitizeDynamicText} from './terminal';
 
@@ -19,9 +19,16 @@ export interface DocumentPreviewFrame {
   divider?: PreviewRect;
   placement?: 'beside'|'below'|'compact';
 }
-const cache=new WeakMap<DetailReadPreviewDocument,{width:number;lines:string[];links:PreviewLink[]}>();
+const cache=new WeakMap<DetailReadPreviewDocument,{width:number;disclosures:string;lines:string[];links:PreviewLink[]}>();
 export type PreviewLink = RenderedLink;
 export function documentPreviewLinks(document:DetailReadPreviewDocument,width:number):PreviewLink[]{documentPreviewLines(document,width);return cache.get(document)!.links;}
+/** Reveal a canonical line using this reader's last measured width and shared source map. */
+export function revealDocumentPreviewSourceLine(document:DetailReadPreviewDocument,line:number,previous:DetailReadPreviewDocument):number {
+  const width=cache.get(previous)?.width ?? 80;
+  const rendered=withInternalLinks(()=>renderDetailReadPreview(document,width,getMarkdownTheme(),undefined,true,line));
+  cache.delete(document);
+  return rendered.sourceLineRow(line);
+}
 const background='\x1b[48;5;236m';
 function shade(line:string,width:number):string {
   return background+truncateToWidth(line,width,'…',true).replace(/\x1b\[(?:0|49)?m/g,reset=>reset+background)+'\x1b[49m';
@@ -29,11 +36,12 @@ function shade(line:string,width:number):string {
 /** Shared row measurement and painting cache, invalidated by document identity or width. */
 export function documentPreviewLines(document:DetailReadPreviewDocument,width:number):string[] {
   let entry=cache.get(document);
-  if(entry?.width!==width){
+  const disclosures=JSON.stringify([...(document.previewRegions?.disclosureOverrides ?? [])]);
+  if(entry?.width!==width || entry.disclosures!==disclosures){
     // OSC links are an internal geometry map; they never reach the terminal.
     // Render synchronously with links even when the host does not support OSC 8.
     const rendered=withInternalLinks(()=>renderDetailReadPreviewLines(document,width,getMarkdownTheme(),undefined,true));
-    entry={width,links:measureRenderedLinks(rendered),lines:rendered.map(stripRenderedLinks)};
+    entry={width,disclosures,links:measureRenderedLinks(rendered),lines:rendered.map(stripRenderedLinks)};
     cache.set(document,entry);
   }
   return entry.lines;

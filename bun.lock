@@ -7,7 +7,7 @@
       "dependencies": {
         "@earendil-works/pi-ai": "^0.84.2",
         "@earendil-works/pi-coding-agent": "^0.84.2",
-        "@earendil-works/pi-tui": "^0.84.2",
+        "@earendil-works/pi-tui": "0.84.2",
         "callscript": "^0.1.0",
         "diff": "8.0.4",
         "marked": "18.0.5",
@@ -20,6 +20,9 @@
         "typescript": "^5.9.3",
       },
     },
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-tui@0.84.2": "patches/@earendil-works%2Fpi-tui@0.84.2.patch",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
