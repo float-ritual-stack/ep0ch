@@ -10,6 +10,7 @@ import { bg, C, center, fg, pad, paint, RESET, width } from "./style";
 import type { Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
+import { River } from "./river/river";
 import { ago, bbsDate, colourBody, rule, wrap } from "./text";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ const ITEMS: MenuItem[] = [
   { key: "L", label: "Lastcall", open: () => new LastCallers() },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
-  { key: "/", label: "Search", open: () => new Search() },
+  { key: "Q", label: "Quay", open: () => new River() },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
   { key: "D", label: "Desk", open: () => new Desk() },
   { key: "?", label: "Help", open: () => new Help() },
@@ -565,7 +566,7 @@ export class Help implements Screen {
 const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
-  S: "activity heatmap and top posters", "/": "substring search across the board", B: "the ep0ch menu by shypht, 1997",
+  S: "activity heatmap and top posters", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
   D: "the desk: outline, reader, thread and live panes you tile yourself", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 

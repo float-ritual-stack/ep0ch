@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { App } from "./app";
 import { Desk } from "./desk/desk";
+import { River } from "./river/river";
 import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
@@ -19,6 +20,7 @@ function writeLastCall(at: number) {
 
 const args = process.argv.slice(2);
 const deskFirst = args.includes("--desk");
+const riverFirst = args.includes("--river");
 const board = new SocketBoard(args.find(a => !a.startsWith("--")) ?? DEFAULT_SOCKET);
 let info;
 try { info = await board.info(); }
@@ -42,5 +44,6 @@ app.host = info.host;
 app.workspace = info.workspace;
 board.subscribe(e => app.event(e));
 process.on("SIGTERM", () => app.quit());
-if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }
+if (riverFirst) { app.push(new MainMenu()); app.push(new River()); }
+else if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }
 else app.push(new Logon(app));

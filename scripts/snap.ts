@@ -8,13 +8,16 @@ import { CP437_HIGH } from "../src/ansi";
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
+import { River } from "../src/river/river";
 import { SocketBoard } from "../src/socket";
 import type { Key, TermInfo } from "../src/term";
 import { encodePng, GLYPH_H, GLYPH_W } from "../src/vga";
 import { readFileSync } from "node:fs";
 
 const scenario = process.argv[2] ?? "kitty";
-const COLS = scenario === "desk" ? 200 : 120, ROWS = scenario === "desk" ? 60 : 40;
+process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
+const wide = scenario === "desk" || scenario === "river";
+const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
 const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
@@ -146,6 +149,22 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "river") {
+  app.push(new MainMenu()); app.push(new River());
+  await snap("1-library", 3000);
+  press({ kind: "enter" });                         // Pi Outliner Workboard beside Library
+  await snap("2-opened", 3000);
+  press({ kind: "down" }); press({ kind: "down" }); press({ kind: "down" }); ch(" ");   // replies in place
+  await snap("3-thread", 3000);
+  press({ kind: "enter" }); await Bun.sleep(2500);
+  press({ kind: "enter" }); await Bun.sleep(2500);
+  await snap("4-compressed", 1500);
+  ch("/"); for (const c of "PIE-367") ch(c);
+  await snap("5-palette", 12000);
+  press({ kind: "enter" });
+  await snap("6-jumped", 3000);
+  board.close(); process.exit(0);
+}
 if (scenario === "desk") {
   app.push(new MainMenu()); app.push(new Desk());
   await snap("1-open", 4000);

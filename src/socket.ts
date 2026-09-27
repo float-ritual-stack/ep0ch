@@ -17,6 +17,11 @@ export interface Comment {
   id: string; author: string; body: string; quote: string; at: number; open: boolean;
   replies: { author: string; body: string; at: number }[];
 }
+/** One row of the whole-outline index: everything but the full text. */
+export interface IndexBlock {
+  id: string; parentId: string | null; position: number; title: string; author: string;
+  createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
+}
 export interface OutlineEvent { domain: string; action: string; blockId?: string; sequence: number }
 
 const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
@@ -138,6 +143,26 @@ export class SocketBoard implements Board {
     return pages.flatMap(p => p.entries).map(e => ({
       cursor: e.cursor, block: toMsg(e.block), author: e.author, actor: e.actorId ?? e.author, kind: e.kind, at: Date.parse(e.editedAt),
     })).sort((a, b) => b.at - a.at).slice(0, limit);
+  }
+
+  /** The whole outline without full text (tree.index): parents, properties, titles. ~1 MB for 1.5k blocks. */
+  async index(): Promise<IndexBlock[]> {
+    // Its own connection: the service answers one socket strictly in order, and this call takes seconds.
+    const lane = new SocketBoard(this.path, 90_000);
+    const r = await lane.request<{ blocks: any[] }>("tree.index", {}).finally(() => lane.close());
+    return r.blocks.map(b => ({
+      id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
+      author: b.actorId ?? b.author ?? "?", createdAt: Date.parse(b.createdAt), updatedAt: Date.parse(b.updatedAt),
+      props: Object.fromEntries((b.properties ?? []).map((p: any) => [p.key, p.value])), hasChildren: !!b.hasChildren,
+    }));
+  }
+
+  /** Blocks carrying one property value, newest first (a virtual branch). */
+  async byProp(key: string, value: string, limit = 200): Promise<Msg[]> {
+    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+      query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" } },
+    });
+    return r.blocks.map(b => toMsg(b));
   }
 
   /** Comment threads anchored on a block (open ones first). */

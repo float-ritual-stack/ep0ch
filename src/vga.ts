@@ -20,7 +20,7 @@ function on(code: number, x: number, y: number): boolean {
 export interface Rgba { width: number; height: number; data: Uint8Array }
 
 /** Render rows[top..top+rows) × cols[left..left+cols) to RGBA at native 9×16 pixels per cell. */
-export function rasterize(grid: Cell[][], left: number, top: number, cols: number, rows: number): Rgba {
+export function rasterize(grid: Cell[][], left: number, top: number, cols: number, rows: number, opts: { clearBg?: boolean } = {}): Rgba {
   const width = cols * GLYPH_W, height = rows * GLYPH_H;
   const data = new Uint8Array(width * height * 4);
   for (let cy = 0; cy < rows; cy++) {
@@ -31,8 +31,9 @@ export function rasterize(grid: Cell[][], left: number, top: number, cols: numbe
       for (let gy = 0; gy < GLYPH_H; gy++) {
         let o = ((cy * GLYPH_H + gy) * width + cx * GLYPH_W) * 4;
         for (let gx = 0; gx < GLYPH_W; gx++, o += 4) {
-          const c = on(cell.code, gx, gy) ? f : b;
-          data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = 255;
+          const ink = on(cell.code, gx, gy);
+          const c = ink ? f : b;
+          data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = ink || !opts.clearBg ? 255 : 0;
         }
       }
     }
@@ -66,4 +67,14 @@ export function encodePng(img: Rgba): Buffer {
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", new Uint8Array()),
   ]);
+}
+
+/** Turn an image a quarter clockwise, so text reads top to bottom (CSS vertical-rl). */
+export function rotateCW(img: Rgba): Rgba {
+  const w = img.height, h = img.width, data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const s = (y * img.width + x) * 4, d = (x * w + (w - 1 - y)) * 4;
+    data[d] = img.data[s]!; data[d + 1] = img.data[s + 1]!; data[d + 2] = img.data[s + 2]!; data[d + 3] = img.data[s + 3]!;
+  }
+  return { width: w, height: h, data };
 }

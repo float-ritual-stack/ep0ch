@@ -49,6 +49,23 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 The layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
+## The river
+
+`Q` on the menu, or `bun src/main.ts --river`. Quay's model (built with Grok from an outline export, in
+`~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file:
+
+- **Placement (niri):** `⏎` inserts a column right after its source, or jumps to it if that note is already a column. `alt+⏎` forces a duplicate.
+- **Compression (Andy's notes):** columns get full, peek or spine width by distance from focus; docked (`p`) columns resist. Spine titles are rotated VGA text (Kitty) or stacked letters (cells).
+- **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked pane in the same column; `tab` moves between stacked panes.
+- **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
+- **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
+- **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
+- **Quote** needs write access, so it's not here.
+
+Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
+cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
+from `children`. The layout is saved to `river.json`.
+
 ## What maps to what
 
 | BBS | Outline |
@@ -89,6 +106,7 @@ registration is the one visible side effect: the door appears in `clients.list` 
     bun scripts/snap.ts           # drives the real door against the live outline and writes out/snap-kitty-*.png
     bun scripts/snap.ts cells     # same, cells mode
     bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a pane, dock, search
+    bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,

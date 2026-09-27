@@ -3,7 +3,7 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
-  | { kind: "up" | "down" | "left" | "right" | "enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" }
+  | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" }
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
@@ -98,6 +98,7 @@ export class Term {
         if (k) { this.pending = p.slice(k[0].length); this.keyHandler(key); hit = true; break; }
       }
       if (hit) continue;
+      if (p[0] === "\x1b" && (p[1] === "\r" || p[1] === "\n")) { this.pending = p.slice(2); this.keyHandler({ kind: "alt-enter" }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         const k = p.match(/^\x1b\[[\d;?]*[ -\/]*[@-~]/);
         this.pending = p.slice(k ? k[0].length : 1);
