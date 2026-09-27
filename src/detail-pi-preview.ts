@@ -1,3 +1,4 @@
+import type {ReaderDensity} from "./reader-chrome";
 import { parsePropertyRecords } from "./properties";
 import {documentFolds, revealFoldedLine, type DocumentFold} from './document-folds';
 import type {Block} from "./types";
@@ -183,6 +184,8 @@ interface CachedDetailDraftProjection extends DetailDraftProjection {
 }
 
 export interface DetailPiPreviewOptions {
+  density?(): ReaderDensity;
+  titleInFrame?(): boolean;
   destinationLabel?(): string;
   surfaceLabel?(): string;
   primaryFocused?(): boolean;
@@ -1061,6 +1064,8 @@ class DetailPreviewHeader implements Component {
   render(width: number): string[] {
     const header: DetailHeaderOptions = {
       linkBreadcrumbs: this.linksEnabled,
+      density: this.options.splitActive?.() ? "expanded" : this.options.density?.() ?? "compact",
+      titleInFrame: this.options.titleInFrame?.(),
       propertyKeys: this.options.headerPropertyKeys,
       destinationLabel: this.options.destinationLabel?.(),
     };
@@ -1098,6 +1103,7 @@ class DetailPreviewFooter implements Component {
       "preview",
       this.options.helpText?.() ?? PREVIEW_HELP,
       this.options.chooserHelpText?.(),
+      this.options.splitActive?.() ? "expanded" : this.options.density?.() ?? "compact",
     );
   }
 
@@ -1170,7 +1176,7 @@ export class DetailPiPreviewLayout extends VStack {
   constructor(
     private readonly state: Readonly<DetailState>,
     private readonly markdownTheme: MarkdownTheme,
-    linksEnabled = process.env.HERDR_ENV === "1",
+    private readonly linksEnabled = process.env.HERDR_ENV === "1",
     private readonly requestRender?: () => void,
     private readonly options: DetailPiPreviewOptions = {},
   ) {
@@ -1198,8 +1204,8 @@ export class DetailPiPreviewLayout extends VStack {
       inspectorMarkdown,
       backlinkMarkdown,
       () => state.propertyInspector.presentation === "dedicated",
-      () => Boolean(state.context.selected) && !(options.splitActive?.() ?? false),
-      () => !(options.splitActive?.() ?? false),
+      () => Boolean(state.context.selected) && !(options.splitActive?.() ?? false) && ((options.density?.() ?? "compact") === "expanded" || state.propertyInspector.expanded),
+      () => !(options.splitActive?.() ?? false) && ((options.density?.() ?? "compact") === "expanded" || state.backlinks.expanded),
       (lines,width) => this.highlightBodyFocus(lines,width),
     );
     const scrollView = new ScrollView(body, {
@@ -1210,11 +1216,11 @@ export class DetailPiPreviewLayout extends VStack {
     super([
       {
         component: new DetailPreviewHeader(state, linksEnabled, options),
-        basis: 3,
+        basis: "auto",
         shrink: 0,
       },
       { component: scrollView, grow: 1, shrink: 1, minSize: 1 },
-      { component: new DetailPreviewFooter(state, options), basis: 2, shrink: 0 },
+      { component: new DetailPreviewFooter(state, options), basis: "auto", shrink: 0 },
     ]);
     this.markdown = markdown;
     this.annotationPreview = annotationPreview;
@@ -1223,6 +1229,30 @@ export class DetailPiPreviewLayout extends VStack {
     this.scrollView = scrollView;
     this.body = body;
     this.active = state.mode === "preview";
+  }
+
+  headerHeight(width: number): number {
+    return new DetailPreviewHeader(this.state, this.linksEnabled, this.options).render(width).length;
+  }
+
+  footerHeight(width: number): number {
+    return new DetailPreviewFooter(this.state, this.options).render(width).length;
+  }
+
+  private showInspector(): boolean {
+    return this.state.propertyInspector.presentation === "dedicated" || this.state.propertyInspector.expanded || (this.options.density?.() ?? "compact") === "expanded";
+  }
+
+  private inspectorLines(width: number): string[] {
+    return this.showInspector() ? this.inspectorMarkdown.render(width) : [];
+  }
+
+  private showBacklinks(): boolean {
+    return this.state.backlinks.expanded || (this.options.density?.() ?? "compact") === "expanded";
+  }
+
+  private backlinkLines(width: number): string[] {
+    return this.showBacklinks() ? this.backlinkMarkdown.render(width) : [];
   }
 
   setActive(active: boolean): void {
@@ -1288,9 +1318,26 @@ export class DetailPiPreviewLayout extends VStack {
       this.scrollView.scrollTop >= annotated.mapMarkdownRow(resourceEndRow)
     ) return null;
     const inspector = this.state.context.selected && !(this.options.splitActive?.() ?? false)
-      ? arrangeInlinePreview(annotated.lines,this.inspectorMarkdown.render(contentWidth)) : null;
+      ? arrangeInlinePreview(annotated.lines,this.inspectorLines(contentWidth)) : null;
     return this.readerSourceAnchorAtRow(sourceText,annotated.contentWidth,this.scrollView.scrollTop,
       row=>inspector?.mapAuthoredRow(annotated.mapMarkdownRow(row)) ?? annotated.mapMarkdownRow(row))?.line ?? null;
+  }
+
+  /** Presentation changes must keep the same authored passage at the top. */
+  preserveReadingPosition(width: number, height: number, change: () => void): void {
+    const line = this.sourceLineAtScroll(width);
+    const sourceRow = (): number => {
+      const contentWidth = this.scrollView.getContentWidth(width);
+      const annotated = this.renderAnnotatedWithSourceLineRow(contentWidth, this.renderedLineForSourceLine(line!));
+      const inspector = this.state.context.selected && !(this.options.splitActive?.() ?? false)
+        ? this.inspectorLines(contentWidth) : [];
+      return arrangeInlinePreview(annotated.lines, inspector).mapAuthoredRow(annotated.sourceLineRow);
+    };
+    const offset = line === null ? null : this.scrollView.scrollTop - sourceRow();
+    change();
+    this.syncState(width);
+    this.ensureFocusVisible(width, height);
+    if (offset !== null) this.scrollView.scrollTo(sourceRow() + offset);
   }
 
   /** Locate one visible source line lazily, rather than render every prefix on each pointer event. */
@@ -1332,10 +1379,11 @@ export class DetailPiPreviewLayout extends VStack {
       !(this.options.splitActive?.() ?? false);
     const arrangement = arrangeInlinePreview(
       annotated.lines,
-      inlineInspector ? this.inspectorMarkdown.render(contentWidth) : [],
+      inlineInspector ? this.inspectorLines(contentWidth) : [],
     );
     const sourceLines = sourceText.split(/\r?\n/);
-    const bodyRow = this.scrollView.scrollTop + Math.max(0, viewportRow - 3);
+    if (viewportRow < this.headerHeight(width)) return null;
+    const bodyRow = this.scrollView.scrollTop + viewportRow - this.headerHeight(width);
     const annotatedRow = arrangement.authoredRowAt(bodyRow);
     if (annotatedRow === null) return null;
     const markdownRow = annotated.markdownRowAt(annotatedRow);
@@ -1697,8 +1745,8 @@ export class DetailPiPreviewLayout extends VStack {
         }),
         ...this.bodyRegions,
         ...detailAnnotationRegions(annotationGroups),
-        ...detailPropertyInspectorRegions(this.state),
-        ...detailBacklinkRegions(this.state),
+        ...(this.showInspector() ? detailPropertyInspectorRegions(this.state) : []),
+        ...(this.showBacklinks() ? detailBacklinkRegions(this.state) : []),
       ];
     if (this.options.setRegions) this.options.setRegions(regions);
     else reconcilePreviewRegions(this.state.previewRegions, regions, this.state.document.kind === 'loading' || (this.state.document.kind === 'ready' && this.state.readStatus === 'pending'));
@@ -1801,7 +1849,7 @@ export class DetailPiPreviewLayout extends VStack {
       spans.push({...link,row:annotated.mapMarkdownRow(link.row),column:link.column+contentWidth-annotated.contentWidth});
       this.bodyLinks.set(id,spans);
     }
-    const inspector=this.state.context.selected && !(this.options.splitActive?.()??false)?this.inspectorMarkdown.render(contentWidth):[];
+    const inspector=this.state.context.selected && !(this.options.splitActive?.()??false)?this.inspectorLines(contentWidth):[];
     const arrangement=arrangeInlinePreview(annotated.lines,inspector);
     const row=(region:PreviewRegion):number=>{
       const link=this.bodyLinks.get(region.id)?.[0];
@@ -1837,7 +1885,7 @@ export class DetailPiPreviewLayout extends VStack {
   /** Called by both Pi's layout engine and direct component rendering. */
   ensureFocusVisible(width:number,height?:number):boolean {
     if(height!==undefined){
-      const viewportHeight=Math.max(1,height-5);
+      const viewportHeight=Math.max(1,height-this.headerHeight(width)-this.footerHeight(width));
       if(viewportHeight!==this.scrollView.viewportHeight&&this.state.previewRegions.focusedRegionId){
         this.scheduleFocusedRegionScroll();
       }
@@ -1851,7 +1899,7 @@ export class DetailPiPreviewLayout extends VStack {
     const link=this.bodyLinks.get(this.state.previewRegions.focusedRegionId??"")?.[0];
     if(!link)return changed;
     const contentWidth=this.scrollView.getContentWidth(width);
-    const inspector=this.state.context.selected&&!(this.options.splitActive?.()??false)?this.inspectorMarkdown.render(contentWidth):[];
+    const inspector=this.state.context.selected&&!(this.options.splitActive?.()??false)?this.inspectorLines(contentWidth):[];
     const arrangement=arrangeInlinePreview(this.annotationPreview.render(contentWidth),inspector);
     const row=arrangement.mapAuthoredRow(link.row);
     const before=this.scrollView.scrollTop;
@@ -1909,7 +1957,7 @@ export class DetailPiPreviewLayout extends VStack {
     const contentWidth = this.scrollView.getContentWidth(width);
     const inspectorLines =
       this.state.context.selected && !(this.options.splitActive?.() ?? false)
-        ? this.inspectorMarkdown.render(contentWidth)
+        ? this.inspectorLines(contentWidth)
         : [];
     const renderedDocument = this.renderAnnotatedWithSourceLineRow(
       contentWidth,
@@ -1917,7 +1965,7 @@ export class DetailPiPreviewLayout extends VStack {
     );
     const arrangement = arrangeInlinePreview(renderedDocument.lines, inspectorLines);
     const contentHeight = arrangement.lines.length +
-      1 + this.backlinkMarkdown.render(contentWidth).length;
+      1 + this.backlinkLines(contentWidth).length;
     this.scrollView.updateLayout(contentHeight, this.scrollView.viewportHeight, () => {});
     this.pendingFragmentScroll = false;
     const previousScrollTop = this.scrollView.scrollTop;
@@ -1939,7 +1987,7 @@ export class DetailPiPreviewLayout extends VStack {
     const contentWidth = this.scrollView.getContentWidth(width);
     const inspectorLines =
       this.state.context.selected && !(this.options.splitActive?.() ?? false)
-        ? this.inspectorMarkdown.render(contentWidth)
+        ? this.inspectorLines(contentWidth)
         : [];
     const renderedDocument = this.renderAnnotatedWithSourceLineRow(
       contentWidth,
@@ -1947,7 +1995,7 @@ export class DetailPiPreviewLayout extends VStack {
     );
     const arrangement = arrangeInlinePreview(renderedDocument.lines, inspectorLines);
     const contentHeight = arrangement.lines.length +
-      1 + this.backlinkMarkdown.render(contentWidth).length;
+      1 + this.backlinkLines(contentWidth).length;
     this.scrollView.updateLayout(contentHeight, this.scrollView.viewportHeight, () => {});
     this.pendingAttentionScroll = false;
     const previousScrollTop = this.scrollView.scrollTop;
@@ -1974,12 +2022,12 @@ export class DetailPiPreviewLayout extends VStack {
     const targetRow = panelRow ?? annotated.markerRows.get(regionId);
     if (targetRow === undefined) return false;
     const inspector = this.state.context.selected && !(this.options.splitActive?.() ?? false)
-      ? this.inspectorMarkdown.render(contentWidth)
+      ? this.inspectorLines(contentWidth)
       : [];
     const arrangement = arrangeInlinePreview(annotated.lines, inspector);
     const backlinks = this.options.splitActive?.()
       ? []
-      : this.backlinkMarkdown.render(contentWidth);
+      : this.backlinkLines(contentWidth);
     const contentHeight = arrangement.lines.length +
       (backlinks.length > 0 ? backlinks.length + 1 : 0);
     this.scrollView.updateLayout(
@@ -2006,13 +2054,13 @@ export class DetailPiPreviewLayout extends VStack {
     if (!this.pendingBacklinkSelectionScroll || this.scrollView.viewportHeight <= 0) return false;
 
     const contentWidth = this.scrollView.getContentWidth(width);
-    const selectedLine = this.backlinkMarkdown.render(contentWidth)
+    const selectedLine = this.backlinkLines(contentWidth)
       .findIndex((line) => line.includes("▶ ACTIVE"));
     if (selectedLine < 0) return false;
 
     this.pendingBacklinkSelectionScroll = false;
     const inspector = this.state.context.selected && !(this.options.splitActive?.() ?? false)
-      ? this.inspectorMarkdown.render(contentWidth)
+      ? this.inspectorLines(contentWidth)
       : [];
     const selectedRow =
       arrangeInlinePreview(this.annotationPreview.render(contentWidth), inspector).lines.length +
@@ -2031,14 +2079,14 @@ export class DetailPiPreviewLayout extends VStack {
       this.scrollView.viewportHeight <= 0
     ) return false;
     const contentWidth = this.scrollView.getContentWidth(width);
-    const selectedLine = this.inspectorMarkdown.render(contentWidth)
+    const selectedLine = this.inspectorLines(contentWidth)
       .findIndex((line) => line.includes("▶ "));
     if (selectedLine < 0) {
       this.pendingPropertySelectionScroll = false;
       return false;
     }
     this.pendingPropertySelectionScroll = false;
-    const inspector = this.inspectorMarkdown.render(contentWidth);
+    const inspector = this.inspectorLines(contentWidth);
     const selectedRow =
       this.state.propertyInspector.presentation === "dedicated"
         ? selectedLine

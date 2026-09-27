@@ -755,6 +755,39 @@ Shift-Command-click.
 
 Projected virtual occurrences deliberately constrain hierarchy and collapse. Branch-local sibling reorder changes only that projection; editing and confirmed deletion still target the canonical block.
 
+### Reader layout and menus
+
+Tree, Detail and nested Preview use Compact layout by default. Ordinary reading
+keeps one internal menu row; the current document title appears in the Herdr
+frame when the host supports it. Authored headings remain document content.
+Nested Preview retains its own title and controls without renaming the host.
+
+Use **Note**, **View**, **Links**, **Props** or **[⋯]** for the existing actions and
+their effective shortcuts. **?** opens the full searchable action list. In an
+open menu, Left/Right changes category and Escape returns to the reader. Narrow
+panes keep whole labels and put the remaining actions behind **[⋯]**.
+
+- **View → Expanded layout** restores location, routing and helper rows.
+  **Compact layout** returns the space to the document while retaining the
+  authored reading position.
+- **Location / ancestors** opens navigation through the current ancestry.
+  **Links** contains the linked destination and its Change action.
+- **Props** opens the existing inspector. Tree's **View status** shows counts,
+  workspace, Inbox and projection diagnostics on demand.
+- Drafts, recovery decisions and service failures remain visible. Routine Open
+  receipts expire rather than occupying a permanent footer.
+
+Density is stored on the client host in `view.json` beside the resolved project
+`client.json`, with `OUTLINER_VIEW_PREFERENCES_PATH` as an optional override.
+The file contains `{"density":"compact"}` or `{"density":"expanded"}`; it is
+not note metadata and does not change canonical text. Existing panes keep their
+current choice; new panes load the saved preference.
+
+Application title metadata expires if the reader exits unexpectedly. A custom
+Herdr pane label takes precedence after the next title heartbeat (up to five
+seconds); the reader then keeps its identity inside the menu row. Hosts without
+title reporting use that same in-app fallback.
+
 ### Detail preview
 
 | Key | Action |

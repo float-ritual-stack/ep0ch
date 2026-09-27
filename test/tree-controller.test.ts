@@ -147,6 +147,7 @@ function harness(
     invalidations: 0,
     stops: 0,
     effects: {
+      density: () => "expanded",
       navigation: serviceTreeNavigation({request: input => result.effects.request(input)}, clientId, `${clientId}-context`),
       clientId,
       browsingContextId: `${clientId}-context`,
@@ -3618,6 +3619,14 @@ test("breadcrumbs follow the projected occurrence instead of the canonical stora
   expect(controller.view().breadcrumbs?.map(({rowId,kind})=>[rowId,kind])).toEqual([["hub","physical"],["occurrence:hub:note","occurrence"]]);
   await controller.handleAction("tree.breadcrumb.focus:hub");
   expect(controller.view().root?.rowId).toBe("hub");
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
+  await controller.handleAction("tree.location");
+  const location = controller.view().actionMenuItems!.find(item => item.label === "note")!;
+  expect(location).toBeDefined();
+  await controller.handleAction(location.id);
+  expect(controller.view().mode).toBe("browse");
+  expect(controller.view().root?.rowId).toBe("occurrence:hub:note");
   await controller.handleKeypress("",{name:"left",meta:true},"pass");
   expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
 });

@@ -1,3 +1,4 @@
+import type {ReaderDensity} from "./reader-chrome";
 import {withInternalLinks, stripRenderedLinks, measureRenderedLinks, type RenderedLink} from './rendered-links';
 import {getMarkdownTheme} from '@earendil-works/pi-coding-agent';
 import {truncateToWidth, visibleWidth} from '@earendil-works/pi-tui';
@@ -47,7 +48,8 @@ export function documentPreviewLines(document:DetailReadPreviewDocument,width:nu
   return entry.lines;
 }
 /** Render one allocated document rectangle. All input geometry comes from this frame. */
-export function renderDocumentPreview(preview:DocumentPreviewState,rect:PreviewRect,help:string,toolbar?:string):DocumentPreviewFrame {
+export function renderDocumentPreview(preview:DocumentPreviewState,rect:PreviewRect,help:string,toolbar?:string, density: ReaderDensity = "expanded", menuAction?: string):DocumentPreviewFrame {
+  if (density === "compact") return renderCompactPreview(preview, rect, menuAction);
   const content={...rect,y:rect.y+2,height:Math.max(1,rect.height-3)};
   const rendered=documentPreviewLines(preview.document,content.width);
   const offset=Math.max(0,Math.min(preview.offset,Math.max(0,rendered.length-content.height)));
@@ -68,3 +70,31 @@ export function renderDocumentPreview(preview:DocumentPreviewState,rect:PreviewR
   return {rect,content,lines:lines.slice(0,rect.height).map(line=>shade(line,rect.width)),offset,totalRows:rendered.length,links,controls};
 }
 export function pointInPreview(rect:PreviewRect,column:number,row:number):boolean{return column>=rect.x&&column<rect.x+rect.width&&row>=rect.y&&row<rect.y+rect.height;}
+
+function renderCompactPreview(preview: DocumentPreviewState, rect: PreviewRect, menuAction?: string): DocumentPreviewFrame {
+  const notice = preview.notice ? sanitizeDynamicText(preview.notice) : "";
+  const content = {...rect, y: rect.y + 1, height: Math.max(0, rect.height - 1 - Number(Boolean(notice)))};
+  const rendered = documentPreviewLines(preview.document, content.width);
+  const offset = Math.max(0, Math.min(preview.offset, Math.max(0, rendered.length - content.height)));
+  const controls: NonNullable<DocumentPreviewFrame["controls"]> = [];
+  const actions = [["‹", "preview.back", preview.canBack], ["›", "preview.forward", preview.canForward],
+    ["Open", "preview.open", true], ...(menuAction ? [["⋯", menuAction, true]] : [])] as const;
+  const controlWidth = actions.reduce((sum, [label]) => sum + String(label).length + 2, 0);
+  const titleWidth = Math.max(0, rect.width - controlWidth - 1);
+  let strip = titleWidth ? truncateToWidth(`${preview.focused ? "●" : "○"} Preview · ${sanitizeDynamicText(preview.title)}`, titleWidth) + " " : "";
+  let column = visibleWidth(strip);
+  for (const [label, action, enabled] of actions) {
+    const text = `[${label}]`;
+    if (column + text.length > rect.width) break;
+    if (enabled) controls.push({rect: {x: rect.x + column, y: rect.y, width: text.length, height: 1}, action: String(action)});
+    strip += enabled ? text : `\x1b[2m${text}\x1b[22m`;
+    column += text.length;
+  }
+  const links = documentPreviewLinks(preview.document, content.width)
+    .filter(link => link.row >= offset && link.row < offset + content.height)
+    .map(link => ({uri: link.uri, rect: {x: content.x + link.column, y: content.y + link.row - offset, width: link.width, height: 1}}));
+  const lines = [strip, ...rendered.slice(offset, offset + content.height)];
+  while (lines.length < rect.height - Number(Boolean(notice))) lines.push("");
+  if (notice) lines.push(notice);
+  return {rect, content, lines: lines.slice(0,rect.height).map(line => shade(line,rect.width)), offset, totalRows: rendered.length, links, controls};
+}

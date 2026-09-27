@@ -72,7 +72,17 @@ const result = await runHerdrScenario({
     await session.waitFor("Preview can reopen after Escape", state, c => preview(c, docs[3]!.id));
     await focusDetail(); await terminal.resize(110, 38);
     await session.keys(panes.detail, "alt+p"); await session.waitFor("Preview visibly focused", () => session.visible(panes.detail), frame => frame.includes(ansi ? "Preview ·" : "● Preview"));
-    await (ansi ? session.keys(panes.detail, "alt+enter") : terminal.write("\x1b[13;3u"));
+    const keepPreview = async () => {
+      if (!ansi) return terminal.write("\x1b[13;3u");
+      // The legacy reader's menu must use the same draft protection and
+      // Current/Preview actions as its keyboard path.
+      await session.keys(panes.detail, "?");
+      await session.waitVisible(panes.detail, "Actions ·");
+      await session.text(panes.detail, "Keep Preview here");
+      await session.waitVisible(panes.detail, "Actions · Keep Preview here");
+      await session.keys(panes.detail, "enter");
+    };
+    await keepPreview();
     await session.waitVisible(panes.detail, "Finish or cancel");
     assert.ok(current(await state(), docs[0]!.id));
     await session.keys(panes.detail, "alt+p"); await session.waitVisible(panes.detail, "DRAFT");
@@ -80,7 +90,7 @@ const result = await runHerdrScenario({
     await session.keys(panes.detail, "escape");
     await session.waitFor("Current draft cancelled", state, c => !c.navigationProtection);
     await focusDetail(); await session.keys(panes.detail, "alt+p");
-    await (ansi ? session.keys(panes.detail, "alt+enter") : terminal.write("\x1b[13;3u"));
+    await keepPreview();
     await session.waitFor("Keep promotes Preview", state, c => current(c, docs[3]!.id) && !c.previewTarget);
     assert.equal((await session.client.request<Block>({action: "get", blockId: docs[0]!.id})).text, docs[0]!.text);
     await session.checkpoint("02-narrow-return-and-keep");
@@ -170,11 +180,14 @@ const result = await runHerdrScenario({
       await session.waitVisible(pane, "Preview");
       await session.checkpoint("05-independent-tree-local-preview");
       await session.keys(pane, "escape");
-      await session.waitFor("Tree Escape releases Preview before pointer", session.registrations, values => !values.find(c => c.clientId === independent.clientId)?.previewTarget);
+      await session.waitFor("Escape returns focus to Tree", () => session.visible(pane), frame => frame.includes("● Tree") && !frame.includes("● Preview"));
+      await session.keys(pane, "shift+f7");
+      await session.waitFor("explicit close releases Preview before pointer", session.registrations, values => !values.find(c => c.clientId === independent.clientId)?.previewTarget);
       await session.revealTree(pane, docs[2]!.id);
       await session.focus(pane); await terminal.resize(600, 60);
       const pointerDoc = await session.client.request<Block>({action: "create", text: "TREE POINTER SOURCE\n\nCOPY ONLY PREVIEW TEXT\nSECOND PREVIEW PASSAGE\nTHIRD PREVIEW PASSAGE"});
       await session.revealTree(pane, pointerDoc.id);
+      await session.keys(pane, "alt+shift+p");
       await session.waitVisible(pane, "COPY ONLY PREVIEW TEXT");
       const pointerFrame = await session.waitFor("Tree Preview visible beside hierarchy", terminal.visible, frame => Math.max(...frame.split("\n").map(visibleWidth)) >= 590 && frame.split("\n").some(line => line.includes("COPY ONLY PREVIEW TEXT") && !line.includes("↵")) && frame.includes("TREE POINTER SOURCE"));
       const lines = pointerFrame.split("\n");
@@ -192,8 +205,8 @@ const result = await runHerdrScenario({
       const copies = [...output.matchAll(/\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g)].map(match => Buffer.from(match[1]!, "base64").toString("utf8"));
       await session.record("tree-preview-native-containment", {row, column, beforePointer, afterPointer, beforeSelection, afterSelection, pointerFrame, clipboardTransfers: copies});
       await session.checkpoint("tree-preview-native-drag-contained");
-      await session.keys(pane, "escape");
-      await session.waitFor("Tree Escape releases Preview", session.registrations, values => !values.find(c => c.clientId === independent.clientId)?.previewTarget);
+      await session.keys(pane, "shift+f7");
+      await session.waitFor("Tree close releases Preview", session.registrations, values => !values.find(c => c.clientId === independent.clientId)?.previewTarget);
       await session.closeDetached(pane);
       assert.equal((await session.client.request<Block>({action: "get", blockId: docs[2]!.id})).text, docs[2]!.text);
     }

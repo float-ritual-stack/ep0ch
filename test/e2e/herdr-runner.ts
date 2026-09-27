@@ -65,6 +65,9 @@ export interface HerdrScenarioSession {
   text(paneId: string, text: string): Promise<void>;
   visible(paneId: string): Promise<string>;
   paneSnapshot(paneId: string): Promise<HerdrPaneSnapshot>;
+  panePresentation(paneId: string): Promise<{title?: string; label?: string}>;
+  renamePane(paneId: string, label: string): Promise<void>;
+  swapPanes(source: string, target: string): Promise<void>;
   waitVisible(paneId: string, text: string): Promise<string>;
   waitFor<T>(
     label: string,
@@ -856,6 +859,11 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       panes: ownedPanes,
       database: readonlyDatabase,
       client,
+      async swapPanes(source, target) {
+        requireOwned(source); requireOwned(target);
+        await runHerdr(["pane", "swap", "--source-pane", source, "--target-pane", target]);
+        await artifacts.event("owned-panes-swapped", {source, target});
+      },
       async setKeybindings(bindings) {
         await writeFile(keymapPath, `${JSON.stringify(bindings, null, 2)}\n`);
         await artifacts.event("keybindings-written", { path: keymapPath, bindings });
@@ -1083,7 +1091,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         const tree = await open("outliner", ownedPanes.launcher);
         await poll({ label: "remote Tree first populated frame", timeoutMs: STARTUP_TIMEOUT_MS,
           signal: abort.signal, artifacts, read: () => paneRead(tree, "visible", "text"),
-          accept: text => text.includes("Workspace") && text.includes("physical blocks"),
+          accept: text => text.includes("Workspace") && text.includes("Notes"),
         });
         const firstTreeFrameMs = performance.now() - started;
         const detail = await open("detail", tree);
@@ -1175,6 +1183,16 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         const snapshot = await readHerdrPaneSnapshot(herdrStatus.socket, paneId);
         await artifacts.record(`pane-capture-${safeName(paneId)}`, snapshot);
         return snapshot;
+      },
+      async panePresentation(paneId) {
+        requireOwned(paneId);
+        const pane = recordValue(parseResult((await runHerdr(["pane", "get", paneId])).stdout, "pane_info", "pane presentation").pane, "pane");
+        return {title: optionalString(pane, "title", "pane"), label: optionalString(pane, "label", "pane")};
+      },
+      async renamePane(paneId, label) {
+        requireOwned(paneId);
+        await runHerdr(["pane", "rename", paneId, label]);
+        await artifacts.event("pane_rename", {paneId, label});
       },
       async waitVisible(paneId, text) {
         requireOwned(paneId);

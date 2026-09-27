@@ -135,6 +135,7 @@ export type DetailMode = "preview" | "file" | "annotation" | "edit" | "select" |
 export interface DetailViewport {
   width: number;
   editorWidth?: number;
+  previewBodyHeight?: number;
   height: number;
   editorBody?: Readonly<{ contentWidth: number; height: number }>;
   preview?: Readonly<{
@@ -437,6 +438,7 @@ export function detailResourceDescription(
 }
 
 export interface DetailState {
+  disconnected?: boolean;
   recovery?: EditRecovery;
   recoveryAccepted?: boolean;
   recoveryCount?: number;
@@ -1097,6 +1099,14 @@ export function createDetailController(
   const navigationHistory: DetailNavigationEntry[] = [];
   let navigationIndex = -1;
   let serviceConnected = false;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function routineNotice(message: string): void {
+    state.status = message;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { if (state.status === message) { state.status = ""; emit(); } }, 3_000);
+    noticeTimer.unref();
+  }
+
   let destinationChooser: OpenDestinationChooser | undefined;
   const destinationReferences = new WeakMap<OpenDestinationTarget, OutlinerLinkTarget>();
   let loadGeneration = 0;
@@ -2012,7 +2022,7 @@ export function createDetailController(
         record,
         true,
       );
-      if (successStatus) state.status = successStatus();
+      if (successStatus) routineNotice(successStatus());
       emit();
       if (state.mode === "file" && cached.document.context.selected) {
         await loadFile(cached.document.context.selected);
@@ -2038,7 +2048,7 @@ export function createDetailController(
         cached,
       );
       if (generation !== loadGeneration) return "superseded";
-      if (successStatus) state.status = successStatus();
+      if (successStatus) routineNotice(successStatus());
       if (applied) return "applied";
       return cachedPainted ? "cached" : "unchanged";
     } catch (error) {
@@ -2156,7 +2166,7 @@ export function createDetailController(
           if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
         } else await applyNavigationCommand(dispatched.command);
       }
-      state.status = `Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`;
+      routineNotice(`Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`);
       return true;
     } catch (error) {
       throw error;
@@ -2799,7 +2809,7 @@ export function createDetailController(
       const row = preview?.threadRows.get(annotationId);
       if (viewport && preview && row !== undefined) {
         const lineCount = preview.sourceLines.length + preview.annotationLines.length;
-        state.previewOffset = Math.min(row, Math.max(0, lineCount - Math.max(1, viewport.height - 5)));
+        state.previewOffset = Math.min(row, Math.max(0, lineCount - (viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5))));
         state.propertyInspector.expanded = false;
       }
     }
@@ -3017,7 +3027,7 @@ export function createDetailController(
       ? buildDetailAnnotationView(state, viewport.width).length
       : viewport.preview ? viewport.preview.sourceLines.length + viewport.preview.annotationLines.length
       : state.resolvedSelectedText.split(/\r?\n/).length;
-    const maximum = Math.max(0, lineCount - (state.mode === "annotation" || viewport.preview ? Math.max(1, viewport.height - 5) : 1));
+    const maximum = Math.max(0, lineCount - (state.mode === "annotation" || viewport.preview ? (viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5)) : 1));
     if (direction === "top") state.previewOffset = 0;
     else if (direction === "bottom") state.previewOffset = maximum;
     else {
@@ -3574,9 +3584,9 @@ export function createDetailController(
           "property-inspector",
           state.propertyInspector.expanded,
         );
-        state.status = state.propertyInspector.expanded
+        routineNotice(state.propertyInspector.expanded
           ? "Properties expanded"
-          : "Properties collapsed";
+          : "Properties collapsed");
         break;
       }
       case "property-inspector.pane.open": {
@@ -3744,7 +3754,7 @@ export function createDetailController(
           await loadBacklinks();
           state.status = state.backlinks.error || "Backlinks expanded";
         } else {
-          state.status = "Backlinks collapsed";
+          routineNotice("Backlinks collapsed");
         }
         break;
       case "backlinks.move": {
@@ -4338,6 +4348,7 @@ export function createDetailController(
     async onServiceConnect() {
       markBlockCacheStale();
       serviceConnected = true;
+      state.disconnected = false;
       lastProtection = protection();
       await effects.setNavigationProtection?.(lastProtection);
       await effects.setCurrentTarget(state.target);
@@ -4350,10 +4361,12 @@ export function createDetailController(
     onServiceDisconnect() {
       markBlockCacheStale();
       serviceConnected = false;
+      state.disconnected = true; clearTimeout(noticeTimer);
       state.status = "Workspace service disconnected; reconnecting…";
       emit();
     },
     onServiceError(error) {
+      clearTimeout(noticeTimer);
       state.status = errorMessage(error);
       emit();
     },

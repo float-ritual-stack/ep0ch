@@ -4,6 +4,12 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Compact Tree, Detail and Preview chrome gives rows back to content. Shared
+  searchable menus retain actions and shortcuts, Expanded layout remains
+  available, and document titles use the Herdr frame with a standalone fallback
+  and respect for custom pane labels. Density is a client preference; note text
+  stays unchanged. PIE-385.
+
 - Fold headings and nested list content locally in Pi Detail and Preview. Mouse and keyboard disclosures preserve nested choices, hidden links leave navigation, and fragments or comments reveal their enclosing sections. Copying omits generated arrows without deleting authored glyphs. Fold state never changes canonical text. PIE-386.
 
 - Properties supports direct value copying and link following. Ordinary values copy on click; linked values expose a separate Copy control. Full canonical values survive wrapping, repeated keys stay distinct, and multiple embedded links have individual mouse/keyboard targets. Editing remains explicit. PIE-387.
