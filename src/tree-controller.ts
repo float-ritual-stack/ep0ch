@@ -19,7 +19,7 @@ import {
   serializePropertyFilterValue,
 } from "./block-query";
 import { referencedFilePreview, type FileContents } from "./files";
-import { getProperty } from "./properties";
+import { getProperty, parseProperties } from "./properties";
 import {
   firstOutlinerReference,
   outlinerLinkUri, parseOutlinerLinkUri,
@@ -80,6 +80,7 @@ import {
   isVirtualBranchOccurrence,
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
+  planVirtualChild,
   type PhysicalTreeRow as ProjectedPhysicalRow,
   type TreeRow as ProjectedTreeRow,
   type VirtualBranchOccurrenceRow as ProjectedOccurrenceRow,
@@ -338,6 +339,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
   let indexSequence: number | null = null;
   let quickEditSource: Pick<Block, "id" | "revision"> | null = null;
+  let projectedChildDraft: { parent: VirtualBranchOccurrenceRow; created?: Block; rowId?: (id: string) => string } | null = null;
+  let projectionVisible: TreeIndexBlock[] = [];
+  let projectionRanks: TreeIndexSnapshot["virtualOccurrenceRanks"] = [];
   let physicalRowCount = 0;
   let occurrenceRowCount = 0;
   let workIdPrefix: string | null = null;
@@ -730,6 +734,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     for (const row of projection.rows) {
       if (row.kind === "occurrence" && row.attention && row.hasChildren && !row.collapsed) expandedOccurrenceRowIds.add(row.rowId);
     }
+    projectionVisible = visible;
+    projectionRanks = snapshot.virtualOccurrenceRanks;
     fullRowsById = new Map(projection.rows.map(row=>[row.rowId,row]));
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
     let scope = projection.rows;
@@ -856,6 +862,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function resetQuickEditor(): void {
+    projectedChildDraft = null;
     quickBuffer = new TextBuffer();
     quickEditSource = null;
     quickCompletion = null;
@@ -920,6 +927,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       collapsedBlockIds.delete(selected.canonicalId);
       await reload(selected.rowId);
     }
+    if (nextMode === "add-child" && selected?.kind === "occurrence") {
+      projectedChildDraft = { parent: selected };
+    }
     mode = nextMode;
     if (nextMode === "goto") { goto.start(); return; }
     quickBuffer = new TextBuffer(initial);
@@ -930,7 +940,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   async function commitQuickBlock(): Promise<string | null> {
     const selected = rows[selectedIndex];
-    if (!isBlockTreeRow(selected)) return null;
+    if (!isBlockTreeRow(selected)) {
+      if (projectedChildDraft) throw new Error("The selected occurrence is no longer available; draft retained.");
+      return null;
+    }
     const text = quickInputText();
     if (!text.trim()) return mode === "edit" ? selected.canonicalId : null;
 
@@ -944,6 +957,36 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         mutation: { author: "user", actorId: "tree" },
       });
       return selected.canonicalId;
+    }
+    if (mode === "add-child" && projectedChildDraft) {
+      const draft = projectedChildDraft;
+      if (!draft.created) {
+        // Refresh bounds and identity at commit, not only when the editor opened.
+        await reload(draft.parent.rowId, { exactRowIdOnly: true });
+        const current = rows[selectedIndex];
+        if (current?.rowId !== draft.parent.rowId || current.kind !== "occurrence") {
+          throw new Error("The selected occurrence is no longer available; draft retained. Cancel and reveal source to add there.");
+        }
+        const placement = await projectedChildPlacement(current, text);
+        if ("problem" in placement) throw new Error(placement.problem);
+        draft.rowId = placement.rowId;
+        const created = await effects.request<Block>({
+          action: "create", parentId: draft.parent.canonicalId, text, author: "user",
+        });
+        draft.created = created;
+      }
+      if (draft.created.text !== text) {
+        draft.created = await effects.request<Block>({
+          action: "update", blockId: draft.created.id, expectedRevision: draft.created.revision,
+          text, mutation: { author: "user", actorId: "tree" },
+        });
+      }
+      // Keep the receipt until the move succeeds, so retry cannot create a second child.
+      await effects.request({
+        action: "move", blockId: draft.created.id, parentId: draft.parent.canonicalId, position: 0,
+      });
+      setCollapsed(draft.parent, false);
+      return draft.created.id;
     }
     if (mode === "add-child") {
       const branchState = branchStates.get(selected.canonicalId);
@@ -1158,13 +1201,18 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       preferredRowId?: string;
       recordNavigation?: boolean;
       physicalSource?: boolean;
+      exactOccurrence?: boolean;
     },
   ): Promise<void> {
     const source = navigationEntry(rows[selectedIndex]);
     let visibilityChanged = false;
     if (options?.physicalSource) root = null;
     if (!canonicalId || !options?.physicalSource) {
-      await reload(options?.preferredRowId ?? canonicalId);
+      await reload(options?.preferredRowId ?? canonicalId, { exactRowIdOnly: options?.exactOccurrence });
+      if (options?.exactOccurrence && rows[selectedIndex]?.rowId !== options.preferredRowId) {
+        status = "Child saved, but this projection changed. Reveal source to find it; staying in this view.";
+        return;
+      }
     }
     const currentSelected = rows[selectedIndex];
     if (
@@ -1248,12 +1296,15 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const selected = rows[selectedIndex];
     const editingRowId = mode === "edit" ? selected?.rowId : undefined;
     const committedBlockId = await commitQuickBlock();
+    const occurrenceRowId = projectedChildRowId();
     const fallbackId = isBlockTreeRow(selected) ? selected.canonicalId : null;
     mode = "browse";
     resetQuickEditor();
     await selectVisibleBlock(committedBlockId ?? fallbackId, {
-      preferredRowId: editingRowId,
+      preferredRowId: occurrenceRowId ?? editingRowId,
+      exactOccurrence: !!occurrenceRowId,
     });
+    if (occurrenceRowId && rows[selectedIndex]?.rowId === occurrenceRowId) status = "Added child in this view";
     effects.invalidate();
   }
 
@@ -1404,10 +1455,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     const targetId = committedBlockId ?? selected.canonicalId;
-    const targetRowId = mode === "edit" ? selected.rowId : undefined;
+    const occurrenceRowId = projectedChildRowId();
+    const targetRowId = occurrenceRowId ?? (mode === "edit" ? selected.rowId : undefined);
     mode = "browse";
     resetQuickEditor();
-    await selectVisibleBlock(targetId, { preferredRowId: targetRowId });
+    await selectVisibleBlock(targetId, { preferredRowId: targetRowId, exactOccurrence: !!occurrenceRowId });
     try {
       await effects.navigation.edit(targetId);
       status = `Multiline editor opened in ${effects.navigation.readerLabel}`;
@@ -1610,6 +1662,24 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       ? "Moved up within virtual branch; canonical order unchanged"
       : "Moved down within virtual branch; canonical order unchanged";
     return selected.rowId;
+  }
+
+  function projectedChildRowId(): string | undefined {
+    const draft = projectedChildDraft;
+    return draft?.created ? draft.rowId?.(draft.created.id) : undefined;
+  }
+
+  async function projectedChildPlacement(selected: VirtualBranchOccurrenceRow, text = "") {
+    if (selected.block.effectiveDeletedRootId) return { problem: "Cannot add a child in Trash; restore the parent first." };
+    const parent = physicalBlocksById.get(selected.canonicalId);
+    if (!parent) return { problem: "The canonical parent is no longer available" };
+    const child: TreeIndexBlock = {
+      ...parent, id: crypto.randomUUID(), parentId: parent.id, position: 0,
+      depth: parent.depth + 1, hasChildren: false, properties: parseProperties(text),
+    };
+    return planVirtualChild(selected, child, projectionVisible, [...physicalBlocksById.values()],
+      query => effects.request<TreeIndexCollection>({ action: "tree.query", query }),
+      projectionRanks, { collapsedBlockIds: activeFilter ? uncollapsedPresentationIds : collapsedBlockIds, collapsedOccurrenceRowIds, expandedOccurrenceRowIds, multilineExpandedRowIds });
   }
 
   function occurrenceMutationDisabled(action: string): void {
@@ -2684,15 +2754,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     } else if (str === "a" && selected) {
-      if (isVirtualBranchOccurrence(selected)) {
-        occurrenceMutationDisabled("add-child");
-      } else {
-        const problem = virtualBranchCreationProblem(selected);
-        if (problem) status = problem;
-        else {
-          await beginInput("add-child");
-          return;
-        }
+      const placement = isVirtualBranchOccurrence(selected) ? await projectedChildPlacement(selected) : null;
+      const problem = placement && "problem" in placement ? placement.problem
+        : selected.kind === "physical" ? virtualBranchCreationProblem(selected) : null;
+      if (problem) status = problem;
+      else {
+        await beginInput("add-child");
+        return;
       }
     } else if (str === "s" && selected) {
       if (isVirtualBranchOccurrence(selected)) {
