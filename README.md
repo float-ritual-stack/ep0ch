@@ -20,6 +20,35 @@ slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 
+## The desk
+
+`D` on the menu, or `bun src/main.ts --desk` to skip the logon. The door owns the whole canvas:
+a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
+
+| Pane | What it shows |
+|---|---|
+| outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
+| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow, `u` parent |
+| thread | the current block's children as replies, and its comment threads with quoted passages |
+| last callers · live | `activity.recent`, refreshed on outline events |
+| who's online | `clients.list`, with what each client is reading |
+| bulletin | ep0ch art scaled into the pane (Kitty), `, .` for the next piece |
+
+| Keys | Action |
+|---|---|
+| `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
+| `Ctrl+W` then `h j k l` | focus by direction |
+| `Ctrl+W` then `H J K L` | dock the pane along that whole edge |
+| `Ctrl+W` then `< > + -`, `=` | resize, even out |
+| `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
+| `Ctrl+W` then `o` + `t r h a w b` | add outline / reader / thread / activity / who / bulletin |
+| drag a border | resize |
+| `/` | floating search with preview |
+| `q` / `Esc` | back to the menu |
+
+The layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
+terminal's selection modifier (Shift in Ghostty) to select text.
+
 ## What maps to what
 
 | BBS | Outline |
@@ -59,6 +88,7 @@ registration is the one visible side effect: the door appears in `clients.list` 
     bun run check
     bun scripts/snap.ts           # drives the real door against the live outline and writes out/snap-kitty-*.png
     bun scripts/snap.ts cells     # same, cells mode
+    bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a pane, dock, search
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,

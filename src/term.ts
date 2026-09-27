@@ -3,7 +3,8 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
-  | { kind: "up" | "down" | "left" | "right" | "enter" | "esc" | "backspace" | "tab" | "pgup" | "pgdn" | "home" | "end" };
+  | { kind: "up" | "down" | "left" | "right" | "enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" }
+  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
@@ -22,7 +23,7 @@ export class Term {
     process.stdin.resume();
     process.stdin.on("data", (d: Buffer) => this.feed(d.toString("latin1")));
     process.stdout.on("resize", () => { this.measure(); this.last = []; this.resizeHandler(); });
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J");
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h");
     this.measure();
     const hint = kittyHint();
     await new Promise<void>(resolve => {
@@ -34,7 +35,7 @@ export class Term {
   }
 
   stop(): void {
-    this.write("\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
+    this.write("\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
     process.stdin.setRawMode?.(false);
     process.stdin.pause();
   }
@@ -70,9 +71,17 @@ export class Term {
       if (m) { if (this.probing && /i=31/.test(m[1]!)) { this.probing.kitty = /OK/.test(m[1]!); this.info.kitty = this.probing.kitty; } this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[6;(\d+);(\d+)t/);
       if (m) { this.info.cellH = Number(m[1]); this.info.cellW = Number(m[2]); this.pending = p.slice(m[0].length); continue; }
+      m = p.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
+      if (m) {
+        const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
+        const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
+        this.pending = p.slice(m[0].length);
+        this.keyHandler({ kind: "mouse", action, button: b & 3, x, y });
+        continue;
+      }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
-      if (/^\x1b(\[[\d;?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
+      if (/^\x1b(\[[<\d;?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
         setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
         return;
@@ -80,7 +89,7 @@ export class Term {
       const keys: [RegExp, Key][] = [
         [/^\x1b\[A|^\x1bOA/, { kind: "up" }], [/^\x1b\[B|^\x1bOB/, { kind: "down" }],
         [/^\x1b\[C|^\x1bOC/, { kind: "right" }], [/^\x1b\[D|^\x1bOD/, { kind: "left" }],
-        [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
+        [/^\x1b\[Z/, { kind: "backtab" }], [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
         [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
       ];
       let hit = false;

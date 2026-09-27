@@ -6,14 +6,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { CP437_HIGH } from "../src/ansi";
 import { App } from "../src/app";
-import { Logon } from "../src/screens";
+import { Logon, MainMenu } from "../src/screens";
+import { Desk } from "../src/desk/desk";
 import { SocketBoard } from "../src/socket";
 import type { Key, TermInfo } from "../src/term";
 import { encodePng, GLYPH_H, GLYPH_W } from "../src/vga";
 import { readFileSync } from "node:fs";
 
-const COLS = 120, ROWS = 40;
-const kitty = process.argv[2] !== "cells";
+const scenario = process.argv[2] ?? "kitty";
+const COLS = scenario === "desk" ? 200 : 120, ROWS = scenario === "desk" ? 60 : 40;
+const kitty = scenario !== "cells";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
 const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 
@@ -134,7 +136,7 @@ const info = await board.info();
 const app = new App(fakeTerm as any, board, Date.now() - 6 * 3600_000, () => {});
 app.host = info.host; app.workspace = info.workspace;
 mkdirSync("out", { recursive: true });
-const tag = kitty ? "kitty" : "cells";
+const tag = scenario;
 const snap = async (name: string, wait = 600) => {
   await Bun.sleep(wait);
   app.redraw();
@@ -144,6 +146,23 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "desk") {
+  app.push(new MainMenu()); app.push(new Desk());
+  await snap("1-open", 4000);
+  press({ kind: "down" }); press({ kind: "down" }); press({ kind: "right" });
+  await snap("2-expanded", 3000);
+  press({ kind: "tab" }); press({ kind: "tab" });
+  await snap("3-thread-focus", 1500);
+  press({ kind: "char", ch: "w", ctrl: true }); ch("o"); ch("b");
+  await snap("4-added-art", 1500);
+  press({ kind: "char", ch: "w", ctrl: true }); ch("L");
+  await snap("5-docked-right", 800);
+  ch("/"); for (const c of "PIE-367") ch(c);
+  await snap("6-search", 3500);
+  press({ kind: "enter" });
+  await snap("7-after-search", 3000);
+  board.close(); process.exit(0);
+}
 app.push(new Logon(app));
 await snap("1-logon", 3000);
 press({ kind: "enter" });

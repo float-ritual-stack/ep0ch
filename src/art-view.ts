@@ -55,7 +55,7 @@ export function artBlock(grid: Cell[][], artWidth: number, t: TermInfo, o: ArtVi
 const WHOLE_MAX_ROWS = 400;
 const wholeCache = new WeakMap<Cell[][], { cols: number; img: Rgba }>();
 /** Whole-piece raster, cached per grid; null for very tall pieces (those raster per view). */
-function whole(grid: Cell[][], cols: number): Rgba | null {
+export function whole(grid: Cell[][], cols: number): Rgba | null {
   if (grid.length > WHOLE_MAX_ROWS) return null;
   const hit = wholeCache.get(grid);
   if (hit?.cols === cols) return hit.img;

@@ -3,7 +3,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { App } from "./app";
-import { Logon } from "./screens";
+import { Desk } from "./desk/desk";
+import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
 
@@ -16,7 +17,9 @@ function writeLastCall(at: number) {
   try { mkdirSync(dirname(STATE), { recursive: true }); writeFileSync(STATE, JSON.stringify({ at })); } catch { /* not fatal */ }
 }
 
-const board = new SocketBoard(process.argv[2] ?? DEFAULT_SOCKET);
+const args = process.argv.slice(2);
+const deskFirst = args.includes("--desk");
+const board = new SocketBoard(args.find(a => !a.startsWith("--")) ?? DEFAULT_SOCKET);
 let info;
 try { info = await board.info(); }
 catch (e) {
@@ -39,4 +42,5 @@ app.host = info.host;
 app.workspace = info.workspace;
 board.subscribe(e => app.event(e));
 process.on("SIGTERM", () => app.quit());
-app.push(new Logon(app));
+if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }
+else app.push(new Logon(app));

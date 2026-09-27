@@ -13,6 +13,10 @@ interface WireBlock {
 }
 
 export interface Activity { cursor: number; block: Msg; author: string; actor: string; kind: string; at: number }
+export interface Comment {
+  id: string; author: string; body: string; quote: string; at: number; open: boolean;
+  replies: { author: string; body: string; at: number }[];
+}
 export interface OutlineEvent { domain: string; action: string; blockId?: string; sequence: number }
 
 const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
@@ -134,6 +138,19 @@ export class SocketBoard implements Board {
     return pages.flatMap(p => p.entries).map(e => ({
       cursor: e.cursor, block: toMsg(e.block), author: e.author, actor: e.actorId ?? e.author, kind: e.kind, at: Date.parse(e.editedAt),
     })).sort((a, b) => b.at - a.at).slice(0, limit);
+  }
+
+  /** Comment threads anchored on a block (open ones first). */
+  async comments(blockId: string): Promise<Comment[]> {
+    const threads = await this.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId }, includeResolved: true } });
+    const who = (r: any) => r?.block?.actorId ?? r?.source ?? r?.block?.author ?? "?";
+    const text = (r: any) => String(r?.body ?? r?.block?.text ?? "").trim();
+    const when = (r: any) => Date.parse(r?.block?.createdAt ?? r?.createdAt ?? "") || 0;
+    return threads.map(t => ({
+      id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
+      quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
+      replies: (t.replies ?? []).map((r: any) => ({ author: who(r), body: text(r), at: when(r) })),
+    })).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
   }
 
   /** Register as an observer and stream events. The door then shows up in Who's Online, like any caller. */

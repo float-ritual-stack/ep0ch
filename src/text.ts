@@ -1,0 +1,47 @@
+// Text helpers shared by the BBS screens and the desk panes.
+import { C, fg, RESET, width } from "./style";
+
+export const ago = (ms: number) => {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return `${Math.round(s)}s`;
+  if (s < 5400) return `${Math.round(s / 60)}m`;
+  if (s < 129600) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+};
+export const bbsDate = (ms: number) => {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())}-${String(d.getFullYear()).slice(2)} (${p(d.getHours())}:${p(d.getMinutes())})`;
+};
+
+export function wrap(text: string, w: number): string[] {
+  const out: string[] = [];
+  for (const raw of text.split("\n")) {
+    if (!raw.length) { out.push(""); continue; }
+    let line = "";
+    for (const word of raw.split(/(\s+)/)) {
+      if ([...line].length + [...word].length > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
+      else line += word;
+      while ([...line].length > w) { out.push([...line].slice(0, w).join("")); line = [...line].slice(w).join(""); }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
+export function colourBody(line: string): string {
+  if (/^#{1,6} /.test(line)) return fg(C.white) + line + RESET;
+  if (/^> ?/.test(line)) return fg(C.lgreen) + line + RESET;
+  if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
+  return fg(C.grey) + line
+    .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
+    .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
+    .replace(/\[([\w-]+)::([^\]]*)\]/g, `${fg(C.dark)}[${fg(C.brown)}$1${fg(C.dark)}::${fg(C.yellow)}$2${fg(C.dark)}]${fg(C.grey)}`)
+    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`) + RESET;
+}
+
+export const rule = (w: number, label = "") => {
+  const l = label ? `${fg(C.blue)}──(${fg(C.lcyan)} ${label} ${fg(C.blue)})` : "";
+  return fg(C.blue) + l + "─".repeat(Math.max(0, w - width(l))) + RESET;
+};

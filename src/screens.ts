@@ -9,53 +9,10 @@ import type { Activity } from "./socket";
 import { bg, C, center, fg, pad, paint, RESET, width } from "./style";
 import type { Key } from "./term";
 import { heatmap } from "./stats";
+import { Desk } from "./desk/desk";
+import { ago, bbsDate, colourBody, rule, wrap } from "./text";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-const ago = (ms: number) => {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 90) return `${Math.round(s)}s`;
-  if (s < 5400) return `${Math.round(s / 60)}m`;
-  if (s < 129600) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
-};
-const bbsDate = (ms: number) => {
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())}-${String(d.getFullYear()).slice(2)} (${p(d.getHours())}:${p(d.getMinutes())})`;
-};
-
-function wrap(text: string, w: number): string[] {
-  const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    if (!raw.length) { out.push(""); continue; }
-    let line = "";
-    for (const word of raw.split(/(\s+)/)) {
-      if ([...line].length + [...word].length > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
-      else line += word;
-      while ([...line].length > w) { out.push([...line].slice(0, w).join("")); line = [...line].slice(w).join(""); }
-    }
-    out.push(line);
-  }
-  return out;
-}
-
-/** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
-function colourBody(line: string): string {
-  if (/^#{1,6} /.test(line)) return fg(C.white) + line + RESET;
-  if (/^> ?/.test(line)) return fg(C.lgreen) + line + RESET;
-  if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
-  return fg(C.grey) + line
-    .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
-    .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
-    .replace(/\[([\w-]+)::([^\]]*)\]/g, `${fg(C.dark)}[${fg(C.brown)}$1${fg(C.dark)}::${fg(C.yellow)}$2${fg(C.dark)}]${fg(C.grey)}`)
-    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`) + RESET;
-}
-
-const rule = (w: number, label = "") => {
-  const l = label ? `${fg(C.blue)}──(${fg(C.lcyan)} ${label} ${fg(C.blue)})` : "";
-  return fg(C.blue) + l + "─".repeat(Math.max(0, w - width(l))) + RESET;
-};
 
 const nav = (k: Key, len: number, i: number, page: number) => {
   if (k.kind === "up" || (k.kind === "char" && k.ch === "k")) return Math.max(0, i - 1);
@@ -165,7 +122,7 @@ const ITEMS: MenuItem[] = [
   { key: "S", label: "Stats", open: () => new Stats() },
   { key: "/", label: "Search", open: () => new Search() },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
-  { key: "V", label: "Video", open: ctx => { ctx.cycleVideo(); return null; } },
+  { key: "D", label: "Desk", open: () => new Desk() },
   { key: "?", label: "Help", open: () => new Help() },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
 ];
@@ -208,6 +165,7 @@ export class MainMenu implements Screen {
     else if (k.kind === "down" || k.kind === "tab") this.sel = (this.sel + 1) % ITEMS.length;
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
     else if (k.kind === "esc") return ctx.push(new Goodbye());
+    else if (k.kind === "char" && k.ch.toUpperCase() === "V") { ctx.cycleVideo(); return; }
     else if (k.kind === "char") {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) { this.sel = hit; return this.open(ITEMS[hit]!, ctx); }
@@ -312,7 +270,7 @@ export class Reader implements Screen {
     const header = [
       paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${m.props["work-id"] ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
       paint(`|09  To: |07${"ALL".padEnd(24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
-      paint(`|09From: |14${(m.author ?? "?").padEnd(24)}|09Reply: |07${this.replies === null ? "…" : this.replies}`),
+      paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${this.replies === null ? "…" : this.replies}`),
       paint(`|09Subj: |15${subject(m).slice(0, w - 30)}`) ,
       paint(`|09Conf: |11${pad(this.crumbs ?? "…", w - 7)}`),
       paint(`|09Stat: |13${status.toUpperCase()}`),
@@ -608,7 +566,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", "/": "substring search across the board", B: "the ep0ch menu by shypht, 1997",
-  V: "cycle video mode", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live panes you tile yourself", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 
 export class Goodbye implements Screen {
