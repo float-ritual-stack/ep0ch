@@ -1450,6 +1450,19 @@ export class OutlinerServer {
           }
           result = this.listClients(request.role);
           break;
+        case "working-selection.get":
+          result = this.store.workingSelections.get(request.ownerClientId);
+          break;
+        case "working-selection.save":
+          result = this.store.workingSelections.save(request.input);
+          break;
+        case "working-selection.recoverable":
+          result = this.store.workingSelections.recoverable(request.ownerClientId, this.listClients().map(client => client.clientId));
+          break;
+        case "working-selection.resume":
+          result = this.store.workingSelections.resume(request.ownerClientId, request.selectionId, request.expectedRevision,
+            this.listClients().map(client => client.clientId));
+          break;
         case "clients.update":
           result = this.updateClient(request.clientId, request);
           break;

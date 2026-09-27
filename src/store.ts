@@ -1,5 +1,6 @@
 import {parseVirtualBranchConfig} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
+import {WorkingSelectionRepository} from "./working-selection";
 import type {VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
@@ -539,6 +540,7 @@ export class OutlinerStore {
   readonly workspaceRoot: string;
   readonly resources: ResourceCatalog;
   readonly annotations: AnnotationRepository;
+  readonly workingSelections: WorkingSelectionRepository;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -549,6 +551,7 @@ export class OutlinerStore {
       this.database = database = new Database(path, { create: true });
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
       this.migrate();
+      this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         ...resourceOptions,

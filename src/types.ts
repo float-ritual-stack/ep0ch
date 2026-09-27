@@ -1226,6 +1226,32 @@ export interface BacklinkCollection {
   completeness: BlockCollectionCompleteness;
 }
 
+export interface WorkingSelectionTarget {
+  blockId: string;
+  rowId: string;
+  viewId?: string;
+  parentRowId?: string | null;
+}
+
+export interface WorkingSelection {
+  id: string;
+  ownerClientId: string;
+  revision: number;
+  updatedAt: string;
+  targets: WorkingSelectionTarget[];
+}
+
+export interface WorkingSelectionSaveInput {
+  ownerClientId: string;
+  expected: {id: string; revision: number} | null;
+  targets: WorkingSelectionTarget[];
+}
+
+export interface WorkingSelectionRecovery {
+  selections: WorkingSelection[];
+  completeness: BlockCollectionCompleteness;
+}
+
 export interface VirtualBranchOrder {
   viewId: string;
   viewRevision: number;
@@ -1642,6 +1668,10 @@ export type OutlinerRequest =
       orderedBlockIds: string[];
     }
   | { id: string; action: "virtual.occurrences.order"; viewId: string }
+  | { id: string; action: "working-selection.get"; ownerClientId: string }
+  | { id: string; action: "working-selection.save"; input: WorkingSelectionSaveInput }
+  | { id: string; action: "working-selection.recoverable"; ownerClientId: string }
+  | { id: string; action: "working-selection.resume"; ownerClientId: string; selectionId: string; expectedRevision: number }
   | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput }
   | { id: string; action: "references.resolve"; text: string }
   | { id: string; action: "references.backlinks"; query: BacklinkQuery }
