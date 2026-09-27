@@ -1146,7 +1146,7 @@ presentation-only; ordinary and projected rows continue to read the same
 canonical parsed properties.
 
 Matches appear as disposable `◇` root occurrences. Each matched root also projects
-its canonical descendants as read-only context through relative depth 2 by default.
+its canonical descendants as contextual rows through relative depth 2 by default.
 `[child-depth::0]` shows matches only, `1` adds their children, and `2` adds
 children and grandchildren; integers through `8` are supported within the row budget.
 `[expanded::false]` starts matched roots collapsed; `true` starts them expanded.
@@ -1162,6 +1162,15 @@ has independent, ephemeral disclosure; `Left` and `Right` navigate its projected
 parent/children without changing canonical text or storage. A canonical block may
 therefore appear beneath a matched ancestor and independently as a matched root,
 and may still appear in multiple branches.
+
+In Tree, **Add child** (`a`, also in `?`) on a projected result creates a
+canonical first child under that result and selects it in the same occurrence.
+Only the selected occurrence opens; other collapsed results stay collapsed.
+The child does not need to match the view's query. Depth or row-budget limits
+are checked before creation and again on save; a refusal offers Reveal source
+(`Shift+R`) or changing the view bounds. Nested definition rows whose canonical
+children cannot be projected are refused rather than creating an invisible child.
+Adding siblings and indenting/outdenting projected rows remain disabled.
 
 Each branch reserves its bounded, deduplicated roots before allocating contextual
 descendants in root/canonical-preorder order. Unsorted branches apply persisted

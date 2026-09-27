@@ -1,3 +1,4 @@
+import { OutlinerStore } from "../src/store";
 import {initTheme} from "@earendil-works/pi-coding-agent";
 initTheme(undefined,false);
 import {renderTreeFrame} from "../src/tree-renderer";
@@ -3226,7 +3227,89 @@ describe("createTreeController", () => {
     expect(controller.view().actionMenuItems?.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
   });
 
-  test("keeps occurrence hierarchy effects disabled and left selects its definition", async () => {
+  test("projected child commit rechecks changed bounds without discarding the draft", async () => {
+    const store = new OutlinerStore(":memory:");
+    try {
+      const card = store.create("Card\n[fixture::child]");
+      const definition = store.create("View\n[type::virtual-branch] [query::fixture=child] [child-depth::1]");
+      const fake = harness(() => undefined);
+      const fallback = fake.effects.request;
+      fake.effects.request = async <T>(input: RequestInput): Promise<T> => {
+        if (input.action === "tree.index") return store.readTreeIndex(input.view) as T;
+        if (input.action === "tree.query") return store.queryTree(input.query) as T;
+        if (input.action === "get") return store.get(input.blockId) as T;
+        return fallback(input);
+      };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.revealBlock(definition.id);
+      await controller.handleKeypress("", { name: "down" }, "pass");
+      await controller.handleKeypress("a", { name: "a" }, "pass");
+      await controller.handleKeypress("Feedback", {}, "pass");
+      store.update(definition.id, definition.text.replace("child-depth::1", "child-depth::0"), definition.revision);
+      await expect(controller.handleKeypress("", { name: "return" }, "pass")).rejects.toThrow("child-depth 0");
+      expect(store.children(card.id)).toEqual([]);
+      expect(controller.view().mode).toBe("add-child");
+      expect(controller.view().quickInput).toBe("Feedback");
+      expect(fake.calls.some(input => input.action === "create")).toBe(false);
+    } finally { store.close(); }
+  });
+
+  test("projected definition creates its own child and retries a failed move without duplicating it", async () => {
+    const store = new OutlinerStore(":memory:");
+    try {
+      const unrelated = store.create("Creation destination");
+      const card = store.create(`Inner view\n[type::virtual-branch] [query::fixture=absent] [fixture::child] [create::fixture=absent] [create-parent::${unrelated.id}]`);
+      const definition = store.create("Outer view\n[type::virtual-branch] [query::fixture=child] [child-depth::1] [expanded::false]");
+      const fake = harness(() => undefined);
+      const fallback = fake.effects.request;
+      let moves = 0;
+      fake.effects.request = async <T>(input: RequestInput): Promise<T> => {
+        if (input.action === "tree.index") return store.readTreeIndex(input.view) as T;
+        if (input.action === "tree.query") return store.queryTree(input.query) as T;
+        if (input.action === "get") return store.get(input.blockId) as T;
+        if (input.action === "create") return store.create(input.text, input.parentId, input.author) as T;
+        if (input.action === "update") return store.update(input.blockId, input.text, input.expectedRevision) as T;
+        if (input.action === "move") {
+          if (++moves === 1) throw new Error("Transient move failure");
+          return store.move(input.blockId, input.parentId, input.position) as T;
+        }
+        return fallback(input);
+      };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.revealBlock(definition.id);
+      await controller.handleKeypress("", { name: "down" }, "pass");
+      await controller.handleKeypress("a", { name: "a" }, "pass");
+      await controller.handleKeypress("Feedback", {}, "pass");
+      await expect(controller.handleKeypress("", { name: "return" }, "pass")).rejects.toThrow("Transient move failure");
+      const created = store.children(card.id)[0]!;
+      expect(created.text).toBe("Feedback");
+      await controller.handleKeypress(" revised", {}, "pass");
+      await controller.handleKeypress("", { name: "return" }, "pass");
+      expect(store.children(card.id).map(b => [b.id, b.text])).toEqual([[created.id, "Feedback revised"]]);
+      expect(store.children(unrelated.id)).toEqual([]);
+      expect(selectedBlockRow(controller).rowId).toBe(`occurrence:${definition.id}:${card.id}:${created.id}`);
+    } finally { store.close(); }
+  });
+
+  test("a full virtual row budget refuses child creation before opening input", async () => {
+    const definition = block("view", { properties: [{ key: "type", value: "virtual-branch" }, { key: "query", value: "fixture=child" }, { key: "limit", value: "1000" }] });
+    const cards = Array.from({ length: 1000 }, (_, i) => block(`card-${i}`, { properties: [{ key: "fixture", value: "child" }] }));
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([definition, ...cards], definition);
+      if (input.action === "tree.query") return { blocks: cards, completeness: { kind: "complete" } };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().status).toContain("row budget");
+    expect(fake.calls.some(input => input.action === "create")).toBe(false);
+  });
+
+  test("keeps occurrence sibling and indent effects disabled and left selects its definition", async () => {
     const definition = block("view", {
       properties: [
         { key: "type", value: "virtual-branch" },
@@ -3250,7 +3333,6 @@ describe("createTreeController", () => {
 
     await controller.handleKeypress("", { name: "right" }, "pass");
     await controller.handleKeypress("", { name: "space" }, "pass");
-    await controller.handleKeypress("a", { name: "a" }, "pass");
     await controller.handleKeypress("s", { name: "s" }, "pass");
     await controller.handleKeypress("", { name: "tab" }, "pass");
     await controller.handleKeypress("", { name: "tab", shift: true }, "pass");

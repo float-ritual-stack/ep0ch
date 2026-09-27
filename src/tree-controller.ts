@@ -80,6 +80,8 @@ import {
   isVirtualBranchOccurrence,
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
+  VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH,
+  VIRTUAL_BRANCH_MAX_ROWS,
   type PhysicalTreeRow as ProjectedPhysicalRow,
   type TreeRow as ProjectedTreeRow,
   type VirtualBranchOccurrenceRow as ProjectedOccurrenceRow,
@@ -338,6 +340,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
   let indexSequence: number | null = null;
   let quickEditSource: Pick<Block, "id" | "revision"> | null = null;
+  let projectedChildDraft: { parent: VirtualBranchOccurrenceRow; created?: Block } | null = null;
   let physicalRowCount = 0;
   let occurrenceRowCount = 0;
   let workIdPrefix: string | null = null;
@@ -856,6 +859,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function resetQuickEditor(): void {
+    projectedChildDraft = null;
     quickBuffer = new TextBuffer();
     quickEditSource = null;
     quickCompletion = null;
@@ -920,6 +924,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       collapsedBlockIds.delete(selected.canonicalId);
       await reload(selected.rowId);
     }
+    if (nextMode === "add-child" && selected?.kind === "occurrence") {
+      projectedChildDraft = { parent: selected };
+    }
     mode = nextMode;
     if (nextMode === "goto") { goto.start(); return; }
     quickBuffer = new TextBuffer(initial);
@@ -930,7 +937,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   async function commitQuickBlock(): Promise<string | null> {
     const selected = rows[selectedIndex];
-    if (!isBlockTreeRow(selected)) return null;
+    if (!isBlockTreeRow(selected)) {
+      if (projectedChildDraft) throw new Error("The selected occurrence is no longer available; draft retained.");
+      return null;
+    }
     const text = quickInputText();
     if (!text.trim()) return mode === "edit" ? selected.canonicalId : null;
 
@@ -944,6 +954,35 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         mutation: { author: "user", actorId: "tree" },
       });
       return selected.canonicalId;
+    }
+    if (mode === "add-child" && projectedChildDraft) {
+      const draft = projectedChildDraft;
+      if (!draft.created) {
+        // Refresh bounds and identity at commit, not only when the editor opened.
+        await reload(draft.parent.rowId, { exactRowIdOnly: true });
+        const current = rows[selectedIndex];
+        if (current?.rowId !== draft.parent.rowId || current.kind !== "occurrence") {
+          throw new Error("The selected occurrence is no longer available; draft retained. Cancel and reveal source to add there.");
+        }
+        const problem = projectedChildProblem(current);
+        if (problem) throw new Error(problem);
+        const created = await effects.request<Block>({
+          action: "create", parentId: draft.parent.canonicalId, text, author: "user",
+        });
+        draft.created = created;
+      }
+      if (draft.created.text !== text) {
+        draft.created = await effects.request<Block>({
+          action: "update", blockId: draft.created.id, expectedRevision: draft.created.revision,
+          text, mutation: { author: "user", actorId: "tree" },
+        });
+      }
+      // Keep the receipt until the move succeeds, so retry cannot create a second child.
+      await effects.request({
+        action: "move", blockId: draft.created.id, parentId: draft.parent.canonicalId, position: 0,
+      });
+      setCollapsed(draft.parent, false);
+      return draft.created.id;
     }
     if (mode === "add-child") {
       const branchState = branchStates.get(selected.canonicalId);
@@ -1158,13 +1197,18 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       preferredRowId?: string;
       recordNavigation?: boolean;
       physicalSource?: boolean;
+      exactOccurrence?: boolean;
     },
   ): Promise<void> {
     const source = navigationEntry(rows[selectedIndex]);
     let visibilityChanged = false;
     if (options?.physicalSource) root = null;
     if (!canonicalId || !options?.physicalSource) {
-      await reload(options?.preferredRowId ?? canonicalId);
+      await reload(options?.preferredRowId ?? canonicalId, { exactRowIdOnly: options?.exactOccurrence });
+      if (options?.exactOccurrence && rows[selectedIndex]?.rowId !== options.preferredRowId) {
+        status = "Child saved, but this projection changed. Reveal source to find it; staying in this view.";
+        return;
+      }
     }
     const currentSelected = rows[selectedIndex];
     if (
@@ -1248,11 +1292,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const selected = rows[selectedIndex];
     const editingRowId = mode === "edit" ? selected?.rowId : undefined;
     const committedBlockId = await commitQuickBlock();
+    const occurrenceRowId = projectedChildRowId();
     const fallbackId = isBlockTreeRow(selected) ? selected.canonicalId : null;
     mode = "browse";
     resetQuickEditor();
     await selectVisibleBlock(committedBlockId ?? fallbackId, {
-      preferredRowId: editingRowId,
+      preferredRowId: occurrenceRowId ?? editingRowId,
+      exactOccurrence: !!occurrenceRowId,
     });
     effects.invalidate();
   }
@@ -1404,10 +1450,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     const targetId = committedBlockId ?? selected.canonicalId;
-    const targetRowId = mode === "edit" ? selected.rowId : undefined;
+    const occurrenceRowId = projectedChildRowId();
+    const targetRowId = occurrenceRowId ?? (mode === "edit" ? selected.rowId : undefined);
     mode = "browse";
     resetQuickEditor();
-    await selectVisibleBlock(targetId, { preferredRowId: targetRowId });
+    await selectVisibleBlock(targetId, { preferredRowId: targetRowId, exactOccurrence: !!occurrenceRowId });
     try {
       await effects.navigation.edit(targetId);
       status = `Multiline editor opened in ${effects.navigation.readerLabel}`;
@@ -1610,6 +1657,41 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       ? "Moved up within virtual branch; canonical order unchanged"
       : "Moved down within virtual branch; canonical order unchanged";
     return selected.rowId;
+  }
+
+  function projectedChildRowId(): string | undefined {
+    if (!projectedChildDraft?.created) return undefined;
+    const { parent, created } = projectedChildDraft;
+    const prefix = parent.rowId.slice(0, parent.rowId.lastIndexOf("occurrence:"));
+    return `${prefix}occurrence:${parent.viewId}:${parent.matchRootCanonicalId}:${created.id}`;
+  }
+
+  function projectedChildProblem(selected: VirtualBranchOccurrenceRow): string | null {
+    const route = "Use Reveal source (Shift+R) to add there, or adjust this view.";
+    if (selected.block.effectiveDeletedRootId) return `Cannot add a child in Trash. ${route}`;
+    if (selected.relativeDepth > 0 && isVirtualBranchDefinition(selected.block)) {
+      return `This nested definition projects its query rather than canonical children. ${route}`;
+    }
+    const fullSelected = fullRowsById.get(selected.rowId) ?? selected;
+    let ancestor: TreeRow | undefined = fullSelected;
+    while (ancestor?.kind === "occurrence") {
+      const state = branchStates.get(ancestor.viewId);
+      if (!state?.config || state.queryError) return `Virtual branch is unavailable. ${route}`;
+      const depth = ancestor.relativeDepth + fullSelected.depth - ancestor.depth + 1;
+      const limit = state.config.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH;
+      if (depth > limit) return `Add child exceeds this view's child-depth ${limit}. ${route}`;
+      if (state.truncation.budget || state.count + state.descendantCount >= VIRTUAL_BRANCH_MAX_ROWS) {
+        return `Add child exceeds this view's row budget. ${route}`;
+      }
+      const parent = fullRowsById.get(ancestor.parentRowId);
+      if (parent?.kind === "physical") {
+        const projected = [...fullRowsById.values()].filter(row => row.kind === "occurrence" &&
+          (row.rowId.startsWith(`occurrence:${parent.canonicalId}:`)));
+        if (projected.length >= VIRTUAL_BRANCH_MAX_ROWS) return `Add child exceeds this view's row budget. ${route}`;
+      }
+      ancestor = parent;
+    }
+    return null;
   }
 
   function occurrenceMutationDisabled(action: string): void {
@@ -2684,15 +2766,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     } else if (str === "a" && selected) {
-      if (isVirtualBranchOccurrence(selected)) {
-        occurrenceMutationDisabled("add-child");
-      } else {
-        const problem = virtualBranchCreationProblem(selected);
-        if (problem) status = problem;
-        else {
-          await beginInput("add-child");
-          return;
-        }
+      const problem = isVirtualBranchOccurrence(selected)
+        ? projectedChildProblem(selected)
+        : virtualBranchCreationProblem(selected);
+      if (problem) status = problem;
+      else {
+        await beginInput("add-child");
+        return;
       }
     } else if (str === "s" && selected) {
       if (isVirtualBranchOccurrence(selected)) {
