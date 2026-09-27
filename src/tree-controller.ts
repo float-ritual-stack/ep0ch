@@ -2220,6 +2220,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           if (kind === "before" || kind === "after") {
             const reason = selectionRankReason(); if (reason) throw Error(reason);
             await reload(origin);
+            const refreshedReason = selectionRankReason(); if (refreshedReason) throw Error(refreshedReason);
             placementMenu = kind; selectionMenu = true; locationMenu = null; destinationMenu = null;
             actionMenuReturnMode = "browse"; mode = "action-menu"; updateActionMenuQuery(""); effects.invalidate(); return;
           }

@@ -96,6 +96,24 @@ test('filter controls preserve an open writing draft',async()=>{
  await c.handleAction('tree.selection.place:before:'+f.items[0]!.id);expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
 });
 
+test('filtered date-sorted branches explain unavailable placement before opening an anchor picker',async()=>{
+ const f=await fixture();
+ await f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.branch.revision,text:f.branch.text+' [sort::updated]'});
+ const c=await f.open('sorted');await c.handleRowClick(f.branch.id);
+ await c.handleKeypress('/',{},'pass');await c.handlePaste('DEM-37');await c.handleKeypress('',{name:'return'},'pass');
+ await c.handleKeypress('x',{name:'x'},'pass');
+ await c.handleAction('tree.selection.move-before');
+ expect(c.mode).toBe('browse');expect(c.view().status).toContain('manual reorder is disabled');
+ await c.handleAction('tree.selection.place:after:'+f.items[71]!.id);
+ expect(c.view().status).toContain('manual reorder is disabled');
+ await c.handleAction('tree.reorder.up');expect(c.view().status).toContain('manual reorder is disabled');
+ await f.notify(c,()=>f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.store.get(f.branch.id)!.revision,text:f.branch.text}));
+ await c.handleAction('tree.selection.inspect');expect(c.mode).toBe('action-menu');
+ await f.notify(c,()=>f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.store.get(f.branch.id)!.revision,text:f.branch.text+' [sort::updated]'}));
+ await c.handleAction('tree.selection.move-after');
+ expect(c.mode).toBe('browse');expect(c.view().status).toContain('manual reorder is disabled');
+});
+
 test('branch search is independent of a prior property query and restores that query on Clear',async()=>{
  const f=await fixture();
  const parent=f.store.create('Parent [group::folder]');const child=f.store.create('copper teapot',parent.id);
