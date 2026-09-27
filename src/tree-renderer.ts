@@ -501,7 +501,17 @@ export function renderTreeFrame(
     : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));
   }
   const headerHeight = output.length;
-  const compactFooter = view.recoveryHelp ? 2 : view.recoveryStatus || view.status ? 1 : 0;
+  const selectedRow = view.rows[view.selectedIndex];
+  const selectedBranchState =
+    selectedRow?.kind === "physical"
+      ? view.branchStates.get(selectedRow.canonicalId)
+      : undefined;
+  // Compact browse omits routine branch detail but must keep failures visible.
+  const compactStatus = view.recoveryStatus || view.status ||
+    (selectedBranchState && (selectedBranchState.configurationErrors.length > 0 || selectedBranchState.queryError)
+      ? branchStatusText(selectedBranchState)
+      : "");
+  const compactFooter = view.recoveryHelp ? 2 : compactStatus ? 1 : 0;
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
   const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
@@ -804,18 +814,13 @@ export function renderTreeFrame(
   }
   while (output.length < height - footerHeight) output.push("");
   if (compact && view.mode === "browse") {
-    if (compactFooter) output.push(truncateToWidth(sanitizeDynamicText(view.recoveryStatus || view.status), width));
+    if (compactFooter) output.push(truncateToWidth(sanitizeDynamicText(compactStatus), width));
     if (view.recoveryHelp) output.push(truncateToWidth(view.recoveryHelp, width));
     const selected = selectedExpandedInfo.current;
     return {frame: clear + output.slice(0,height).join("\n"), scrollStartEntryIndex, mouseTargets,
       expandedPage: selected ? {rowId: view.rows[view.selectedIndex]!.rowId, pageSize:bodyHeight,totalRows:selected.total,offset:selected.offset} : null};
   }
 
-  const selectedRow = view.rows[view.selectedIndex];
-  const selectedBranchState =
-    selectedRow?.kind === "physical"
-      ? view.branchStates.get(selectedRow.canonicalId)
-      : undefined;
   const selectedInfo = selectedExpandedInfo.current;
   const expandedScrollable = selectedInfo !== null && selectedInfo.total > bodyHeight;
   const expandedStatus = expandedScrollable

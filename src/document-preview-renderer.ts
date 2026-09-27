@@ -77,17 +77,19 @@ function renderCompactPreview(preview: DocumentPreviewState, rect: PreviewRect, 
   const rendered = documentPreviewLines(preview.document, content.width);
   const offset = Math.max(0, Math.min(preview.offset, Math.max(0, rendered.length - content.height)));
   const controls: NonNullable<DocumentPreviewFrame["controls"]> = [];
-  const actions = [["‹", "preview.back", preview.canBack], ["›", "preview.forward", preview.canForward],
-    ["Open", "preview.open", true], ...(menuAction ? [["⋯", menuAction, true]] : [])] as const;
+  // Unavailable history controls are omitted so they never take title space.
+  const actions = ([["‹", "preview.back", preview.canBack], ["›", "preview.forward", preview.canForward],
+    ["Open", "preview.open", true], ...(menuAction ? [["⋯", menuAction, true]] : [])] as const)
+    .filter(([, , enabled]) => enabled);
   const controlWidth = actions.reduce((sum, [label]) => sum + String(label).length + 2, 0);
   const titleWidth = Math.max(0, rect.width - controlWidth - 1);
   let strip = titleWidth ? truncateToWidth(`${preview.focused ? "●" : "○"} Preview · ${sanitizeDynamicText(preview.title)}`, titleWidth) + " " : "";
   let column = visibleWidth(strip);
-  for (const [label, action, enabled] of actions) {
+  for (const [label, action] of actions) {
     const text = `[${label}]`;
     if (column + text.length > rect.width) break;
-    if (enabled) controls.push({rect: {x: rect.x + column, y: rect.y, width: text.length, height: 1}, action: String(action)});
-    strip += enabled ? text : `\x1b[2m${text}\x1b[22m`;
+    controls.push({rect: {x: rect.x + column, y: rect.y, width: text.length, height: 1}, action: String(action)});
+    strip += text;
     column += text.length;
   }
   const links = documentPreviewLinks(preview.document, content.width)

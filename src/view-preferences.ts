@@ -10,11 +10,15 @@ export class ViewPreferences {
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.path = env.OUTLINER_VIEW_PREFERENCES_PATH?.trim() || join(dirname(resolveClientConfigPath(env)), "view.json");
-    const record = this.read();
-    if (record.density !== undefined && record.density !== "compact" && record.density !== "expanded") {
-      throw new Error(`Invalid density in ${this.path}: expected compact or expanded`);
+    // A bad preference file must not stop the reader; report it and keep Compact.
+    try {
+      const {density} = this.read();
+      if (density === "compact" || density === "expanded") this.density = density;
+      else if (density !== undefined) throw new Error(`Invalid density in ${this.path}: expected compact or expanded`);
+    } catch (error) {
+      const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
+      console.error(`Pi Outliner view preferences could not be loaded; using compact: ${error instanceof Error ? error.message : String(error)}${cause}`);
     }
-    this.density = record.density as ReaderDensity ?? "compact";
   }
 
   private read(): Record<string, unknown> {
