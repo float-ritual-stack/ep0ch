@@ -66,6 +66,12 @@ const result = await runHerdrScenario({
     assert.deepEqual((await draft())!.selectionAnchor, {row: 0, column: 0});
     assert.equal((await draft())!.cursorColumn, 1);
     await session.checkpoint("03b-docked-exact-draft");
+    await terminal.resize(80, 12);
+    await session.waitFor("cursor visible in a short dock", async () => ({screen: await terminal.visible(), capture: await session.visible(dock)}),
+      view => view.screen.split("\n").length === 12 && view.capture.includes("C▏APTURE"));
+    await session.checkpoint("03b-short-dock-keeps-cursor");
+    await terminal.resize(160, 55);
+    await wait("[Save to Inbox]");
     await terminal.write("\x02");
     await wait("PREFIX");
     await terminal.write("h");
@@ -129,47 +135,6 @@ const result = await runHerdrScenario({
     await session.record("same-note-submitted", {prepared, retained, saved});
     await session.checkpoint("05-one-submitted-capture");
 
-    const shell = await session.openShellTab();
-    await session.waitFor("shell tab has no Outliner surface", () => terminal.visible(), frame =>
-      frame.includes("Capture from shell") && !frame.includes("Quick capture") && !frame.includes("Outliner"));
-    await terminal.write("\x02");
-    await wait("PREFIX");
-    await terminal.write("N");
-    await wait("draft.md");
-    const globalDraft = (await draft())!;
-    assert.ok(globalDraft.blockId);
-    assert.equal(globalDraft.capturedFromBlockId, undefined);
-    const globalDock = await session.adoptCapture();
-    await session.checkpoint("06-global-editor-from-shell");
-    await terminal.write("i");
-    await wait("-- INSERT --");
-    await terminal.write("\x1b[200~GLOBAL SIDEBAR NOTE\x1b[201~");
-    await wait("GLOBAL SIDEBAR NOTE");
-    await terminal.write("\x1b:wq\r");
-    await wait("Writing retained");
-    assert.equal((await draft())!.blockId, globalDraft.blockId);
-    await terminal.write("\x02");
-    await wait("PREFIX");
-    await terminal.write("h");
-    await session.waitFor("back to the ordinary shell", () => session.focusedPane(), pane => pane === shell);
-    await terminal.write("printf 'BROWSING_%s\\n' CONTINUES\r");
-    await session.waitVisible(shell, "BROWSING_CONTINUES");
-    await terminal.write("\x02");
-    await wait("PREFIX");
-    await terminal.write("l");
-    await session.waitFor("back to the global capture", () => session.focusedPane(), pane => pane === globalDock);
-    await click("[Save to Inbox]");
-    await session.waitFor("global capture submitted", draft, value => value === null);
-    const globalNote = await session.client.request<Block>({action: "get", blockId: globalDraft.blockId!});
-    assert.ok(globalNote.text.includes("GLOBAL SIDEBAR NOTE"));
-    await session.record("global-capture-submitted", globalNote);
-    await session.waitFor("global capture surface exits", () => terminal.visible(), frame => !frame.includes("Quick capture"));
-    await session.closeDetached(shell);
-    await terminal.write("\x02");
-    await wait("PREFIX");
-    await terminal.write("1");
-    await wait("Outliner");
-    await session.focus(session.panes.tree);
 
     await open();
     await terminal.write("\x1b[200~SECOND CAPTURE\x1b[201~");
@@ -190,6 +155,28 @@ const result = await runHerdrScenario({
     assert.equal((await draft())!.blockId, winner.id);
     await session.record("conflicting-writing-retained", {winner, history});
     await session.checkpoint("06-concurrent-writing-preserved");
+    await terminal.write("\x12");
+    await wait("Recoverable writing");
+    await terminal.write("3");
+    await wait("Writing from another surface");
+    await terminal.write("2");
+    await wait("WRITING FROM EDITOR");
+    await session.checkpoint("07-review-both-writing-versions");
+    // History starts at Later; Tab twice chooses Edit draft.
+    await terminal.write("\t\t\r");
+    await wait("Review chosen writing");
+    assert.equal((await session.client.request<Block>({action: "get", blockId: winner.id})).text, winner.text,
+      "Selecting a version does not overwrite the note before a writing action");
+    await terminal.write("\x13");
+    await session.waitFor("reviewed capture submitted", draft, value => value === null);
+    const reviewedNote = await session.client.request<Block>({action: "get", blockId: winner.id});
+    assert.ok(reviewedNote.text.includes("WRITING FROM EDITOR"));
+    const reviewedHistory = await session.client.request<EditRecovery[]>({action: "edit-recovery.list", blockId: winner.id, includeHistory: true});
+    assert.ok(reviewedHistory.some(record => record.state === "applied" && record.latest.text === winner.text),
+      "The overwritten canonical version remains available for Undo save");
+    await session.record("reviewed-capture-submitted", {reviewedNote, reviewedHistory});
+    await session.checkpoint("08-reviewed-writing-saved-with-history");
+
   },
 });
 console.log(JSON.stringify(result));

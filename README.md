@@ -1238,6 +1238,10 @@ Use **Dock** / Ctrl+O, then Left, Right or Down to keep writing beside or below 
 
 **Editor** / Ctrl+E opens the draft in VISUAL/EDITOR using the existing local recovery journal. Docking or launching the editor first allocates one canonical Inbox note, including when the draft is blank. Both assistance workers exclude that note until explicit submission. Returning from the editor retains its writing; use **Save to Inbox** when it is ready for processing. A launch failure keeps the draft available for retry. Concurrent changes are revision guarded, and returned editor writing is retained in the note's recovery history.
 
+**History** / Ctrl+R opens retained writing and the existing Base/Draft/Latest comparison. Choosing a version brings it back into Capture without immediately changing the note. Continue editing, retain it, or submit with Ctrl+S; the reviewed save checks the latest revision and keeps the replaced text available through history. If the note changes again, refresh the review instead of overwriting it. Closing a conflicted capture retains its local writing in that same recovery journal.
+
+Short docked panes collapse the controls before hiding the editor; the cursor stays visible while resizing. Ctrl+O still opens placement choices when the full toolbar cannot fit.
+
 For direct entry from an ordinary Herdr shell, the `capture-editor` action creates or resumes the same protected draft in a right sidebar and opens VISUAL/EDITOR immediately. The workspace's compatible service must already be running; an Outliner view need not be open in the current tab. Invoke the action or bind it in the active Herdr config:
 
 ```sh

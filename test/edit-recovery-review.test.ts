@@ -11,11 +11,20 @@ test("mouse actions and keyboard choices share review state; Escape retains with
   await view.action("version.draft");expect(view.render(80,20).join("\n")).toContain("Local");
   view.key("",{name:"escape"});expect(result?.action).toBe("later");expect(result?.record.originalDraft).toBe("Local");
 });
-test("cancelled model work cannot replace review state when its late result arrives",async()=>{
-  const pending=Promise.withResolvers<EditRecovery>();let cancelled=0;
-  const view=new EditRecoveryReview([record],{refresh:async r=>r,assist:()=>pending.promise,cancel:async()=>{cancelled++;},discard:async r=>r},()=>{},()=>{});
-  const work=view.action("agent");view.key("",{name:"escape"});pending.resolve({...record,proposal:{...record.proposal!,text:"Obsolete"}});await work;
-  expect(cancelled).toBe(1);expect(view.record.proposal?.text).toBe("Both");expect(view.render(80,20).join("\n")).toContain("Merge cancelled");
+test("cancelled or dismissed model work cannot replace review state when its late result arrives",async()=>{
+  for (const dismiss of [false, true]) {
+    const pending=Promise.withResolvers<EditRecovery>();let cancelled=0;
+    const choices: RecoveryChoice[] = [];
+    const view=new EditRecoveryReview([record],{refresh:async r=>r,assist:()=>pending.promise,cancel:async()=>{cancelled++;},discard:async r=>r},()=>{},choice=>choices.push(choice));
+    const work=view.action("agent");
+    if (dismiss) {view.dismiss(); view.dismiss();} else view.key("",{name:"escape"});
+    expect(choices.length).toBe(dismiss ? 1 : 0);
+    if (dismiss) expect(choices[0]).toEqual({action:"later",record});
+    pending.resolve({...record,proposal:{...record.proposal!,text:"Obsolete"}});await work;
+    expect(cancelled).toBe(1);expect(view.record.proposal?.text).toBe("Both");
+    expect(choices.length).toBe(dismiss ? 1 : 0);
+    if (!dismiss) expect(view.render(80,20).join("\n")).toContain("Merge cancelled");
+  }
 });
 test("first discard is inert; Escape retains the draft",async()=>{
   let discarded=0;let choice:RecoveryChoice|undefined;

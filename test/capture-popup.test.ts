@@ -251,6 +251,7 @@ test('Escape dismisses completion first; later retention keeps complete draft an
 
 test("capture errors remain readable in a narrow sidebar without overflowing its frame", () => {
   const state = popup();
+  state.controller.handlePaste("Draft cursor");
   const status = "Dock failed; draft retained: popup can only open from the normal workspace view";
   state.controller.status = status;
   for (const width of [24, 40, 72]) {
@@ -258,5 +259,20 @@ test("capture errors remain readable in a narrow sidebar without overflowing its
     expect(rows).toHaveLength(18);
     expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
     expect(rows.map(row => row.trim()).join(" ").replace(/\s+/g, " ")).toContain(status);
+  }
+});
+
+
+test("short Capture frames preserve the editable cursor with the placement menu open or closed", () => {
+  const state = popup();
+  state.controller.handlePaste("Draft cursor");
+  for (const placementMenu of [false, true]) {
+    state.controller.placementMenu = placementMenu;
+    for (const width of [24, 40, 72]) for (const height of [1, 2, 3, 5, 8, 18]) {
+      const rows = stripTerminalSequences(renderCapturePopupFrame(state.controller, width, height)).split("\n");
+      expect(rows).toHaveLength(height);
+      expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
+      expect(rows.join("\n")).toContain("Draft cursor▏");
+    }
   }
 });

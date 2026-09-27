@@ -1912,7 +1912,20 @@ export class OutlinerServer {
           result = this.editRecovery.separate(request.recoveryId,request.expectedRevision,request.mutation);
           break;
         case "capture.draft.save":
-          result = this.store.saveQuickCaptureDraft(request.input);
+          result = this.store.database.transaction(() => {
+            const reviewed = request.input.recovery;
+            if (!reviewed) return this.store.saveQuickCaptureDraft(request.input);
+            const draft = this.store.quickCaptureDraft();
+            const record = this.editRecovery.get(reviewed.id);
+            if (!draft?.blockId || draft.blockId !== record.blockId || draft.revision !== request.input.expectedRevision) {
+              throw Error("Capture changed before writing-history save");
+            }
+            const block = this.editRecovery.commit(reviewed.id, reviewed.revision, request.input.text,
+              reviewed.basedOnBlockRevision, {author: "user", actorId: "capture"});
+            // The note, history receipt and capture pointer advance together;
+            // failure of any capture guard rolls back the recovery commit too.
+            return this.store.saveQuickCaptureDraft(request.input, block.revision);
+          })();
           break;
         case "capture.draft.clear":
           result = this.store.clearQuickCaptureDraft(request.expectedRevision);

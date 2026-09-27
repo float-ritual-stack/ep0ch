@@ -25,12 +25,14 @@ export interface CaptureEditorResult {
   retain(): Promise<void>;
 }
 
-export type CaptureAction = "editor" | "save" | "retain" | "discard" | "dock" | CapturePlacement;
+export type CaptureAction = "editor" | "save" | "retain" | "discard" | "history" | "dock" | CapturePlacement;
 
 export interface CapturePopupEffects {
   completionProvider?: ReferenceCompletionProvider;
   editExternal?(draft: QuickCaptureDraft): Promise<CaptureEditorResult>;
   relocate?(placement: CapturePlacement, draft: QuickCaptureDraft): Promise<void>;
+  reviewWriting?(draft: QuickCaptureDraft, text: string): Promise<{text: string; recovery: NonNullable<QuickCaptureDraftSaveInput["recovery"]>} | {message: string}>;
+  retainWriting?(draft: QuickCaptureDraft, text: string): Promise<void>;
   save(input: CapturePopupSaveInput): Promise<void>;
   persistDraft(input: QuickCaptureDraftSaveInput): Promise<QuickCaptureDraft>;
   clearDraft(expectedRevision: number | null): Promise<void>;
@@ -76,6 +78,7 @@ export class CapturePopupController {
   private persistTimer: unknown;
   private persistenceTail: Promise<void> = Promise.resolve();
   private discardArmed = false;
+  private reviewedRecovery: QuickCaptureDraftSaveInput["recovery"];
 
   constructor(
     private readonly effects: CapturePopupEffects,
@@ -114,6 +117,7 @@ export class CapturePopupController {
     inputAction: TerminalInputAction,
   ): Promise<void> {
     if (this.closed || this.saving || inputAction === "suppress") return;
+    if (key.ctrl && key.name === "r") { await this.act("history"); return; }
     if (key.ctrl && key.name === "o") { await this.act("dock"); return; }
     if (this.placementMenu) {
       const placement = key.name === "left" ? "left" : key.name === "right" ? "right"
@@ -169,6 +173,7 @@ export class CapturePopupController {
     if (action !== "discard") this.discardArmed = false;
     switch (action) {
       case "editor": await this.editExternal(); break;
+      case "history": await this.reviewWriting(); break;
       case "save": await this.save(); break;
       case "retain": await this.closeRetainingDraft(); break;
       case "discard": await this.confirmDiscard(); break;
@@ -198,7 +203,36 @@ export class CapturePopupController {
 
   async retainDraft(): Promise<void> {
     if (this.closed) return;
-    await this.flushDraft();
+    try { await this.flushDraft(); }
+    catch (error) {
+      if (!this.draft?.blockId || !this.effects.retainWriting) throw error;
+      // A conflicting canonical writer must not trap this surface open or
+      // discard its surviving buffer on shutdown. Reuse the recovery journal.
+      await this.effects.retainWriting(this.draft, this.buffer.text);
+    }
+  }
+
+  private async reviewWriting(): Promise<void> {
+    if (!this.effects.reviewWriting || !this.draft?.blockId) {
+      this.status = "No prepared note has writing history yet";
+      this.effects.invalidate();
+      return;
+    }
+    this.saving = true;
+    this.clearPersistTimer();
+    this.completions?.dismiss();
+    await this.persistenceTail;
+    try {
+      const choice = await this.effects.reviewWriting(this.draft, this.buffer.text);
+      if ("message" in choice) this.status = choice.message;
+      else {
+        this.buffer.replaceText(choice.text);
+        this.reviewedRecovery = choice.recovery;
+        this.status = "Review chosen writing · edit to continue · Ctrl+S submits · Esc retains";
+      }
+    } catch (error) {
+      this.status = `Writing history: ${error instanceof Error ? error.message : String(error)}`;
+    } finally { this.saving = false; this.effects.invalidate(); }
   }
 
   async prepareDraft(): Promise<QuickCaptureDraft> {
@@ -247,7 +281,7 @@ export class CapturePopupController {
   async closeRetainingDraft(): Promise<void> {
     if (this.closed) return;
     try {
-      await this.flushDraft();
+      await this.retainDraft();
       this.closed = true;
       this.effects.close();
     } catch (error) {
@@ -286,7 +320,8 @@ export class CapturePopupController {
       const draft = await this.effects.persistDraft({
         requestId,
         text,
-        ...(submittedText === undefined ? {} : { submittedText }),
+        ...(this.reviewedRecovery !== undefined ? {recovery: this.reviewedRecovery}
+          : submittedText === undefined ? {} : { submittedText }),
         cursorRow,
         cursorColumn,
         ...(selectionAnchor ? {selectionAnchor} : {}),
@@ -298,6 +333,10 @@ export class CapturePopupController {
       });
       this.draftRevision = draft.revision;
       this.draft = draft;
+      if (this.reviewedRecovery !== undefined) {
+        this.reviewedRecovery = undefined;
+        this.submittedText = undefined;
+      }
     });
     this.persistenceTail = operation.catch((error) => {
       this.status = `Draft retain failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -355,6 +394,7 @@ export class CapturePopupController {
     this.effects.invalidate();
     let captured = false;
     try {
+      if (this.reviewedRecovery !== undefined) await this.flushDraft();
       this.submittedText ??= text;
       await this.flushDraft();
       await this.effects.save({
@@ -404,6 +444,7 @@ export function renderCapturePopupFrame(
   const frameHeight = Math.max(1, Math.floor(height));
   const controls: Array<[CaptureAction, string]> = [
     ["editor", "[Editor ^E]"], ["save", "[Save to Inbox]"], ["retain", "[Retain]"], ["discard", "[Discard]"],
+    ["history", "[History ^R]"],
     ["dock", "[Dock ^O]"],
     ...(controller.placement === "popup" ? [] : [["popup", "[Popup]"] as [CaptureAction, string]]),
   ];
@@ -415,9 +456,28 @@ export function renderCapturePopupFrame(
     line += `${line ? " " : ""}${hyperlink(truncateToWidth(label, frameWidth), `pi-outliner-action:capture.${action}`)}`;
   }
   if (line) controlRows.push(line);
+  const titleHeight = frameHeight >= 2 ? 1 : 0;
+  const footerHeight = frameHeight >= 3 ? 1 : 0;
+  const statusBudget = Math.max(0, Math.min(5, Math.floor(frameHeight / 3), frameHeight - titleHeight - footerHeight - 2));
   const statusRows = wrapTextWithAnsi(sanitizeDynamicText(controller.status || "Draft retained automatically"), frameWidth)
-    .slice(0, Math.max(1, Math.min(5, Math.floor(frameHeight / 3))));
-  const available=Math.max(1,frameHeight-2-controlRows.length-statusRows.length);
+    .slice(0, statusBudget);
+  // Chrome yields first: even a one-row surface must display the editing cursor.
+  const controlBudget = Math.max(0, frameHeight - titleHeight - footerHeight - statusRows.length - 1);
+  if (controlRows.length > controlBudget) {
+    controlRows.length = 0;
+    if (controlBudget) {
+      const compact: Array<[CaptureAction, string]> = controller.placementMenu
+        ? [["left", "[←]"], ["right", "[→]"], ["bottom", "[↓]"], ["popup", "[P]"]]
+        : [["dock", "[Dock ^O]"], ["editor", "[^E]"], ["save", "[^S]"], ["history", "[^R]"]];
+      let row = "";
+      for (const [action, label] of compact) {
+        if (visibleWidth(row) + (row ? 1 : 0) + label.length > frameWidth) break;
+        row += `${row ? " " : ""}${hyperlink(label, `pi-outliner-action:capture.${action}`)}`;
+      }
+      controlRows.push(row);
+    }
+  }
+  const available = frameHeight - titleHeight - footerHeight - controlRows.length - statusRows.length;
   const completion=controller.completions?.state;
   const completionHeight=completion?Math.min(COMPLETION_ROWS,Math.max(0,available-1)):0;
   const bodyHeight = Math.max(1, available-completionHeight);
@@ -435,11 +495,11 @@ export function renderCapturePopupFrame(
     ),
   );
   const output = [
-    `\x1b[1m${truncateToWidth(
+    ...(titleHeight ? [`\x1b[1m${truncateToWidth(
       `Quick capture · Inbox · line ${controller.buffer.row + 1}/${controller.buffer.lines.length}`,
       frameWidth,
       "…",
-    )}\x1b[0m`,
+    )}\x1b[0m`] : []),
     ...controlRows,
   ];
   const editorRows=completion?Math.min(bodyHeight,layout.cursorRow-firstVisibleRow+1):bodyHeight;
@@ -453,14 +513,14 @@ export function renderCapturePopupFrame(
     );
   }
   if(completion)output.push(...renderReferenceCompletion(completion,frameWidth,completionHeight));
-  while(output.length<frameHeight-1-statusRows.length)output.push("");
+  while(output.length<frameHeight-footerHeight-statusRows.length)output.push("");
   output.push(...statusRows);
-  output.push(
+  if (footerHeight) output.push(
     `\x1b[2m${truncateToWidth(
       "Enter newline · Ctrl+S save · Esc retain · Ctrl+D discard",
       frameWidth,
       "…",
     )}\x1b[0m`,
   );
-  return `\x1b[H\x1b[2J${output.slice(0, frameHeight).join("\n")}`;
+  return `\x1b[H\x1b[2J${output.join("\n")}`;
 }

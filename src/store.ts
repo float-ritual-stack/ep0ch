@@ -1258,13 +1258,16 @@ export class OutlinerStore {
       AND NOT EXISTS (SELECT 1 FROM capture_requests r WHERE r.request_id = d.request_id)`).get(blockId);
   }
 
-  saveQuickCaptureDraft(input: QuickCaptureDraftSaveInput): QuickCaptureDraft {
+  saveQuickCaptureDraft(input: QuickCaptureDraftSaveInput, reviewedBlockRevision?: number): QuickCaptureDraft {
     const requestId = normalizeCaptureRequestId(input.requestId);
     if (input.submittedText !== undefined &&
       (typeof input.submittedText !== "string" || !input.submittedText.trim())) {
       throw new Error("Quick Capture submitted text must be non-empty");
     }
     if (input.prepareBlock !== undefined && typeof input.prepareBlock !== "boolean") throw new Error("Invalid capture preparation");
+    if (reviewedBlockRevision !== undefined && (!Number.isSafeInteger(reviewedBlockRevision) || reviewedBlockRevision < 1)) {
+      throw new Error("Capture review requires a positive block revision");
+    }
     if (typeof input.text !== "string") {
       throw new Error("Quick Capture draft text cannot be empty");
     }
@@ -1309,7 +1312,8 @@ export class OutlinerStore {
         throw new Error("Prepared capture identity cannot change");
       }
       let block = current?.blockId && requestId === current.requestId ? this.requireActive(current.blockId) : undefined;
-      if (block && !captured && block.revision !== current!.blockRevision) throw new Error("Capture note changed outside this draft");
+      if (reviewedBlockRevision !== undefined && (!block || captured)) throw new Error("Only an unsubmitted prepared capture can accept reviewed writing");
+      if (block && !captured && block.revision !== (reviewedBlockRevision ?? current!.blockRevision)) throw new Error("Capture note changed outside this draft; use Writing history to review it");
       if (input.prepareBlock && this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(requestId)) throw new Error("This capture was already submitted");
       if (input.prepareBlock && !block) {
         block = this.createAt(input.text, this.requireCaptureInboxFromCurrentRead().id, "user", undefined, new Date().toISOString(), 0);

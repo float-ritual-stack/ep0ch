@@ -235,6 +235,8 @@ export interface QuickCaptureDraftSaveInput {
   cursorColumn: number;
   selectionAnchor?: {row: number; column: number};
   prepareBlock?: boolean;
+  /** Explicit writing-history choice, guarded against edits made after review. */
+  recovery?: {id: string; revision: number; basedOnBlockRevision: number};
   capturedFromBlockId?: string;
   expectedRevision: number | null;
 }

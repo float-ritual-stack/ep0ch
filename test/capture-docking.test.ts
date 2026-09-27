@@ -2,6 +2,10 @@ import {expect, test} from "bun:test";
 import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {OutlinerServer} from "../src/server";
+import {OutlinerClient} from "../src/client";
+import type {Block, QuickCaptureDraft, QuickCaptureDraftSaveInput} from "../src/types";
+import type {EditRecovery} from "../src/edit-recovery";
 import {OutlinerStore} from "../src/store";
 import {InboxRepository} from "../src/inbox-repository";
 import {NoteAssistanceRepository} from "../src/note-assistance-repository";
@@ -47,20 +51,58 @@ test("prepared capture retains one protected note through restart, edits and ret
   } finally {store.close();rmSync(directory,{recursive:true,force:true});}
 });
 
-test("blank preparation is recoverable, while concurrent canonical writing defeats submit and discard", () => {
-  const directory = mkdtempSync(join(tmpdir(), "outliner-docked-conflict-"));
-  const store = new OutlinerStore(join(directory,"outline.sqlite"));
+test("capture recovery RPC preserves concurrent writing and atomically reconciles the same protected note", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-capture-recovery-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"), {workspaceRoot: root});
+  const server = new OutlinerServer(store, join(root, "rpc.sock"));
+  await server.start();
+  const client = new OutlinerClient(join(root, "rpc.sock"));
+  const readBlock = (blockId: string) => client.request<Block>({action: "get", blockId});
+  const readDraft = () => client.request<QuickCaptureDraft | null>({action: "capture.draft.get"});
   try {
-    const draft = store.saveQuickCaptureDraft({requestId:"empty",text:"",cursorRow:0,cursorColumn:0,expectedRevision:null,prepareBlock:true});
-    expect(store.quickCaptureDraft()?.blockId).toBe(draft.blockId);
-    const block = store.require(draft.blockId!);
-    store.update(block.id,"Writing from another surface",block.revision,{author:"user"});
-    expect(()=>store.capture("empty","Stale buffer","tree",undefined,"user",undefined,draft.revision)).toThrow(/changed/);
-    expect(()=>store.clearQuickCaptureDraft(draft.revision)).toThrow(/changed/);
-    expect(store.require(block.id).text).toBe("Writing from another surface");
-    expect(store.require(block.id).deletedAt).toBeUndefined();
-    expect(store.quickCaptureDraft()?.blockId).toBe(block.id);
-  } finally {store.close();rmSync(directory,{recursive:true,force:true});}
+    const draft = await client.request<QuickCaptureDraft>({action: "capture.draft.save", input: {
+      requestId: "recover-capture", text: "", cursorRow: 0, cursorColumn: 0, expectedRevision: null, prepareBlock: true,
+    }});
+    expect((await readDraft())?.blockId).toBe(draft.blockId);
+    const base = await readBlock(draft.blockId!);
+    const first = await client.request<Block>({action: "update", blockId: base.id,
+      text: "Writing from another surface", expectedRevision: base.revision, mutation: {author: "user"}});
+    await expect(client.request({action: "capture.create", requestId: draft.requestId, text: "Stale buffer",
+      source: "tree", expectedDraftRevision: draft.revision})).rejects.toThrow(/changed/);
+    await expect(client.request({action: "capture.draft.clear", expectedRevision: draft.revision})).rejects.toThrow(/changed/);
+    let record = await client.request<EditRecovery>({action: "edit-recovery.start", input: {
+      id: crypto.randomUUID(), blockId: base.id, baseText: base.text, baseRevision: base.revision,
+      prelaunchText: base.text, draftText: "Returned editor writing", source: "external-editor",
+    }});
+    const newer = await client.request<Block>({action: "update", blockId: base.id,
+      text: "Changed again after review", expectedRevision: first.revision, mutation: {author: "user"}});
+    const reviewedInput = (): QuickCaptureDraftSaveInput => ({...draft, text: "Reviewed combination",
+      cursorRow: 0, cursorColumn: 0, expectedRevision: draft.revision,
+      recovery: {id: record.id, revision: record.revision, basedOnBlockRevision: record.latest.revision}});
+    await expect(client.request({action: "capture.draft.save", input: reviewedInput()})).rejects.toThrow(/changed/);
+    expect(await readBlock(base.id)).toEqual(newer);
+    record = await client.request<EditRecovery>({action: "edit-recovery.refresh", recoveryId: record.id, expectedRevision: record.revision});
+    // This guard runs after the recovery commit. Neither that commit nor its
+    // applied-history receipt may survive a rejected capture update.
+    await expect(client.request({action: "capture.draft.save", input: {...reviewedInput(), cursorRow: -1}})).rejects.toThrow(/cursor/);
+    expect(await readBlock(base.id)).toEqual(newer);
+    expect(await readDraft()).toEqual(draft);
+    expect(await client.request<EditRecovery>({action: "edit-recovery.get", recoveryId: record.id})).toEqual(record);
+    const reconciled = await client.request<QuickCaptureDraft>({action: "capture.draft.save", input: reviewedInput()});
+    expect(reconciled.blockId).toBe(base.id);
+    expect(reconciled.blockRevision).toBe((await readBlock(base.id)).revision);
+    expect((await readBlock(base.id)).text).toBe("Reviewed combination");
+    expect(store.isCaptureDraft(base.id)).toBe(true);
+    const applied = await client.request<EditRecovery>({action: "edit-recovery.get", recoveryId: record.id});
+    expect(applied.state).toBe("applied");
+    expect(applied.latest.text).toBe(newer.text);
+    const saved = await client.request<{block: Block}>({action: "capture.create", requestId: draft.requestId,
+      text: reconciled.text, source: "tree", expectedDraftRevision: reconciled.revision});
+    expect(saved.block.id).toBe(base.id);
+    await client.request({action: "capture.draft.clear", expectedRevision: reconciled.revision});
+    expect(await readDraft()).toBeNull();
+    expect(store.children(saved.block.parentId!)).toHaveLength(1);
+  } finally {await server.close(); store.close(); rmSync(root, {recursive: true, force: true});}
 });
 
 test("capture editor retains selection and exact writing through an uncertain save and reopen", async () => {
