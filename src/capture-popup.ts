@@ -1,6 +1,6 @@
 import {ReferenceCompletionSession,type ReferenceCompletionProvider} from './reference-completion';
 import {COMPLETION_ROWS,renderReferenceCompletion} from './reference-completion-renderer';
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { hyperlink, truncateToWidth } from "@earendil-works/pi-tui";
 import { layoutDetailEditor } from "./detail-editor-layout";
 import { TextBuffer } from "./text-buffer";
 import {
@@ -8,17 +8,27 @@ import {
   renderTextBufferEditorRow,
   textBufferEditorCommand,
 } from "./text-buffer-editor";
-import { type TerminalInputAction, type TerminalKey } from "./terminal";
+import { sanitizeDynamicText, type TerminalInputAction, type TerminalKey } from "./terminal";
 import type { QuickCaptureDraft, QuickCaptureDraftSaveInput } from "./types";
 
 export interface CapturePopupSaveInput {
   requestId: string;
   text: string;
   capturedFromBlockId?: string;
+  expectedDraftRevision?: number;
 }
+
+export interface CaptureEditorResult {
+  text: string;
+  cleanup(): void;
+  retain(): Promise<void>;
+}
+
+export type CaptureAction = "editor" | "save" | "retain" | "discard";
 
 export interface CapturePopupEffects {
   completionProvider?: ReferenceCompletionProvider;
+  editExternal?(draft: QuickCaptureDraft): Promise<CaptureEditorResult>;
   save(input: CapturePopupSaveInput): Promise<void>;
   persistDraft(input: QuickCaptureDraftSaveInput): Promise<QuickCaptureDraft>;
   clearDraft(expectedRevision: number | null): Promise<void>;
@@ -55,6 +65,7 @@ export class CapturePopupController {
   private submittedText: string | undefined;
   private readonly capturedFromBlockId: string | undefined;
   private draftRevision: number | null;
+  private draft: QuickCaptureDraft | undefined;
   private readonly persistDelayMs: number;
   private readonly scheduler: CapturePopupScheduler;
   private persistTimer: unknown;
@@ -66,6 +77,7 @@ export class CapturePopupController {
     options: CapturePopupOptions,
   ) {
     const draft = options.draft;
+    this.draft = draft;
     this.requestId = draft?.requestId ?? options.requestId;
     this.submittedText = draft?.submittedText;
     this.capturedFromBlockId = draft?.capturedFromBlockId ?? options.capturedFromBlockId;
@@ -73,7 +85,10 @@ export class CapturePopupController {
     this.persistDelayMs = options.persistDelayMs ?? 250;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.buffer = new TextBuffer(draft?.text ?? "");
-    if (draft) this.buffer.placeCursor(draft.cursorRow, draft.cursorColumn);
+    if (draft) {
+      if (draft.selectionAnchor) this.buffer.placeCursor(draft.selectionAnchor.row, draft.selectionAnchor.column);
+      this.buffer.placeCursor(draft.cursorRow, draft.cursorColumn, !!draft.selectionAnchor);
+    }
     this.status = draft ? "Resumed retained draft" : "";
     this.completions=effects.completionProvider?new ReferenceCompletionSession(effects.completionProvider,()=>this.buffer,()=>options.workIdPrefix??null,()=>effects.invalidate(),()=>!this.closed&&!this.saving):null;
   }
@@ -93,6 +108,10 @@ export class CapturePopupController {
     inputAction: TerminalInputAction,
   ): Promise<void> {
     if (this.closed || this.saving || inputAction === "suppress") return;
+    if (key.ctrl && key.name === "e") {
+      await this.editExternal();
+      return;
+    }
     if (key.ctrl && key.name === "c") {
       await this.closeRetainingDraft();
       return;
@@ -131,9 +150,63 @@ export class CapturePopupController {
     if(await this.completions?.accept(index,generation))this.scheduleDraftPersistence();
   }
 
+  async act(action: CaptureAction): Promise<void> {
+    if (this.closed || this.saving) return;
+    if (action !== "discard") this.discardArmed = false;
+    switch (action) {
+      case "editor": await this.editExternal(); break;
+      case "save": await this.save(); break;
+      case "retain": await this.closeRetainingDraft(); break;
+      case "discard": await this.confirmDiscard(); break;
+    }
+  }
+
   async retainDraft(): Promise<void> {
     if (this.closed) return;
     await this.flushDraft();
+  }
+
+  async prepareDraft(): Promise<QuickCaptureDraft> {
+    if (this.submittedText !== undefined) throw Error("Resolve the previous Save to Inbox before opening or moving this draft");
+    this.clearPersistTimer();
+    await this.enqueueDraftPersistence(true);
+    if (!this.draft?.blockId) throw Error("Capture preparation returned no note identity");
+    return this.draft;
+  }
+
+  async editExternal(): Promise<void> {
+    if (this.closed || this.saving) return;
+    if (!this.effects.editExternal) {
+      this.status = "External editing is unavailable in this capture surface";
+      this.effects.invalidate();
+      return;
+    }
+    this.saving = true;
+    this.completions?.dismiss();
+    let result: CaptureEditorResult | undefined;
+    try {
+      const draft = await this.prepareDraft();
+      result = await this.effects.editExternal(draft);
+      this.buffer.replaceText(result.text);
+      this.buffer.placeCursor(draft.cursorRow, draft.cursorColumn);
+      await this.flushDraft();
+      result.cleanup();
+      result = undefined;
+      this.status = "Writing retained · Ctrl+S Save to Inbox when ready";
+    } catch (error) {
+      this.status = `Editor: ${error instanceof Error ? error.message : String(error)}`;
+      if (result) {
+        try {
+          await result.retain();
+          this.status += " · Writing retained in note history";
+        } catch (retentionError) {
+          this.status += ` · Recovery file retained: ${retentionError instanceof Error ? retentionError.message : String(retentionError)}`;
+        }
+      }
+    } finally {
+      this.saving = false;
+      this.effects.invalidate();
+    }
   }
 
   async closeRetainingDraft(): Promise<void> {
@@ -156,17 +229,22 @@ export class CapturePopupController {
     }, this.persistDelayMs);
   }
 
-  private enqueueDraftPersistence(): Promise<void> {
+  private enqueueDraftPersistence(prepareBlock = false): Promise<void> {
     const text = this.buffer.text;
     const requestId = this.requestId;
     const submittedText = this.submittedText;
     const cursorRow = this.buffer.row;
     const cursorColumn = this.buffer.column;
+    const selection = this.buffer.selectionRange;
+    const selectionAnchor = selection
+      ? selection.start.row === cursorRow && selection.start.column === cursorColumn ? selection.end : selection.start
+      : undefined;
     const operation = this.persistenceTail.then(async () => {
-      if (!text.trim() && submittedText === undefined) {
+      if (!text.trim() && submittedText === undefined && !prepareBlock && !this.draft?.blockId) {
         if (this.draftRevision !== null) {
           await this.effects.clearDraft(this.draftRevision);
           this.draftRevision = null;
+          this.draft = undefined;
         }
         return;
       }
@@ -176,12 +254,15 @@ export class CapturePopupController {
         ...(submittedText === undefined ? {} : { submittedText }),
         cursorRow,
         cursorColumn,
+        ...(selectionAnchor ? {selectionAnchor} : {}),
+        ...(prepareBlock ? {prepareBlock: true} : {}),
         ...(this.capturedFromBlockId
           ? { capturedFromBlockId: this.capturedFromBlockId }
           : {}),
         expectedRevision: this.draftRevision,
       });
       this.draftRevision = draft.revision;
+      this.draft = draft;
     });
     this.persistenceTail = operation.catch((error) => {
       this.status = `Draft retain failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -228,8 +309,8 @@ export class CapturePopupController {
   }
 
   private async save(): Promise<void> {
-    const text = this.buffer.text.trim();
-    if (!text && this.submittedText === undefined) {
+    const text = this.draft?.blockId ? this.buffer.text : this.buffer.text.trim();
+    if (!text.trim() && this.submittedText === undefined) {
       this.status = "Capture text cannot be empty";
       this.effects.invalidate();
       return;
@@ -245,6 +326,7 @@ export class CapturePopupController {
         requestId: this.requestId,
         text: this.submittedText,
         capturedFromBlockId: this.capturedFromBlockId,
+        ...(this.draft?.blockId ? {expectedDraftRevision: this.draftRevision!} : {}),
       });
       captured = true;
       if (text && text !== this.submittedText) {
@@ -308,7 +390,10 @@ export function renderCapturePopupFrame(
       frameWidth,
       "…",
     )}\x1b[0m`,
-    "─".repeat(frameWidth),
+    truncateToWidth([
+      ["editor", "[Editor ^E]"], ["save", "[Save to Inbox]"],
+      ["retain", "[Retain]"], ["discard", "[Discard]"],
+    ].map(([action, label]) => hyperlink(label!, `pi-outliner-action:capture.${action}`)).join(" "), frameWidth),
   ];
   const editorRows=completion?Math.min(bodyHeight,layout.cursorRow-firstVisibleRow+1):bodyHeight;
   for (let offset = 0; offset < editorRows; offset += 1) {
@@ -323,7 +408,7 @@ export function renderCapturePopupFrame(
   if(completion)output.push(...renderReferenceCompletion(completion,frameWidth,completionHeight));
   while(output.length<frameHeight-2)output.push("");
   const status = controller.status || "Draft retained automatically";
-  output.push(truncateToWidth(status, frameWidth, "…"));
+  output.push(truncateToWidth(sanitizeDynamicText(status), frameWidth, "…"));
   output.push(
     `\x1b[2m${truncateToWidth(
       "Enter newline · Ctrl+S save · Esc retain · Ctrl+D discard",

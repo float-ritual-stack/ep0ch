@@ -62,3 +62,59 @@ test("blank preparation is recoverable, while concurrent canonical writing defea
     expect(store.quickCaptureDraft()?.blockId).toBe(block.id);
   } finally {store.close();rmSync(directory,{recursive:true,force:true});}
 });
+
+test("capture editor retains selection and exact writing through an uncertain save and reopen", async () => {
+  const {CapturePopupController} = await import("../src/capture-popup");
+  const directory = mkdtempSync(join(tmpdir(), "outliner-capture-editor-"));
+  const path = join(directory, "outline.sqlite");
+  let store = new OutlinerStore(path);
+  let loseReply = true;
+  let editorDraft: import("../src/types").QuickCaptureDraft | undefined;
+  const original = "  Draft\n- first\n  - nested\n";
+  const edited = "  Draft\n- first\n  - nested\n  - continued\n";
+  const effects: import("../src/capture-popup").CapturePopupEffects = {
+    async save(input) {
+      store.capture(input.requestId, input.text, "tree", input.capturedFromBlockId, "user", undefined, input.expectedDraftRevision);
+      if (loseReply) { loseReply = false; throw Error("reply lost"); }
+    },
+    async persistDraft(input) { return store.saveQuickCaptureDraft(input); },
+    async clearDraft(revision) { store.clearQuickCaptureDraft(revision); },
+    async editExternal(draft) {
+      editorDraft = draft;
+      expect(store.require(draft.blockId!).text).toBe(original);
+      return {text: edited, cleanup() {}, async retain() {}};
+    },
+    close() {}, invalidate() {},
+  };
+  try {
+    const first = new CapturePopupController(effects, {requestId: "editor-capture"});
+    first.handlePaste(original);
+    first.buffer.placeCursor(1, 2);
+    first.buffer.placeCursor(1, 7, true);
+    await first.handleKeypress("", {name: "e", ctrl: true}, "pass");
+    expect(editorDraft?.selectionAnchor).toEqual({row: 1, column: 2});
+    expect(editorDraft?.cursorColumn).toBe(7);
+    const blockId = store.quickCaptureDraft()!.blockId!;
+    expect(store.require(blockId).text).toBe(edited);
+    expect(store.isCaptureDraft(blockId)).toBe(true);
+    first.buffer.placeCursor(2, 4);
+    first.buffer.placeCursor(2, 10, true);
+    await first.closeRetainingDraft();
+    store.close(); store = new OutlinerStore(path);
+    const reopened = new CapturePopupController(effects, {requestId: "ignored", draft: store.quickCaptureDraft()!});
+    expect(reopened.buffer.selectedText).toBe("nested");
+    expect(reopened.buffer.text).toBe(edited);
+    await reopened.handleKeypress("", {name: "s", ctrl: true}, "pass");
+    expect(reopened.status).toContain("reply lost");
+    await reopened.closeRetainingDraft();
+    store.close(); store = new OutlinerStore(path);
+    const retried = new CapturePopupController(effects, {requestId: "ignored-again", draft: store.quickCaptureDraft()!});
+    await retried.handleKeypress("", {name: "s", ctrl: true}, "pass");
+    expect(store.quickCaptureDraft()).toBeNull();
+    const saved = store.require(blockId);
+    expect(saved.text).toStartWith("  Draft [type::capture]");
+    expect(saved.text).toEndWith("\n- first\n  - nested\n  - continued\n");
+    expect(store.children(saved.parentId!)).toHaveLength(1);
+    expect(store.isCaptureDraft(blockId)).toBe(false);
+  } finally {store.close(); rmSync(directory, {recursive: true, force: true});}
+});

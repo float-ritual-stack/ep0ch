@@ -1339,7 +1339,7 @@ export class OutlinerStore {
       `).run(
         requestId,
         input.text,
-        input.submittedText?.trim() ?? null,
+        (block ? input.submittedText : input.submittedText?.trim()) ?? null,
         input.cursorRow,
         input.cursorColumn,
         input.capturedFromBlockId ?? null,
