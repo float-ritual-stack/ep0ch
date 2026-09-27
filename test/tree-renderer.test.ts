@@ -123,6 +123,7 @@ function view(
     : row);
   const { rows: _rows, ...rest } = overrides;
   return {
+    density: "expanded",
     workspaceRoot: "/w",
     rows,
     expandedDocuments: new Map(originalRows.filter(isBlockTreeRow).filter(row => row.multilineExpanded).map(row => [row.canonicalId, {
@@ -433,7 +434,10 @@ describe("renderTreeFrame", () => {
   test("renders a narrow keyboard menu with clickable pane and action links", () => {
     const rendered = renderTreeFrame(view([], {
       mode: "action-menu",
-      actionMenuItems: DEFAULT_OUTLINER_ACTION_KEYMAP.menuItems("tree", "browse"),
+      actionMenuItems: [
+        {id:"tree.location:synthetic",group:"Navigate",label:"\x1b]52;c;Zm9yYmlkZGVu\x07資料🧑‍🔬".repeat(12),description:"",binding:""},
+        ...DEFAULT_OUTLINER_ACTION_KEYMAP.menuItems("tree", "browse"),
+      ],
       actionMenuIndex: 0,
       actionMenuOrigin: { column: 5, row: 5 },
       status: "Choose an action",
@@ -444,6 +448,7 @@ describe("renderTreeFrame", () => {
       "pi-outliner-action:tree.menu.open",
     );
     expect(rendered.join("\n")).toContain("pi-outliner-action:tree.edit");
+    expect(rendered.join("\n")).not.toContain("\x1b]52;");
     expect(rendered[6]).toStartWith("     ");
     expect(rendered.at(-1)).toContain("↵ invoke");
     expect(rendered.map((line) => ({
@@ -1215,4 +1220,76 @@ test.each([
  const visible=stripTerminalSequences(renderTreeFrame(view([owner],{rows:[physical(owner),row]}),140,12).frame);
  expect(visible).toContain(expected+' · ^section · work-id · 2 occurrences');
  expect(row.link.label).toBe(label);
+});
+
+
+test.each([
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, ""],
+  ["QUERY ERROR", {queryError:"query unavailable"}, ""],
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, "Moved up among siblings"],
+  ["QUERY ERROR", {queryError:"query unavailable"}, "Moved up among siblings"],
+] as Array<[string, Partial<VirtualBranchState>, string]>)("compact Tree keeps %s visible at narrow widths (status %p)", (label, error, status) => {
+  const state=branchState({...error});
+  const render=renderTreeFrame(view([block("definition")], {
+    density:"compact", status, branchStates:new Map([["definition",state]]),
+  }),40,8,0,{clearScreen:false});
+  const lines=render.frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(8);
+  const errorRow=lines.findIndex(line=>line.startsWith(label+":"));
+  expect(errorRow).toBe(status ? 6 : 7);
+  expect(lines[errorRow]).not.toContain("matched root");
+  expect(visibleWidth(lines[errorRow]!)).toBeLessThanOrEqual(40);
+});
+
+test.each(["Workspace service disconnected; reconnecting…", "Failed to open target"])("compact branch errors retain concurrent safety state: %s", status => {
+  const tree=view([block("definition")],{density:"compact",status,
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  for(const recoveryStatus of [undefined,"Retained draft needs recovery"]){
+    const lines=renderTreeFrame({...tree,recoveryStatus},60,10,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+    expect(lines).toHaveLength(10);
+    expect(lines).toContain("QUERY ERROR: query unavailable");
+    expect(lines).toContain(status);
+    if(recoveryStatus) expect(lines).toContain(recoveryStatus);
+    expect(lines[1]).toContain("definition");
+  }
+});
+
+test("short compact Tree reserves destination recovery controls ahead of lower-priority notices", () => {
+  const tree=view([block("definition")],{density:"compact",status:"Workspace service disconnected; reconnecting…",
+    recoveryStatus:"Destination missing",recoveryHelp:"↵ choose destination  ⎋ cancel",
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  const lines=renderTreeFrame(tree,60,4,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(4);
+  expect(lines[1]).toContain("definition");
+  expect(lines.slice(2)).toEqual(["Destination missing","↵ choose destination  ⎋ cancel"]);
+  const taller=renderTreeFrame(tree,60,5,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(taller.slice(2)).toEqual(["Destination missing","Workspace service disconnected; reconnecting…","↵ choose destination  ⎋ cancel"]);
+  for (const cue of [{activeFilter:"lane=todo"}, {}, {visibleCompleteness:{kind:"truncated" as const,limit:100}}]) {
+    for (const height of [4,1,2,3,5,6]) {
+      const frame=renderTreeFrame({...tree,...cue},60,height,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+      expect(frame).toHaveLength(height);
+      expect(frame).toContain("↵ choose destination  ⎋ cancel");
+      if(height>=3)expect(frame.some(line=>line.includes("definition"))).toBe(true);
+      if(height>=4)expect(frame).toContain("Destination missing");
+    }
+  }
+});
+
+test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {
+  const rows = Array.from({length: 20}, (_,index) => block(`Item ${index + 1}`));
+  const compact = view(rows, {density:"compact", status:""});
+  const render = renderTreeFrame(compact,40,12,0,{clearScreen:false});
+  const lines = render.frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(12);
+  expect(lines[0]).toContain("[⋯]");
+  expect(lines[1]).toContain("Item 1");
+  expect(lines[11]).toContain("Item 11");
+  expect(lines.join("\n")).not.toContain("physical block");
+  expect(lines.join("\n")).not.toContain("Opens in:");
+  expect(render.mouseTargets[1]?.rowId).toBe("Item 1");
+  for (const width of [20,40,80]) {
+    const row = renderTreeFrame(compact,width,12,0,{clearScreen:false}).frame.split("\n")[0]!;
+    expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+    expect(getOsc8LinkAtColumn(row,visibleWidth(row)-2)).toBe("pi-outliner-action:tree.menu.open");
+  }
 });

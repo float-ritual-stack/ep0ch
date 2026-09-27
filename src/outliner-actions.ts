@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import type { TerminalKey } from "./terminal";
+import { sanitizeDynamicText, type TerminalKey } from "./terminal";
 
 export type OutlinerActionSurface = "tree" | "detail";
 export type OutlinerActionMenuGroup = "Navigate" | "Edit" | "View" | "Pane" | "System";
@@ -115,7 +115,7 @@ export function filterActionMenuItems(
 }
 
 export function actionMenuItemText(item: OutlinerActionMenuItem): string {
-  return `${item.group} · ${item.label}  ${item.binding}`;
+  return sanitizeDynamicText(`${item.group} · ${item.label}  ${item.binding}`);
 }
 
 export function outlinerActionLink(actionId: string, label: string): string {
@@ -123,6 +123,22 @@ export function outlinerActionLink(actionId: string, label: string): string {
 }
 
 const ACTION_SPECS = [
+  {id: "tree.property.inspect", surface: "tree", modes: ["browse"], label: "Inspect properties", description: "Open the selected block's property inspector", defaultChords: [], helpPriority: 0, menuGroup: "View"},
+  {id: "tree.view.inspect", surface: "tree", modes: ["browse"], label: "View status", description: "Inspect workspace, counts, Inbox and selected branch diagnostics", defaultChords: [], helpPriority: 0, menuGroup: "View"},
+  ...(["tree", "detail"] as const).flatMap(surface => [
+    ...(["note", "view", "links", "props"] as const).map(menu => ({
+      id: `${surface}.menu.${menu}`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "property", "annotation", "file"],
+      label: `${menu[0]!.toUpperCase()}${menu.slice(1)} menu`, description: `Open ${menu} actions; left/right changes menu`,
+      defaultChords: [], helpPriority: 0, menuGroup: "System" as const,
+    })),
+    ...(["compact", "expanded"] as const).map(density => ({
+      id: `${surface}.density.${density}`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "property", "annotation", "file"],
+      label: `${density === "compact" ? "Compact" : "Expanded"} layout`, description: density === "compact" ? "Give rows back to content" : "Show location, destination and shortcut rows",
+      defaultChords: [], helpPriority: 0, menuGroup: "View" as const,
+    })),
+    {id: `${surface}.location`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "property", "annotation", "file"],
+      label: "Location / ancestors", description: "Inspect and navigate the current document's location", defaultChords: [], helpPriority: 0, menuGroup: "Navigate" as const},
+  ]),
   {id:'tree.workspace.inspect',surface:'tree',modes:['browse'],label:'Workspace and connection',description:'Inspect workspace, storage paths and connection without changing data',defaultChords:[],helpPriority:0,menuGroup:'System'},
   { id: "tree.close", surface: "tree", modes: ["*"], label: "close", description: "Close this Tree pane", defaultChords: ["Ctrl+Q"], helpPriority: 100, menuGroup: "System" },
   ...([

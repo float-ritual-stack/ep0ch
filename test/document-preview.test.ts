@@ -172,8 +172,22 @@ test('Forward reloads a visit interrupted by Back instead of restoring a loading
 test('narrow Preview preserves clickable navigation ahead of optional layout controls',async()=>{
  const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
  const {treePreviewFrame}=await import('../src/tree-preview');
+ const {renderDocumentPreview}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences,visibleWidth}=await import('@earendil-works/pi-tui');
  const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('not used');}},()=>{});
  await reader.loadText({kind:'block',blockId:'source'},'Source',Promise.resolve('Body'));
+ const compact=renderDocumentPreview(reader.state!,{x:10,y:2,width:26,height:8},'',undefined,'compact','preview.menu');
+ expect(stripTerminalSequences(compact.lines[0]!)).toContain('· S');
+ expect(compact.controls?.map(c=>c.action)).toEqual(['preview.open','preview.menu']);
+ expect(visibleWidth(compact.lines[0]!)).toBeLessThanOrEqual(26);
+ for(const canBack of [false,true]) for(const canForward of [false,true]){
+  const frame=renderDocumentPreview({...reader.state!,canBack,canForward},{x:10,y:2,width:26,height:8},'',undefined,'compact','preview.menu');
+  const actions=frame.controls!.map(c=>c.action);
+  expect(actions.includes('preview.back')).toBe(canBack);
+  expect(actions.includes('preview.forward')).toBe(canForward);
+  expect(actions).toContain('preview.open');
+  expect(frame.controls!.every(c=>c.rect.x+c.rect.width<=36&&c.rect.y===2)).toBe(true);
+ }
  for(const sideFraction of [.55,.8]){
   const frame=treePreviewFrame({...reader.state!,canBack:true,canForward:true},60,40,'',{enabled:true,dock:'right',sideFraction,bottomFraction:.5});
   expect(frame.controls?.map(control=>control.action)).toEqual(expect.arrayContaining(['preview.back','preview.forward','preview.open']));

@@ -1,3 +1,4 @@
+import type {ReaderDensity} from "./reader-chrome";
 import {outlinerActionLink} from './outliner-actions';
 import {PREVIEW_NAVIGATION_WIDTH,renderDocumentPreview,type DocumentPreviewFrame} from './document-preview-renderer';
 
@@ -16,7 +17,7 @@ export interface TreePreviewFrame extends DocumentPreviewFrame {
   treeHeight: number;
   placement: 'beside'|'below'|'compact';
 }
-export function treePreviewFrame(preview:DocumentPreviewState,width:number,height:number,help:string, preferences=defaultPreviewPreferences()):TreePreviewFrame {
+export function treePreviewFrame(preview:DocumentPreviewState,width:number,height:number,help:string, preferences=defaultPreviewPreferences(), density: ReaderDensity = "compact"):TreePreviewFrame {
   const wanted = preferences.dock === 'auto' ? (width >= 101 ? 'right' : 'bottom') : preferences.dock;
   const placement = wanted === 'right' && width >= 60 ? 'beside' : wanted === 'bottom' && height >= 16 ? 'below' : 'compact';
   const fraction = Math.max(.2, Math.min(.8, placement === 'beside' ? preferences.sideFraction : preferences.bottomFraction));
@@ -33,6 +34,6 @@ export function treePreviewFrame(preview:DocumentPreviewState,width:number,heigh
     column += text.length;
   }
   const divider = placement === 'beside' ? {x: treeWidth, y: 0, width: 1, height} : placement === 'below' ? {x: 0, y: treeHeight, width, height: 1} : undefined;
-  const rendered=renderDocumentPreview({...preview,title:`${preview.title} · ${preferences.dock === 'auto'?'Auto':preferences.dock==='right'?'Dock right':'Dock below'}`},rect,`→ right · ↓ below · Auto fit · drag divider · ${help}`,toolbar);
-  return {...rendered,treeWidth,treeHeight,placement,controls:[...controls,...rendered.controls??[]],divider};
+  const rendered=renderDocumentPreview({...preview,title:`${preview.title} · ${preferences.dock === 'auto'?'Auto':preferences.dock==='right'?'Dock right':'Dock below'}`},rect,`→ right · ↓ below · Auto fit · drag divider · ${help}`,toolbar,density,"tree.menu.view");
+  return {...rendered,treeWidth,treeHeight,placement,controls:[...(density === "expanded" ? controls : []),...rendered.controls??[]],divider};
 }

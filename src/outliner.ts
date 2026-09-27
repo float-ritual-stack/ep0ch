@@ -1,3 +1,5 @@
+import {PaneDisplay} from "./pane-display";
+import {ViewPreferences} from "./view-preferences";
 import {focusActiveCapture} from "./capture-owner";
 import {TextViewerInput} from './text-viewer-input';
 import {openExternalUrl} from "./open-external";
@@ -48,6 +50,8 @@ import { OUTLINER_PROTOCOL_VERSION, type OutlinerServiceStatus } from "./types";
 
 initTheme(undefined, false);
 const paths = resolveClientPaths();
+const viewPreferences = new ViewPreferences();
+const paneDisplay = new PaneDisplay(draw);
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const clientId = crypto.randomUUID();
@@ -79,6 +83,7 @@ function errorMessage(error: unknown): string {
 }
 
 function draw(): void {
+  paneDisplay.update(controller.view().root?.label ?? "Outliner");
   if(keyInspector.active) {
     process.stdout.write(`\x1b[H\x1b[2J${keyInspector.render(process.stdout.columns ?? 100,process.stdout.rows ?? 30).join("\n")}`);
     return;
@@ -88,7 +93,7 @@ function draw(): void {
     process.stdout.columns ?? 100,
     process.stdout.rows ?? 30,
     controller.view().scrollStartEntryIndex ?? 0,
-    { propertyKeys: propertySummaryKeys },
+    { propertyKeys: propertySummaryKeys, titleInFrame: paneDisplay.inFrame },
   );
   renderedFrameLines = previewInput.render(result.frame.split("\n"),result.preview,controller.view().mode === "inbox" ? controller.view().inbox?.reader.state : controller.view().localPreview);
   renderedFrameLines=viewerInput.render(renderedFrameLines,result.viewer);
@@ -98,7 +103,7 @@ function draw(): void {
   process.stdout.write(renderedFrameLines.join("\n"));
 }
 
-function stop(): void {
+async function stop(): Promise<void> {
   if (stopping) return;
   if (rightClickOwnership === "outliner") {
     try {
@@ -108,6 +113,7 @@ function stop(): void {
     }
   }
   stopping = true;
+  await paneDisplay.stop();
   keyInspector.dispose();
   watcher?.stop();
   void runtimeSync?.stop();
@@ -124,6 +130,9 @@ if(initialRoot && ![initialRoot.rowId,initialRoot.canonicalId,initialRoot.label]
   throw new Error("OUTLINER_TREE_ROOT must identify a Tree occurrence");
 }
 const controller = createTreeController({
+  inspectProperties: blockId => { openDetailPane({workspaceRoot: paths.workspaceRoot, browsingContextId: crypto.randomUUID(), propertyInspectorBlockId: blockId}); },
+  density: () => viewPreferences.density,
+  setDensity: value => viewPreferences.setDensity(value),
   copyText:text=>process.stdout.write(osc52ClipboardWrite(text)),
       openExternal: openExternalUrl,
   openKeyInspector: () => keyInspector.open(),

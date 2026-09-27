@@ -1,3 +1,4 @@
+import {renderReaderMenu} from "./reader-chrome";
 import type {TextViewerFrame} from "./text-viewer-input";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import type {DocumentPreviewFrame} from "./document-preview-renderer";
@@ -187,6 +188,7 @@ export interface TreeRenderResult {
 }
 
 export interface TreeRenderOptions {
+  readonly titleInFrame?: boolean;
   readonly propertyKeys?: readonly string[];
   readonly clearScreen?: boolean;
   readonly focused?: boolean;
@@ -390,7 +392,7 @@ export function renderTreeFrame(
   options: TreeRenderOptions = {},
 ): TreeRenderResult {
   if (view.localPreview && view.mode === "browse") {
-    const preview=treePreviewFrame(view.localPreview,width,height,view.previewHelp ?? "Alt+P Tree/Preview · Esc close · drag to copy",view.previewPreferences);
+    const preview=treePreviewFrame(view.localPreview,width,height,view.previewHelp ?? "Alt+P Tree/Preview · Esc close · drag to copy",view.previewPreferences, view.density);
     const tree=renderTreeFrame({...view,localPreview:null},preview.treeWidth,preview.treeHeight,initialScrollStartEntryIndex,{...options,clearScreen:false});
     const treeLines=tree.frame.split("\n");
     let lines:string[];
@@ -438,7 +440,8 @@ export function renderTreeFrame(
     const lines=[fit(title,width),fit(view.destinationInstructions??(openingOnce ? 'Choose where this item opens once' : 'Choose where links from Tree open'),width),fit(`Find: ${view.actionMenuQuery??''}▏`,width),'─'.repeat(width),...middle,fit(footer,width)];
     return{frame:(options.clearScreen===false?'':`${ESC}H${ESC}2J`)+lines.slice(0,height).join('\n'),scrollStartEntryIndex:initialScrollStartEntryIndex,mouseTargets:[]};
   }
-  const output: string[] = [options.clearScreen === false ? "" : `${ESC}H${ESC}2J`];
+  const output: string[] = view.density === "expanded" ? [""] : [];
+  const clear = options.clearScreen === false ? "" : `${ESC}H${ESC}2J`;
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 
   if (view.mode === "inbox" && view.inbox) {
@@ -463,7 +466,15 @@ export function renderTreeFrame(
       viewer:view.workspaceReport?{content:{x:0,y:2,width,height:bodyHeight},identity:view.workspaceReport,offset:view.viewerOffset}:undefined};
   }
 
-  const breadcrumb=renderTreeBreadcrumbs(view,width);
+  const compact = view.density !== "expanded";
+  const breadcrumb = compact ? null : renderTreeBreadcrumbs(view, width);
+  if (compact) {
+    output.push(renderReaderMenu("tree", width, `${options.focused === false ? "○" : "●"} ${options.titleInFrame ? "Tree" : view.root?.label ?? "Tree"}`));
+    const cues = [view.activeFilter ? `Filter: ${view.activeFilter}` : "",
+      view.visibleCompleteness.kind === "truncated" ? `Results truncated at ${view.visibleCompleteness.limit}` : "",
+      attentionReturnSummary(view.attention, width) ?? ""].filter(Boolean);
+    if (cues.length) output.push(truncateToWidth(cues.join(" · "), width));
+  } else {
   const paneMenu = outlinerActionLink("tree.menu.open", "[⋯]");
   const previewToggle = outlinerActionLink("tree.preview.toggle", view.previewPreferences?.enabled === false ? "[Show Preview]" : "[Hide Preview]");
   const indentationBadge = outlinerActionLink("tree.indentation.toggle", `[Indent: ${view.indentationMode ?? "viewport"}]`);
@@ -488,8 +499,38 @@ export function renderTreeFrame(
   if (breadcrumb) output.push(breadcrumb.line);
   output.push(view.navigationDestinationLabel === undefined ? "─".repeat(width)
     : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));
+  }
+  const compactRecovery = compact && view.mode === "browse" && Boolean(view.recoveryHelp);
+  // Recovery controls can displace optional chrome; even a one-row pane must offer an escape.
+  if (compactRecovery) {
+    while (output.length > 1 && output.length > height - 3) output.pop();
+    if (height === 1) output.length = 0;
+  }
   const headerHeight = output.length;
-  const bodyHeight = Math.max(1, height - 6 - (breadcrumb ? 1 : 0));
+  const minimumBodyHeight = compactRecovery && height <= 2 ? 0 : 1;
+  const selectedRow = view.rows[view.selectedIndex];
+  const selectedBranchState =
+    selectedRow?.kind === "physical"
+      ? view.branchStates.get(selectedRow.canonicalId)
+      : undefined;
+  // Concurrent failures need their own rows; priority must never conceal writing or connection state.
+  const branchError = selectedBranchState?.configurationErrors.length
+    ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
+    : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "";
+  // Short panes keep notices by priority (recovery controls, recovery status, connection/general status, branch error) but render them in reading order.
+  const compactNotices = [
+    {text: view.recoveryStatus, priority: 1, sanitize: true},
+    {text: branchError, priority: 3, sanitize: true},
+    {text: view.status, priority: 2, sanitize: true},
+    {text: view.recoveryHelp, priority: 0, sanitize: false},
+  ].filter((notice, index, all): notice is {text: string; priority: number; sanitize: boolean} =>
+    Boolean(notice.text) && all.findIndex(other => other.text === notice.text) === index);
+  const compactCapacity = Math.max(0, height - headerHeight - minimumBodyHeight);
+  const compactKept = new Set([...compactNotices].sort((a, b) => a.priority - b.priority).slice(0, compactCapacity));
+  const compactFooterLines = compactNotices.filter(notice => compactKept.has(notice));
+  const compactFooter = compactFooterLines.length;
+  const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
+  const bodyHeight = Math.max(minimumBodyHeight, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
     const actionMenuItems = view.actionMenuItems ?? [];
     const actionMenuIndex = view.actionMenuIndex ?? 0;
@@ -511,7 +552,7 @@ export function renderTreeFrame(
     for (let index = window.start; index < window.end; index++) {
       const item = actionMenuItems[index]!;
       const text = actionMenuItemText(item);
-      const linked = outlinerActionLink(item.id, truncate(text, Math.max(1, menuWidth - 2)));
+      const linked = outlinerActionLink(item.id, truncateToWidth(text, Math.max(1, menuWidth - 2)));
       const prefix = " ".repeat(menuColumn);
       output.push(
         `${prefix}${index === actionMenuIndex ? `\x1b[7m› ${linked}\x1b[0m` : `  ${linked}`}`,
@@ -523,7 +564,7 @@ export function renderTreeFrame(
     output.push(truncate(`Find: ${actionMenuQuery}▏${description}`, width));
     output.push(`\x1b[2m${truncate("↑↓ choose  ↵ invoke  ⎋ close", width)}\x1b[0m`);
     return {
-      frame: output.join("\n"),
+      frame: clear + output.join("\n"),
       scrollStartEntryIndex: initialScrollStartEntryIndex,
       mouseTargets,
     };
@@ -788,13 +829,14 @@ export function renderTreeFrame(
       renderedBodyLines += 1;
     }
   }
-  while (output.length < height - 2) output.push("");
+  while (output.length < height - footerHeight) output.push("");
+  if (compact && view.mode === "browse") {
+    for (const {text, sanitize} of compactFooterLines) output.push(truncateToWidth(sanitize ? sanitizeDynamicText(text) : text, width));
+    const selected = selectedExpandedInfo.current;
+    return {frame: clear + output.slice(0,height).join("\n"), scrollStartEntryIndex, mouseTargets,
+      expandedPage: selected ? {rowId: view.rows[view.selectedIndex]!.rowId, pageSize:bodyHeight,totalRows:selected.total,offset:selected.offset} : null};
+  }
 
-  const selectedRow = view.rows[view.selectedIndex];
-  const selectedBranchState =
-    selectedRow?.kind === "physical"
-      ? view.branchStates.get(selectedRow.canonicalId)
-      : undefined;
   const selectedInfo = selectedExpandedInfo.current;
   const expandedScrollable = selectedInfo !== null && selectedInfo.total > bodyHeight;
   const expandedStatus = expandedScrollable
@@ -857,7 +899,7 @@ export function renderTreeFrame(
   const help = view.recoveryHelp ?? view.actionHelpText ??
     DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", view.mode);
   output.push(`\x1b[2m${(view.recoveryHelp ? truncateToWidth : truncate)(options.focused === undefined ? help : `F6 Detail  ${help}`, width)}\x1b[0m`);
-  return { frame: output.join("\n"), scrollStartEntryIndex, mouseTargets, breadcrumbStart:breadcrumb?.start,
+  return { frame: clear + output.join("\n"), scrollStartEntryIndex, mouseTargets, breadcrumbStart:breadcrumb?.start,
     expandedPage: selectedInfo && isBlockTreeRow(selectedRow) && selectedRow.multilineExpanded
       ? {rowId:selectedRow.rowId,pageSize:bodyHeight,totalRows:selectedInfo.total,offset:selectedInfo.offset} : null,
   };

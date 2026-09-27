@@ -1,3 +1,5 @@
+import {openDetailPane} from "./pane-control";
+import type {ViewPreferences} from "./view-preferences";
 import {focusActiveCapture} from "./capture-owner";
 import {TextViewerInput} from './text-viewer-input';
 import {openExternalUrl} from "./open-external";
@@ -119,6 +121,7 @@ export class ComposedTree implements Component {
 
   constructor(private readonly options: {
     client: OutlinerRequester; clientId: string; contextId: string; workspaceRoot: string;
+    viewPreferences: ViewPreferences;
     navigation: TreeNavigation; actionKeymap: OutlinerActionKeymap;
     width(): number; height(): number; focused(): boolean; focus(): void;
     invalidate(): void; stop(): void;
@@ -126,6 +129,9 @@ export class ComposedTree implements Component {
   }) {
     this.keyInspector=new KeyInspector({actionKeymap:options.actionKeymap,invalidate:options.invalidate});
     this.controller = createTreeController({
+      inspectProperties: blockId => { openDetailPane({workspaceRoot: options.workspaceRoot, browsingContextId: crypto.randomUUID(), propertyInspectorBlockId: blockId}); },
+      density: () => options.viewPreferences.density,
+      setDensity: value => options.viewPreferences.setDensity(value),
       copyText:text=>process.stdout.write(osc52ClipboardWrite(text)),
       openExternal: openExternalUrl,
       openKeyInspector: () => this.keyInspector.open(),

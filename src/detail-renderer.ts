@@ -1,3 +1,4 @@
+import {renderReaderMenu, type ReaderDensity} from "./reader-chrome";
 import {
   hyperlink,
   truncateToWidth,
@@ -76,7 +77,7 @@ function fitBreadcrumb(value: string, width: number): string {
   return fitToWidth(`… › ${suffix}`, width);
 }
 
-function detailTitle(state: Readonly<DetailState>): string {
+export function detailTitle(state: Readonly<DetailState>): string {
   const selected = state.context.selected;
   const breadcrumbTitle = state.resolvedBreadcrumb
     .split(" › ")
@@ -191,6 +192,8 @@ function renderDetailMetadata(
 }
 
 export interface DetailHeaderOptions {
+  density?: ReaderDensity;
+  titleInFrame?: boolean;
   linkBreadcrumbs?: boolean;
   surface?: string;
   focused?: boolean;
@@ -216,6 +219,14 @@ export function renderDetailHeader(
   width: number,
   options: DetailHeaderOptions = {},
 ): string[] {
+  if (options.density === "compact") {
+    const identity = options.titleInFrame ? options.surface ?? "Current" : `${options.surface ?? "Current"} · ${detailTitle(state)}`;
+    const rows = [renderReaderMenu("detail", width, identity)];
+    if (state.recoveryNotice) rows.push(fitToWidth(outlinerActionLink("detail.edit.recover", `Recovery needs attention · ${sanitizeDynamicText(state.recoveryNotice)}`), width));
+    const attention = attentionBanner(state.attention, detailBlockTarget(state)?.blockId ?? null, width);
+    if (attention) rows.push(attention);
+    return rows;
+  }
   const title = renderDetailTitle(
     state,
     width,
@@ -242,7 +253,12 @@ export function renderDetailFooter(
   mode: DetailState["mode"] = state.mode,
   helpText = detailHelpText(mode),
   chooserHelpText = openDestinationChooserHelp(),
+  density: ReaderDensity = "expanded",
 ): string[] {
+  if (density === "compact" && !state.destinationChooser.active) {
+    const message = state.disconnected ? "Workspace service disconnected; reconnecting…" : attentionReturnSummary(state.attention, width) ?? state.status;
+    return message ? [fitDynamicText(message, width)] : [];
+  }
   const destinationChooserOpen = state.destinationChooser.active;
   const returnSummary = attentionReturnSummary(state.attention, width);
   return [
@@ -327,8 +343,12 @@ export function renderDetailLines(
 ): string[] {
   const width = viewport.width;
   const height = viewport.height;
-  const bodyHeight = Math.max(1, height - 5);
-  const output = renderDetailHeader(state, width, options.header);
+  const density = ["edit", "select", "comment"].includes(state.mode) ? "expanded" : options.header?.density ?? "expanded";
+  const output = renderDetailHeader(state, width, {...options.header,density});
+  const helpText = options.helpText ??
+    (options.helpPrefix ? `${options.helpPrefix}  ${detailHelpText(state.mode)}` : detailHelpText(state.mode));
+  const footer = renderDetailFooter(state,width,state.mode,helpText,options.chooserHelpText,density);
+  const bodyHeight = Math.max(1, height - output.length - footer.length);
   const bodyStart = output.length;
   let sourceRowsInViewport: number | undefined;
 
@@ -441,11 +461,7 @@ export function renderDetailLines(
     sourceRowsInViewport = Math.max(0, Math.min(bodyHeight, preview.sourceLines.length - state.previewOffset));
   }
 
-  while (output.length < height - 2) output.push("");
-  const helpText = options.helpText ??
-    (options.helpPrefix
-      ? `${options.helpPrefix}  ${detailHelpText(state.mode)}`
-      : detailHelpText(state.mode));
+  while (output.length < height - footer.length) output.push("");
   if (state.mode === "preview") {
     const mark = currentAttentionMark(state.attention, detailBlockTarget(state)?.blockId ?? null);
     const count = sourceRowsInViewport ?? output.length - bodyStart;
@@ -457,16 +473,11 @@ export function renderDetailLines(
     );
     output.splice(bodyStart, count, ...decorated);
   }
-  output.push(...renderDetailFooter(
-    state,
-    width,
-    state.mode,
-    helpText,
-    options.chooserHelpText,
-  ));
+  output.push(...footer);
   if (output.length <= height) return output;
   if (height <= 1) return output.slice(0, Math.max(0, height));
-  const footerCount = Math.min(2, height - 1);
+  const footerCount = Math.min(footer.length, height - 1);
+  if (!footerCount) return output.slice(0,height);
   return [...output.slice(0, height - footerCount), ...output.slice(-footerCount)];
 }
 

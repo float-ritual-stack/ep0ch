@@ -1,3 +1,6 @@
+import {PaneDisplay} from "./pane-display";
+import {ViewPreferences} from "./view-preferences";
+import {adjacentReaderMenu, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
 import {EditRecoveryInput} from "./edit-recovery-input";
 import {EditRecoveryClient} from "./edit-recovery-client";
 import {EditRecoveryReview,type RecoveryChoice} from "./edit-recovery-review";
@@ -30,7 +33,7 @@ import {
 import { projectDetailRead } from "./detail-embeds";
 import { DetailEventScheduler } from "./detail-event-scheduler";
 import { createDetailKeyHandler, detailActionScopes } from "./detail-keymap";
-import { buildDetailAnsiPreview, renderDetailLines } from "./detail-renderer";
+import { buildDetailAnsiPreview, detailTitle, renderDetailHeader, renderDetailFooter, renderDetailLines } from "./detail-renderer";
 import { referencedFilePreview, type FileContents, type ReferencedPathCandidate } from "./files";
 import {
   editTextInExternalEditor,
@@ -93,6 +96,8 @@ const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
 initTheme(undefined, false);
 const paths = resolveClientPaths();
+const viewPreferences = new ViewPreferences();
+const paneDisplay = new PaneDisplay(draw);
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 initTheme();
@@ -194,6 +199,7 @@ function viewport(reader: DetailController = readingSurface.active): DetailViewp
   return {
     width,
     height,
+    previewBodyHeight: Math.max(1, height - renderDetailHeader(reader.state,width,{density:viewPreferences.density}).length - renderDetailFooter(reader.state,width,reader.state.mode,undefined,undefined,viewPreferences.density).length),
     ...(reader.state.mode === "preview" ? { preview: buildDetailAnsiPreview(reader.state, width) } : {}),
   };
 }
@@ -531,6 +537,7 @@ let actionMenu: {
   invoke: (id: string) => Promise<void>;
   query: string;
   index: number;
+  category?: ReaderMenu;
 } | null = null;
 
 function openActionMenu(items: readonly OutlinerActionMenuItem[], invoke: (id: string) => Promise<void>): void {
@@ -538,7 +545,32 @@ function openActionMenu(items: readonly OutlinerActionMenuItem[], invoke: (id: s
   draw();
 }
 
+function showReaderMenu(category: ReaderMenu): void {
+  const items = readerMenuItems(actionKeymap.menuItems("detail", detailActionScopes(readingSurface.active.state)), category).map(item =>
+    item.id === "detail.navigation.link" ? {...item, label: `Opens in: ${destinationDisplay.text} · Change`} : item);
+  openActionMenu(items, invokeReaderAction);
+  if (actionMenu) actionMenu.category = category;
+}
+
+async function chromeAction(id: string): Promise<boolean> {
+  const category = readerMenuFromAction(id);
+  if (category) { showReaderMenu(category); return true; }
+  if (id === "detail.density.compact" || id === "detail.density.expanded") {
+    viewPreferences.setDensity(id === "detail.density.compact" ? "compact" : "expanded");
+    draw(); return true;
+  }
+  if (id === "detail.location") {
+    const reader = readingSurface.active;
+    openActionMenu(reader.state.context.ancestors.map(block => ({id:block.id,label:block.text.split(/\r?\n/)[0] ?? block.id,description:"Open ancestor",binding:"",group:"Navigate"})), async blockId => {
+      await reader.dispatch({type:"reference.open",target:{kind:"block",value:blockId},routing:"linked"},viewport(reader));
+    });
+    return true;
+  }
+  return false;
+}
+
 function draw(): void {
+  paneDisplay.update(detailTitle(controller.state));
   if (recoveryReview) {
     const lines=recoveryReview.render(process.stdout.columns??100,process.stdout.rows??30);
     process.stdout.write(`\x1b[H${lines.join("\r\n")}\x1b[J`);
@@ -588,7 +620,7 @@ function draw(): void {
   const render = (reader: DetailController, label: string) => {
     reader.setPreviewRegions(detailPropertyInspectorRegions(reader.state));
     return renderDetailLines(reader.state, viewport(reader), {
-      header: {destinationLabel: destinationDisplay.text, surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
+      header: {density: viewPreferences.density, titleInFrame: reader === controller && paneDisplay.inFrame, destinationLabel: destinationDisplay.text, surface: label === "Current" && geometry.arrangement === "switch" ? `Current · Preview ready (${actionKeymap.primaryBinding("detail.reading.focus")})` : label, focused: readingSurface.active === reader},
       helpPrefix: readingSurface.previewVisible ? `${actionKeymap.primaryBinding("detail.reading.focus")} Current/Preview · Alt+Enter Keep · Esc close Preview` : "",
       helpText: actionKeymap.helpText("detail", detailActionScopes(reader.state, {bufferMode: reader.isBufferMode()})),
       chooserHelpText: reader.destinationChooserHelpText(),
@@ -715,12 +747,13 @@ function startWatcher(): void {
   });
 }
 
-function stop(): void {
+async function stop(): Promise<void> {
   if (stopping) return;
   try {controller.checkpointRecovery();inspection.checkpointRecovery();}
   catch(error){controller.onServiceError(error);return;}
   destinationDisplay.dispose();
   stopping = true;
+  await paneDisplay.stop();
   keyInspector.dispose();
   keyInput.destroy();
   watcher?.stop();
@@ -766,13 +799,33 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", stop);
 process.on("SIGHUP", stop);
 
+async function invokeReaderAction(actionId: string): Promise<void> {
+  const active = readingSurface.active;
+  if (await chromeAction(actionId)) return;
+  if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
+  if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
+  if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }
+  if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+    const annotationId = inspection.state.selectedAnnotationId;
+    if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return; }
+    await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
+    return;
+  }
+  if (active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
+    if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
+    return;
+  }
+  await (active === inspection ? inspectionKeypress : handleKeypress).invoke(actionId);
+}
+
 async function handleInput(str: string, key: TerminalKey): Promise<void> {
   if(recoveryReview)return;
   const inputAction = inputDecoder.consume(str, key);
   if (actionMenu && inputAction !== "suppress") {
     const menu = actionMenu;
     const items = filterActionMenuItems(menu.items, menu.query);
-    if (key.name === "escape") actionMenu = null;
+    if (menu.category && (key.name === "left" || key.name === "right")) showReaderMenu(adjacentReaderMenu(menu.category,key.name === "right" ? 1 : -1));
+    else if (key.name === "escape") actionMenu = null;
     else if (key.name === "return") {
       const selected = items[menu.index];
       if (selected) { actionMenu = null; await menu.invoke(selected.id); }
@@ -800,19 +853,7 @@ async function handleInput(str: string, key: TerminalKey): Promise<void> {
   if (inputAction !== "suppress" && key.name === "escape" && await readingSurface.escapePreview()) return;
   if (inputAction !== "suppress" && !active.state.destinationChooser.active) {
     const {actionId} = actionKeymap.resolve("detail", detailActionScopes(active.state), str, key);
-    if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
-    if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
-    if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }
-    if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
-      const annotationId = inspection.state.selectedAnnotationId;
-      if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return; }
-      await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
-      return;
-    }
-    if (actionId && active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
-      if (await readingSurface.keepPreview(viewport(controller))) await handleKeypress.invoke(actionId);
-      return;
-    }
+    if (actionId) { await invokeReaderAction(actionId); return; }
   }
   await (active === inspection ? inspectionKeypress : handleKeypress)(str, key, inputAction);
 }

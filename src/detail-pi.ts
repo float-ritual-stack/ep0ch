@@ -1,3 +1,7 @@
+import {PaneDisplay} from "./pane-display";
+import {detailTitle} from "./detail-renderer";
+import {adjacentReaderMenu, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
+import {ViewPreferences} from "./view-preferences";
 import { renderDetailLines } from "./detail-renderer";
 import { treeLinkAtClick } from "./tree-mouse";
 import {EditRecoveryInput} from "./edit-recovery-input";
@@ -198,6 +202,8 @@ const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
 const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
 const paths = resolveClientPaths();
+const viewPreferences = new ViewPreferences();
+const paneDisplay = new PaneDisplay(() => synchronizeLayout?.());
 reportCurrentPaneWorkspace(paths.workspaceRoot);
 const client = createOutlinerClient(paths);
 const editRecovery = new EditRecoveryClient(client,paths.stateDir);
@@ -796,6 +802,7 @@ const localNavigation = composedTreeNavigation({
   schedulePreview: (task) => serviceEventScheduler.schedulePreview(task),
 });
 const composedTree: ComposedTree | null = composed ? new ComposedTree({
+  viewPreferences,
   client, clientId, contextId: browsingContextId, workspaceRoot: paths.workspaceRoot,
   navigation: localNavigation, actionKeymap,
   width: () => composedTree?.controller.mode === "goto" ? processTerminal.columns : composedWidths(processTerminal.columns).tree,
@@ -911,6 +918,7 @@ async function stop(exitCode = 0): Promise<void> {
   if (stopping) return;
   try {controller.checkpointRecovery();inspection.checkpointRecovery();}
   catch(error){controller.onServiceError(error);return;}
+  await paneDisplay.stop();
   destinationDisplay.dispose();
   if (rightClickOwnership === "outliner") {
     try {
@@ -992,6 +1000,7 @@ class FuzzyActionMenu implements Component {
     private readonly items: readonly OutlinerActionMenuItem[],
     private readonly maxVisible: number,
     private readonly destination?: DetailDestinationMenuOptions,
+    private readonly changeMenu?: (delta: number) => void,
   ) {
     this.list = this.createList();
   }
@@ -1018,6 +1027,9 @@ class FuzzyActionMenu implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.changeMenu && (matchesKey(data, Key.left) || matchesKey(data, Key.right))) {
+      this.changeMenu(matchesKey(data, Key.right) ? 1 : -1); return;
+    }
     if (matchesKey(data, Key.backspace)) {
       this.updateQuery([...this.query].slice(0, -1).join(""));
       return;
@@ -1083,9 +1095,10 @@ function showActionMenu(
   origin?: TreeMouseClick,
   cancelled?: () => void,
   destination?: DetailDestinationMenuOptions,
+  changeMenu?: (delta: number) => void,
 ): void {
   closeActionMenu();
-  const menu = new FuzzyActionMenu(items, destination ? 7 : 13, destination);
+  const menu = new FuzzyActionMenu(items, destination ? 7 : 13, destination, changeMenu);
   menu.onSelect = (actionId) => {
     closeActionMenu();
     if (cancelled) void invoke(actionId);
@@ -1187,8 +1200,8 @@ async function handleRenderedSelectionMouse(data: string): Promise<boolean> {
   if (!pointer || pointer.meta || pointer.ctrl) return false;
   let row = pointer.row;
   if (renderedSelectionDragActive && pointer.phase !== "down") {
-    const bodyTop = 3;
-    const bodyBottom = terminal.rows - 3;
+    const bodyTop = preview.headerHeight(terminal.columns);
+    const bodyBottom = terminal.rows - preview.footerHeight(terminal.columns) - 1;
     if (row < bodyTop) {
       preview.navigate("up");
       row = bodyTop;
@@ -1403,7 +1416,38 @@ const inspectionKeypress = createDetailKeyHandler({openNewTree: () => { openTree
   openKeyInspector,
   navigatePreview: direction => inspectionLayout.navigate(direction),
 });
+function showReaderMenu(menu: ReaderMenu): void {
+  const items = readerMenuItems(actionKeymap.menuItems("detail", activeDetailActionScopes()), menu).map(item =>
+    item.id === "detail.navigation.link" ? {...item, label: `Opens in: ${destinationDisplay.text} · Change`} : item);
+  showActionMenu(items, invokeDetailAction, undefined, undefined, undefined, delta => showReaderMenu(adjacentReaderMenu(menu,delta)));
+}
+
 async function readerAction(actionId: string): Promise<boolean> {
+  const menu = readerMenuFromAction(actionId);
+  if (menu) { showReaderMenu(menu); return true; }
+  if (actionId.startsWith("detail.density.")) {
+    const value = actionId.slice("detail.density.".length);
+    if (value !== "compact" && value !== "expanded") return true;
+    try {
+      const geometry = readerGeometry();
+      preview.preserveReadingPosition(geometry.current.width, geometry.current.height, () => {
+        if (readingSurface.previewVisible) inspectionLayout.preserveReadingPosition(geometry.preview.width, geometry.preview.height, () => viewPreferences.setDensity(value));
+        else viewPreferences.setDensity(value);
+      });
+      synchronizeLayout?.();
+    }
+    catch (error) { readingSurface.active.onServiceError(error); }
+    return true;
+  }
+  if (actionId === "detail.location") {
+    const state = readingSurface.active.state;
+    showActionMenu(state.context.ancestors.map(block => ({id: `location:${block.id}`, label: block.text.split(/\r?\n/)[0] ?? block.id,
+      description: "Open this ancestor", binding: "", group: "Navigate"})), async id => {
+        await readingSurface.active.dispatch({type:"reference.open",target:{kind:"block",value:id.slice("location:".length)},routing:"linked"}, viewport(readingSurface.active));
+      });
+    return true;
+  }
+
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
   if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport()); return true; }
@@ -1524,6 +1568,8 @@ const preview = new DetailPiPreviewLayout(
   () => tui.requestRender(),
   {
     calloutTheme: calloutThemeResolution.theme,
+    density: () => viewPreferences.density,
+    titleInFrame: () => paneDisplay.inFrame && !composed,
     headerPropertyKeys: detailHeaderPropertyKeys,
     destinationLabel: () => destinationDisplay.text,
     draftText: () => draftSplitActive() ? controller.state.buffer.text : null,
@@ -1552,6 +1598,7 @@ const preview = new DetailPiPreviewLayout(
 const draftSplit = new DetailPiDraftSplitLayout(customFrame, preview);
 const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdownTheme(), hyperlinksEnabled, () => tui.requestRender(), {
   calloutTheme: calloutThemeResolution.theme,
+  density: () => viewPreferences.density,
   destinationLabel: () => destinationDisplay.text,
   surfaceLabel: () => `${readingSurface.focused === "preview" ? "●" : "○"} Preview`,
   helpText: () => `${readingHelp()}${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}`,
@@ -1594,6 +1641,7 @@ let composerWidth = 0;
 let composerHeight = 0;
 
 synchronizeLayout = () => {
+  paneDisplay.update(detailTitle(controller.state));
   // A retained quote is convenience state, never a navigation lock. A new
   // document retires both completed and in-flight captures before they can be reused.
   if (directSelectionDocument && (directSelectionDocument.reader.state.document !== directSelectionDocument.document ||

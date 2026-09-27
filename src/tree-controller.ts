@@ -1,3 +1,4 @@
+import {adjacentReaderMenu, readerMenuFromAction, readerMenuItems, type ReaderDensity, type ReaderMenu} from "./reader-chrome";
 import {wrapTextWithAnsi} from '@earendil-works/pi-tui';
 import {inspectWorkspaceConnection,type WorkspaceReport} from './workspace-diagnostics';
 import {layoutWorkspaceReport} from './workspace-report-view';
@@ -42,6 +43,7 @@ import {
   historyNavigationDirection,
   isDetailToggle,
   isPrintableInput,
+  sanitizeDynamicText,
   type TerminalInputAction,
   type TerminalKey,
 } from "./terminal";
@@ -124,6 +126,8 @@ export interface TreeQuickCompletion {
 export interface TreeRoot { readonly rowId: string; readonly canonicalId: string; readonly label: string }
 
 export interface TreeView {
+  readonly density?: ReaderDensity;
+  readonly actionMenuCategory?: ReaderMenu;
   readonly root?: TreeRoot | null;
   readonly breadcrumbs?: readonly (TreeRoot & {kind:"physical"|"occurrence"})[];
   readonly breadcrumbStart?: number | null;
@@ -175,6 +179,9 @@ export interface TreeView {
 }
 
 export interface TreeControllerEffects {
+  density?(): ReaderDensity;
+  inspectProperties?(blockId: string): void | Promise<void>;
+  setDensity?(density: ReaderDensity): void;
   copyText?(text:string):void;
   openExternal?(url:string):void|Promise<void>;
   readonly initialRoot?: TreeRoot;
@@ -388,6 +395,15 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let expandedBlockOffset = 0;
   let lastVisibleCanonicalId: string | null = null;
   let status = "";
+  let disconnected = false;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function routineNotice(message: string): void {
+    status = message;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { if (status === message) { status = ""; effects.invalidate(); } }, 3_000);
+    noticeTimer.unref();
+  }
+
   let browsingPublicationStatus = "";
   let refreshPending = false;
   let attention = emptyAttentionState(effects.clientId);
@@ -400,6 +416,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let actionMenuQuery = "";
   let actionMenuReturnMode: TreeMode = "browse";
   let actionMenuScope = "browse";
+  let actionMenuCategory: ReaderMenu = "all";
+  let locationMenu: OutlinerActionMenuItem[] | null = null;
   let lastInboxCue = "";
   let pendingBrowsingPublication: PendingBrowsingPublication | null = null;
   let browsingPublicationPump: Promise<void> | null = null;
@@ -418,7 +436,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         if (!await dispatchRecoverable({ kind: "block", blockId }, "open")) return;
       }
       else await selectVisibleBlock(blockId, { recordNavigation: true });
-      mode = "browse"; status = destination === "detail" ? "Opened in Detail" : "Focused selected result";
+      mode = "browse"; routineNotice(destination === "detail" ? "Opened in Detail" : "Focused selected result");
       if (refreshPending) await reload();
     },
   });
@@ -431,7 +449,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     async openResource(resourceId) {
       if (!await dispatchRecoverable({ kind: "resource", resourceId }, "open")) return;
       mode = "browse";
-      status = "Pi session opened in Detail";
+      routineNotice("Pi session opened in Detail");
       if (refreshPending) await reload();
       effects.invalidate();
     },
@@ -450,7 +468,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (destination === "detail") {
         if (!await dispatchRecoverable({kind:"block",blockId},"open")) return;
       } else { await selectVisibleBlock(blockId, { recordNavigation: true, physicalSource: true }); mode = "browse"; }
-      status = destination === "detail" ? "Inbox result opened in Detail" : "Inbox block revealed in Tree";
+      routineNotice(destination === "detail" ? "Inbox result opened in Detail" : "Inbox block revealed in Tree");
       if (refreshPending) await reload();
       effects.invalidate();
     },
@@ -535,7 +553,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     openRecovery.dismiss();
     try {
       const opened = await navigateOutlinerLink(effects,uri,{sourceClientId:effects.clientId,navigation:effects.navigation,intent:'open'});
-      status = `${opened.created ? 'Created and opened' : 'Opened'} ${opened.title} in ${effects.navigation.readerLabel}`;
+      routineNotice(`${opened.created ? 'Created and opened' : 'Opened'} ${opened.title} in ${effects.navigation.readerLabel}`);
     }
     catch(error){
       if(!missingNavigationDestination(error))throw error;
@@ -552,9 +570,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function filteredActionMenuItems(): OutlinerActionMenuItem[] {
+    if (locationMenu) return filterActionMenuItems(locationMenu, actionMenuQuery);
     if (destinationMenu) return filterActionMenuItems(placementDirection ? navigationPlacementItems(destinationMenu.state) : navigationDestinationItems(destinationMenu.state, destinationMenu.purpose === "link",showOtherDestinations), actionMenuQuery);
     const selected = rows[selectedIndex];
-    let items = actionKeymap.menuItems("tree", actionMenuScope);
+    let items = readerMenuItems(actionKeymap.menuItems("tree", actionMenuScope), actionMenuCategory);
     if (actionMenuScope !== "browse") return filterActionMenuItems(items
       .filter(item => !inbox.attentionOnly || !["tree.inbox.older", "tree.inbox.newer"].includes(item.id))
       .map(item => item.id === "tree.inbox.attention"
@@ -658,6 +677,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       inboxCue: inboxStatusCue(inbox.snapshot, inbox.error),
       localPreview: localReader.state,
       previewPreferences,
+      density: effects.density?.() ?? "compact",
+      actionMenuCategory,
       navigationDestinationLabel: navigationDisplay.text,
       previewHelp: `${actionKeymap.helpText("tree", "browse", ["tree.preview.focus", "tree.preview.close"])} · drag to copy`,
       viewerLines:displayedViewerLines(),
@@ -666,7 +687,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       viewerHelp: workspaceReport?actionKeymap.helpText("tree","workspace",["tree.viewer.copy","tree.viewer.next-field","tree.cancel"]):undefined,
       viewerOffset:Math.min(viewerOffset,Math.max(0,displayedViewerLines().length-1)),
       expandedBlockOffset,
-      status,
+      status: disconnected ? "Workspace service disconnected; reconnecting…" : status,
       refreshPending,
       attention,
       actionHelpText: inboxHelpText() ?? actionKeymap.helpText("tree", actionScope()),
@@ -1357,7 +1378,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         if(closed || generation!==navigationGeneration || origin!==originKey())return;
         const opened = await dispatchRecoverable(target, "open", {...routeOptions, preserveSource:true});
         if (opened) {
-          status = `Authored target opened in ${effects.navigation.readerLabel}`;
+          routineNotice(`Authored target opened in ${effects.navigation.readerLabel}`);
           effects.invalidate();
           return opened;
         }
@@ -1375,7 +1396,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         blockId: selected.canonicalId,
       }, "open", routeOptions);
       if (!opened) return;
-      status = `Reader opened in ${effects.navigation.readerLabel}`;
+      routineNotice(`Reader opened in ${effects.navigation.readerLabel}`);
       effects.invalidate();
       return opened;
     } catch (error) {
@@ -1430,7 +1451,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if(target)await dispatchRecoverable(target,"open",{destination});
       if (purpose === "link") await effects.request({action: "navigation.link.set", source: {clientId: effects.clientId, region: "tree"}, destination});
       void navigationDisplay.refresh();
-      status = purpose === "link" ? "Linked: Tree → new Detail" : "Opened once in new Detail";
+      routineNotice(purpose === "link" ? "Linked: Tree → new Detail" : "Opened once in new Detail");
       if (callerMode === "inbox") inbox.notice = status;
     } catch (error) {
       status = errorMessage(error);
@@ -1448,7 +1469,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     try {
       await effects.createDetailPane(selected.canonicalId, direction, targetPaneId);
-      status = `Opened new independent Detail ${direction} for ${selected.block.preview}`;
+      routineNotice(`Opened new independent Detail ${direction} for ${selected.block.preview}`);
     } catch (error) {
       status = errorMessage(error);
     }
@@ -1476,7 +1497,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await selectVisibleBlock(targetId, { preferredRowId: targetRowId, exactOccurrence: !!occurrenceRowId });
     try {
       await effects.navigation.edit(targetId);
-      status = `Multiline editor opened in ${effects.navigation.readerLabel}`;
+      routineNotice(`Multiline editor opened in ${effects.navigation.readerLabel}`);
     } catch (error) {
       status = errorMessage(error);
     }
@@ -1829,6 +1850,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function handleConnect(): Promise<void> {
+    disconnected = false;
     cancelReadSequence();
     void navigationDisplay.refresh();
     resetExpandedBlockPaging();
@@ -1851,6 +1873,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function handleDisconnect(): void {
+    disconnected = true; clearTimeout(noticeTimer);
     cancelReadSequence();
     status = "Workspace service disconnected; reconnecting…";
     inbox.disconnected();
@@ -1858,6 +1881,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function handleError(error: unknown): void {
+    clearTimeout(noticeTimer);
     status = errorMessage(error);
     effects.invalidate();
   }
@@ -1977,12 +2001,12 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   function scrollLocalPreview(delta:number):void {
     if(mode === "inbox") { inbox.scrollPreview(delta); return; }
     if(!localReader.state)return;
-    const frame=treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences);
+    const frame=treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences,effects.density?.() ?? "compact");
     localReader.scroll(delta,frame.content.width,frame.content.height);
   }
   function resizeLocalPreview(fraction: number): void {
     if (!localReader.state || !Number.isFinite(fraction)) return;
-    const frame = treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences);
+    const frame = treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences,effects.density?.() ?? "compact");
     const key = frame.placement === 'beside' ? 'sideFraction' : 'bottomFraction';
     previewPreferences = {...previewPreferences, [key]: Math.max(.2, Math.min(.8, fraction))};
     effects.invalidate();
@@ -2003,6 +2027,49 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     origin?: { column: number; row: number },
   ): Promise<void> {
     if (actionId !== "tree.read") cancelReadSequence();
+    if (actionId === "tree.property.inspect") {
+      if (mode === "action-menu") mode = actionMenuReturnMode;
+      const selected = rows[selectedIndex];
+      if (!isBlockTreeRow(selected)) { status = "Select a block to inspect properties"; }
+      else if (!effects.inspectProperties) status = "Property pane unavailable in this host";
+      else await effects.inspectProperties(selected.canonicalId);
+      effects.invalidate(); return;
+    }
+    if (actionId === "tree.view.inspect") {
+      const selected = rows[selectedIndex];
+      const branch = isBlockTreeRow(selected) ? branchStates.get(selected.kind === "occurrence" ? selected.viewId : selected.canonicalId) : undefined;
+      viewerPath = "View status"; viewerOffset = 0; viewerWrap = true; workspaceReport = null;
+      viewerLines = [effects.workspaceRoot, `${physicalRowCount} physical blocks · ${occurrenceRowCount} projected occurrences`,
+        inboxStatusCue(inbox.snapshot, inbox.error), `Opens in: ${navigationDisplay.text}`,
+        `Filter: ${activeFilter || "none"}`, ...branch ? [
+          "", "Virtual branch",
+          `Query: ${branch.config?.query || "not configured"}`,
+          `Matches: ${branch.count} · descendants: ${branch.descendantCount}`,
+          `Children depth: ${branch.config?.childDepth ?? "default"}`,
+          `Initially expanded: ${branch.config?.expanded ?? "default"}`,
+          `Truncated: ${Object.entries(branch.truncation).filter(([,active]) => active).map(([name]) => name).join(", ") || "no"}`,
+          ...branch.configurationErrors, ...branch.creationErrors,
+          ...branch.queryError ? [`Query error: ${branch.queryError}`] : [],
+        ] : []].map(line => sanitizeDynamicText(line));
+      mode = "viewer"; effects.invalidate(); return;
+    }
+    if (actionId.startsWith("tree.density.")) {
+      const density = actionId.slice("tree.density.".length);
+      if (density !== "compact" && density !== "expanded") return;
+      try { effects.setDensity?.(density); if (mode === "action-menu") mode = actionMenuReturnMode; }
+      catch (error) { status = errorMessage(error); }
+      effects.invalidate(); return;
+    }
+    if (actionId === "tree.location") {
+      await handleAction("tree.menu.open");
+      locationMenu = (view().breadcrumbs ?? []).map(part => ({
+        id: `tree.breadcrumb.focus:${encodeURIComponent(part.rowId)}`, label: part.label, description: "Go to this ancestor", binding: "", group: "Navigate",
+      }));
+      locationMenu.unshift({id: "tree.root.workspace", label: "Workspace", description: effects.workspaceRoot, binding: "", group: "Navigate"});
+      effects.invalidate(); return;
+    }
+
+
     if(actionId==='tree.workspace.inspect'){
       const generation=++navigationGeneration;
       mode='viewer';viewerWrap=true;workspaceReport=null;viewerField=0;viewerStatus='';viewerPath='Workspace and connection';viewerOffset=0;viewerLines=['Checking workspace and connection…'];effects.invalidate();
@@ -2048,6 +2115,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       else await localReader.action(actionId,openPreviewTarget);
       return;
     }
+    if (mode === "action-menu" && actionId.startsWith("tree.preview.")) mode = actionMenuReturnMode;
     if (actionId === "tree.preview.close" || actionId === "tree.preview.toggle") {
       const enabled = actionId === "tree.preview.toggle" && !previewPreferences.enabled;
       previewPreferences = {...previewPreferences, enabled};
@@ -2068,7 +2136,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate(); return;
     }
     if (actionId === "tree.preview.grow" || actionId === "tree.preview.shrink") {
-      const frame = localReader.state && treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences);
+      const frame = localReader.state && treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences,effects.density?.() ?? "compact");
       const fraction = frame?.placement === 'beside' ? previewPreferences.sideFraction : previewPreferences.bottomFraction;
       resizeLocalPreview(fraction + (actionId.endsWith('grow') ? .05 : -.05)); return;
     }
@@ -2174,7 +2242,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     }
-    if (actionId === "tree.menu.open") {
+    const readerMenu = readerMenuFromAction(actionId);
+    if (readerMenu) {
+      actionMenuCategory = readerMenu; locationMenu = null;
       destinationMenu = null;placementDirection=null;destinationPreview.clear();
       if (mode !== "action-menu") {
         actionMenuReturnMode = mode;
@@ -2183,7 +2253,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       mode = "action-menu";
       actionMenuOrigin = origin ?? null;
       updateActionMenuQuery("");
-      status = "Choose an action";
       effects.invalidate();
       return;
     }
@@ -2480,7 +2549,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const action=actionKeymap.canonicalize("tree","browse",str,key);
       if(action.suppressed)return;
       if(action.actionId && (action.actionId.startsWith("tree.preview.") || ["tree.preview.focus","tree.preview.close","tree.pane.new","tree.navigation.link","tree.navigation.once","tree.menu.open"].includes(action.actionId))) return handleAction(action.actionId);
-      const frame=treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences);
+      const frame=treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences,effects.density?.() ?? "compact");
       if(await localReader.key(key,frame.content.width,frame.content.height,openPreviewTarget))return;
       const delta=key.name==="up"?-1:key.name==="down"?1:key.name==="pageup"?-frame.content.height:key.name==="pagedown"?frame.content.height:0;
       if(delta) scrollLocalPreview(delta);
@@ -2536,7 +2605,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if (mode === "action-menu") {
       const items = filteredActionMenuItems();
-      if (key.name === "escape") {
+      if (!destinationMenu && !locationMenu && (key.name === "left" || key.name === "right")) {
+        actionMenuCategory = adjacentReaderMenu(actionMenuCategory, key.name === "right" ? 1 : -1);
+        updateActionMenuQuery("");
+      } else if (key.name === "escape") {
         mode = actionMenuReturnMode;
         status = "";
         destinationMenu=null;destinationPreview.clear();

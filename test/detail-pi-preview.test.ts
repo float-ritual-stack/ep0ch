@@ -450,8 +450,13 @@ const plainMarkdownTheme: MarkdownTheme = {
   underline: (text) => text,
 };
 
+// These existing journeys characterize Expanded's metadata and source-row layout.
+function expandedPreview(...args: ConstructorParameters<typeof DetailPiPreviewLayout>): DetailPiPreviewLayout {
+  return new DetailPiPreviewLayout(args[0], args[1], args[2], args[3], {density: () => "expanded", ...args[4]});
+}
+
 function previewLayout(detail: DetailState): DetailPiPreviewLayout {
-  return new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+  return expandedPreview(detail, plainMarkdownTheme, false);
 }
 
 function renderedDocument(layout: DetailPiPreviewLayout, width: number): string[] {
@@ -513,7 +518,7 @@ describe("Pi Markdown detail preview", () => {
     for (const surface of ["Current", "Preview", "Properties"]) {
       const detail = state("Document body");
       if (surface === "Properties") detail.propertyInspector.presentation = "dedicated";
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false, () => {}, {
+      const layout = expandedPreview(detail, plainMarkdownTheme, false, () => {}, {
         surfaceLabel: () => surface,
         destinationLabel: () => label,
       });
@@ -532,7 +537,7 @@ describe("Pi Markdown detail preview", () => {
       const source = "References [status::open]\n\nFirst [file::same.md] and second [file::same.md].";
       const detail = state(source, source);
       detail.context.selected!.id = "source-block-001";
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       const targets = () => {
         layout.syncState();
         const line = layout.markdown.render(120).find(row => stripTerminalSequences(row).includes("First"))!;
@@ -561,7 +566,7 @@ describe("Pi Markdown detail preview", () => {
     const source = "Related ((550e8400-e29b-41d4-a716-446655440123|Reference label))";
     const detail = state(source, source);
     detail.readStatus = "pending";
-    const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+    const layout = expandedPreview(detail, plainMarkdownTheme, false);
     expect(renderedDocument(layout, 120).join("\n")).not.toContain("Missing target");
     detail.readStatus = "ready";
     expect(renderedDocument(layout, 120).join("\n")).toContain("Reference label · Missing target");
@@ -575,7 +580,7 @@ describe("Pi Markdown detail preview", () => {
       const source = `Reference ${id}`;
       const detail = state(source, source);
       detail.readStatus = "pending";
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       const link = () => {
         layout.syncState();
         const line = layout.markdown.render(120).find(row => stripTerminalSequences(row).includes(id))!;
@@ -619,7 +624,7 @@ describe("Pi Markdown detail preview", () => {
       bold: (text) => `\x1b[1m${text}\x1b[22m`,
       underline: (text) => `\x1b[4m${text}\x1b[24m`,
     };
-    const layout = new DetailPiPreviewLayout(detail, styledTheme, false);
+    const layout = expandedPreview(detail, styledTheme, false);
 
     layout.syncState();
     const raw = layout.markdown.render(80);
@@ -725,7 +730,7 @@ describe("Pi Markdown detail preview", () => {
       const raw = "Document\n\n[[Decision Log|First body link]]\n\n[Second body link](https://example.com)";
       const detail = state(raw, raw);
       detail.context.selected!.id = "550e8400-e29b-41d4-a716-446655440000";
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.render(60);
       const actions = detail.previewRegions.regions.filter(region => region.focusable)
         .map(region => JSON.stringify(region.activation)).join("\n");
@@ -750,7 +755,7 @@ describe("Pi Markdown detail preview", () => {
         "PIE-133 and ((the **approved** boundary)) and [[Decision Log|supporting context]]",
         raw,
       );
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.syncState();
       const rendered = layout.markdown.render(80);
       const line = rendered.find((candidate) =>
@@ -768,7 +773,7 @@ describe("Pi Markdown detail preview", () => {
       );
       expect(detail.context.selected?.text).toBe(raw);
 
-      const fallback = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+      const fallback = expandedPreview(detail, plainMarkdownTheme, false);
       fallback.syncState();
       const fallbackLine = fallback.markdown.render(80).find((candidate) =>
         stripTerminalSequences(candidate).includes("approved")
@@ -791,7 +796,7 @@ describe("Pi Markdown detail preview", () => {
         `Preview title\n((${label}))`,
         `Preview title\n((${targetId}|${label}))`,
       );
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.syncState();
       const rendered = layout.markdown.renderWithSourceLineRow(22, 1);
       const visible = rendered.lines.map(stripTerminalSequences);
@@ -826,7 +831,7 @@ describe("Pi Markdown detail preview", () => {
       detail.projectedSelectedText =
         `Embedded view: ((${viewId})) · 1 result\n- ((${resultId}))`;
       detail.embedRanges = [{ startLine: 0, endLine: 1 }];
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.syncState();
       const rendered = layout.markdown.render(80);
       const line = rendered.find((candidate) =>
@@ -1364,7 +1369,7 @@ describe("Pi Markdown detail preview", () => {
         children: [],
       });
       detail.resolvedBreadcrumb = "Parent page › Selected leaf";
-      const lines = new DetailPiPreviewLayout(
+      const lines = expandedPreview(
         detail,
         plainMarkdownTheme,
         true,
@@ -1392,7 +1397,7 @@ describe("Pi Markdown detail preview", () => {
     try {
       const detail = state("ABC-001 and PIE-001", "ABC-001 and PIE-001");
       detail.workIdPrefix = "ABC";
-      const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, true);
+      const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.syncState();
       const line = layout.markdown.render(80).find((candidate) =>
         stripTerminalSequences(candidate).includes("ABC-001 and")
@@ -1748,7 +1753,7 @@ describe("Pi Markdown detail preview", () => {
     };
     const note = "> [!note]+ Cached callout\n> stable body";
     const detail = state(note, note);
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       false,
@@ -1803,7 +1808,7 @@ describe("Pi Markdown detail preview", () => {
       detail.mode = "edit";
       detail.buffer = new TextBuffer(`Unsaved ((${targetId})) draft`);
       let editing = true;
-      const layout = new DetailPiPreviewLayout(
+      const layout = expandedPreview(
         detail,
         plainMarkdownTheme,
         true,
@@ -1838,7 +1843,7 @@ describe("Pi Markdown detail preview", () => {
     detail.mode = "edit";
     detail.buffer = new TextBuffer("!((view-next))");
     const projected = Promise.withResolvers<void>();
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       false,
@@ -1878,7 +1883,7 @@ describe("Pi Markdown detail preview", () => {
     let attempts = 0;
     const firstFinished = Promise.withResolvers<void>();
     const retryFinished = Promise.withResolvers<void>();
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       false,
@@ -1933,7 +1938,7 @@ describe("Pi Markdown detail preview", () => {
     const firstStarted = Promise.withResolvers<void>();
     const firstResponse = Promise.withResolvers<void>();
     const retryFinished = Promise.withResolvers<void>();
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       false,
@@ -1987,7 +1992,7 @@ describe("Pi Markdown detail preview", () => {
     let attempts = 0;
     const firstFinished = Promise.withResolvers<void>();
     const secondFinished = Promise.withResolvers<void>();
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       false,
@@ -2359,7 +2364,7 @@ describe("structured property inspector presentations", () => {
     const detail = propertyState("dedicated");
     const entry = detail.propertyInspector.model!.entries[0]!;
     detail.previewRegions.focusedRegionId = entry.occurrenceId;
-    const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+    const layout = expandedPreview(detail, plainMarkdownTheme, false);
 
     const activeRow = layout.render(100).find((line) =>
       stripTerminalSequences(line).includes("▶ type")
@@ -2389,7 +2394,7 @@ describe("structured property inspector presentations", () => {
 
   test("adds inspector regions beside existing callout and Backlinks regions", () => {
     const detail = propertyState("inline");
-    const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+    const layout = expandedPreview(detail, plainMarkdownTheme, false);
     const rendered = layout.render(80).map(stripTerminalSequences).join("\n");
     const kinds = new Set(detail.previewRegions.regions.map((region) => region.kind));
 
@@ -2442,7 +2447,7 @@ describe("structured property inspector presentations", () => {
     const detail = state(resolved, canonical);
     detail.context.selected!.id = targetId;
     setBlockDocument(detail, detail.context, { kind: "block", blockId: targetId });
-    const layout = new DetailPiPreviewLayout(
+    const layout = expandedPreview(
       detail,
       plainMarkdownTheme,
       true,
@@ -2590,7 +2595,7 @@ describe("structured property inspector presentations", () => {
       edit: null,
     };
     initTheme("dark");
-    const layout = new DetailPiPreviewLayout(detail, getMarkdownTheme(), false);
+    const layout = expandedPreview(detail, getMarkdownTheme(), false);
     const width = 40;
     layout.syncState(width);
     renderLayoutFrame(layout,width,11,()=>{});
@@ -2623,7 +2628,7 @@ describe("structured property inspector presentations", () => {
       expanded: true,
       model: createPropertyInspectorModel(detail.context.selected!.id, canonical),
     };
-    const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false);
+    const layout = expandedPreview(detail, plainMarkdownTheme, false);
     layout.syncState(60);
     layout.ensureFocusVisible(60, 40);
     renderLayoutFrame(layout, 60, 40, () => {});
@@ -3201,7 +3206,7 @@ test("body links scroll and highlight in Pi layout without terminal hyperlink su
  const caps=getCapabilities();setCapabilities({...caps,hyperlinks:false});
  try{
   const raw=["Document",...Array.from({length:30},(_,i)=>`Paragraph ${i}\n`),"[Late body target](https://example.com/late)"].join("\n");
-  const detail=state(raw,raw);const layout=new DetailPiPreviewLayout(detail,plainMarkdownTheme,false);
+  const detail=state(raw,raw);const layout=expandedPreview(detail,plainMarkdownTheme,false);
   layout.syncState(40);renderLayoutFrame(layout,40,12,()=>{});
   const region=detail.previewRegions.regions.find(r=>r.kind==='body-link')!;
   expect(region).toBeDefined();detail.previewRegions.focusedRegionId=region.id;
@@ -3218,7 +3223,7 @@ test("body links scroll and highlight in Pi layout without terminal hyperlink su
 test("folded callout links are omitted and document focus order includes inline properties",()=>{
  const raw="Document\n[type::note]\n\n[Before](https://example.com/before)\n\n> [!note]- Folded\n> [Hidden](https://example.com/hidden)\n\n[After](https://example.com/after)";
  const detail=state(raw,raw);detail.propertyInspector.model=createPropertyInspectorModel(detail.context.selected!.id,raw);
- const layout=new DetailPiPreviewLayout(detail,plainMarkdownTheme,false);layout.syncState(50);
+ const layout=expandedPreview(detail,plainMarkdownTheme,false);layout.syncState(50);
  const regions=detail.previewRegions.regions.filter(r=>r.focusable);
  expect(regions.map(r=>r.activation)).not.toContainEqual({type:'link.open',uri:'https://example.com/hidden'});
  expect(regions.findIndex(r=>r.id==='property-inspector')).toBeLessThan(regions.findIndex(r=>r.kind==='body-link'));
@@ -3229,7 +3234,7 @@ test("folded callout links are omitted and document focus order includes inline 
 
 test("duplicate body links retain occurrence focus through wrap, resize and folding",()=>{
  const raw="Document\n\n> [!note]+ Earlier\n> [Earlier link](https://example.com)\n\n- [First occurrence](https://example.com)\n- [Second occurrence](https://example.com)";
- const detail=state(raw,raw);const layout=new DetailPiPreviewLayout(detail,plainMarkdownTheme,false);layout.syncState(60);
+ const detail=state(raw,raw);const layout=expandedPreview(detail,plainMarkdownTheme,false);layout.syncState(60);
  const links=()=>detail.previewRegions.regions.filter(r=>r.kind==='body-link');
  expect(links()).toHaveLength(3);
  const second=links()[2]!.id;detail.previewRegions.focusedRegionId=second;
@@ -3238,4 +3243,26 @@ test("duplicate body links retain occurrence focus through wrap, resize and fold
  detail.previewRegions.disclosureOverrides.set(callout.id,false);layout.syncState(18);
  expect(links()).toHaveLength(2);expect(detail.previewRegions.focusedRegionId).toBe(second);
  const output=layout.render(18).join('');expect(output).not.toContain('outliner-link=');
+});
+
+
+test("compact Detail keeps authored content and source selection aligned when density changes", () => {
+  const detail = state("# Sample note\n\n## Heading\nA selectable paragraph.\n\nTail", "# Sample note\n\n## Heading\nA selectable paragraph.\n\nTail");
+  let density: "compact" | "expanded" = "compact";
+  const layout = new DetailPiPreviewLayout(detail, plainMarkdownTheme, false, undefined, {density: () => density});
+  const first = layout.render(40).map(stripTerminalSequences);
+  expect(first[0]).toContain("[⋯]");
+  expect(first.findIndex(line => line.includes("Sample note"))).toBeLessThan(3);
+  expect(first.join("\n")).not.toContain("Collapsed · press b");
+  expect(layout.headerHeight(40)).toBe(1);
+  const row = first.findIndex(line => line.includes("A selectable paragraph."));
+  expect(row).toBeGreaterThan(0);
+  expect(layout.sourcePointAtViewport(row, 4, 40)?.row).toBe(3);
+  density = "expanded";
+  const expanded = layout.render(40).map(stripTerminalSequences);
+  expect(layout.headerHeight(40)).toBe(3);
+  expect(expanded.join("\n")).toContain("Collapsed · press b");
+  density = "compact";
+  detail.status = "Workspace service disconnected; reconnecting…";
+  expect(layout.render(40).map(stripTerminalSequences).join("\n")).toContain("Workspace service disconnected");
 });
