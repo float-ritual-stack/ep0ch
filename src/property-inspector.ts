@@ -1,3 +1,5 @@
+import {marked, type Token} from "marked";
+import {linkOutlinerMarkdown} from "./outliner-links";
 import type { DetailState } from "./detail-controller";
 import type { PreviewRegion } from "./detail-preview-regions";
 import { pageAddressReferences, tryNormalizePageAddress } from "./page-addresses";
@@ -11,6 +13,7 @@ const CANONICAL_BLOCK_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type PropertyInspectorTarget =
+  | { readonly kind: "link"; readonly uri: string; readonly source: "value" }
   | { readonly kind: "resource-reference"; readonly source: "authored-reference" }
   | {
       readonly kind: "block";
@@ -32,6 +35,12 @@ export type PropertyInspectorTarget =
 
 export type PropertyInspectorValueKind = PropertyInspectorTarget["kind"] | "plain";
 
+export interface PropertyValuePart {
+  readonly text: string;
+  readonly regionId: string;
+  readonly uri?: string;
+}
+
 export interface PropertyInspectorEntry {
   readonly occurrenceId: string;
   readonly key: string;
@@ -46,6 +55,7 @@ export interface PropertyInspectorEntry {
   readonly scope: PropertyScope;
   readonly syntax: PropertySyntax;
   readonly target: PropertyInspectorTarget | null;
+  readonly valueParts: readonly PropertyValuePart[];
 }
 
 export interface PropertyInspectorModel {
@@ -106,6 +116,10 @@ export function classifyPropertyInspectorTarget(
   value: string,
 ): PropertyInspectorTarget | null {
   const normalizedValue = value.trim();
+  if (/^(https?:|pi-outliner:)\/\//.test(normalizedValue) &&
+      !/[\s\u0000-\u001f\u007f]/.test(normalizedValue) && URL.canParse(normalizedValue)) {
+    return {kind: "link", uri: normalizedValue, source: "value"};
+  }
   if (CANONICAL_BLOCK_ID_PATTERN.test(normalizedValue)) {
     return { kind: "block", blockId: normalizedValue, source: "value" };
   }
@@ -123,6 +137,37 @@ export function classifyPropertyInspectorTarget(
   return null;
 }
 
+function propertyValueParts(value: string, occurrenceId: string): PropertyValuePart[] {
+  let links = 0;
+  const parts: PropertyValuePart[] = [];
+  const visit = (tokens: Token[]) => {
+    for (const token of tokens) {
+      if (token.type === "link" && /^(https?:\/\/|pi-outliner:)/.test(token.href)) {
+        const regionId = links++ === 0 ? occurrenceId : `${occurrenceId}:link:${links}`;
+        parts.push({text: token.text, uri: token.href, regionId});
+      } else if (token.type === "text") {
+        // Let Markdown claim URLs first, so Work IDs inside them stay URL text.
+        const linked = linkOutlinerMarkdown(token.raw, token.raw);
+        if (linked !== token.raw) visit(marked.Lexer.lexInline(linked));
+        else parts.push({text: token.raw, regionId: occurrenceId});
+      } else if ("tokens" in token && Array.isArray(token.tokens)) {
+        visit(token.tokens);
+      } else {
+        parts.push({text: token.raw, regionId: occurrenceId});
+      }
+    }
+  };
+  visit(marked.Lexer.lexInline(value));
+  return parts;
+}
+
+export function findPropertyInspectorEntry(
+  model: PropertyInspectorModel | null | undefined, regionId: string | null | undefined,
+): PropertyInspectorEntry | undefined {
+  return model?.entries.find(entry => entry.occurrenceId === regionId ||
+    entry.valueParts.some(part => part.uri && part.regionId === regionId));
+}
+
 export function createPropertyInspectorModel(
   blockId: string,
   canonicalText: string,
@@ -130,13 +175,16 @@ export function createPropertyInspectorModel(
   const resources = new Set(authoredResourceReferenceOccurrences(canonicalText)
     .filter(reference => reference.kind === "authored-resource")
     .map(reference => reference.start));
-  const entries = parsePropertyRecords(canonicalText).map((record) => ({
-    ...record,
-    occurrenceId: propertyInspectorOccurrenceId(blockId, record),
-    target: resources.has(record.start)
-      ? { kind: "resource-reference" as const, source: "authored-reference" as const }
-      : classifyPropertyInspectorTarget(record.key, record.value),
-  }));
+  const entries = parsePropertyRecords(canonicalText).map((record): PropertyInspectorEntry => {
+    const occurrenceId = propertyInspectorOccurrenceId(blockId, record);
+    const resource = resources.has(record.start);
+    const valueParts = resource ? [] : propertyValueParts(record.value, occurrenceId);
+    const firstUri = valueParts.find(part => part.uri)?.uri;
+    return {...record, occurrenceId, valueParts,
+      target: resource ? {kind: "resource-reference", source: "authored-reference"}
+        : classifyPropertyInspectorTarget(record.key, record.value) ??
+          (firstUri ? {kind: "link", uri: firstUri, source: "value"} : null)};
+  });
   return { blockId, canonicalText, entries };
 }
 
@@ -305,16 +353,22 @@ export function detailPropertyInspectorRegions(
         endLine: entry.line + entry.raw.split(/\r?\n/).length - 1,
       },
       parentId: propertyEntryParentId(state, entry),
-      childIds: [],
+      childIds: entry.valueParts.filter(part => part.uri && part.regionId !== entry.occurrenceId).map(part => part.regionId),
       focusable: true,
       disclosure: null,
-      activation: entry.target
+      activation: entry.target || entry.valueParts.some(part => part.uri)
         ? {
           type: "property-inspector.target.open",
           occurrenceId: entry.occurrenceId,
         }
-        : null,
+        : {type: "property-inspector.value.copy", occurrenceId: entry.occurrenceId},
     });
+    for (const part of entry.valueParts) {
+      if (!part.uri || part.regionId === entry.occurrenceId) continue;
+      regions.push({id: part.regionId, kind: "property-entry", sourceSpan: null,
+        parentId: entry.occurrenceId, childIds: [], focusable: true, disclosure: null,
+        activation: {type: "property-inspector.target.open", occurrenceId: part.regionId}});
+    }
   }
   return regions;
 }

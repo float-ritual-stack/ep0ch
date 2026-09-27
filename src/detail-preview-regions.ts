@@ -30,6 +30,7 @@ export type PreviewRegionAction =
   | { type: "backlink.source.disclosure.toggle"; blockId: string }
   | { type: "property-inspector.disclosure.toggle" }
   | { type: "property-inspector.pane.open" }
+  | { type: "property-inspector.value.copy"; occurrenceId: string }
   | { type: "property-inspector.target.open"; occurrenceId: string };
 
 export interface PreviewRegionDisclosure {
@@ -87,6 +88,9 @@ export function previewRegionActionUri(action: PreviewRegionAction): string {
       return `${DETAIL_PREVIEW_SCHEME}//property-inspector-toggle`;
     case "property-inspector.pane.open":
       return `${DETAIL_PREVIEW_SCHEME}//property-inspector-pane`;
+    case "property-inspector.value.copy":
+      if (!action.occurrenceId.trim()) throw new Error("Property occurrence ID cannot be empty");
+      return `${DETAIL_PREVIEW_SCHEME}//property-copy/${encodeURIComponent(action.occurrenceId)}`;
     case "property-inspector.target.open":
       if (!action.occurrenceId.trim()) throw new Error("Property occurrence ID cannot be empty");
       return `${DETAIL_PREVIEW_SCHEME}//property-target/${encodeURIComponent(action.occurrenceId)}`;
@@ -144,6 +148,9 @@ export function parsePreviewRegionActionUri(uri: string): PreviewRegionAction | 
     case "property-inspector-pane":
       if (value) throw new Error("Invalid property inspector pane action URI");
       return { type: "property-inspector.pane.open" };
+    case "property-copy":
+      if (!value) throw new Error("Invalid property occurrence");
+      return {type: "property-inspector.value.copy", occurrenceId: value};
     case "property-target":
       if (!value) throw new Error("Invalid property occurrence");
       return { type: "property-inspector.target.open", occurrenceId: value };

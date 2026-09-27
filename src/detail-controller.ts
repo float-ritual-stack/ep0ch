@@ -52,6 +52,7 @@ import {
 import { getProperty } from "./properties";
 import {
   createPropertyInspectorModel,
+  findPropertyInspectorEntry,
   filterPropertyInspectorEntries,
   type PropertyInspectorEntry,
   type PropertyInspectorGroupBy,
@@ -212,6 +213,7 @@ export function propertyInspectorTargetLink(
   target: PropertyInspectorTarget,
   options: { preserveSource?: boolean; intent?: "reveal" } = {},
 ): OutlinerLinkTarget {
+  if (target.kind === "link") return {...parseOutlinerLinkUri(target.uri), ...options};
   if (target.kind === "resource-reference") {
     throw new Error("Resource property navigation requires its source occurrence");
   }
@@ -661,6 +663,7 @@ export type DetailIntent =
   | { type: "property-inspector.disclosure.toggle" }
   | { type: "property-inspector.pane.open" }
   | { type: "pane.open"; direction: "right" | "down"; targetPaneId?: string }
+  | { type: "property-inspector.value.copy"; occurrenceId?: string }
   | { type: "property-inspector.target.open"; occurrenceId: string; intent: "open" | "reveal"; routing?: DetailOpenRouting }
   | { type: "property-inspector.group.cycle" }
   | { type: "property-inspector.filter.begin" }
@@ -2488,9 +2491,7 @@ export function createDetailController(
       return;
     }
     const focusedId = state.previewRegions.focusedRegionId;
-    const entry = state.propertyInspector.model?.entries.find(
-      (candidate) => candidate.occurrenceId === focusedId,
-    );
+    const entry = findPropertyInspectorEntry(state.propertyInspector.model, focusedId);
     if (!entry) {
       state.status = "Focus a property value before editing";
       return;
@@ -3063,7 +3064,7 @@ export function createDetailController(
         break;
       case "annotation.comment.direct": {
         const property = state.propertyInspector.expanded
-          ? state.propertyInspector.model?.entries.find(entry => entry.occurrenceId === state.previewRegions.focusedRegionId)
+          ? findPropertyInspectorEntry(state.propertyInspector.model, state.previewRegions.focusedRegionId)
           : undefined;
         if (property?.target?.kind === "resource-reference" && state.mode === "preview") {
           await beginComment({ start: property.start, end: property.end });
@@ -3541,6 +3542,9 @@ export function createDetailController(
           case "property-inspector.pane.open":
             await dispatch({ type: "property-inspector.pane.open" }, viewport);
             break;
+          case "property-inspector.value.copy":
+            await dispatch(intent.action, viewport);
+            break;
           case "property-inspector.target.open":
             await dispatch({
               type: "property-inspector.target.open",
@@ -3610,12 +3614,36 @@ export function createDetailController(
       case "property-inspector.edit.cancel":
         cancelPropertyEdit();
         break;
+      case "property-inspector.value.copy": {
+        const occurrenceId = intent.occurrenceId ?? state.previewRegions.focusedRegionId;
+        const entry = findPropertyInspectorEntry(state.propertyInspector.model, occurrenceId);
+        if (!entry) {state.status = "Property occurrence is no longer available"; break;}
+        state.previewRegions.focusedRegionId = occurrenceId ?? entry.occurrenceId;
+        try {
+          effects.copyText(entry.value);
+          state.status = "Value sent to terminal clipboard";
+        } catch (error) {
+          state.status = `Copy failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+        break;
+      }
       case "property-inspector.target.open": {
-        const entry = state.propertyInspector.model?.entries.find(
-          (candidate) => candidate.occurrenceId === intent.occurrenceId,
-        );
+        const entry = findPropertyInspectorEntry(state.propertyInspector.model, intent.occurrenceId);
         if (!entry) {
           state.status = "Property occurrence is no longer available";
+          break;
+        }
+        state.previewRegions.focusedRegionId = intent.occurrenceId;
+        const uri = entry.valueParts.find(part => part.regionId === intent.occurrenceId && part.uri)?.uri;
+        if (uri) {
+          if (uri.startsWith("http://") || uri.startsWith("https://")) {
+            await dispatch({type: "preview.action", action: {type: "link.open", uri}, routing: intent.routing}, viewport);
+          } else {
+            await dispatch({type: "reference.open", target: {...parseOutlinerLinkUri(uri),
+              preserveSource: state.propertyInspector.presentation === "dedicated",
+              ...(intent.intent === "reveal" ? {intent: "reveal" as const} : {})},
+              routing: intent.routing ?? "linked"}, viewport);
+          }
           break;
         }
         if (!entry.target) {

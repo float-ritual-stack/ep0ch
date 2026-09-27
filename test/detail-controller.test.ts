@@ -5785,3 +5785,53 @@ test('retrying a clean ordinary save conflict combines without opening recovery 
   expect(repository.list(base.id)).toHaveLength(0);
  }finally{store.close();}
 });
+
+test("property actions copy the chosen occurrence and follow its URL without editing", async () => {
+  const url = "https://example.test/threads/DEMO-762?thread=123.456&channel=alpha#reply";
+  const source = `Draft [state::waiting] [state::ready] [link::${url}]`;
+  const harness = createHarness(makeBlock({text: source}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  const entries = harness.controller.state.propertyInspector.model!.entries;
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[2]!.occurrenceId}, viewport);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(opened).toEqual([]);
+  expect(harness.controller.state.status).toContain("sent to terminal clipboard");
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entries[2]!.occurrenceId, intent: "open"}, viewport);
+  expect(opened).toEqual([url]);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(harness.controller.state.context.selected?.text).toBe(source);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+  expect(harness.controller.state.propertyInspector.edit).toBeNull();
+  harness.effects.copyText = () => {throw Error("clipboard unavailable");};
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  expect(harness.controller.state.status).toContain("clipboard unavailable");
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: "stale-row"}, viewport);
+  expect(harness.controller.state.status).toContain("no longer available");
+});
+
+
+test("embedded property links retain separate targets while copy and edit own the whole occurrence", async () => {
+  const value = "Read https://example.test/one then [Second](https://example.test/two?mode=read&v=2)";
+  const harness = createHarness(makeBlock({text: `Links\nlinks:: ${value}`}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  await harness.controller.dispatch({type: "property-inspector.disclosure.toggle"}, viewport);
+  const regions = detailPropertyInspectorRegions(harness.controller.state);
+  const targets = regions.filter(region => region.activation?.type === "property-inspector.target.open");
+  expect(targets).toHaveLength(2);
+  for (const target of targets) {
+    await harness.controller.dispatch({type: "preview.action", action: target.activation!}, viewport);
+  }
+  expect(opened).toEqual(["https://example.test/one", "https://example.test/two?mode=read&v=2"]);
+  await harness.controller.dispatch({type: "property-inspector.value.copy"}, viewport);
+  expect(harness.calls.copiedTexts).toEqual([value]);
+  expect(harness.controller.state.previewRegions.focusedRegionId).toBe(targets[1]!.id);
+  await harness.controller.dispatch({type: "property-inspector.edit.begin"}, viewport);
+  expect(harness.controller.state.propertyInspector.edit?.buffer.text).toBe(value);
+  await harness.controller.dispatch({type: "property-inspector.edit.cancel"}, viewport);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+});

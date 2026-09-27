@@ -617,7 +617,7 @@ Pi Detail links the authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[a
 tokens without changing source text. Properties exposes every occurrence,
 including repeated mentions of one Resource, in both Detail renderers. Press
 `o` on a document with several Resource references to choose one in Properties;
-`Tab` selects an occurrence. Activating a `[file::…]` occurrence opens the file
+`Tab` selects an occurrence. Click an ordinary value to copy it; link text follows its target, while the adjacent **Copy** control copies the complete original value. On a focused property, `y` copies, `o` follows, and `Enter`/`e` edits. Multiple links in one value have separate Tab stops. Copy sends the canonical value to the terminal clipboard without wrap breaks or changing the note. These actions work in inline and dedicated Properties. Activating a `[file::…]` occurrence opens the file
 in local Preview beside Current, retaining the note, scroll and draft; Escape
 closes Preview. Paths resolve on the service host within its configured Resource
 policy, including when the reader is remote. Recognized outline links in rendered

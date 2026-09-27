@@ -318,6 +318,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.property.edit.begin":
         await dispatch({ type: "property-inspector.edit.begin" });
         return true;
+      case "detail.property.value.copy":
+        await dispatch({type: "property-inspector.value.copy"});
+        return true;
       case "detail.property.target.open": {
         const occurrenceId = focusedPropertyOccurrence(controller.state);
         if (!occurrenceId) return false;
