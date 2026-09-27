@@ -205,6 +205,12 @@ test('refresh retains local folds until a source edit makes their identity ambig
  expect(paint()).toContain('Hidden body');
  expect(paint()).toContain('Other');
  expect(paint()).not.toContain('Other body');
+ const section=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Section')!;
+ await reader.action('preview.link:'+encodeURIComponent(section.uri),async()=>{});
+ expect(paint()).not.toContain('Hidden body');
+ await reader.load(reader.state!.target,true);
+ expect(paint()).not.toContain('Hidden body');
+ expect(paint()).not.toContain('Other body');
  text=text.replace('Section','Changed');
  await reader.load(target,true);
  expect(paint()).toContain('Hidden body');

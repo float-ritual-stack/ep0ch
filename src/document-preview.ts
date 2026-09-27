@@ -176,7 +176,7 @@ export class DocumentPreview {
           if(fragment.status!=='resolved')throw Error(`Fragment ${fragment.status}: ${target.fragmentId}`);
           if (revealInDocument) {
             document=await loadDetailReadPreview(this.client,block);
-            revealSourceLine=fragment.slice.anchor.lineIndex;
+            if (!refresh) revealSourceLine=fragment.slice.anchor.lineIndex;
           } else document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
         }else document = await loadDetailReadPreview(this.client,block);
       } else {

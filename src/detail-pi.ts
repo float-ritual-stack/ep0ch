@@ -261,6 +261,7 @@ let inputGeneration = 0;
 const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
   mouse: true,
   async copySelection(quote, renderedLines?: readonly string[]) {
+    // Without the pinned Pi TUI hook, keep plain-text copy working.
     const copied = renderedLines ? copyRenderedSelection(renderedLines) : quote;
     if (copied) process.stdout.write(osc52ClipboardWrite(copied));
     const generation = ++directSelectionGeneration;
