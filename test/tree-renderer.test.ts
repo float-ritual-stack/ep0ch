@@ -919,11 +919,11 @@ describe("renderTreeFrame", () => {
       7,
     );
     expect(viewer.frame).toBe([
-      "\x1b[H\x1b[2J",
-      "\x1b[1mnotes.md:3\x1b[0m",
+      "\x1b[H\x1b[2J\x1b[1mnotes.md:3\x1b[0m",
       "─".repeat(20),
       "\x1b[1;36m# Heading\x1b[0m",
       "\x1b[33m-\x1b[0m item",
+      "",
       "",
       `\x1b[2m${truncate(DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "viewer"), 20)}\x1b[0m`,
     ].join("\n"));

@@ -1,5 +1,6 @@
 import {wrapTextWithAnsi} from '@earendil-works/pi-tui';
-import {inspectWorkspaceConnection} from './workspace-diagnostics';
+import {inspectWorkspaceConnection,type WorkspaceReport} from './workspace-diagnostics';
+import {layoutWorkspaceReport} from './workspace-report-view';
 import { ReferenceCompletionSession, referenceCompletionProvider, type ReferenceCompletionItem } from "./reference-completion";
 import {TreeConnections} from "./tree-connections";
 import {OpenDestinationChooser, destinationRecoveryKey, missingNavigationDestination, type OpenDestinationTarget} from "./open-destination-chooser";
@@ -153,6 +154,9 @@ export interface TreeView {
   readonly viewerLines: readonly string[];
   readonly viewerPath: string;
   readonly viewerOffset: number;
+  readonly workspaceReport?: WorkspaceReport | null;
+  readonly viewerStatus?: string;
+  readonly viewerHelp?: string;
   readonly expandedBlockOffset: number;
   readonly status: string;
   readonly refreshPending: boolean;
@@ -171,6 +175,7 @@ export interface TreeView {
 }
 
 export interface TreeControllerEffects {
+  copyText?(text:string):void;
   openExternal?(url:string):void|Promise<void>;
   readonly initialRoot?: TreeRoot;
   createTreePane?(root: TreeRoot | null, direction: "right" | "down"): Promise<void>;
@@ -201,6 +206,7 @@ export interface TreeExpandedPage {
 }
 
 export interface TreeController {
+  readonly mode: TreeMode;
   setViewportStart(index: number, expandedPage?: TreeExpandedPage | null): void;
   setBreadcrumbStart(index: number): void;
   view(): TreeView;
@@ -373,7 +379,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let viewerPath = "";
   let viewerOffset = 0;
   let viewerWrap=false;
-  const displayedViewerLines=()=>viewerWrap?viewerLines.flatMap(line=>wrapTextWithAnsi(line,Math.max(1,effects.terminalWidth()))):viewerLines;
+  let workspaceReport:WorkspaceReport|null=null;
+  let viewerField=0;
+  let viewerStatus="";
+  const reportLayout=()=>workspaceReport?layoutWorkspaceReport(workspaceReport.entries,effects.terminalWidth(),viewerField):null;
+  const displayedViewerLines=()=>reportLayout()?.lines??(viewerWrap?viewerLines.flatMap(line=>wrapTextWithAnsi(line,Math.max(1,effects.terminalWidth()))):viewerLines);
   let expandedBlockOffset = 0;
   let lastVisibleCanonicalId: string | null = null;
   let status = "";
@@ -446,6 +456,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   });
 
   function actionScope(): string {
+    if(mode==="viewer"&&workspaceReport)return "workspace";
     return mode === "inbox" && inbox.searchEditing ? "inbox-search" : mode === "inbox" && inbox.steering ? "inbox-steer" : mode;
   }
 
@@ -650,6 +661,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       previewHelp: `${actionKeymap.helpText("tree", "browse", ["tree.preview.focus", "tree.preview.close"])} · drag to copy`,
       viewerLines:displayedViewerLines(),
       viewerPath,
+      workspaceReport,viewerStatus,
+      viewerHelp: workspaceReport?actionKeymap.helpText("tree","workspace",["tree.viewer.copy","tree.viewer.next-field","tree.cancel"]):undefined,
       viewerOffset:Math.min(viewerOffset,Math.max(0,displayedViewerLines().length-1)),
       expandedBlockOffset,
       status,
@@ -1539,7 +1552,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     mode = "viewer";
     viewerLines = [];
     viewerPath = path;
-    viewerWrap=false;
+    viewerWrap=false;workspaceReport=null;viewerStatus="";
     viewerOffset = 0;
     status = "Loading file…";
     effects.invalidate();
@@ -1980,10 +1993,33 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (actionId !== "tree.read") cancelReadSequence();
     if(actionId==='tree.workspace.inspect'){
       const generation=++navigationGeneration;
-      mode='viewer';viewerWrap=true;viewerPath='Workspace and connection';viewerOffset=0;viewerLines=['Checking workspace and connection…'];effects.invalidate();
+      mode='viewer';viewerWrap=true;workspaceReport=null;viewerField=0;viewerStatus='';viewerPath='Workspace and connection';viewerOffset=0;viewerLines=['Checking workspace and connection…'];effects.invalidate();
       const report=await inspectWorkspaceConnection();
-      if(mode==='viewer'&&generation===navigationGeneration){viewerLines=report.lines;effects.invalidate();}
+      if(mode==='viewer'&&generation===navigationGeneration){workspaceReport=report;viewerLines=report.lines;effects.invalidate();}
       return;
+    }
+    if(actionId.startsWith('viewer.copy:')||['tree.viewer.copy','tree.viewer.next-field','tree.viewer.previous-field'].includes(actionId)){
+      if(mode==='action-menu'&&actionMenuReturnMode==='viewer')mode='viewer';
+      if(mode!=='viewer'||!workspaceReport)return;
+      const fields=workspaceReport.entries.filter(entry=>entry.kind==='field');
+      if(actionId==='tree.viewer.next-field'||actionId==='tree.viewer.previous-field'){
+        if(!fields.length)return;
+        viewerField=(viewerField+(actionId==='tree.viewer.next-field'?1:fields.length-1))%fields.length;
+        const row=reportLayout()!.fieldRows[viewerField]!;
+        const page=Math.max(1,effects.terminalHeight()-3);
+        if(row<viewerOffset||row>=viewerOffset+page-1)viewerOffset=row;
+        viewerStatus='';
+      }else{
+        const index=actionId.startsWith('viewer.copy:')?Number(actionId.slice('viewer.copy:'.length)):viewerField;
+        const field=Number.isSafeInteger(index)?fields[index]:undefined;
+        if(!field)return;
+        viewerField=index;
+        try{
+          if(!effects.copyText)throw Error('Clipboard output is unavailable in this host');
+          effects.copyText(field.value);viewerStatus='Value sent to terminal clipboard';
+        }catch(error){viewerStatus=errorMessage(error);}
+      }
+      effects.invalidate();return;
     }
     if(actionId.startsWith("completion.choose:")){
       const [index,generation]=actionId.slice("completion.choose:".length).split(":").map(Number);
@@ -2799,6 +2835,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await inbox.refresh();
   }
   return {
+    get mode(){return mode;},
     focusLocalPreview,
     scrollLocalPreview,
     resizeLocalPreview,

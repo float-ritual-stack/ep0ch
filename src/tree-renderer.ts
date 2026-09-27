@@ -1,3 +1,4 @@
+import type {TextViewerFrame} from "./text-viewer-input";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import type {DocumentPreviewFrame} from "./document-preview-renderer";
 import {renderNavigationDestinationPreview} from './navigation-destination-menu';
@@ -177,6 +178,7 @@ type TreeRenderEntry =
 
 export interface TreeRenderResult {
   readonly preview?: DocumentPreviewFrame;
+  readonly viewer?: TextViewerFrame;
   readonly frame: string;
   readonly scrollStartEntryIndex: number;
   readonly breadcrumbStart?: number;
@@ -450,24 +452,15 @@ export function renderTreeFrame(
   }
 
   if (view.mode === "viewer") {
-    output.push(`\x1b[1m${truncate(view.viewerPath, width)}\x1b[0m`);
-    output.push("─".repeat(width));
-    const bodyHeight = Math.max(1, height - 3);
-    for (const line of view.viewerLines.slice(view.viewerOffset, view.viewerOffset + bodyHeight)) {
-      output.push(renderMarkdownLine(truncate(line, width)));
-    }
-    while (output.length < height - 1) output.push("");
-    output.push(
-      `\x1b[2m${truncate(
-        view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "viewer"),
-        width,
-      )}\x1b[0m`,
-    );
-    return {
-      frame: output.join("\n"),
-      scrollStartEntryIndex: initialScrollStartEntryIndex,
-      mouseTargets,
-    };
+    const bodyHeight = Math.max(0, height - 3);
+    const lines=[`\x1b[1m${truncate(view.viewerPath,width)}\x1b[0m`,"─".repeat(width)];
+    for(const line of view.viewerLines.slice(view.viewerOffset,view.viewerOffset+bodyHeight))
+      lines.push(view.workspaceReport?line:renderMarkdownLine(truncate(line,width)));
+    while(lines.length<height-1)lines.push('');
+    const help=view.workspaceReport?view.viewerHelp: view.actionHelpText??DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree","viewer");
+    lines.push(`\x1b[2m${truncate(view.viewerStatus||help||"",width)}\x1b[0m`);
+    return {frame:(options.clearScreen===false?'':`${ESC}H${ESC}2J`)+lines.slice(0,height).join('\n'),scrollStartEntryIndex:initialScrollStartEntryIndex,mouseTargets,
+      viewer:view.workspaceReport?{content:{x:0,y:2,width,height:bodyHeight},identity:view.workspaceReport,offset:view.viewerOffset}:undefined};
   }
 
   const breadcrumb=renderTreeBreadcrumbs(view,width);
