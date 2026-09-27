@@ -1369,6 +1369,18 @@ function shouldPassDetailInputToTui(data: string): boolean {
   return true;
 }
 
+async function directSelectionCapture(reader: DetailController): Promise<DetailDirectSelectionCapture | null> {
+  const generation = directSelectionGeneration;
+  if (directSelectionDocument?.reader !== reader) return null;
+  const capture = latestDirectSelection ?? await pendingDirectSelection;
+  const target = reader.state.target;
+  if (generation !== directSelectionGeneration || !capture || !target) return null;
+  if (capture.kind === "rendered") {
+    return target.kind === "block" && target.blockId === capture.capture.hostBlockId ? capture : null;
+  }
+  return target.kind === "resource" && target.resourceId === capture.resourceId ? capture : null;
+}
+
 const handleKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); },
   controller,
   viewport,
@@ -1380,22 +1392,7 @@ const handleKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane
   navigatePreview,
   previewFocused: () => draftSplitActive() && draftSplitFocus === "preview",
   annotationSelectionSourceLine: () => preview.sourceLineAtScroll(terminal.columns),
-  directSelectionCapture: async () => {
-    const generation = directSelectionGeneration;
-    const capture = latestDirectSelection ?? await pendingDirectSelection;
-    const target = controller.state.target;
-    if (generation !== directSelectionGeneration || !capture || !target) return null;
-    if (capture.kind === "rendered") {
-      return target.kind === "block" &&
-          target.blockId === capture.capture.hostBlockId
-        ? capture
-        : null;
-    }
-    return target.kind === "resource" &&
-        target.resourceId === capture.resourceId
-      ? capture
-      : null;
-  },
+  directSelectionCapture: () => directSelectionCapture(controller),
 });
 
 const inspectionKeypress = createDetailKeyHandler({openNewTree: () => { openTreePane({workspaceRoot: paths.workspaceRoot, root: null, direction: "right"}); },controller: inspection, viewport: () => viewport(inspection), stop: () => { void readingSurface.closePreview(); }, actionKeymap,
@@ -1414,8 +1411,13 @@ async function readerAction(actionId: string): Promise<boolean> {
     return true;
   }
   if (readingSurface.active === inspection && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {
+    // Commenting promotes this same document. Carry the explicit command's
+    // immutable capture through promotion; ordinary navigation still retires it.
+    const capture = actionId === "detail.comment.begin" ? await directSelectionCapture(inspection) : null;
     if (!await readingSurface.keepPreview(viewport())) return true;
-    await handleKeypress.invoke(actionId);
+    if (actionId === "detail.comment.begin") {
+      await controller.dispatch({type: "annotation.comment.direct", capture}, viewport());
+    } else await handleKeypress.invoke(actionId);
     return true;
   }
   return false;
