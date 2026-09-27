@@ -1,3 +1,4 @@
+import {stripTerminalSequences, visibleWidth} from "@earendil-works/pi-tui";
 import type {ReferenceCompletionProvider} from '../src/reference-completion';
 import type {Block} from '../src/types';
 import { describe, expect, test } from "bun:test";
@@ -245,4 +246,17 @@ test('Escape dismisses completion first; later retention keeps complete draft an
  expect(renderCapturePopupFrame(h.controller,35,12)).toContain('Home');
  await h.controller.handleKeypress('',{name:'escape'},'pass');expect(h.closes()).toBe(0);expect(h.controller.completions!.state).toBeNull();
  await h.controller.handleKeypress('',{name:'escape'},'pass');expect(h.closes()).toBe(1);expect(h.persists.at(-1)?.text).toBe('Capture ((Home');
+});
+
+
+test("capture errors remain readable in a narrow sidebar without overflowing its frame", () => {
+  const state = popup();
+  const status = "Dock failed; draft retained: popup can only open from the normal workspace view";
+  state.controller.status = status;
+  for (const width of [24, 40, 72]) {
+    const rows = stripTerminalSequences(renderCapturePopupFrame(state.controller, width, 18)).split("\n");
+    expect(rows).toHaveLength(18);
+    expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
+    expect(rows.map(row => row.trim()).join(" ").replace(/\s+/g, " ")).toContain(status);
+  }
 });

@@ -1,6 +1,7 @@
 import {ReferenceCompletionSession,type ReferenceCompletionProvider} from './reference-completion';
 import {COMPLETION_ROWS,renderReferenceCompletion} from './reference-completion-renderer';
-import { hyperlink, truncateToWidth } from "@earendil-works/pi-tui";
+import { hyperlink, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type {CapturePlacement} from "./capture-surface";
 import { layoutDetailEditor } from "./detail-editor-layout";
 import { TextBuffer } from "./text-buffer";
 import {
@@ -24,11 +25,12 @@ export interface CaptureEditorResult {
   retain(): Promise<void>;
 }
 
-export type CaptureAction = "editor" | "save" | "retain" | "discard";
+export type CaptureAction = "editor" | "save" | "retain" | "discard" | "dock" | CapturePlacement;
 
 export interface CapturePopupEffects {
   completionProvider?: ReferenceCompletionProvider;
   editExternal?(draft: QuickCaptureDraft): Promise<CaptureEditorResult>;
+  relocate?(placement: CapturePlacement, draft: QuickCaptureDraft): Promise<void>;
   save(input: CapturePopupSaveInput): Promise<void>;
   persistDraft(input: QuickCaptureDraftSaveInput): Promise<QuickCaptureDraft>;
   clearDraft(expectedRevision: number | null): Promise<void>;
@@ -46,6 +48,7 @@ export interface CapturePopupOptions {
   workIdPrefix?: string|null;
   capturedFromBlockId?: string;
   draft?: QuickCaptureDraft;
+  placement?: CapturePlacement;
   persistDelayMs?: number;
   scheduler?: CapturePopupScheduler;
 }
@@ -60,6 +63,8 @@ export class CapturePopupController {
   readonly completions: ReferenceCompletionSession|null;
   status: string;
   saving = false;
+  placementMenu = false;
+  readonly placement: CapturePlacement;
   private closed = false;
   private requestId: string;
   private submittedText: string | undefined;
@@ -77,6 +82,7 @@ export class CapturePopupController {
     options: CapturePopupOptions,
   ) {
     const draft = options.draft;
+    this.placement = options.placement ?? "popup";
     this.draft = draft;
     this.requestId = draft?.requestId ?? options.requestId;
     this.submittedText = draft?.submittedText;
@@ -108,6 +114,14 @@ export class CapturePopupController {
     inputAction: TerminalInputAction,
   ): Promise<void> {
     if (this.closed || this.saving || inputAction === "suppress") return;
+    if (key.ctrl && key.name === "o") { await this.act("dock"); return; }
+    if (this.placementMenu) {
+      const placement = key.name === "left" ? "left" : key.name === "right" ? "right"
+        : key.name === "down" ? "bottom" : key.name === "p" ? "popup" : undefined;
+      if (placement) await this.act(placement);
+      else if (key.name === "escape") {this.placementMenu = false; this.effects.invalidate();}
+      return;
+    }
     if (key.ctrl && key.name === "e") {
       await this.editExternal();
       return;
@@ -158,6 +172,27 @@ export class CapturePopupController {
       case "save": await this.save(); break;
       case "retain": await this.closeRetainingDraft(); break;
       case "discard": await this.confirmDiscard(); break;
+      case "dock": this.placementMenu = !this.placementMenu; this.effects.invalidate(); break;
+      default: await this.relocate(action);
+    }
+  }
+
+  private async relocate(placement: CapturePlacement): Promise<void> {
+    if (!this.effects.relocate) {this.status = "Docking is unavailable in this capture surface"; this.effects.invalidate(); return;}
+    this.saving = true;
+    this.status = "Moving the retained draft…";
+    this.effects.invalidate();
+    try {
+      const draft = await this.prepareDraft();
+      await this.effects.relocate(placement, draft);
+      // The destination loaded this exact revision. Closing must not flush the
+      // old surface over a keystroke already entered in the new one.
+      this.closed = true;
+      this.effects.close();
+    } catch (error) {
+      this.status = `Dock failed; draft retained: ${error instanceof Error ? error.message : String(error)}`;
+      this.saving = false;
+      this.effects.invalidate();
     }
   }
 
@@ -367,7 +402,22 @@ export function renderCapturePopupFrame(
 ): string {
   const frameWidth = Math.max(1, Math.floor(width));
   const frameHeight = Math.max(1, Math.floor(height));
-  const available=Math.max(1,frameHeight-4);
+  const controls: Array<[CaptureAction, string]> = [
+    ["editor", "[Editor ^E]"], ["save", "[Save to Inbox]"], ["retain", "[Retain]"], ["discard", "[Discard]"],
+    ["dock", "[Dock ^O]"],
+    ...(controller.placement === "popup" ? [] : [["popup", "[Popup]"] as [CaptureAction, string]]),
+  ];
+  if (controller.placementMenu) controls.push(["left", "[← Left]"], ["right", "[→ Right]"], ["bottom", "[↓ Bottom]"], ["popup", "[P Popup]"]);
+  const controlRows: string[] = [];
+  let line = "";
+  for (const [action, label] of controls) {
+    if (line && visibleWidth(line) + 1 + label.length > frameWidth) {controlRows.push(line); line = "";}
+    line += `${line ? " " : ""}${hyperlink(truncateToWidth(label, frameWidth), `pi-outliner-action:capture.${action}`)}`;
+  }
+  if (line) controlRows.push(line);
+  const statusRows = wrapTextWithAnsi(sanitizeDynamicText(controller.status || "Draft retained automatically"), frameWidth)
+    .slice(0, Math.max(1, Math.min(5, Math.floor(frameHeight / 3))));
+  const available=Math.max(1,frameHeight-2-controlRows.length-statusRows.length);
   const completion=controller.completions?.state;
   const completionHeight=completion?Math.min(COMPLETION_ROWS,Math.max(0,available-1)):0;
   const bodyHeight = Math.max(1, available-completionHeight);
@@ -390,10 +440,7 @@ export function renderCapturePopupFrame(
       frameWidth,
       "…",
     )}\x1b[0m`,
-    truncateToWidth([
-      ["editor", "[Editor ^E]"], ["save", "[Save to Inbox]"],
-      ["retain", "[Retain]"], ["discard", "[Discard]"],
-    ].map(([action, label]) => hyperlink(label!, `pi-outliner-action:capture.${action}`)).join(" "), frameWidth),
+    ...controlRows,
   ];
   const editorRows=completion?Math.min(bodyHeight,layout.cursorRow-firstVisibleRow+1):bodyHeight;
   for (let offset = 0; offset < editorRows; offset += 1) {
@@ -406,9 +453,8 @@ export function renderCapturePopupFrame(
     );
   }
   if(completion)output.push(...renderReferenceCompletion(completion,frameWidth,completionHeight));
-  while(output.length<frameHeight-2)output.push("");
-  const status = controller.status || "Draft retained automatically";
-  output.push(truncateToWidth(sanitizeDynamicText(status), frameWidth, "…"));
+  while(output.length<frameHeight-1-statusRows.length)output.push("");
+  output.push(...statusRows);
   output.push(
     `\x1b[2m${truncateToWidth(
       "Enter newline · Ctrl+S save · Esc retain · Ctrl+D discard",

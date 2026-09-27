@@ -3,7 +3,7 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {promisify} from "node:util";
 import type {OutlinerRequester} from "./client-target";
 import {openDetailPane} from "./pane-control";
-import {openDetailSidebar} from "./sidebar-placement";
+import {openSidebar} from "./sidebar-placement";
 import type {OutlinerClientRegistration, OutlinerNavigationTarget, OutlinerViewAddress} from "./types";
 
 /** Create a reader in a chosen layout scope without changing any saved Open link. */
@@ -21,9 +21,9 @@ async function openOutlinerDetailSidebar(
     ["tree", "detail", "composed"].includes(item.role) && item.runtime?.hostname === runtime.hostname &&
     item.runtime?.workspaceId === runtime.workspaceId && item.runtime?.tabId === runtime.tabId,
   ).flatMap(item => item.runtime?.paneId ? [item.runtime.paneId] : []))];
-  const paneId = await openDetailSidebar({
+  const paneId = await openSidebar({
     sourcePaneId: runtime.paneId, outlinerPaneIds, scope: options.scope, side: options.side,
-    async createDetail(anchorPaneId) {
+    async createPane(anchorPaneId) {
       return openDetailPane({workspaceRoot: options.workspaceRoot, browsingContextId: options.browsingContextId, initialTarget: options.initialTarget, targetPaneId: anchorPaneId, direction: "right", deferFocus: true});
     },
   });

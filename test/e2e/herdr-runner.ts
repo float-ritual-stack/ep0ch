@@ -44,6 +44,8 @@ export interface HerdrScenarioSession {
   setKeybindings(bindings: Record<string, string[]>): Promise<void>;
   setRegistryUnavailable(unavailable: boolean): Promise<void>;
   adoptDetached(clientId: string, role?: "tree" | "detail"): Promise<string>;
+  adoptCapture(): Promise<string>;
+  openShellTab(): Promise<string>;
   moveDetachedToNewTab(paneId: string): Promise<void>;
   closeDetached(paneId: string): Promise<void>;
   rejectCompetingService(): Promise<CommandResult>;
@@ -878,6 +880,28 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         await artifacts.record("detached-adopted", detached);
         return pane.paneId;
       },
+      async openShellTab() {
+        const origin = parsePane(parseResult((await runHerdr(["pane", "get", ownedPanes.launcher])).stdout, "pane_info", "shell origin").pane, "shell origin pane");
+        const result = parseResult((await runHerdr(["tab", "create", "--workspace", origin.workspaceId,
+          "--cwd", projectRoot, "--label", "Capture from shell", "--focus"])).stdout, "tab_created", "shell tab");
+        const pane = parsePane(result.root_pane, "shell tab pane");
+        if (pane.workspaceId !== origin.workspaceId) throw Error("Shell tab escaped the private workspace");
+        owned.add(pane.paneId);
+        extraPanes["capture-origin-shell"] = pane.paneId;
+        await artifacts.record("shell-tab-created", result);
+        return pane.paneId;
+      },
+      async adoptCapture() {
+        const origin = parsePane(parseResult((await runHerdr(["pane", "get", ownedPanes.launcher])).stdout, "pane_info", "capture fixture origin").pane, "capture fixture origin pane");
+        const snapshot = recordValue(parseResult((await runHerdr(["api", "snapshot"])).stdout, "session_snapshot", "capture topology").snapshot, "capture snapshot");
+        const candidates = (snapshot.panes as JsonRecord[]).filter(p => p.label === "Quick Capture" && p.workspace_id === origin.workspaceId);
+        if (candidates.length !== 1) throw Error(`Expected one capture pane in private workspace; found ${candidates.length}`);
+        const pane = parsePane(candidates[0], "capture pane");
+        processEvidence.push(await verifyProcess(pane.paneId, pluginRoot));
+        owned.add(pane.paneId);
+        await artifacts.record("capture-adopted", pane);
+        return pane.paneId;
+      },
       async moveDetachedToNewTab(paneId) {
         requireOwned(paneId);
         if (Object.values(ownedPanes).includes(paneId)) throw new Error("Only an adopted detached pane may move");
@@ -1062,6 +1086,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", "capture",
           "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
           "--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${blockId}`,
+          "--env", `OUTLINER_CAPTURE_ORIGIN_PANE=${ownedPanes.tree}`,
           "--env", "OUTLINER_REMOTE=1",
           "--env", `OUTLINER_SOCKET_PATH=${socketPath}`]);
       },

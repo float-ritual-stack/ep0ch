@@ -553,6 +553,8 @@ export function openCapturePopup(
   if (options.capturedFromBlockId) {
     args.push("--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${options.capturedFromBlockId}`);
   }
+  const originPaneId = pluginInvocationPaneId();
+  if (originPaneId) args.push("--env", `OUTLINER_CAPTURE_ORIGIN_PANE=${originPaneId}`);
   for (const name of [
     "OUTLINER_STATE_DIR",
     "OUTLINER_CONFIG_PATH",

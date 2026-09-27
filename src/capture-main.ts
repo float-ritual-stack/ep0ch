@@ -1,7 +1,7 @@
 import {attachCaptureInput} from './capture-input';
 import {referenceCompletionProvider} from './reference-completion';
 import {parseTreePlainClick,treeLinkAtClick} from './tree-mouse';
-import { reportCurrentPaneWorkspace } from "./pane-control";
+import { pluginInvocationPaneId, reportCurrentPaneWorkspace } from "./pane-control";
 import { createOutlinerClient } from "./client";
 import {
   CapturePopupController,
@@ -10,6 +10,7 @@ import {
 } from "./capture-popup";
 import {EditRecoveryClient} from "./edit-recovery-client";
 import {resolveExternalEditorConfiguration} from "./external-editor";
+import {acceptCaptureHandoff, confirmCaptureHandoff, loadCaptureHandoff, openCaptureSurface} from "./capture-surface";
 import { resolveClientPaths } from "./paths";
 import {
   BRACKETED_PASTE_DISABLE,
@@ -29,6 +30,9 @@ const recovery = new EditRecoveryClient(client, paths.stateDir);
 const requestId = process.env.OUTLINER_CAPTURE_REQUEST_ID?.trim() || crypto.randomUUID();
 const capturedFromBlockId = process.env.OUTLINER_CAPTURE_FROM_BLOCK_ID?.trim() || undefined;
 const draft = await client.request<QuickCaptureDraft | null>({ action: "capture.draft.get" });
+const handoffDirectory = process.env.OUTLINER_CAPTURE_HANDOFF;
+const handoff = handoffDirectory ? await loadCaptureHandoff(handoffDirectory) : undefined;
+const originPaneId = handoff?.originPaneId ?? process.env.OUTLINER_CAPTURE_ORIGIN_PANE ?? pluginInvocationPaneId();
 const workIds=await client.request<WorkIdAllocatorStatus>({action:'work-ids.status'});
 let detachInput:(()=>void)|undefined;
 let renderedLines:string[]=[];
@@ -115,6 +119,11 @@ const controller = new CapturePopupController({
       throw error;
     }
   },
+  async relocate(placement, draft) {
+    if (!originPaneId) throw Error("The originating Herdr pane is unavailable");
+    await openCaptureSurface(client, {workspaceRoot: paths.workspaceRoot, stateDir: paths.stateDir,
+      draft, originPaneId, placement});
+  },
   close() {
     stop();
   },
@@ -126,6 +135,7 @@ const controller = new CapturePopupController({
   workIdPrefix:workIds.prefix,
   capturedFromBlockId,
   draft: draft ?? undefined,
+  placement: handoff?.placement,
 });
 
 function draw(): void {
@@ -156,11 +166,14 @@ function startInput(): void {
   const uri=treeLinkAtClick(renderedLines,sequence);
   const match=uri?.match(/^pi-outliner-action:completion.choose:(\d+):(\d+)$/);
   if(match)enqueueWork(()=>controller.chooseCompletion(Number(match[1]),Number(match[2])));
-  const action=uri?.match(/^pi-outliner-action:capture\.(editor|save|retain|discard)$/)?.[1];
+  const action=uri?.match(/^pi-outliner-action:capture\.(editor|save|retain|discard|dock|left|right|bottom|popup)$/)?.[1];
   if(action)enqueueWork(()=>controller.act(action as CaptureAction));
  },
 });
  process.stdin.resume();
+}
+if (handoffDirectory && handoff) {
+  await acceptCaptureHandoff(handoffDirectory, handoff, draft);
 }
 startInput();
 process.stdout.on("resize", draw);
@@ -168,3 +181,5 @@ process.on("SIGINT", () => stopAfterRetainingDraft(130));
 process.on("SIGTERM", () => stopAfterRetainingDraft(143));
 process.on("SIGHUP", () => stopAfterRetainingDraft(129));
 draw();
+if (handoffDirectory && handoff) await confirmCaptureHandoff(handoffDirectory, handoff);
+if (handoff?.editor) enqueueWork(() => controller.editExternal());
