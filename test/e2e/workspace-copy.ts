@@ -59,6 +59,7 @@ const result=await runHerdrScenario({
     const path=session.projectRoot;
     const location=await point(path);
     await copied(()=>terminal.write(`\x1b[<0;${location!.column+1};${location!.row+1}M\x1b[<32;${location!.column+path.length+1};${location!.row+1}M\x1b[<0;${location!.column+path.length+1};${location!.row+1}m`),path);
+    await session.waitVisible(tree,'Selection sent to terminal clipboard');
     const end=await point('Client host:');
     const header=(await session.visible(tree)).split('\n').find(line=>line.includes('Client host:'))!;
     const selectedHeader=header.slice(0,header.indexOf('Client host:')+'Client host:'.length);

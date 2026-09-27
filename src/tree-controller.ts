@@ -207,6 +207,7 @@ export interface TreeExpandedPage {
 
 export interface TreeController {
   readonly mode: TreeMode;
+  copyViewerSelection(text: string): void;
   setViewportStart(index: number, expandedPage?: TreeExpandedPage | null): void;
   setBreadcrumbStart(index: number): void;
   view(): TreeView;
@@ -1986,6 +1987,17 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     previewPreferences = {...previewPreferences, [key]: Math.max(.2, Math.min(.8, fraction))};
     effects.invalidate();
   }
+  function copyViewerText(text: string, kind: "Value" | "Selection"): void {
+    try {
+      if (!effects.copyText) throw Error("Clipboard output is unavailable in this host");
+      effects.copyText(text);
+      viewerStatus = `${kind} sent to terminal clipboard`;
+    } catch (error) {
+      viewerStatus = errorMessage(error);
+    }
+    effects.invalidate();
+  }
+
   async function handleAction(
     actionId: string,
     origin?: { column: number; row: number },
@@ -2014,10 +2026,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         const field=Number.isSafeInteger(index)?fields[index]:undefined;
         if(!field)return;
         viewerField=index;
-        try{
-          if(!effects.copyText)throw Error('Clipboard output is unavailable in this host');
-          effects.copyText(field.value);viewerStatus='Value sent to terminal clipboard';
-        }catch(error){viewerStatus=errorMessage(error);}
+        copyViewerText(field.value, "Value");
+        return;
       }
       effects.invalidate();return;
     }
@@ -2836,6 +2846,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
   return {
     get mode(){return mode;},
+    copyViewerSelection(text) {
+      if (mode === "viewer" && workspaceReport) copyViewerText(text, "Selection");
+    },
     focusLocalPreview,
     scrollLocalPreview,
     resizeLocalPreview,

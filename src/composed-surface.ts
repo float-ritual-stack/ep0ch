@@ -162,7 +162,7 @@ export class ComposedTree implements Component {
   async handleInput(data: string): Promise<void> {
     if(this.keyInspector.handle(data))return;
     if (isTreeMouseSequence(data)) {
-      if(this.viewerInput.handle(data,text=>process.stdout.write(osc52ClipboardWrite(text)),id=>{void this.controller.handleAction(id);},this.options.invalidate))return;
+      if(this.viewerInput.handle(data,text=>this.controller.copyViewerSelection(text),id=>{void this.controller.handleAction(id);},this.options.invalidate))return;
       if (this.controller.view().mode === "inbox" && this.controller.view().inbox?.handlePreviewMouse(data,text=>process.stdout.write(osc52ClipboardWrite(text)))) return;
       if(this.previewInput.handle(data,{focus:v=>this.controller.focusLocalPreview(v),scroll:d=>this.controller.scrollLocalPreview(d),resize:f=>this.controller.resizeLocalPreview(f),invoke:id=>this.controller.handleAction(id)},text=>process.stdout.write(osc52ClipboardWrite(text)),this.options.invalidate))return;
       if (this.controller.view().mode === "inbox" && this.controller.view().inbox?.handleActivityMouse(data)) return;
