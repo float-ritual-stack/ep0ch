@@ -219,6 +219,9 @@ export interface QuickCaptureDraft {
   submittedText?: string;
   cursorRow: number;
   cursorColumn: number;
+  selectionAnchor?: {row: number; column: number};
+  blockId?: string;
+  blockRevision?: number;
   capturedFromBlockId?: string;
   revision: number;
   updatedAt: string;
@@ -230,6 +233,8 @@ export interface QuickCaptureDraftSaveInput {
   submittedText?: string;
   cursorRow: number;
   cursorColumn: number;
+  selectionAnchor?: {row: number; column: number};
+  prepareBlock?: boolean;
   capturedFromBlockId?: string;
   expectedRevision: number | null;
 }
@@ -1228,7 +1233,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 75;
+export const OUTLINER_PROTOCOL_VERSION = 76;
 
 
 export interface OutlinerServiceStatus {
@@ -1474,6 +1479,7 @@ export type OutlinerRequest =
       capturedFromBlockId?: string;
       author?: BlockAuthor;
       provenance?: BlockProvenance;
+      expectedDraftRevision?: number;
     }
   | {
       id: string;

@@ -222,7 +222,7 @@ export class NoteAssistanceRepository {
         const state = this.observe(source, previous);
         const agentChangedType = previous && !state.typeLocked &&
           JSON.stringify(types(source)) !== JSON.stringify(previous.observedTypes);
-        if (!isNoteAssistanceEligible(source) || (previous && !state.reconsider && !agentChangedType && state.fingerprint === fingerprint(source))) {
+        if (!isNoteAssistanceEligible(source) || this.store.isCaptureDraft(source.id) || (previous && !state.reconsider && !agentChangedType && state.fingerprint === fingerprint(source))) {
           this.checkpoint(source, state);
           continue;
         }
@@ -236,7 +236,7 @@ export class NoteAssistanceRepository {
   candidateFor(sourceId: string): NoteCandidate | undefined {
     this.requireInitialized();
     const source = this.store.get(sourceId);
-    if (!source || !isNoteAssistanceEligible(source)) return undefined;
+    if (!source || !isNoteAssistanceEligible(source) || this.store.isCaptureDraft(source.id)) return undefined;
     const previous = this.state(sourceId);
     return this.candidate(source, this.observe(source, previous), previous);
   }
@@ -297,7 +297,7 @@ export class NoteAssistanceRepository {
       const replay = this.replay(id, hash);
       if (replay) return replay;
       const source = this.requireUnchanged(candidate.source);
-      if (!isNoteAssistanceEligible(source)) throw new Error("Note is no longer eligible for assistance");
+      if (!isNoteAssistanceEligible(source) || this.store.isCaptureDraft(source.id)) throw new Error("Note is no longer eligible for assistance");
       const previous = this.state(source.id);
       const beforeState = this.observe(source, previous);
       const current = this.candidate(source, beforeState, previous);

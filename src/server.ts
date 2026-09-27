@@ -55,6 +55,7 @@ import {
   type BookmarkRemoveReceipt,
   type BookmarkToggleReceipt,
   type CaptureReceipt,
+  type QuickCaptureDraft,
   type ComputedExecutionResult,
   type ComputedInvocation,
   type DeliveryReceipt,
@@ -1862,6 +1863,7 @@ export class OutlinerServer {
             request.capturedFromBlockId,
             request.author,
             request.provenance,
+            request.expectedDraftRevision,
           );
           break;
         case "capture.retitle":
@@ -2210,6 +2212,14 @@ export class OutlinerServer {
       case "capture.retitle":
         domain = "content";
         blockId = (response.result as Block).id;
+        break;
+      case "capture.draft.save":
+        blockId = (response.result as QuickCaptureDraft).blockId;
+        if (!blockId) return null;
+        domain = "content";
+        break;
+      case "capture.draft.clear":
+        domain = "content";
         break;
       case "annotations.create":
       case "annotations.reply":

@@ -163,6 +163,9 @@ interface QuickCaptureDraftRow {
   captured_from_block_id: string | null;
   revision: number;
   updated_at: string;
+  block_id: string | null;
+  block_revision: number | null;
+  selection_anchor: string | null;
 }
 
 interface PropertyRow {
@@ -1119,14 +1122,18 @@ export class OutlinerStore {
     capturedFromBlockId?: string,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
+    expectedDraftRevision?: number,
   ): CaptureReceipt {
     if (typeof text !== "string") throw new Error("Capture text must be a string");
     if (capturedFromBlockId !== undefined && typeof capturedFromBlockId !== "string") {
       throw new Error("Capture capturedFromBlockId must be a string");
     }
     const normalizedRequestId = normalizeCaptureRequestId(requestId);
-    const normalizedText = text.trim();
-    if (!normalizedText) throw new Error("Capture text cannot be empty");
+    const normalizedText = expectedDraftRevision === undefined ? text.trim() : text;
+    if (!normalizedText.trim()) throw new Error("Capture text cannot be empty");
+    if (expectedDraftRevision !== undefined && (!Number.isSafeInteger(expectedDraftRevision) || expectedDraftRevision < 1)) {
+      throw new Error("Capture draft expected revision must be a positive integer");
+    }
     if (!CAPTURE_SOURCES.has(source)) throw new Error(`Invalid capture source: ${String(source)}`);
     const creator = normalizeCreatorProvenance(author, provenance);
     // Retried tool calls may have new session/task IDs. Original creation provenance stays immutable.
@@ -1160,6 +1167,19 @@ export class OutlinerStore {
       }
 
       const inbox = this.requireCaptureInboxFromCurrentRead();
+      const draft = this.quickCaptureDraftFromCurrentRead();
+      const prepared = draft?.requestId === normalizedRequestId && draft.blockId ? draft : undefined;
+      if (expectedDraftRevision !== undefined && (!prepared || prepared.revision !== expectedDraftRevision)) {
+        throw new Error("Capture draft changed before submission");
+      }
+      if (prepared && expectedDraftRevision === undefined) throw new Error("Prepared capture requires its draft revision");
+      if (prepared && (source !== "tree" || author !== "user" || capturedFromBlockId !== prepared.capturedFromBlockId)) {
+        throw new Error("Prepared capture provenance changed");
+      }
+      const preparedBlock = prepared ? this.requireActive(prepared.blockId!) : undefined;
+      if (preparedBlock && (preparedBlock.revision !== prepared!.blockRevision || preparedBlock.parentId !== inbox.id)) {
+        throw new Error("Capture note changed outside this draft; retain and review it before submitting");
+      }
       if (capturedFromBlockId) this.require(capturedFromBlockId);
       const capturedAt = new Date().toISOString();
       const metadata = [
@@ -1176,8 +1196,9 @@ export class OutlinerStore {
         firstNewlineIndex === -1 ? normalizedText : normalizedText.slice(0, firstNewlineIndex);
       const remainingText =
         firstNewlineIndex === -1 ? "" : normalizedText.slice(firstNewlineIndex);
-      const block = this.createAt(
-        `${firstLine} ${metadata}${remainingText}`,
+      const capturedText = `${firstLine} ${metadata}${remainingText}`;
+      const block = preparedBlock ? this.update(preparedBlock.id, capturedText, preparedBlock.revision, {author, ...provenance}) : this.createAt(
+        capturedText,
         inbox.id,
         author,
         provenance,
@@ -1231,13 +1252,20 @@ export class OutlinerStore {
     return this.database.transaction(() => this.quickCaptureDraftFromCurrentRead())();
   }
 
+  /** Durable ownership, independent of focus, timing, or editable note properties. */
+  isCaptureDraft(blockId: string): boolean {
+    return !!this.database.query(`SELECT 1 FROM quick_capture_draft d WHERE singleton = 1 AND block_id = ?
+      AND NOT EXISTS (SELECT 1 FROM capture_requests r WHERE r.request_id = d.request_id)`).get(blockId);
+  }
+
   saveQuickCaptureDraft(input: QuickCaptureDraftSaveInput): QuickCaptureDraft {
     const requestId = normalizeCaptureRequestId(input.requestId);
     if (input.submittedText !== undefined &&
       (typeof input.submittedText !== "string" || !input.submittedText.trim())) {
       throw new Error("Quick Capture submitted text must be non-empty");
     }
-    if (typeof input.text !== "string" || (!input.text.trim() && input.submittedText === undefined)) {
+    if (input.prepareBlock !== undefined && typeof input.prepareBlock !== "boolean") throw new Error("Invalid capture preparation");
+    if (typeof input.text !== "string") {
       throw new Error("Quick Capture draft text cannot be empty");
     }
     if (!Number.isInteger(input.cursorRow) || input.cursorRow < 0) {
@@ -1262,11 +1290,31 @@ export class OutlinerStore {
       throw new Error("Quick Capture draft expected revision must be null or a positive integer");
     }
     if (input.capturedFromBlockId !== undefined) this.requireActive(input.capturedFromBlockId);
+    if (input.selectionAnchor !== undefined) {
+      const {row, column} = input.selectionAnchor;
+      if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0 ||
+        lines[row] === undefined || column > lines[row]!.length) throw new Error("Capture selection is outside the text");
+    }
 
     return this.database.transaction(() => {
       const current = this.quickCaptureDraftFromCurrentRead();
       if ((current?.revision ?? null) !== input.expectedRevision) {
         throw new Error("Quick Capture draft changed; close this popup and reopen the current draft");
+      }
+      if (!input.text.trim() && input.submittedText === undefined && !input.prepareBlock && !current?.blockId) {
+        throw new Error("Quick Capture draft text cannot be empty");
+      }
+      const captured = !!current?.blockId && !!this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(current.requestId);
+      if (current?.blockId && !captured && (requestId !== current.requestId || input.capturedFromBlockId !== current.capturedFromBlockId)) {
+        throw new Error("Prepared capture identity cannot change");
+      }
+      let block = current?.blockId && requestId === current.requestId ? this.requireActive(current.blockId) : undefined;
+      if (block && !captured && block.revision !== current!.blockRevision) throw new Error("Capture note changed outside this draft");
+      if (input.prepareBlock && this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(requestId)) throw new Error("This capture was already submitted");
+      if (input.prepareBlock && !block) {
+        block = this.createAt(input.text, this.requireCaptureInboxFromCurrentRead().id, "user", undefined, new Date().toISOString(), 0);
+      } else if (block && !captured && block.text !== input.text) {
+        block = this.update(block.id, input.text, block.revision, {author:"user", actorId:"capture"});
       }
       const previous = this.database.query(
         "SELECT revision FROM quick_capture_draft WHERE singleton = 1",
@@ -1298,6 +1346,8 @@ export class OutlinerStore {
         revision,
         updatedAt,
       );
+      this.database.query("UPDATE quick_capture_draft SET block_id = ?, block_revision = ?, selection_anchor = ? WHERE singleton = 1")
+        .run(block?.id ?? null, block?.revision ?? null, input.selectionAnchor ? JSON.stringify(input.selectionAnchor) : null);
       return this.quickCaptureDraftFromCurrentRead()!;
     })();
   }
@@ -1314,11 +1364,17 @@ export class OutlinerStore {
       if ((current?.revision ?? null) !== expectedRevision) {
         throw new Error("Quick Capture draft changed; close this popup and reopen the current draft");
       }
+      if (current?.blockId && this.isCaptureDraft(current.blockId)) {
+        const block = this.requireActive(current.blockId);
+        if (block.revision !== current.blockRevision || this.children(block.id).length) throw new Error("Capture note changed; retain and review before discarding");
+        this.delete(block.id);
+      }
       // Keep the revision after clearing; delayed cleanup must never match a new draft.
       if (current) this.database.query(`
         UPDATE quick_capture_draft
         SET request_id = '', text = '', submitted_text = NULL,
-          cursor_row = 0, cursor_column = 0, captured_from_block_id = NULL
+          cursor_row = 0, cursor_column = 0, captured_from_block_id = NULL,
+          block_id = NULL, block_revision = NULL, selection_anchor = NULL
         WHERE singleton = 1
       `).run();
       return null;
@@ -2678,17 +2734,20 @@ export class OutlinerStore {
 
   private quickCaptureDraftFromCurrentRead(): QuickCaptureDraft | null {
     const row = this.database.query(`
-      SELECT request_id, text, submitted_text, cursor_row, cursor_column, captured_from_block_id, revision, updated_at
+      SELECT request_id, text, submitted_text, cursor_row, cursor_column, captured_from_block_id, revision, updated_at,
+        block_id, block_revision, selection_anchor
       FROM quick_capture_draft
       WHERE singleton = 1
     `).get() as QuickCaptureDraftRow | null;
-    if (!row || (!row.text && row.submitted_text === null)) return null;
+    if (!row || (!row.text && row.submitted_text === null && row.block_id === null)) return null;
     return {
       requestId: row.request_id,
       text: row.text,
       ...(row.submitted_text === null ? {} : { submittedText: row.submitted_text }),
       cursorRow: row.cursor_row,
       cursorColumn: row.cursor_column,
+      ...(row.block_id ? {blockId:row.block_id,blockRevision:row.block_revision!} : {}),
+      ...(row.selection_anchor ? {selectionAnchor:JSON.parse(row.selection_anchor)} : {}),
       ...(row.captured_from_block_id
         ? { capturedFromBlockId: row.captured_from_block_id }
         : {}),
@@ -2835,6 +2894,9 @@ export class OutlinerStore {
     const draftColumns = this.database.query("PRAGMA table_info(quick_capture_draft)").all() as Array<{ name: string }>;
     if (!draftColumns.some(column => column.name === "submitted_text")) {
       this.database.exec("ALTER TABLE quick_capture_draft ADD COLUMN submitted_text TEXT");
+    }
+    for (const [name, type] of [["block_id","TEXT"],["block_revision","INTEGER"],["selection_anchor","TEXT"]]) {
+      if (!draftColumns.some(column => column.name === name)) this.database.exec(`ALTER TABLE quick_capture_draft ADD COLUMN ${name} ${type}`);
     }
   }
 
