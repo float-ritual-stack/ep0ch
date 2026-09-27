@@ -36,6 +36,8 @@ interface TreeRowBase<T extends ProjectionBlock = VisibleBlock> {
 
 export interface TreePresentationState {
   readonly collapsedBlockIds: ReadonlySet<string>;
+  /** Temporary search reveals bounded descendants without changing authored defaults. */
+  readonly revealCollapsed?: boolean;
   readonly collapsedOccurrenceRowIds?: ReadonlySet<string>;
   readonly expandedOccurrenceRowIds?: ReadonlySet<string>;
   readonly multilineExpandedRowIds: ReadonlySet<string>;
@@ -775,7 +777,7 @@ function composeNestedOccurrences<T extends ProjectionBlock>(
     if (nestedRoots.length > 0 && remainingDepth > 0 && !canNest) nestingTruncated = true;
     if (remainingDepth === 0 && (physicalChildren.length > 0 || nestedRoots.length > 0)) depthTruncated = true;
     const hasChildren = remainingDepth > 0 && (source.hasChildren || canNest);
-    const collapsed = hasChildren && (
+    const collapsed = !presentation.revealCollapsed && hasChildren && (
       (presentation.collapsedOccurrenceRowIds?.has(rowId) ?? false) ||
       (!!source.defaultCollapsed && !(presentation.expandedOccurrenceRowIds?.has(rowId) ?? false))
     );

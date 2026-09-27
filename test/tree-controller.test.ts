@@ -1360,7 +1360,7 @@ describe("createTreeController", () => {
     const controller = createTreeController(fake.effects);
     await controller.initialize();
 
-    await controller.handleKeypress("/", { name: "/" }, "pass");
+    await controller.handleAction("tree.filter.properties");
     await controller.handleKeypress("sta", { sequence: "sta" }, "pass");
     await controller.handleKeypress("", { name: "tab" }, "pass");
     expect(lastCall(fake.calls, "properties.catalog")).toEqual({
@@ -1397,7 +1397,7 @@ describe("createTreeController", () => {
       },
     });
 
-    await controller.handleKeypress("/", { name: "/" }, "pass");
+    await controller.handleAction("tree.filter.properties");
     await controller.handleKeypress('"', { sequence: '"' }, "pass");
     await controller.handleKeypress("", { name: "return" }, "pass");
     expect(controller.view().mode).toBe("filter");
@@ -1829,7 +1829,7 @@ describe("createTreeController", () => {
     expect(firstHarness.calls.map((call) => String(call.action))).not.toContain("navigation.back");
     expect(secondHarness.calls.map((call) => String(call.action))).not.toContain("navigation.back");
 
-    await first.handleKeypress("/", { name: "/" }, "pass");
+    await first.handleAction("tree.filter.properties");
     await first.handleKeypress("kind=peer", { sequence: "kind=peer" }, "pass");
     await first.handleKeypress("", { name: "return" }, "pass");
     expect(first.view().activeFilter).toBe("kind=peer");
@@ -3787,7 +3787,7 @@ test("Tree links a new Detail beside the chosen anchor", async () => {
 test('Tree link controls explain active filters without discarding their text', async () => {
  const note=block('filter-link'); const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):undefined);
  const c=createTreeController(fake.effects);await c.initialize();
- await c.handleKeypress('/',{name:'/'},'pass'); await c.handlePaste('my filter');
+ await c.handleAction('tree.filter.properties'); await c.handlePaste('my filter');
  await c.handleAction('tree.navigation.link');
  expect(c.view().mode).toBe('filter');expect(c.view().quickInput).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
  await c.handleKeypress('',{name:'l',meta:true},'pass');

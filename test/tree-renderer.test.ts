@@ -880,7 +880,7 @@ describe("renderTreeFrame", () => {
       80,
       8,
     ).frame.split("\n");
-    expect(filterFrame.at(-2)).toBe("\x1b[1mFilter:\x1b[0m type=page▏");
+    expect(filterFrame.at(-2)).toBe("\x1b[1mProperties:\x1b[0m type=page▏");
     const invalidFilterFrame = renderTreeFrame(
       view([selected], {
         mode: "filter",

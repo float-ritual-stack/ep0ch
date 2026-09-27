@@ -511,6 +511,7 @@ export function renderTreeFrame(
     while (output.length > 1 && output.length > height - 3) output.pop();
     if (height === 1) output.length = 0;
   }
+  if (view.branchFilterCue) output.push(truncateToWidth(outlinerActionLink("tree.filter.clear", "[Clear filter]") + " " + sanitizeDynamicText(view.branchFilterCue), width));
   const headerHeight = output.length;
   const minimumBodyHeight = compactRecovery && height <= 2 ? 0 : 1;
   const selectedRow = view.rows[view.selectedIndex];
@@ -873,8 +874,8 @@ export function renderTreeFrame(
           ?? selectedRow.canonicalId.slice(0, 8)
         : "identifier";
     output.push(`\x1b[31;1mPurge ${required}: \x1b[0m${view.quickInput}▏`);
-  } else if (view.mode === "filter") {
-    const label = "Filter";
+  } else if (view.mode === "filter" || view.mode === "branch-filter") {
+    const label = view.mode === "branch-filter" ? "Find in branch" : "Properties";
     const completion = view.quickCompletion;
     const selectedCompletion = completion?.items[completion.index];
     let completionSuffix = "";

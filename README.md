@@ -718,7 +718,7 @@ unchanged.
 | `Shift+V` | Open the selected virtual branch in the generic split navigator |
 | `m` / `Shift+M` | Toggle a bookmark for the selected block / open Bookmarks |
 | `Option+Left` / `Option+Right` | Move backward / forward through block navigation history |
-| `/` | Filter visible blocks |
+| `/` | Temporarily fuzzy-filter descendants of this occurrence |
 | `f` | Open a referenced file |
 | `Delete`, then `y` | Confirm moving the selected canonical subtree to Trash |
 | `r` | Restore a selected direct Trash root |
@@ -1114,7 +1114,7 @@ work-stage::review type::roadmap-item
 
 Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. OR, NOT, ranges, grouping, aggregation, and reference traversal are intentionally not supported by the property expression.
 
-Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text substring, subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query carries a limit from 1 through 1000 and returns `complete` or `truncated` metadata. Tree `/` mode uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and accepts `--limit` (default 500).
+Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text substring, subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query carries a limit from 1 through 1000 and returns `complete` or `truncated` metadata. Tree **Advanced property filter** uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and accepts `--limit` (default 500).
 
 ### References and transclusions
 
@@ -2082,3 +2082,22 @@ Jira requests use an installed process on the service host. Installation, code u
 and enable/disable changes do not require rebuilding the Outliner. See
 [the process contract and configuration guide](docs/extensions/resource-process.md).
 The initial binding is read-only Jira; other Resource providers retain their existing paths.
+
+
+### Temporary branch filtering
+
+In Tree, select a block or virtual branch and press `/` (or **View → Filter this branch**).
+Type to fuzzy-find text within its descendants, including collapsed descendants
+within the projection's configured depth and limits. Work-ID prefixes such as
+`DEM-3` match literally. Results keep their original rank and show matching
+ancestors for context. The filter reads bounded full bodies once per revision;
+keystrokes use that temporary cache. A partial-coverage notice identifies limits
+or unavailable content. The cue shows the match count, query and scope.
+
+Enter browses the narrowed list; Escape or **Clear filter** restores the original
+occurrence, expansion and viewport. Selection, Preview and copying stay in that
+branch. **Move selected before/after** chooses a visible unselected anchor but
+places against the full branch order. Up/down moves one position in that full
+order, including hidden items. Neither operation changes canonical parents or
+another branch's ranks. **Advanced property filter** retains the workspace
+property-query interface as a separate View action.

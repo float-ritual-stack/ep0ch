@@ -4,6 +4,12 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- PIE-396: Tree `/` temporarily fuzzy-filters the selected occurrence's descendants,
+  preserves rank and ancestry, searches collapsed content within projection limits,
+  and restores the browsing context on Clear/Escape. The selected-items menu adds
+  full-order before/after placement; filtered nudges explicitly include hidden items.
+  Structured property queries remain under Advanced property filter.
+
 - Collect Tree items with `x` or row checkboxes, inspect the finite set with
   `Shift+X`, copy canonical references or verified page links, and rank selected
   roots together in an unsorted virtual branch. Focus stays independent;
