@@ -62,7 +62,7 @@ The last board per workspace is remembered.
   `saved-view-read.ts`): the query is parsed into property filters, views without a sort use the service's
   branch-local rank order (`rankViewId`), roots are kept once, the authored limit (default 200) applies, and
   a lane says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty.
-  Checked identical against the outliner's evaluator for every branch on float-hub.
+  Checked identical against the outliner's own evaluator: all 8 branches on float-hub and all 34 on the pi-outliner outline.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
 - **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
 - **Resize** by dragging any border (lanes/readers, preview/details, drawer edges), or `{ }` and `< >`.

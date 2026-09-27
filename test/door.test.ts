@@ -66,3 +66,16 @@ describe.skipIf(!packsHere)("the real ep0ch screens", () => {
     expect(locate(art.rows, "Menu Cmd")).toHaveLength(12);
   });
 });
+
+import { parseFilterExpression } from "../src/views";
+describe("saved-view query parsing (matches the outliner's rules)", () => {
+  test("= and :: separators, presence, quotes, lowercased keys", () => {
+    expect(parseFilterExpression('Type=roadmap-item work-stage::doing pinned title="two words"')).toEqual([
+      { key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }, { key: "pinned" }, { key: "title", value: "two words" },
+    ]);
+  });
+  test("boolean operators and empty values are rejected", () => {
+    expect(() => parseFilterExpression("type=a or type=b")).toThrow(/Boolean operator/);
+    expect(() => parseFilterExpression("type=")).toThrow(/cannot be empty/);
+  });
+});
