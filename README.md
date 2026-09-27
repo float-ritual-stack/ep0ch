@@ -49,6 +49,18 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 The layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
+## The delivery board
+
+`K` on the menu, or `bun src/main.ts --board [hub-block-id]` (default: the hub titled "Delivery Flow").
+
+- **Lanes** are the hub's virtual-branch children, run with their own saved `query`, `limit` and `sort` (Superseded hidden; order validate, doing, queued, review, done).
+- **One preview** under the lanes follows the selected card.
+- **⏎** opens the card in the detail area (the same one each time); **alt+⏎** opens a second detail beside it. `x` closes a detail.
+- **`t` outline drawer** slides over from the left without moving anything; `T` pins it, and then the layout makes room.
+- **`b` backlinks drawer** spans all readers and shows backlinks for the reader you pressed it in (preview when on the lanes). `B` pins it. ⏎ opens a source in the detail.
+- `tab` walks lanes → preview → details → drawers; click and wheel work everywhere; `esc` closes an unpinned drawer, then returns to the lanes.
+- Lanes reload quietly when the outline changes.
+
 ## The river
 
 `Q` on the menu, or `bun src/main.ts --river`. Quay's model (built with Grok from an outline export, in

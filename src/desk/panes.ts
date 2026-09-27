@@ -172,7 +172,7 @@ const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
 
 export class ReaderPane implements Pane {
   readonly kind = "reader";
-  private msg: Msg | null = null;
+  msg: Msg | null = null;
   private pinned = false;
   private scroll = 0;
   private crumbs = "";
@@ -186,7 +186,7 @@ export class ReaderPane implements Pane {
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
 
-  private show(m: Msg | null, desk: DeskApi) {
+  show(m: Msg | null, desk: DeskApi) {
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
     this.links = m ? [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! })) : [];
     if (!m) return;

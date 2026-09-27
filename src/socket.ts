@@ -22,6 +22,7 @@ export interface IndexBlock {
   id: string; parentId: string | null; position: number; title: string; author: string;
   createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
 }
+export interface Backlink { id: string; title: string; context: string; updatedAt: number; kinds: string; snippet: string }
 export interface OutlineEvent { domain: string; action: string; blockId?: string; sequence: number }
 
 const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
@@ -163,6 +164,23 @@ export class SocketBoard implements Board {
       query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" } },
     });
     return r.blocks.map(b => toMsg(b));
+  }
+
+  /** Run a saved virtual-branch query (`type=roadmap-item work-stage=doing`) as filters. */
+  async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc"): Promise<Msg[]> {
+    const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
+    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } } });
+    return r.blocks.map(b => toMsg(b));
+  }
+
+  /** Blocks that point at this one, excluding itself. */
+  async backlinks(id: string, limit = 100): Promise<Backlink[]> {
+    const r = await this.request<{ sources: any[] }>("references.backlinks", { query: { targetBlockId: id, limit } });
+    return r.sources.filter(s => s.blockId !== id).map(s => ({
+      id: s.blockId, title: s.title, context: s.parentContext ?? "", updatedAt: Date.parse(s.updatedAt),
+      kinds: (s.referenceGroups ?? []).map((g: any) => `${g.kind}×${g.count}`).join(" "),
+      snippet: String(s.occurrences?.[0]?.snippet ?? "").replace(/\s+/g, " ").trim(),
+    }));
   }
 
   /** Comment threads anchored on a block (open ones first). */

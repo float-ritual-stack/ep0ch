@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { App } from "./app";
 import { Desk } from "./desk/desk";
 import { River } from "./river/river";
+import { DeliveryBoard } from "./desk/delivery";
 import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
@@ -21,7 +22,8 @@ function writeLastCall(at: number) {
 const args = process.argv.slice(2);
 const deskFirst = args.includes("--desk");
 const riverFirst = args.includes("--river");
-const board = new SocketBoard(args.find(a => !a.startsWith("--")) ?? DEFAULT_SOCKET);
+const boardAt = args.indexOf("--board");
+const board = new SocketBoard(args.find((a, i) => a.includes("/") && args[i - 1] !== "--board") ?? DEFAULT_SOCKET);
 let info;
 try { info = await board.info(); }
 catch (e) {
@@ -44,6 +46,7 @@ app.host = info.host;
 app.workspace = info.workspace;
 board.subscribe(e => app.event(e));
 process.on("SIGTERM", () => app.quit());
-if (riverFirst) { app.push(new MainMenu()); app.push(new River()); }
+if (boardAt >= 0) { app.push(new MainMenu()); app.push(new DeliveryBoard(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])); }
+else if (riverFirst) { app.push(new MainMenu()); app.push(new River()); }
 else if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }
 else app.push(new Logon(app));

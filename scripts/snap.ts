@@ -9,6 +9,7 @@ import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
+import { DeliveryBoard } from "../src/desk/delivery";
 import { SocketBoard } from "../src/socket";
 import type { Key, TermInfo } from "../src/term";
 import { encodePng, GLYPH_H, GLYPH_W } from "../src/vga";
@@ -16,7 +17,7 @@ import { readFileSync } from "node:fs";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = scenario === "desk" || scenario === "river";
+const wide = scenario === "desk" || scenario === "river" || scenario === "board";
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
@@ -149,6 +150,21 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "board") {
+  app.push(new MainMenu()); app.push(new DeliveryBoard());
+  await snap("1-lanes", 6000);
+  press({ kind: "down" }); press({ kind: "down" });
+  await snap("2-preview", 2000);
+  press({ kind: "enter" }); await Bun.sleep(1500);
+  press({ kind: "tab" });   // detail → lanes
+  press({ kind: "right" }); press({ kind: "alt-enter" });
+  await snap("3-two-details", 2500);
+  ch("b");
+  await snap("4-backlinks", 4000);
+  press({ kind: "esc" }); ch("t");
+  await snap("5-tree-drawer", 3000);
+  board.close(); process.exit(0);
+}
 if (scenario === "river") {
   app.push(new MainMenu()); app.push(new River());
   await snap("1-library", 3000);

@@ -11,6 +11,7 @@ import type { Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
 import { River } from "./river/river";
+import { DeliveryBoard } from "./desk/delivery";
 import { ago, bbsDate, colourBody, rule, wrap } from "./text";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | nu
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n), "since your last call") },
   { key: "J", label: "Join", open: () => new Conferences() },
+  { key: "K", label: "Kanban", open: () => new DeliveryBoard() },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
   { key: "W", label: "Who's on", open: () => new WhoOnline() },
   { key: "L", label: "Lastcall", open: () => new LastCallers() },
@@ -124,7 +126,6 @@ const ITEMS: MenuItem[] = [
   { key: "Q", label: "Quay", open: () => new River() },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
   { key: "D", label: "Desk", open: () => new Desk() },
-  { key: "?", label: "Help", open: () => new Help() },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
 ];
 
@@ -167,6 +168,7 @@ export class MainMenu implements Screen {
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
     else if (k.kind === "esc") return ctx.push(new Goodbye());
     else if (k.kind === "char" && k.ch.toUpperCase() === "V") { ctx.cycleVideo(); return; }
+    else if (k.kind === "char" && k.ch === "?") return ctx.push(new Help());
     else if (k.kind === "char") {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) { this.sel = hit; return this.open(ITEMS[hit]!, ctx); }
@@ -566,7 +568,7 @@ export class Help implements Screen {
 const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
-  S: "activity heatmap and top posters", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
+  S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
   D: "the desk: outline, reader, thread and live panes you tile yourself", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 
