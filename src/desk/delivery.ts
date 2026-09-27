@@ -85,6 +85,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (df || found.length === 1) return this.useHub((df ?? found[0]!).hub);
       if (!found.length) { this.status = "no hub with virtual-branch children here; pass --board <block-id>"; return ctx.redraw(); }
       this.picker = { items: found, sel: 0 };
+      this.status = "";
     } catch (e) { this.status = String((e as Error).message); }
     ctx.redraw();
   }
