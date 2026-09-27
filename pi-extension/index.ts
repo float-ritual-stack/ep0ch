@@ -309,6 +309,7 @@ const annotationSourceSnapshotSchema = Type.Union([
     kind: Type.Literal("block"),
     blockId: Type.String(),
     updatedAt: Type.String(),
+    inboxAttemptId: Type.Optional(Type.String()),
     contentHash: Type.String(),
   }),
   Type.Object({
@@ -334,7 +335,12 @@ const annotationRepresentationSchema = Type.Object({
   mediaType: Type.Union([Type.String(), Type.Null()]),
   contentHash: Type.Union([Type.String(), Type.Null()]),
   capturedAt: Type.String(),
-  observation: Type.Optional(renderedPassageObservationSchema),
+  observation: Type.Optional(Type.Union([renderedPassageObservationSchema,Type.Object({
+    validation:Type.Literal('preview-selection'),input:Type.Union([Type.Literal('pointer'),Type.Literal('keyboard')]),quote:Type.String(),capturedAt:Type.String(),readerId:Type.String(),
+    fragmentId:Type.Optional(Type.String()),
+    renderRevision:Type.Integer({minimum:1}),representationId:Type.String(),snapshotHash:Type.String(),
+    projection:Type.Union([Type.Literal('canonical'),Type.Literal('resolved'),Type.Literal('generated'),Type.Literal('mixed')]),
+  })])),
 });
 
 const annotationTextQuoteAnchorSchema = Type.Object({
@@ -347,6 +353,7 @@ const annotationTextQuoteAnchorSchema = Type.Object({
 });
 
 const annotationAnchorSchema = Type.Union([
+  Type.Object({ kind: Type.Literal("whole-subject") }),
   annotationTextQuoteAnchorSchema,
   Type.Object({
     kind: Type.Literal("dom-range"),

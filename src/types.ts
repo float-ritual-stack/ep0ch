@@ -325,6 +325,7 @@ export type AnnotationSourceSnapshot =
   | {
       readonly kind: "block";
       readonly blockId: string;
+      readonly inboxAttemptId?: string;
       readonly updatedAt: string;
       readonly contentHash: string;
     }
@@ -343,6 +344,20 @@ export type AnnotationSourceSnapshot =
       readonly reason: string;
     };
 
+/** Evidence captured by a local Preview, without asserting Markdown offsets. */
+export interface PreviewPassageObservation {
+  readonly fragmentId?:string;
+  readonly validation:"preview-selection";
+  readonly input:"pointer"|"keyboard";
+  readonly quote:string;
+  readonly capturedAt:string;
+  readonly readerId:string;
+  readonly renderRevision:number;
+  readonly representationId:string;
+  readonly snapshotHash:string;
+  readonly projection:RenderedPassageProjection;
+}
+
 export interface AnnotationRepresentation {
   readonly id: string;
   readonly subject: AnnotationSubject;
@@ -351,10 +366,11 @@ export interface AnnotationRepresentation {
   readonly mediaType: string | null;
   readonly contentHash: string | null;
   readonly capturedAt: string;
-  readonly observation?: RenderedPassageObservation;
+  readonly observation?: RenderedPassageObservation | PreviewPassageObservation;
 }
 
 export type AnnotationAnchor =
+  | { readonly kind: "whole-subject" }
   | {
       readonly kind: "text-quote";
       readonly start: number | null;
@@ -1292,7 +1308,7 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-export const OUTLINER_PROTOCOL_VERSION = 77;
+export const OUTLINER_PROTOCOL_VERSION = 78;
 
 
 export interface OutlinerServiceStatus {

@@ -211,6 +211,7 @@ export function normalizeAnnotationSourceSnapshot(
     return {
       kind: "block",
       blockId: identity(snapshot.blockId, "Snapshot block"),
+      ...(snapshot.inboxAttemptId === undefined ? {} : {inboxAttemptId:identity(snapshot.inboxAttemptId,"Inbox capture attempt")}),
       updatedAt: timestamp(snapshot.updatedAt, "Snapshot update time"),
       contentHash: identity(snapshot.contentHash, "Snapshot content hash"),
     };
@@ -278,6 +279,21 @@ export function normalizeAnnotationRepresentation(
     normalized.sourceSnapshot.resourceId !== normalized.subject.resourceId
   ) throw new Error("Resource snapshot does not belong to the annotation subject");
   if (representation.observation !== undefined) {
+    const raw=representation.observation as Record<string,unknown>;
+    if(raw?.validation==='preview-selection'){
+      if(raw.input!=='pointer' && raw.input!=='keyboard')throw Error('Invalid Preview input kind');
+      const projection=raw.projection;
+      if(!['canonical','resolved','generated','mixed'].includes(String(projection)))throw new Error('Invalid Preview projection');
+      const representationId=identity(raw.representationId,'Preview source representation');
+      if(representationId!==normalized.id)throw new Error('Preview observation does not belong to this representation');
+      return {...normalized,observation:{validation:'preview-selection',input:raw.input,
+        ...(raw.fragmentId===undefined?{}:{fragmentId:identity(raw.fragmentId,'Preview fragment')}),
+        quote:evidenceText(raw.quote,'Preview passage quote'),capturedAt:timestamp(raw.capturedAt,'Preview capture time'),
+        readerId:identity(raw.readerId,'Preview reader'),renderRevision:integer(raw.renderRevision,'Preview render revision',1),
+        representationId,snapshotHash:identity(raw.snapshotHash,'Preview snapshot hash'),
+        projection:projection as import('./types').RenderedPassageProjection,
+      }};
+    }
     const observation = normalizeObservation(representation.observation);
     if (
       normalized.subject.kind === "block" &&
@@ -291,6 +307,7 @@ export function normalizeAnnotationRepresentation(
 export function normalizeAnnotationAnchor(value: unknown): AnnotationAnchor {
   if (!value || typeof value !== "object") throw new Error("Annotation anchor must be an object");
   const anchor = value as Record<string, unknown>;
+  if (anchor.kind === "whole-subject") return { kind: "whole-subject" };
   if (anchor.kind === "text-quote") {
     const start = anchor.start === null ? null : integer(anchor.start, "Annotation start");
     const end = anchor.end === null ? null : integer(anchor.end, "Annotation end");
@@ -571,6 +588,7 @@ export function parseStoredResolutionEvent(json: string): AnnotationResolutionEv
 }
 
 function quoteForHeading(target: AnnotationTarget): string {
+  if (target.anchor.kind === "whole-subject") return "Whole note";
   if (target.anchor.kind === "text-quote") return target.anchor.exact;
   if (target.anchor.kind === "dom-range") return target.anchor.exact;
   if (target.anchor.kind === "pdf-page-region") return target.anchor.exact ?? `page ${target.anchor.page}`;

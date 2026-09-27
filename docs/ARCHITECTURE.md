@@ -560,6 +560,14 @@ project-documentation mutations.
 - `annotation_agent_requests` — idempotency receipts linking one bounded agent request payload to its append-only proposal event.
 - `annotation_migration_quarantine` — raw legacy root blocks that cannot be parsed safely, preserving block ID, text, failure reason, and timestamp without fabricating a target.
 
+Inbox before-image annotations retain a block snapshot with an explicit
+`inboxAttemptId`. The shared capture-history reader resolves the retained bytes
+by receipt and block ID. Annotation validation checks those bytes and their
+captured timestamp; ordinary block annotations retain the current-content check.
+This reuses Inbox recovery as evidence and the canonical annotation store for
+comments, without creating another copy of the original note. Saved-source
+Preview rendering never resolves current embeds into that historical text.
+
 Replies have no target row and materialize the root target and history when
 read. Ordinary blocks remain canonical for comment/reply content, outline
 placement, lifecycle, and promotion presentation. Their properties retain only
@@ -1096,10 +1104,12 @@ An `AnnotationTarget` pairs one representation with one typed anchor.
 Representations identify their block or Resource subject, block/resource/
 rendered/unknown source snapshot evidence, adapter identity and version, media
 type, content hash, capture time, and optional rendered passage observation.
-Anchors are discriminated as `text-quote`, `dom-range`, `pdf-page-region`,
+Anchors are discriminated as `whole-subject`, `text-quote`, `dom-range`, `pdf-page-region`,
 `structured-entity-field`, or `provider-comment-id`. This is the codec seam:
 surfaces capture and display typed evidence without learning persistence or
-resolution-table details.
+resolution-table details. A `whole-subject` comment has no passage coordinates;
+reconciliation preserves its subject identity across text changes. Readers show
+these under Note comments, separately from unresolved passage comments.
 
 Block selection captures a block representation. File selection first calls
 `resources.intern-filesystem` and targets that filesystem Resource; the path is
@@ -1109,6 +1119,30 @@ selection retain their validated passage observations in rendered
 representations and use text quotes rather than separate passage targets. All
 surfaces then call the same `annotations.create` action and query by block or
 Resource subject.
+
+Local Tree/Inbox pointer and keyboard captures share `PreviewSelectionInput`
+and attach `preview-selection` observation evidence
+to the displayed source representation: input kind, quote, reader, render generation,
+representation identity, viewport text hash and projection kind. A null-offset
+text-quote remains unpositioned; the service checks that its evidence belongs to
+the representation and retains the normal source-snapshot validation. This does
+not weaken the separate Herdr/rendered-snapshot observation contract. Inbox
+keeps the draft-owning reader focused, defers incoming receipts while writing,
+and applies pending receipts on subsequent result navigation or refresh.
+Keyboard selection uses painted viewport cells and grapheme boundaries, not
+source offsets. The reader action scope supplies remappable comment operations
+without colliding with Tree browsing or Inbox result shortcuts. Starting a
+composer consumes the transient selection after freezing its target evidence.
+
+`documentPreviewSourceAnchor` proves a narrow identity case by comparing the
+complete painted document to the captured block text and hash, with no embeds,
+transforms, annotations or truncation. It maps display cells to UTF-16 only in
+that case and verifies the exact selected bytes. It never searches for a quote
+to guess its position. Other layouts retain a null-offset rendered quote until
+their renderer supplies a source map. Fragment captures retain the fragment ID
+alongside the full source representation. Explicitly historical readers may
+select a matching range from resolution history; current readers preserve the
+current resolution status and never use this historical fallback.
 
 Reference-scoped annotations add `referenceContext` to the existing target JSON:
 a canonical host-block representation, the exact authored token's text-quote

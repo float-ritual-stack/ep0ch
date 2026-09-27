@@ -1561,7 +1561,47 @@ The project Pi extension is auto-discovered through [`.pi/extensions/outliner.ts
 
 `outliner_query` accepts structured filters such as `{ key: "status", value: "in progress" }`, plus optional text and subtree fields. The service normalizes keys/values and applies the same bounded semantics used by human surfaces. `outliner_focus` targets an explicit or unique live Tree client and returns compact structural context.
 
-Annotation tools use the same ordinary comment and reply blocks as Detail and the same relational target sidecar. `outliner_annotations` queries a block or Resource subject. `outliner_annotate` accepts a representation plus one of `text-quote`, `dom-range`, `pdf-page-region`, `structured-entity-field`, or `provider-comment-id`; it does not treat a file path as identity or use a web-specific creation path. For an occurrence-scoped comment, pass `target.referenceContext` with the containing block representation, exact authored-reference anchor, and original `sourceText`; omit it for a subject-wide comment. File-passage comments retain the Resource representation and passage anchor alongside that context. Create and batch calls are idempotent, replies inherit the root target and history, and lifecycle changes can link promoted canonical blocks. The immutable original target is returned beside the current resolution and complete append-only history. Text and PDF quote anchors use deterministic unchanged, exact, contextual, and bounded local-fuzzy reconciliation; PDF results are mapped back to current page regions. Probable, unresolved, ambiguous, orphaned, unsupported, and rejected records remain preserved history rather than being coerced into a location.
+Annotation tools use the same ordinary comment and reply blocks as Detail and the same relational target sidecar. `outliner_annotations` queries a block or Resource subject.
+
+`outliner_annotate` accepts a representation plus one of `whole-subject`, `text-quote`, `dom-range`, `pdf-page-region`, `structured-entity-field`, or `provider-comment-id`; it does not treat a file path as identity or use a web-specific creation path. `whole-subject` deliberately comments on the note or Resource without a passage; its captured representation remains evidence, and it is displayed separately from lost passage anchors.
+
+Inbox Before previews comment on the saved source from that processing attempt,
+not the latest text. Their block snapshot includes `inboxAttemptId`; the service
+checks its block identity, timestamp and content hash against retained recovery
+bytes. Missing historical evidence does not fall back to current text. The
+comment still belongs to the canonical note, so it appears in ordinary readers
+as well. Historical captures without timestamp evidence remain readable but
+cannot create a comment from that preview.
+
+In local Tree and Inbox Preview, drag to select a passage, then use Comment or
+`c`. For keyboard selection, focus Preview and press `v`: arrows position the
+cursor, Shift+arrows extend the selection, and `c` opens the comment composer.
+Selection is limited to the visible reader viewport. Escape clears selection.
+The composer shows the captured quote before saving. A single-line selection
+gets exact source coordinates only when the complete rendered document matches
+the captured canonical text without transformation or wrapping. Other captures
+retain their rendered text and source identity as unpositioned passage comments;
+terminal wrapping is not treated as a Markdown character offset. Fragment
+captures also retain the fragment ID. Without a
+selection, Comment targets the whole note. Inbox source/version controls, result
+navigation and incoming receipt updates cannot displace an active comment draft.
+Save or cancel keeps the displayed source; deferred receipts apply on the next
+result navigation or refresh.
+
+Historical readers can display a proven range from that saved version even if
+the latest note has changed. Current-note readers still respect unresolved
+placement. Short comment composers retain a writing row and save/cancel hints;
+finishing composition clears obsolete draft-retention warnings.
+
+While Preview owns focus, `?` exposes its comment actions and effective bindings.
+The `tree.reader.*` actions can be remapped independently of Tree browsing:
+`comment` (`c`), `select` (`v`), `previous` / `next` (`[` / `]`),
+`reply` (`Shift+C`) and `lifecycle` (`Shift+D`, resolve or reopen).
+
+
+For an occurrence-scoped comment, pass `target.referenceContext` with the containing block representation, exact authored-reference anchor, and original `sourceText`; omit it for a subject-wide comment. File-passage comments retain the Resource representation and passage anchor alongside that context.
+
+Create and batch calls are idempotent, replies inherit the root target and history, and lifecycle changes can link promoted canonical blocks. The immutable original target is returned beside the current resolution and complete append-only history. Text and PDF quote anchors use deterministic unchanged, exact, contextual, and bounded local-fuzzy reconciliation; PDF results are mapped back to current page regions. Probable, unresolved, ambiguous, orphaned, unsupported, and rejected records remain preserved history rather than being coerced into a location.
 
 `outliner_attention` requires an explicit live client ID. It can mark, advance,
 acknowledge, clear, or inspect short-lived block/file attention. Exact UTF-16

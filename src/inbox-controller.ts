@@ -7,6 +7,7 @@ import type { RequestInput } from "./client";
 import type { OutlinerRequester } from "./client-target";
 import type { InboxResultSummary, InboxStatus } from "./inbox-types";
 import {DocumentPreview} from "./document-preview";
+import type {OutlinerActionKeymap} from './outliner-actions';
 import {pointInPreview,type DocumentPreviewFrame,type PreviewRect} from "./document-preview-renderer";
 import {parseTreeWheelEvent} from "./tree-mouse";
 import { TextBuffer } from "./text-buffer";
@@ -15,6 +16,7 @@ import type { OutlinerNavigationTarget, Block } from "./types";
 import type { InternResourceReceipt } from "./resources";
 
 interface InboxEffects extends OutlinerRequester {
+  actionKeymap?:OutlinerActionKeymap;
   clientId?: string;
   openExternal?(url:string):void|Promise<void>;
   openPreview?(target:OutlinerNavigationTarget):Promise<void>;
@@ -40,6 +42,7 @@ export class InboxController {
   private buffer = new TextBuffer();
   private reconsiderSourceId: string | null = null;
   snapshot: InboxStatus | null = null;
+  private pendingSnapshot:InboxStatus|null=null;
   attentionOnly = false;
   resultsOffset = 0;
   index = 0;
@@ -63,6 +66,8 @@ export class InboxController {
   get searching(): boolean {return this.searchBuffer !== null;}
   get searchQuery(): string {return this.searchBuffer?.text ?? "";}
   startSearch(): void {
+    if(this.retainCommentDraft())return;
+    this.flushPendingSnapshot();
     if (!this.searching) {
       this.beforeSearch={id:this.selected?.id,index:this.index,targetIndex:this.targetIndex,detailOffset:this.detailOffset,previewMode:this.previewMode,sourceOffset:this.sourceReader.state?.offset??0,outputOffset:this.outputReader.state?.offset??0,outputIndex:this.outputIndex,sourceVersion:this.sourceVersion,focused:this.reader.state?.focused??false};
       this.searchBuffer=new TextBuffer();this.searchChanged();
@@ -70,6 +75,7 @@ export class InboxController {
     this.searchEditing=true;this.focusReader(false);this.effects.invalidate();
   }
   async cancelSearch(): Promise<void> {
+    if(this.retainCommentDraft())return;
     const saved=this.beforeSearch;
     this.searchBuffer=null;this.searchEditing=false;this.searchResults=null;this.searchLoading=false;this.searchRanking=false;
     this.searchGeneration++;clearTimeout(this.searchTimer);this.beforeSearch=null;this.searchError="";
@@ -128,7 +134,8 @@ export class InboxController {
 
   readonly sourceReader: DocumentPreview;
   readonly outputReader: DocumentPreview;
-  get reader(): DocumentPreview { return this.targets[this.targetIndex]?.role === 'output' ? this.outputReader : this.sourceReader; }
+  private get draftReader():DocumentPreview|undefined {return this.sourceReader.hasDraft?this.sourceReader:this.outputReader.hasDraft?this.outputReader:undefined;}
+  get reader(): DocumentPreview { return this.draftReader ?? (this.targets[this.targetIndex]?.role === 'output' ? this.outputReader : this.sourceReader); }
   sourceVersion: 'before' | 'current' = 'current';
   technicalDetails = false;
   reviewFraction = 0.35;
@@ -146,8 +153,18 @@ export class InboxController {
   private sourceKey = '';
   private outputKey = '';
   private outputIndex = 0;
+  private draftNotice: string | null = null;
+  private readerChanged():void {
+    if(!this.hasCommentDraft && this.draftNotice!==null){
+      if(this.notice===this.draftNotice)this.notice='';
+      this.draftNotice=null;
+    }
+    this.effects.invalidate();
+  }
   get outputTarget() { return this.targets.filter(target => target.role === 'output')[this.outputIndex]; }
   focusReader(focused = true, role: 'source' | 'output' = this.reader === this.outputReader ? 'output' : 'source'): void {
+    const owner=this.draftReader;
+    if(owner && (!focused || (role==='source'?this.sourceReader:this.outputReader)!==owner)){this.retainCommentDraft();return;}
     if (focused) {
       if (this.searching) this.searchTouched = true;
       this.searchEditing = false;
@@ -159,6 +176,7 @@ export class InboxController {
     this.outputReader.focus(focused && role === 'output');
   }
   setSourceVersion(version: 'before' | 'current'): void {
+    if(this.retainCommentDraft())return;
     this.sourceVersion = version;
     this.sourceKey = "";
     const index = this.targets.findIndex(target => target.role === 'source');
@@ -175,7 +193,11 @@ export class InboxController {
       ['output', this.outputInput, this.outputReader, this.outputFrame],
     ] as const;
     const handle = ([role, input, reader, frame]: typeof readers[number]) => input.handle(sequence, {
-        focus: (focused = true) => { if (focused) this.focusReader(true, role); else reader.focus(false); },
+        focus: (focused = true) => {
+          if (focused) this.focusReader(true, role);
+          else if (reader.hasDraft) this.retainCommentDraft();
+          else reader.focus(false);
+        },
         scroll: delta => {if (this.searching) this.searchTouched = true; if (frame) reader.scroll(delta, frame.content.width, frame.content.height);},
         resize: () => {}, invoke: action => this.previewAction(action,reader),
       }, copy, () => this.effects.invalidate());
@@ -221,8 +243,8 @@ export class InboxController {
   }
   private previewKey = '';
   constructor(private readonly effects: InboxEffects) {
-    this.sourceReader = new DocumentPreview(effects, () => effects.invalidate(),effects.clientId,effects.openExternal);
-    this.outputReader = new DocumentPreview(effects, () => effects.invalidate(),effects.clientId,effects.openExternal);
+    this.sourceReader = new DocumentPreview(effects, () => this.readerChanged(),effects.clientId,effects.openExternal,this.sourceInput,effects.actionKeymap);
+    this.outputReader = new DocumentPreview(effects, () => this.readerChanged(),effects.clientId,effects.openExternal,this.outputInput,effects.actionKeymap);
   }
   private async openPreview(target:OutlinerNavigationTarget):Promise<void>{
     if(this.effects.openPreview)return this.effects.openPreview(target);
@@ -236,14 +258,24 @@ export class InboxController {
     const visited=await reader.visit(target);
     if (visited && this.selected?.id === receiptId && this.targetIndex === targetIndex && this.reader === reader) this.focusReader(true);
   }
-  async previewAction(action:string,reader=this.reader):Promise<void>{await reader.action(action,target=>this.openPreview(target));}
+  async previewAction(action:string,reader=this.reader):Promise<void>{
+    if(this.draftReader && this.draftReader!==reader){this.retainCommentDraft();return;}
+    await reader.action(action,target=>this.openPreview(target));
+    if(reader.hasDraft){this.focusReader(true,reader===this.outputReader?'output':'source');this.effects.invalidate();}
+  }
   selectResult(index: number): void {
+    if(this.retainCommentDraft())return;
     if (!Number.isInteger(index) || !this.results[index]) return;
+    const resultId=this.results[index]!.id;
+    this.flushPendingSnapshot();
+    const currentIndex=this.results.findIndex(result=>result.id===resultId);
+    if(currentIndex<0){this.notice='That result is no longer in this list';this.effects.invalidate();return;}
     this.searchEditing=false;
     this.focusReader(false);
-    this.move(index - this.index);
+    this.move(currentIndex - this.index);
   }
   selectTarget(index: number): void {
+    if(this.retainCommentDraft())return;
     if (!Number.isInteger(index) || !this.targets[index]) return;
     if(this.searching)this.searchTouched=true;
     this.focusReader(false);
@@ -259,14 +291,14 @@ export class InboxController {
     this.selectTarget(indices[(indices.indexOf(this.targetIndex)+1)%indices.length]!);
   }
   toggleTechnicalDetails(): void {this.technicalDetails = !this.technicalDetails; this.effects.invalidate();}
-  showActivity(): void {if(this.searching)this.searchTouched=true;this.previewMode = 'activity'; this.focusReader(false); this.effects.invalidate();}
+  showActivity(): void {if(this.retainCommentDraft())return;if(this.searching)this.searchTouched=true;this.previewMode = 'activity'; this.focusReader(false); this.effects.invalidate();}
   scrollPreview(delta: number): void {
     if(this.searching)this.searchTouched=true;
     const frame = this.reader === this.outputReader ? this.outputFrame : this.sourceFrame;
     if (frame) this.reader.scroll(delta,frame.content.width,frame.content.height);
   }
   private async refreshPreview(force = false): Promise<boolean> {
-    if (!this.active) return false;
+    if (!this.active || this.hasCommentDraft) return false;
     const result = this.selected;
     if (!result) {this.sourceReader.clear(); this.outputReader.clear(); this.sourceKey = this.outputKey = ''; return false;}
     const reset = !this.previewKey;
@@ -279,8 +311,8 @@ export class InboxController {
       this.sourceKey = sourceKey;
       jobs.push(this.sourceVersion === 'current'||(refreshing&&this.sourceReader.state?.canBack)
         ? this.sourceReader.load(target, refreshing)
-        : this.sourceReader.loadText(target, result.sourceTitle, this.effects.request<InboxResultDetail>({action: 'inbox.result', resultId: result.id}).then(detail =>
-          detail.beforeSource?.text ?? 'No saved source before this attempt. Current source is available separately.')));
+        : this.sourceReader.loadText(target, result.sourceTitle, () => this.effects.request<InboxResultDetail>({action: 'inbox.result', resultId: result.id}).then(detail =>
+          detail.beforeSource ? {...detail.beforeSource,inboxAttemptId:detail.id} : 'No saved source before this attempt. Current source is available separately.')));
     }
     const output = this.outputTarget;
     const outputKey = output ? `${result.id}/${output.id}` : '';
@@ -332,8 +364,17 @@ export class InboxController {
     }
   }
 
+  get hasCommentDraft():boolean { return !!this.draftReader; }
+  retainCommentDraft():boolean {
+    if(!this.hasCommentDraft)return false;
+    this.notice=this.draftNotice='Comment draft retained here · Ctrl+S saves · Esc cancels';
+    this.effects.invalidate();return true;
+  }
+
   async close(): Promise<void> {
+    if(this.retainCommentDraft())return;
     this.active = false;
+    this.pendingSnapshot=null;
     this.searchGeneration++;clearTimeout(this.searchTimer);
     this.sourceReader.cancelLoad(); this.outputReader.cancelLoad();
     this.session++;
@@ -378,6 +419,8 @@ export class InboxController {
   }
 
   private receive(snapshot: InboxStatus): void {
+    if(this.hasCommentDraft){this.pendingSnapshot=snapshot;return;}
+    this.pendingSnapshot=null;
     const selectedId = this.selected?.id;
     const targetId = this.targets[this.targetIndex]?.id;
     this.snapshot = snapshot;
@@ -390,7 +433,13 @@ export class InboxController {
     this.refreshPreview();
   }
 
+  private flushPendingSnapshot():void {
+    if(this.pendingSnapshot && !this.hasCommentDraft)this.receive(this.pendingSnapshot);
+  }
+
   move(delta: number): void {
+    if(this.retainCommentDraft())return;
+    this.flushPendingSnapshot();
     if(this.searching)this.searchTouched=true;
     this.focusReader(false);
     this.index = Math.max(0, Math.min(this.results.length - 1, this.index + delta));
@@ -404,6 +453,7 @@ export class InboxController {
   }
 
   paste(text: string): void {
+    if(this.reader.state?.focused&&this.reader.paste(text))return;
     if(this.searchEditing&&this.searchBuffer){this.searchBuffer.insert(boundedInstructions(text,Math.max(0,500-this.searchQuery.length)));this.searchChanged();return;}
     if (!this.steering || this.busy) return;
     this.buffer.insert(boundedInstructions(text, Math.max(0, 500 - this.instructions.length)));
@@ -412,6 +462,11 @@ export class InboxController {
 
   async input(str: string, key: TerminalKey): Promise<void> {
     if (!this.active) return;
+    if(!this.steering&&this.previewMode==='content'&&this.reader.state?.focused){
+      const frame=this.reader===this.outputReader?this.outputFrame:this.sourceFrame;
+      if((this.reader.hasDraft||key.name!=='return'||key.meta||this.reader.state?.activeLink) &&
+        await this.reader.key(key,frame?.content.width??60,frame?.content.height??10,target=>this.openPreview(target),str))return;
+    }
     if(this.searching && await this.searchInput(str,key))return;
     if(!this.steering&&str==="/"){this.startSearch();return;}
     if (key.name === "escape") {
@@ -424,12 +479,6 @@ export class InboxController {
     if (!this.steering && key.meta && key.name === 'p') {this.focusReader(!this.reader.state?.focused);return;}
     if (!this.steering && this.previewMode === 'content' && this.reader.state?.focused && ['up','down','pageup','pagedown'].includes(key.name ?? '')) {
       this.scrollPreview((key.name === 'up' || key.name === 'pageup' ? -1 : 1) * (key.name?.startsWith('page') ? Math.max(1,this.previewFrame?.content.height ?? 5) : 1));return;
-    }
-    const state=this.reader.state;
-    if(!this.steering&&this.previewMode==='content'&&state?.focused&&['tab','return','left','right'].includes(key.name??'')
-      &&(key.name!=='return'||key.meta||state.activeLink)){
-      const frame=this.reader===this.outputReader?this.outputFrame:this.sourceFrame;
-      if(await this.reader.key(key,frame?.content.width??60,frame?.content.height??10,target=>this.openPreview(target)))return;
     }
     if (this.steering) {
       if (key.name === "return") {

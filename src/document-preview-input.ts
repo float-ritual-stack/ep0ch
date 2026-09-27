@@ -1,7 +1,8 @@
+import type {TerminalKey} from './terminal';
 import {PreviewSelection} from './preview-selection';
 import {parseTreePrimaryPointer,parseTreeWheelEvent,parseTreeSecondaryClick} from './tree-mouse';
-import {pointInPreview,type DocumentPreviewFrame} from './document-preview-renderer';
-import type {DocumentPreviewState} from './document-preview';
+import {pointInPreview,documentPreviewSourceAnchor,type DocumentPreviewFrame} from './document-preview-renderer';
+import type {PreviewPassageCapture,DocumentPreviewState} from './document-preview';
 import {isCopyExcludedLink} from './rendered-links';
 
 /** Input is owned by the rendered Preview rectangle, never by rows underneath it. */
@@ -19,13 +20,47 @@ export class DocumentPreviewInput {
   private geometry='';
   private pressedLink: {uri:string;column:number;row:number}|undefined;
   private resizing: DocumentPreviewFrame | undefined;
+  private renderRevision=0;
+  private passage:PreviewPassageCapture|null=null;
+  private keyboardSelecting=false;
+  get selecting():boolean{return this.keyboardSelecting;}
+  captureSelection():PreviewPassageCapture|null{return this.passage;}
+  clearSelection():void {this.keyboardSelecting=false;this.selection.clear();this.passage=null;}
+  private exclusions(){return this.frame?.links?.filter(link=>isCopyExcludedLink(link.uri)).map(link=>({row:link.rect.y,column:link.rect.x,width:link.rect.width}))??[];}
+  private retainCapture(input:'pointer'|'keyboard'):void {
+    const capture=this.selection.capture();
+    const cell=capture?.cells.length===1?capture.cells[0]:undefined,frame=this.frame;
+    const sourceAnchor=capture&&cell&&frame&&this.document?documentPreviewSourceAnchor(this.document,frame.content.width,
+      cell.row-frame.content.y+frame.offset,cell.start-frame.content.x,cell.end-frame.content.x,capture.quote):null;
+    this.passage=capture && this.document?{...capture,sourceAnchor,input,document:this.document,renderRevision:this.renderRevision,capturedAt:new Date().toISOString()}:null;
+  }
+  selectionKey(key:TerminalKey,str=''):boolean {
+    if(!this.frame || !this.document)return false;
+    if((str||key.name)==='v'&&!key.ctrl&&!key.meta){
+      if(this.keyboardSelecting)this.clearSelection();
+      else {this.passage=null;this.keyboardSelecting=this.selection.beginKeyboard(this.frame.content,this.lines,this.exclusions());}
+      return true;
+    }
+    if(key.name==='escape'&&this.passage){this.clearSelection();return true;}
+    if(!this.keyboardSelecting)return false;
+    if(key.name==='escape'){this.clearSelection();return true;}
+    if(!key.ctrl&&!key.meta&&['left','right','up','down','home','end'].includes(key.name??'')){
+      this.selection.moveKeyboard(key.name!,!!key.shift);this.retainCapture('keyboard');return true;
+    }
+    return false;
+  }
   get ownsPointer(): boolean { return this.selection.ownsPointer || !!this.resizing; }
   render(lines:string[],frame:DocumentPreviewFrame|undefined,preview:DocumentPreviewState|null|undefined):string[]{
     const visible=frame && (frame.placement!=='compact'||preview?.focused)?frame:undefined;
     const geometry=visible?JSON.stringify([visible.content,visible.offset,[...(preview?.document.previewRegions?.disclosureOverrides ?? [])]]):'';
-    if(preview?.document!==this.document||geometry!==this.geometry){this.selection.clear();this.pressedLink=undefined;}
+    if(preview?.document!==this.document){this.clearSelection();this.pressedLink=undefined;}
+    else if(geometry!==this.geometry){
+      // Cell positions expire on reflow; the captured quote still belongs to this document.
+      this.keyboardSelecting=false;this.selection.clear();this.pressedLink=undefined;
+    }
+    this.renderRevision++;
     this.document=preview?.document;this.geometry=geometry;this.frame=visible;this.lines=lines;
-    return visible?this.selection.highlight(lines,visible.content):lines;
+    return visible?this.selection.highlight(lines,visible.content,this.keyboardSelecting):lines;
   }
   handle(sequence:string,controller:PreviewInputActions,copy:(text:string)=>void,redraw:()=>void):boolean{
     const frame=this.frame;
@@ -49,7 +84,10 @@ export class DocumentPreviewInput {
         if (result.consumed) {
           const link=this.pressedLink;
           if(pointer.phase==='up')this.pressedLink=undefined;
-          if(result.copy)copy(result.copy);
+          if(result.copy){
+            this.retainCapture('pointer');
+            copy(result.copy);
+          }
           else if(pointer.phase==='up'&&link)void controller.invoke(`preview.link:${encodeURIComponent(link.uri)}`);
           redraw(); return true;
         }
@@ -61,10 +99,11 @@ export class DocumentPreviewInput {
       }
 
       if(pointer.phase==='down'){
+        this.keyboardSelecting=false;this.passage=null;
         const link=frame?.links?.find(link=>pointInPreview(link.rect,pointer.column,pointer.row));
         this.pressedLink=link?{uri:link.uri,column:pointer.column,row:pointer.row}:undefined;
       }
-      const excluded=frame?.links?.filter(link=>isCopyExcludedLink(link.uri)).map(link=>({row:link.rect.y,column:link.rect.x,width:link.rect.width}))??[];
+      const excluded=this.exclusions();
       const result=this.selection.pointer(pointer,frame?.content??{x:0,y:0,width:0,height:0},this.lines,excluded);
       if(result.consumed){controller.focus();if(result.copy)copy(result.copy);redraw();return true;}
       if(frame&&pointInPreview(frame.rect,pointer.column,pointer.row)){controller.focus();return true;}

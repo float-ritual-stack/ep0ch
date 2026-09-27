@@ -1,3 +1,4 @@
+import {blockAnnotationRepresentation, resourceAnnotationRepresentation} from "./annotation-representations";
 import { COMPLETION_ROWS } from "./reference-completion-renderer";
 import { ReferenceCompletionSession, type ReferenceCompletionItem, type ReferenceCompletionState } from "./reference-completion";
 import { buildDetailAnnotationView, displayedResourceText, detailAnnotationGroups, selectedAnnotationThread } from "./detail-annotations";
@@ -778,85 +779,6 @@ function annotationOffsetsForLineRange(
   return { start, end };
 }
 
-
-function blockAnnotationRepresentation(block: Block): AnnotationRepresentation {
-  const contentHash = annotationSourceHash(block.text);
-  return {
-    id: `block:${block.id}:${contentHash}`,
-    subject: { kind: "block", blockId: block.id },
-    sourceSnapshot: {
-      kind: "block",
-      blockId: block.id,
-      updatedAt: block.updatedAt,
-      contentHash,
-    },
-    adapter: { id: "outliner.block-text", version: 1 },
-    mediaType: "text/markdown",
-    contentHash,
-    capturedAt: block.updatedAt,
-  };
-}
-
-function resourceAnnotationRepresentation(
-  description: ResourceDescription,
-): AnnotationRepresentation | null {
-  const pdf = description.pdf;
-  if (pdf) {
-    return {
-      id: pdf.representation.id,
-      subject: { kind: "resource", resourceId: description.resource.id },
-      sourceSnapshot: {
-        kind: "resource",
-        resourceId: description.resource.id,
-        sourceSnapshotId: pdf.sourceSnapshot.id,
-        revision: pdf.sourceSnapshot.revision,
-      },
-      adapter: pdf.representation.adapter,
-      mediaType: pdf.representation.mediaType,
-      contentHash: pdf.representation.contentHash,
-      capturedAt: pdf.representation.derivedAt,
-    };
-  }
-  const filesystem = description.filesystem;
-  if (filesystem) {
-    const revision = filesystem.revision.revision;
-    if (revision.kind !== "filesystem") {
-      throw new Error("Filesystem Resource has a non-filesystem revision");
-    }
-    return {
-      id: `filesystem:${description.resource.id}:${revision.mtimeNs}:${revision.size}:${filesystem.contentHash}`,
-      subject: { kind: "resource", resourceId: description.resource.id },
-      sourceSnapshot: {
-        kind: "resource",
-        resourceId: description.resource.id,
-        sourceSnapshotId: null,
-        revision: filesystem.revision,
-      },
-      adapter: { id: "filesystem.text", version: 1 },
-      mediaType: description.resource.mediaType ?? "text/plain",
-      contentHash: filesystem.contentHash,
-      capturedAt: filesystem.capturedAt,
-    };
-  }
-  const web = description.web;
-  if (!web) return null;
-  return {
-    id: web.representation.id,
-    subject: { kind: "resource", resourceId: description.resource.id },
-    sourceSnapshot: {
-      kind: "resource",
-      resourceId: description.resource.id,
-      sourceSnapshotId: web.sourceSnapshot.id,
-      revision: web.sourceSnapshot.revision,
-    },
-    adapter: web.representation.adapter,
-    mediaType: web.representation.mediaType,
-    contentHash: web.representation.contentHash,
-    capturedAt: web.representation.derivedAt ??
-      web.sourceSnapshot.fetchedAt ??
-      description.resource.updatedAt,
-  };
-}
 
 function pdfAnnotationAnchor(
   description: ResourceDescription,
@@ -2632,10 +2554,13 @@ export function createDetailController(
         }
       }
       returnMode = "preview";
-    } else {
+    } else if (state.mode === "file") {
       const range = selectedDetailFileRange(state);
       const file = state.referencedFile;
-      if (!range || !file || !selected) return;
+      if (!range || !file || !selected) {
+        state.status = "Select file lines before commenting";
+        return;
+      }
       const sourceText = file.sourceText ?? file.lines.join("\n");
       const offsetRange = annotationOffsetsForLineRange(
         sourceText,
@@ -2649,6 +2574,21 @@ export function createDetailController(
       };
       returnMode = "file";
       state.annotationRange = range;
+    } else {
+      const representation = description
+        ? resourceAnnotationRepresentation(description)
+        : selected ? blockAnnotationRepresentation(selected) : null;
+      if (!representation) {
+        state.status = "This view has no captured representation to comment on";
+        return;
+      }
+      target = {
+        representation,
+        anchor: { kind: "whole-subject" },
+        ...(state.target?.kind === "resource" && state.target.referenceContext
+          ? { referenceContext: state.target.referenceContext } : {}),
+      };
+      returnMode = "preview";
     }
     state.annotationDraft = { requestId: crypto.randomUUID(), target, returnMode };
     state.buffer = new TextBuffer();
@@ -2660,7 +2600,9 @@ export function createDetailController(
     const range = anchor.kind === "text-quote" && anchor.start !== null && anchor.end !== null
       ? `${anchor.start}-${anchor.end}`
       : "unpositioned quote";
-    state.status = returnMode === "file" && state.annotationRange
+    state.status = anchor.kind === "whole-subject"
+      ? target.referenceContext ? "Commenting on this reference" : "Commenting on the whole note"
+      : returnMode === "file" && state.annotationRange
       ? `commenting on ${state.referencedFile?.sourcePath}:${state.annotationRange.startLine}-${state.annotationRange.endLine}`
       : target.referenceContext
         ? `commenting on this reference${target.representation.subject.kind === "resource" ? ` · Resource passage ${range}` : " occurrence"}`
@@ -2878,12 +2820,13 @@ export function createDetailController(
       return;
     }
     const cancelledMode = state.mode;
-    state.mode = detailDisplayMode(state.context.selected);
+    const commentReturnMode = state.annotationDraft?.returnMode;
+    state.mode = commentReturnMode ?? detailDisplayMode(state.context.selected);
     state.annotationDraft = undefined;
     state.status = cancelledMode === "comment" ? "Comment cancelled" : "Edit cancelled";
     if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Writing history in the header or actions menu";
     const cancelStatus = state.status;
-    await focusOutliner(false);
+    if (cancelledMode !== "comment") await focusOutliner(false);
     if (retentionNotice) state.status = state.status === cancelStatus ? retentionNotice : `${retentionNotice} · ${state.status}`;
   };
 
@@ -2970,7 +2913,9 @@ export function createDetailController(
             anchor.end !== null
           ? `${anchor.start}-${anchor.end}`
           : "unpositioned quote";
-        state.status = draft.returnMode === "file" && state.annotationRange
+        state.status = anchor.kind === "whole-subject"
+          ? draft.target.referenceContext ? "Comment added for this reference" : "Comment added for the whole note"
+          : draft.returnMode === "file" && state.annotationRange
           ? `Annotation added for lines ${state.annotationRange.startLine}-${state.annotationRange.endLine}`
           : draft.target.referenceContext
             ? "Annotation added for this reference occurrence"
@@ -3082,7 +3027,7 @@ export function createDetailController(
         if (property?.target?.kind === "resource-reference" && state.mode === "preview") {
           await beginComment({ start: property.start, end: property.end });
         } else if (!intent.capture) {
-          state.status = "Drag across text before commenting";
+          await beginComment();
         } else {
           await beginDirectComment(intent.capture);
         }

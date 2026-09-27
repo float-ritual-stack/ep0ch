@@ -78,23 +78,68 @@ export class PreviewSelection {
     if (event.phase !== "up") return {consumed: true};
     this.claimed = false;
     if (!this.selection) return {consumed: true};
-    const {anchor, head, lines} = this.selection;
-    if (anchor.row === head.row && anchor.column === head.column) return {consumed: true};
-    const selected: string[] = [];
-    for (let row = Math.min(anchor.row, head.row); row <= Math.max(anchor.row, head.row); row++) {
-      const columns = graphemeRange(this.selection, row, lines[row] ?? "");
-      selected.push(columns ? copyRenderedColumns(lines[row] ?? "", columns[0], columns[1], this.selection.excluded.filter(span=>span.row===row)) : "");
+    const capture=this.capture();
+    return capture?{consumed:true,copy:capture.quote}:{consumed:true};
+  }
+
+  /** Keyboard movement uses the same painted cells and exclusion spans as a drag. */
+  beginKeyboard(rect: PreviewContentRect, lines: readonly string[], excluded: readonly CopyExcludedSpan[]): boolean {
+    if(rect.width<1 || rect.height<1)return false;
+    this.claimed=false;
+    let row=rect.y;
+    while(row<rect.y+rect.height-1 && !stripTerminalSequences(sliceByColumn(lines[row]??'',rect.x,rect.width,true)).trim())row++;
+    const leading=/^ */.exec(stripTerminalSequences(sliceByColumn(lines[row]??'',rect.x,rect.width,true)))![0].length;
+    const column=Math.min(rect.x+rect.width-1,rect.x+leading);
+    this.selection={rect:{...rect},anchor:{row,column},head:{row,column},lines:[...lines],excluded:[...excluded]};
+    return true;
+  }
+
+  moveKeyboard(direction:string,extend:boolean):void {
+    if(!this.selection)return;
+    const selected=this.selection,{rect}=selected;
+    let {row,column}=selected.head;
+    const boundaries=(at:number)=>{
+      const text=stripTerminalSequences(sliceByColumn(selected.lines[at]??'',rect.x,rect.width,true)).trimEnd();
+      const result=[rect.x];
+      for(const part of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text))result.push(result.at(-1)!+visibleWidth(part.segment));
+      return result;
+    };
+    if(direction==='up')row=Math.max(rect.y,row-1);
+    if(direction==='down')row=Math.min(rect.y+rect.height-1,row+1);
+    const cells=boundaries(row);
+    if(direction==='home')column=rect.x;
+    else if(direction==='end')column=cells.at(-1)!;
+    else if(direction==='left')column=cells.filter(cell=>cell<column).at(-1)??rect.x;
+    else if(direction==='right')column=cells.find(cell=>cell>column)??cells.at(-1)!;
+    else column=cells.filter(cell=>cell<=column).at(-1)??rect.x;
+    selected.head={row,column};
+    if(!extend)selected.anchor={...selected.head};
+  }
+
+  /** Completed drag evidence stays in the original painted rectangle. */
+  capture():{quote:string;snapshotText:string;cells:Array<{row:number;start:number;end:number}>}|null {
+    if(this.claimed || !this.selection)return null;
+    const {anchor,head,lines,rect}=this.selection;
+    if(anchor.row===head.row && anchor.column===head.column)return null;
+    const selected:string[]=[];
+    for(let row=Math.min(anchor.row,head.row);row<=Math.max(anchor.row,head.row);row++){
+      const columns=graphemeRange(this.selection,row,lines[row]??'');
+      selected.push(columns?copyRenderedColumns(lines[row]??'',columns[0],columns[1],this.selection.excluded.filter(span=>span.row===row)):'');
     }
-    const copy = selected.join("\n");
-    return copy.trim() ? {consumed: true, copy} : {consumed: true};
+    const quote=selected.join('\n');
+    if(!quote.trim())return null;
+    const snapshotText=lines.slice(rect.y,rect.y+rect.height).map((line,index)=>
+      copyRenderedColumns(line,rect.x,rect.x+rect.width,this.selection!.excluded.filter(span=>span.row===rect.y+index))).join('\n');
+    const cells=lines.flatMap((line,row)=>{const span=graphemeRange(this.selection!,row,line);return span?[{row,start:span[0],end:span[1]}]:[];});
+    return {quote,snapshotText,cells};
   }
 
   /** Reverse only selected content; surrounding frame columns retain their existing ANSI. */
-  highlight(frameLines: readonly string[], rect: PreviewContentRect): string[] {
+  highlight(frameLines: readonly string[], rect: PreviewContentRect, keyboardCursor=false): string[] {
     const selection = this.selection;
     if (!selection || !sameRect(selection.rect, rect)) return [...frameLines];
     return frameLines.map((line, row) => {
-      const columns = graphemeRange(selection, row, line);
+      const columns = graphemeRange(selection, row, line) ?? (keyboardCursor && row===selection.head.row ? [selection.head.column,Math.min(rect.x+rect.width,selection.head.column+1)] : null);
       if (!columns) return line;
       const [left, right] = columns;
       const middle = stripTerminalSequences(sliceByColumn(line, left, right - left, true));

@@ -4,6 +4,24 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Detail Comment supports a whole-note target without selecting text. General
+  comments appear under Note comments, separate from lost passage anchors.
+  Detail's local Preview composes and replies in place, preserving Current and
+  protecting unsaved Preview drafts. Local Tree and Inbox readers share comment
+  display and composition; Inbox Before comments retain their saved receipt and
+  source identity. Comment typing takes precedence over Inbox shortcuts.
+  Drag-selected local Preview passages retain their quoted text without guessing
+  source offsets. Inbox navigation and receipt updates preserve active drafts;
+  completed Escape input no longer consumes the next Tree shortcut as Alt.
+  Keyboard passage selection uses v, arrows and Shift+arrows in the visible
+  Preview viewport. Preview comment actions appear in the shared action menu
+  and have their own configurable shortcuts, separate from Tree browsing.
+  Short composers keep writing and save/cancel controls visible. Saved-version
+  readers preserve proven historical ranges; unchanged plain text can retain
+  exact coordinates while transformed layouts keep honest quoted evidence.
+  Protocol 78 adds the whole-subject anchor and captured Preview/Inbox evidence.
+  PIE-290.
+
 - PIE-396: Tree `/` temporarily fuzzy-filters the selected occurrence's descendants,
   preserves rank and ancestry, searches collapsed content within projection limits,
   and restores the browsing context on Clear/Escape. The selected-items menu adds
@@ -148,7 +166,7 @@ This file records notable user-facing changes. The project remains active dogfoo
 - Roadmap items use `work-stage` alone, with Queued replacing Next and Superseded separate from accepted Done. Item-side `work-batch` references preserve committed scope through progress, pause, and completion. Resume and unchanged PR synchronization preserve explicit review/rework state. [#137](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/137)
 - Fresh databases use workspace seed version 5. **Explore the Outliner** adds addressable feature guides and working reading/projection examples beside the existing agent documentation guide and authored-links example. Existing databases retain their customized content; package upgrades do not reinstall the seed.
 - The guided installer and portable runtime discovery support source-checkout installation. Actual Herdr keyboard journeys use isolated workspaces and retain failure evidence. [#82](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/82), [#83](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/83), [#114](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/114)
-- The current JSON-lines RPC protocol is **77**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
+- The current JSON-lines RPC protocol is **78**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
 
 ### Known limits
 
