@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {visibleWidth} from '@earendil-works/pi-tui';
+import type {Block,VirtualBranchOrder} from '../../src/types';
+import {runHerdrScenario} from './herdr-runner';
+
+const result=await runHerdrScenario({name:'branch-filter',async prepare(){},async run(s){
+ const terminal=await s.attachClient();await terminal.resize(210,64);const tree=s.panes.tree;
+ const create=(text:string,parentId?:string)=>s.client.request<Block>({action:'create',text,...parentId?{parentId}:{}});
+ const branch=await create('FILTER CANDIDATES\n[type::virtual-branch] [query::fixture=filter] [limit::100] [child-depth::2] [expanded::false]');
+ const blocks:Block[]=[];
+ for(let i=0;i<80;i++)blocks.push(await create(`Issue DEM-${i<10?300+i:400+i}\n[fixture::filter]\n\nCandidate body ${i}.`));
+ const child=await create('Nested detail\n\nA copper teapot needs repair.',blocks[10]!.id);
+ const ids=blocks.map(b=>b.id);await s.client.request({action:'virtual.occurrences.reorder',viewId:branch.id,orderedBlockIds:ids});
+ const hub=await create(`FILTER HUB\n\n!((`+branch.id+'))');
+ const menu=async(label:string)=>{await s.keys(tree,'?');await s.waitVisible(tree,'Find:');await s.text(tree,label);await s.waitVisible(tree,'Find: '+label);await s.keys(tree,'enter');};
+ await s.focus(tree);await s.revealTree(tree,branch.id);await menu('focus branch');
+ await menu('Filter this branch');await s.waitVisible(tree,'Find in branch:');await s.text(tree,'DEM-3');await s.waitVisible(tree,'10 matches');
+ await s.checkpoint('01-live-filter');await s.keys(tree,'enter');await s.waitVisible(tree,'Preview · Issue DEM-300');
+ await s.keys(tree,...Array(9).fill('down'),'x');await s.waitVisible(tree,'1 selected');await s.waitVisible(tree,'Preview · Issue DEM-309');
+ const transcript=join(s.artifactDirectory,'attached-client.ansi'),before=(await readFile(transcript,'utf8')).length;
+ await menu('Copy selected block references');const expected=`((${ids[9]}))`;
+ await s.waitFor('copied filtered occurrence',async()=>[...(await readFile(transcript,'utf8')).slice(before).matchAll(/\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)/g)].map(m=>Buffer.from(m[1]!,'base64').toString()),v=>v.includes(expected));
+ await menu('Move selected before');await s.waitVisible(tree,'Before · Issue DEM-300');await s.text(tree,'Before · Issue DEM-300');await s.keys(tree,'enter');
+ const ordered=[ids[9]!,...ids.slice(0,9),...ids.slice(10)];
+ await s.waitFor('full branch order',()=>s.client.request<VirtualBranchOrder>({action:'virtual.occurrences.order',viewId:branch.id}),o=>o.blockIds.join()===ordered.join());
+ await s.checkpoint('02-placed-before-match');
+ const clickClear=async()=>{
+  const frame=await s.waitFor('clear filter button',()=>terminal.visible(),f=>f.includes('[Clear filter]'));
+  const lines=frame.split('\n'),row=lines.findIndex(l=>l.includes('[Clear filter]')),column=visibleWidth(lines[row]!.slice(0,lines[row]!.indexOf('[Clear filter]')));
+  await terminal.write(`\x1b[<0;${column+2};${row+1}M\x1b[<0;${column+2};${row+1}m`);
+  await s.waitFor('filter cleared',()=>s.visible(tree),f=>!f.includes('[Clear filter]'));
+ };
+ await terminal.resize(140,40);await clickClear();await s.checkpoint('03-clear-restores-branch');
+ await menu('Clear selected items');await s.revealTree(tree,branch.id);await s.keys(tree,'/');await s.text(tree,'cpr teapot');await s.waitVisible(tree,'1 matches');
+ await s.waitVisible(tree,'Nested detail');await s.checkpoint('04-collapsed-descendant');await s.keys(tree,'esc');
+ await s.keys(tree,'/');await s.text(tree,'zzzzzzzz');await s.waitVisible(tree,'0 matches');await s.keys(tree,'enter','esc');
+ await s.waitFor('zero results escape',()=>s.visible(tree),f=>!f.includes('[Clear filter]'));await s.checkpoint('05-zero-results-recovery');
+ await terminal.resize(210,64);await s.revealTree(tree,hub.id);await s.keys(tree,'enter');await s.waitVisible(s.panes.detail,'Issue DEM-309');
+ const frame=await s.visible(s.panes.detail);assert.ok(frame.indexOf('Issue DEM-309')<frame.indexOf('Issue DEM-300'),'Hub reflects full rank order');
+ for(const block of [...blocks,child])assert.deepEqual(await s.client.request<Block>({action:'get',blockId:block.id}),block);
+ await s.checkpoint('06-hub-order');
+ await s.record('coverage',{input:'Herdr keys and attached-terminal pointer Clear',population:80,selected:ids[9],ranked:ordered,clipboard:'Exact OSC52; physical host clipboard not claimed'});
+}});
+console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

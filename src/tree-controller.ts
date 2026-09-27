@@ -1,3 +1,4 @@
+import {TreeBranchFilter} from "./tree-branch-filter";
 import {adjacentReaderMenu, readerMenuFromAction, readerMenuItems, type ReaderDensity, type ReaderMenu} from "./reader-chrome";
 import {wrapTextWithAnsi} from '@earendil-works/pi-tui';
 import {inspectWorkspaceConnection,type WorkspaceReport} from './workspace-diagnostics';
@@ -107,6 +108,7 @@ export type TreeInputMode =
   | "add-child"
   | "add-sibling"
   | "filter"
+  | "branch-filter"
   | "goto"
   | "purge";
 export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | "inbox" | TreeInputMode;
@@ -146,6 +148,7 @@ export interface TreeView {
   readonly workspaceContextBlockId: string | null;
   readonly selectedIndex: number;
   readonly activeFilter: string;
+  readonly branchFilterCue?: string;
   readonly mode: TreeMode;
   readonly quickInput: string;
   readonly quickColumn: number;
@@ -378,6 +381,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let workspaceContextBlockId: string | null = null;
   let selectedIndex = 0;
   let activeFilter = "";
+  let branchFilter: TreeBranchFilter | null = null;
+  let branchFilterReturn: {root: TreeRoot | null; scroll: number; collapsed: Set<string>; occurrences: Set<string>; expanded: Set<string>} | null = null;
+  let placementMenu: "before" | "after" | null = null;
   let mode: TreeMode = "browse";
   let quickBuffer = new TextBuffer();
   let quickCompletion: MutableQuickCompletion | null = null;
@@ -578,6 +584,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   function selectionMenuItems(): OutlinerActionMenuItem[] {
     const result = actionKeymap.menuItems("tree", "browse").filter(item => item.id.startsWith("tree.selection.") && !["tree.selection.inspect","tree.selection.toggle"].includes(item.id));
+    if (placementMenu) {
+      const targets = collected.current?.targets ?? [], first = targets[0];
+      const selectedIds = new Set(targets.map(t=>t.blockId));
+      return rows.filter((row):row is VirtualBranchOccurrenceRow => isBlockTreeRow(row) && isVirtualBranchRootOccurrence(row)
+        && row.viewId === first?.viewId && row.parentRowId === first.parentRowId && !selectedIds.has(row.canonicalId))
+        .map(row=>({id:`tree.selection.place:${placementMenu}:${row.canonicalId}`, label:`${placementMenu === "before" ? "Before" : "After"} · ${row.block.preview}`,description:"Place in full branch order, preserving hidden items",binding:"",group:"Edit"}));
+    }
     const reason = collected.rankReason();
     for (const item of result) {
       if (item.id.startsWith("tree.selection.move-") && reason) item.description = `Unavailable: ${reason}`;
@@ -711,6 +724,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       branchStates,
       selectedIndex,
       activeFilter,
+      branchFilterCue: branchFilter?.cue,
       mode,
       quickInput: mode === "goto" ? goto.query : quickInputText(),
       quickColumn: quickBuffer.column,
@@ -733,7 +747,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       status: disconnected ? "Workspace service disconnected; reconnecting…" : status,
       refreshPending,
       attention,
-      actionHelpText: inboxHelpText() ?? actionKeymap.helpText("tree", actionScope()),
+      actionHelpText: mode === "branch-filter" ? "Type to find · Enter browse results · Esc clear · Ctrl+Q close" : inboxHelpText() ?? actionKeymap.helpText("tree", actionScope()),
       actionMenuItems: mode === "action-menu" ? filteredActionMenuItems() : [],
       actionMenuOrigin,
       actionMenuIndex,
@@ -795,8 +809,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const visible = snapshot.visible.rows.map(row => ({ ...requireEntry(row.id), ...row }));
 
     const presentation: TreePresentationState = {
-      collapsedBlockIds: activeFilter ? uncollapsedPresentationIds : collapsedBlockIds,
-      collapsedOccurrenceRowIds,
+      collapsedBlockIds: activeFilter || branchFilter ? uncollapsedPresentationIds : collapsedBlockIds,
+      collapsedOccurrenceRowIds: branchFilter ? uncollapsedPresentationIds : collapsedOccurrenceRowIds,
+      revealCollapsed: Boolean(branchFilter),
       expandedOccurrenceRowIds,
       multilineExpandedRowIds,
     };
@@ -810,7 +825,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     // Retain revealed paths until an explicit collapse/reset; resolving attention
     // must not remove the row the reader is currently navigating.
     for (const row of projection.rows) {
-      if (row.kind === "occurrence" && row.attention && row.hasChildren && !row.collapsed) expandedOccurrenceRowIds.add(row.rowId);
+      if (!branchFilter && row.kind === "occurrence" && row.attention && row.hasChildren && !row.collapsed) expandedOccurrenceRowIds.add(row.rowId);
     }
     projectionVisible = visible;
     projectionRanks = snapshot.virtualOccurrenceRanks;
@@ -828,6 +843,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
     }
     if(root && rootIndex < 0) status = "Focused occurrence is no longer visible · return to workspace from actions";
+    if (branchFilter) {
+      await branchFilter.refresh(projection, effects);
+      scope = branchFilter.rows();
+    }
     const expanded = new Map(scope.filter(row => row.multilineExpanded).map(row => [row.canonicalId, row.block]));
     const loaded = new Map<string, ExpandedTreeDocument>();
     await Promise.all([...expanded].map(async ([id, entry]) => {
@@ -902,6 +921,46 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     refreshPending = false;
     if (connections.needsRefresh) await refreshAuthoredLinks(false);
     return rows.length > 0;
+  }
+
+  function applyBranchFilter(): void {
+    if (!branchFilter) return;
+    branchFilter.query = quickInputText();
+    baseRows = branchFilter.rows();
+    rows = connections.compose(baseRows, connectionCollapsed);
+    selectedIndex = 0;
+    scrollStartEntryIndex = 0;
+    effects.invalidate();
+  }
+
+  async function beginBranchFilter(): Promise<void> {
+    const selected = rows[selectedIndex];
+    if (!branchFilter) {
+      if (!isBlockTreeRow(selected)) { status = "Select a block or virtual branch to filter its descendants"; return; }
+      branchFilter = new TreeBranchFilter(selected.rowId, selected.block.preview);
+      branchFilterReturn = {root, scroll: scrollStartEntryIndex, collapsed:new Set(collapsedBlockIds), occurrences:new Set(collapsedOccurrenceRowIds), expanded:new Set(expandedOccurrenceRowIds)};
+    }
+    mode = "branch-filter"; status = "";
+    quickBuffer = new TextBuffer(branchFilter.query); quickBuffer.moveEnd(); quickCompletion = null;
+    await reload(branchFilter.rowId, {exactRowIdOnly:true});
+    applyBranchFilter();
+  }
+
+  async function clearBranchFilter(): Promise<void> {
+    if (!branchFilter) return;
+    const origin = branchFilter.rowId, restore = branchFilterReturn;
+    branchFilter = null; branchFilterReturn = null;
+    mode = "browse"; resetQuickEditor();
+    if (restore) {
+      root = restore.root;
+      for (const [target,saved] of [[collapsedBlockIds,restore.collapsed],[collapsedOccurrenceRowIds,restore.occurrences],[expandedOccurrenceRowIds,restore.expanded]] as const) {
+        target.clear(); for(const id of saved) target.add(id);
+      }
+    }
+    await reload(origin, {exactRowIdOnly:true});
+    if (restore) scrollStartEntryIndex = restore.scroll;
+    status = rows.some(row=>row.rowId===origin) ? "Branch filter cleared" : "Filter cleared; original occurrence is no longer available";
+    await publishDisplayRowSelection(rows[selectedIndex]); effects.invalidate();
   }
 
   function scrollSelectedExpandedBlock(direction: "pageup" | "pagedown"): void {
@@ -1299,6 +1358,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         !isBlockTreeRow(currentSelected) ||
         currentSelected.canonicalId !== canonicalId)
     ) {
+      if (branchFilter) await clearBranchFilter();
       root = null;
       const target = physicalBlocksById.get(canonicalId);
       if (!target) throw new Error(`Block not found: ${canonicalId}`);
@@ -1331,6 +1391,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function finishInput(): Promise<void> {
+    if (mode === "branch-filter") {
+      if (refreshPending) await reload();
+      mode = "browse"; resetQuickEditor();
+      selectedIndex = Math.min(1, rows.length - 1);
+      selectedIndex = Math.max(0, selectedIndex);
+      await publishDisplayRowSelection(rows[selectedIndex]); effects.invalidate(); return;
+    }
     if (mode === "filter") {
       const candidate = quickInputText().trim();
       try {
@@ -1703,6 +1770,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     selected: VirtualBranchOccurrenceRow,
     offset: -1 | 1,
   ): Promise<string | null> {
+    if (branchFilter) {
+      const expected = await effects.request<import("./types").VirtualBranchOrder>({action:"virtual.occurrences.order",viewId:selected.viewId});
+      await effects.request({action:"virtual.occurrences.place",input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
+      status = "Moved one position in full branch order (including hidden items)"; return selected.rowId;
+    }
     const sort = branchStates.get(selected.viewId)?.config?.sort;
     if (sort) {
       status = `Virtual branch is sorted by ${sort.field} ${sort.direction}; manual reorder is disabled`;
@@ -1845,7 +1917,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (event.domain === "selection" || event.domain === "mentions") return;
     inbox.contentChanged();
     if (connections.active) connections.invalidate();
-    if (mode !== "browse") {
+    if (mode !== "browse" && mode !== "branch-filter") {
       refreshPending = true;
       return;
     }
@@ -2017,6 +2089,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await publishDisplayRowSelection(rows[selectedIndex]);return;
     }
     if (!isBlockTreeRow(row) || !row.hasChildren) return;
+    if (branchFilter) { status = "Clear the branch filter to change expansion"; effects.invalidate(); return; }
     if (isVirtualBranchOccurrence(row)) {
       setCollapsed(row,!row.collapsed);
     } else if (!collapsedBlockIds.delete(row.canonicalId)) {
@@ -2070,6 +2143,25 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     origin?: { column: number; row: number },
   ): Promise<void> {
     if (actionId !== "tree.read") cancelReadSequence();
+    if (actionId === "tree.filter" || actionId === "tree.filter.clear" || actionId === "tree.filter.properties") {
+      const activeMode = mode === "action-menu" ? actionMenuReturnMode : mode;
+      if (activeMode !== "browse" && activeMode !== "branch-filter") { status = "Finish or cancel the active draft before changing filters"; effects.invalidate(); return; }
+      if (mode === "action-menu") mode = actionMenuReturnMode;
+      if (actionId === "tree.filter.clear") await clearBranchFilter();
+      else if (actionId === "tree.filter.properties") { await clearBranchFilter(); await beginInput("filter", activeFilter); }
+      else await beginBranchFilter();
+      effects.invalidate(); return;
+    }
+    if (actionId.startsWith("tree.selection.place:")) {
+      if ((mode === "action-menu" ? actionMenuReturnMode : mode) !== "browse") return;
+      const [kind, anchorBlockId] = actionId.slice("tree.selection.place:".length).split(":");
+      mode = "browse"; selectionMenu = false; placementMenu = null;
+      try { if ((kind !== "before" && kind !== "after") || !anchorBlockId) throw Error("Invalid placement");
+        await collected.rank({kind, anchorId:anchorBlockId}); await reload();
+        status = `Moved selected ${kind} anchor in full branch order`;
+      } catch(error) { status = errorMessage(error); }
+      effects.invalidate(); return;
+    }
     if (actionId.startsWith("tree.selection.")) {
       const activeMode = mode === "action-menu" ? actionMenuReturnMode : mode;
       if (activeMode !== "browse") return;
@@ -2081,7 +2173,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           await collected.refresh();
           if (closed || generation !== navigationGeneration) return;
           if ((mode === "action-menu" ? actionMenuReturnMode : mode) !== "browse") return;
-          selectionMenu = true; locationMenu = null; destinationMenu = null;
+          placementMenu = null; selectionMenu = true; locationMenu = null; destinationMenu = null;
           actionMenuReturnMode = "browse"; actionMenuScope = "browse"; mode = "action-menu";
           updateActionMenuQuery(""); effects.invalidate(); return;
         }
@@ -2107,9 +2199,15 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           if (target) await collected.toggle(target,rows.map(r=>r.rowId));
         } else if (actionId.startsWith("tree.selection.move-")) {
           const kind = actionId.slice("tree.selection.move-".length);
+          if (kind === "before" || kind === "after") {
+            const reason = collected.rankReason(); if (reason) throw Error(reason);
+            await reload(origin);
+            placementMenu = kind; selectionMenu = true; locationMenu = null; destinationMenu = null;
+            actionMenuReturnMode = "browse"; mode = "action-menu"; updateActionMenuQuery(""); effects.invalidate(); return;
+          }
           if (!["up","down","top","bottom"].includes(kind)) return;
           await collected.rank({kind:kind as "up"|"down"|"top"|"bottom"});
-          await reload(origin); routineNotice(`Moved selected ${kind} within branch`);
+          await reload(origin); routineNotice(`Moved selected ${kind} in full branch order${branchFilter ? " (including hidden items)" : ""}`);
         } else if (actionId.startsWith("tree.selection.copy-")) {
           const kind = actionId.slice("tree.selection.copy-".length);
           if (!["ids","references","pages"].includes(kind)) return;
@@ -2611,6 +2709,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       updateActionMenuQuery(actionMenuQuery + text);
     } else if (mode !== "browse" && mode !== "delete" && mode !== "viewer") {
       quickBuffer.insert(text);
+      if (mode === "branch-filter") { applyBranchFilter(); return; }
       if(mode!=="filter"&&mode!=="purge")void completions.refresh();
     }
     effects.invalidate();
@@ -2655,6 +2754,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const mapped = actionKeymap.canonicalize("tree", actionScope(), str, key);
       if (mapped.suppressed) return;
       if (mapped.actionId) {
+        if (branchFilter && mode === "browse" && mapped.actionId === "tree.preview.close" && key.name === "escape") { await clearBranchFilter(); return; }
         await handleAction(mapped.actionId);
         return;
       }
@@ -2669,6 +2769,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     if (key.ctrl && key.name === "c") {
+      if (mode === "branch-filter") { await clearBranchFilter(); return; }
       if (mode === "inbox" || (mode === "action-menu" && actionMenuReturnMode === "inbox")) { await inbox.close(); return; }
       if (mode !== "browse") {
         mode = "browse";
@@ -2745,6 +2846,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
 
 
+    if (mode === "branch-filter") {
+      if (key.name === "escape") await clearBranchFilter();
+      else if (key.name === "return") await finishInput();
+      else { updateQuickBuffer(str,key); applyBranchFilter(); }
+      effects.invalidate(); return;
+    }
+    if (mode === "browse" && key.name === "escape" && branchFilter) { await clearBranchFilter(); return; }
     if (mode === "goto") { await goto.input(str, key); return; }
     if (mode === "inbox") { await inbox.input(str, key); return; }
 
@@ -2830,7 +2938,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         await beginInput("goto");
         return;
       } else if (str === "/") {
-        await beginInput("filter", activeFilter);
+        await beginBranchFilter();
         return;
       } else if (key.name === "escape" && activeFilter) {
         activeFilter = "";
@@ -2985,7 +3093,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await beginInput("goto");
       return;
     } else if (str === "/") {
-      await beginInput("filter", activeFilter);
+      await beginBranchFilter();
       return;
     } else if (key.name === "delete" && selected) mode = "delete";
     else if (str === "f" && selected) await openReferencedFile(selected.block);

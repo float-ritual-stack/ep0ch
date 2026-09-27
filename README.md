@@ -2082,3 +2082,22 @@ Jira requests use an installed process on the service host. Installation, code u
 and enable/disable changes do not require rebuilding the Outliner. See
 [the process contract and configuration guide](docs/extensions/resource-process.md).
 The initial binding is read-only Jira; other Resource providers retain their existing paths.
+
+
+### Temporary branch filtering
+
+In Tree, select a block or virtual branch and press `/` (or **View → Filter this branch**).
+Type to fuzzy-find text within its descendants, including collapsed descendants
+within the projection's configured depth and limits. Work-ID prefixes such as
+`DEM-3` match literally. Results keep their original rank and show matching
+ancestors for context. The filter reads bounded full bodies once per revision;
+keystrokes use that temporary cache. A partial-coverage notice identifies limits
+or unavailable content. The cue shows the match count, query and scope.
+
+Enter browses the narrowed list; Escape or **Clear filter** restores the original
+occurrence, expansion and viewport. Selection, Preview and copying stay in that
+branch. **Move selected before/after** chooses a visible unselected anchor but
+places against the full branch order. Up/down moves one position in that full
+order, including hidden items. Neither operation changes canonical parents or
+another branch's ranks. **Advanced property filter** retains the workspace
+property-query interface as a separate View action.
