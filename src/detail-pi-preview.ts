@@ -1,4 +1,5 @@
 import { parsePropertyRecords } from "./properties";
+import {documentFolds, revealFoldedLine, type DocumentFold} from './document-folds';
 import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";
 import type {RenderedLink} from './rendered-links';
@@ -70,6 +71,7 @@ export interface DetailDraftProjection {
 }
 
 export interface DetailReadPreviewDocument {
+  previewRegions?: PreviewRegionState;
   sourceBlock?: Pick<Block,"id"|"revision"|"text">;
   preserveMetadata?: boolean;
   truncated?: boolean;
@@ -517,11 +519,14 @@ export function renderDetailReadPreviewLines(
     renderedLineForAuthoredLine,
     calloutTheme,
   );
-  const previewRegions: PreviewRegionState = {
-    regions: callouts,
+  // Picker thumbnails have no disclosure input; retain their plain reading layout.
+  const folds = linksEnabled ? documentFolds(projectedText, embedRanges) : [];
+  const previewRegions: PreviewRegionState = input.previewRegions ??= {
+    regions: [],
     focusedRegionId: null,
     disclosureOverrides: new Map(),
   };
+  reconcilePreviewRegions(previewRegions, [...folds, ...callouts]);
   const markdown = new SourceSpannedMarkdown(
     markdownTheme,
     applyEmbedBackground,
@@ -529,7 +534,7 @@ export function renderDetailReadPreviewLines(
     linksEnabled,
     calloutTheme,
   );
-  markdown.setContent(document, embedRanges, true, callouts);
+  markdown.setContent(document, embedRanges, true, callouts, folds);
   const metadataSpans = new Set(parsePropertyRecords(input.canonicalText).filter(record => record.scope === "block").map(record => record.start));
   const metadataLinks = input.preserveMetadata ? [] : authoredResourceReferenceOccurrences(input.canonicalText).flatMap(link => {
     if (link.kind !== "authored-resource") return [];
@@ -1119,6 +1124,8 @@ export class DetailPiPreviewLayout extends VStack {
   private renderedDraftProjectionError: string | undefined;
   private authoredCallouts: AuthoredCalloutParse | undefined;
   private renderedCalloutRegions: DetailCalloutRegion[] = [];
+  private documentFoldRegions: DocumentFold[] = [];
+  private renderedLineForSourceLine = (line: number) => line;
   private renderedFragmentSourceLine = 0;
   private renderedAttentionSourceLine = 0;
   private previousAttentionRevealSourceLine: number | null | undefined;
@@ -1269,11 +1276,8 @@ export class DetailPiPreviewLayout extends VStack {
       resourceEndRow !== null &&
       this.scrollView.scrollTop >= annotated.mapMarkdownRow(resourceEndRow)
     ) return null;
-    const anchors = draftSourceRowAnchors(
-      sourceText,
-      annotated.contentWidth,
-      this.markdownTheme,
-    ).map((row) => annotated.mapMarkdownRow(row));
+    const sourceAnchors = this.readerSourceAnchors(sourceText, annotated.contentWidth);
+    const anchors = sourceAnchors.map(anchor => annotated.mapMarkdownRow(anchor.row));
     if (this.state.context.selected && !(this.options.splitActive?.() ?? false)) {
       const inspector = this.inspectorMarkdown.render(contentWidth);
       const arrangement = arrangeInlinePreview(annotated.lines, inspector);
@@ -1281,7 +1285,16 @@ export class DetailPiPreviewLayout extends VStack {
         anchors[index] = arrangement.mapAuthoredRow(anchors[index]!);
       }
     }
-    return nearestDraftSourceLine(anchors, this.scrollView.scrollTop);
+    const index = nearestDraftSourceLine(anchors, this.scrollView.scrollTop);
+    return index === null ? null : sourceAnchors[index]?.line ?? null;
+  }
+
+  private readerSourceAnchors(sourceText: string, width: number): Array<{line:number;row:number}> {
+    if (!this.documentFoldRegions.length) return draftSourceRowAnchors(sourceText, width, this.markdownTheme).map((row,line) => ({line,row}));
+    return sourceText.split(/\r?\n/).flatMap((_,line) => {
+      const rendered = this.renderedLineForSourceLine(line);
+      return this.markdown.isSourceLineVisible(rendered) ? [{line, row:this.markdown.sourceLineRow(width,rendered)}] : [];
+    });
   }
 
   sourcePointAtViewport(
@@ -1300,11 +1313,8 @@ export class DetailPiPreviewLayout extends VStack {
       inlineInspector ? this.inspectorMarkdown.render(contentWidth) : [],
     );
     const sourceLines = sourceText.split(/\r?\n/);
-    const markdownAnchors = draftSourceRowAnchors(
-      sourceText,
-      annotated.contentWidth,
-      this.markdownTheme,
-    );
+    const sourceAnchors = this.readerSourceAnchors(sourceText, annotated.contentWidth);
+    const markdownAnchors = sourceAnchors.map(anchor => anchor.row);
     const bodyRow = this.scrollView.scrollTop + Math.max(0, viewportRow - 3);
     const annotatedRow = arrangement.authoredRowAt(bodyRow);
     if (annotatedRow === null) return null;
@@ -1312,9 +1322,10 @@ export class DetailPiPreviewLayout extends VStack {
     if (markdownRow === null) return null;
     const resourceEndRow = this.resourceMarkdownEndRow(annotated);
     if (resourceEndRow !== null && markdownRow >= resourceEndRow) return null;
-    const sourceLine = nearestDraftSourceLine(markdownAnchors, markdownRow);
-    if (sourceLine === null) return null;
-    const markdownAnchor = markdownAnchors[sourceLine];
+    const sourceIndex = nearestDraftSourceLine(markdownAnchors, markdownRow);
+    if (sourceIndex === null) return null;
+    const sourceLine = sourceAnchors[sourceIndex]!.line;
+    const markdownAnchor = markdownAnchors[sourceIndex];
     if (markdownAnchor === undefined || markdownRow < markdownAnchor) return null;
     const projection = markdownTextProjection(sourceLines[sourceLine] ?? "");
     let projectionOffset = 0;
@@ -1326,6 +1337,8 @@ export class DetailPiPreviewLayout extends VStack {
       const segmentStart = projection.text.indexOf(segment, projectionOffset);
       if (segmentStart < 0) {
         if (row !== markdownRow) continue;
+        // Generated disclosure or transformed text is not an exact source range.
+        if (this.documentFoldRegions.length) return null;
         const contentColumn = Math.max(
           0,
           viewportColumn - (contentWidth - annotated.contentWidth),
@@ -1556,6 +1569,7 @@ export class DetailPiPreviewLayout extends VStack {
       if (!metadataRemoved) return projected;
       return lineAfterMetadataRemoval(projectedTextBeforeMetadataRemoval, projected);
     };
+    this.renderedLineForSourceLine = renderedLineForAuthoredLine;
     this.renderedFragmentSourceLine = detailBlockTarget(this.state)?.fragmentId
       ? renderedLineForAuthoredLine(this.state.previewOffset)
       : 0;
@@ -1624,11 +1638,13 @@ export class DetailPiPreviewLayout extends VStack {
         renderedLineForAuthoredLine,
         this.options.calloutTheme,
       );
+      this.documentFoldRegions = draftText === null && referencesReady ? documentFolds(rawText, embedRanges) : [];
       this.markdown.setContent(
         renderedText,
         embedRanges,
         this.state.embedBackgroundEnabled,
         this.renderedCalloutRegions,
+        this.documentFoldRegions,
       );
     }
     const annotationGroups = draftText === null
@@ -1648,14 +1664,24 @@ export class DetailPiPreviewLayout extends VStack {
     const regions = this.state.propertyInspector.presentation === "dedicated"
       ? detailPropertyInspectorRegions(this.state)
       : [
-        ...authoredCallouts.regions,
+        ...this.documentFoldRegions.map(region => {
+          const callout = this.renderedCalloutRegions.filter(callout => callout.headerLine < region.sourceSpan!.startLine && callout.sourceSpan!.endLine >= region.sourceSpan!.endLine).at(-1);
+          const parent = this.documentFoldRegions.find(fold => fold.id === region.parentId);
+          return callout && (!parent || callout.headerLine >= parent.contentStartLine) ? {...region, parentId:callout.id} : region;
+        }),
+        ...authoredCallouts.regions.map(region => {
+          if (region.parentId) return region;
+          const line = this.renderedCalloutRegions.find(rendered => rendered.id === region.id)?.headerLine;
+          const parent = line === undefined ? undefined : this.documentFoldRegions.filter(fold => fold.contentStartLine <= line && fold.sourceSpan!.endLine >= line).at(-1);
+          return parent ? {...region, parentId:parent.id} : region;
+        }),
         ...this.bodyRegions,
         ...detailAnnotationRegions(annotationGroups),
         ...detailPropertyInspectorRegions(this.state),
         ...detailBacklinkRegions(this.state),
       ];
     if (this.options.setRegions) this.options.setRegions(regions);
-    else reconcilePreviewRegions(this.state.previewRegions, regions);
+    else reconcilePreviewRegions(this.state.previewRegions, regions, this.state.document.kind === 'loading' || (this.state.document.kind === 'ready' && this.state.readStatus === 'pending'));
     const focusedProperty = this.state.previewRegions.regions.find((region) =>
       region.id === this.state.previewRegions.focusedRegionId &&
       (region.kind === "property-entry" || region.kind === "property-inspector")
@@ -1682,6 +1708,8 @@ export class DetailPiPreviewLayout extends VStack {
       )
     ) {
       this.pendingAnnotationSelectionScroll = true;
+      const group = annotationGroups.find(group => group.regionId === focusedAnnotationId || group.threads.some(thread => `annotation-thread:${thread.block.id}` === focusedAnnotationId));
+      if (group?.placement === 'inline') revealFoldedLine(this.state.previewRegions, [...this.documentFoldRegions, ...this.renderedCalloutRegions], group.startLine);
     }
     this.previousAnnotationFocusedId = focusedAnnotationId;
     this.previousAnnotationFocusedExpanded = focusedAnnotationExpanded;
@@ -1706,6 +1734,7 @@ export class DetailPiPreviewLayout extends VStack {
       (sourceChanged && fragmentId && this.scrollView.scrollTop === this.fragmentScrollTop)
     ) {
       this.pendingFragmentScroll = true;
+      if (fragmentId) revealFoldedLine(this.state.previewRegions, [...this.documentFoldRegions, ...this.renderedCalloutRegions], this.renderedFragmentSourceLine);
     }
     this.previousTargetFragmentId = fragmentId;
     this.previousPreviewOffset = this.state.previewOffset;
@@ -1715,6 +1744,7 @@ export class DetailPiPreviewLayout extends VStack {
       this.state.attentionRevealSourceLine !== null
     ) {
       this.pendingAttentionScroll = true;
+      revealFoldedLine(this.state.previewRegions, [...this.documentFoldRegions, ...this.renderedCalloutRegions], this.renderedAttentionSourceLine);
     }
     this.previousAttentionRevealSourceLine = this.state.attentionRevealSourceLine;
     if (width !== undefined) {
@@ -1737,7 +1767,12 @@ export class DetailPiPreviewLayout extends VStack {
     for(const link of this.markdown.renderedLinks){
       if(link.uri.startsWith("pi-outliner-detail:")){
         const action=parsePreviewRegionActionUri(link.uri);
-        if(action?.type==="callout.disclosure.toggle")calloutRows.set(action.regionId,annotated.mapMarkdownRow(link.row));
+        if(action?.type==="callout.disclosure.toggle" || action?.type==="document.disclosure.toggle") {
+          if (!calloutRows.has(action.regionId)) calloutRows.set(action.regionId,annotated.mapMarkdownRow(link.row));
+          const spans = this.bodyLinks.get(action.regionId) ?? [];
+          spans.push({...link,row:annotated.mapMarkdownRow(link.row),column:link.column+contentWidth-annotated.contentWidth});
+          this.bodyLinks.set(action.regionId,spans);
+        }
       }
       if(!/^(pi-outliner:|https?:)/.test(link.uri))continue;
       const id=`body-link:${link.occurrenceId??`${link.uri}:${link.row}:${link.column}`}`;
@@ -1761,7 +1796,7 @@ export class DetailPiPreviewLayout extends VStack {
     const ordered=[...regions.filter(region=>region.kind!=="body-link"),...this.bodyRegions]
       .map(region=>({region,row:row(region)})).sort((a,b)=>a.row-b.row).map(entry=>entry.region);
     if(this.options.setRegions)this.options.setRegions(ordered);
-    else reconcilePreviewRegions(this.state.previewRegions,ordered);
+    else reconcilePreviewRegions(this.state.previewRegions,ordered, this.state.document.kind === 'loading' || (this.state.document.kind === 'ready' && this.state.readStatus === 'pending'));
     const focused=this.state.previewRegions.focusedRegionId;
     if(focused&&this.bodyLinks.has(focused)&&focused!==this.previousBodyFocusedId)this.pendingBodyFocusScroll=true;
     this.previousBodyFocusedId=focused;
@@ -1810,6 +1845,8 @@ export class DetailPiPreviewLayout extends VStack {
       region => region.id === this.state.previewRegions.focusedRegionId,
     );
     switch (focused?.kind) {
+      case "document-fold":
+      case "callout":
       case "body-link": this.pendingBodyFocusScroll = true; break;
       case "property-entry":
       case "property-inspector": this.pendingPropertySelectionScroll = true; break;

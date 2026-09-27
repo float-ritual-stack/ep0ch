@@ -3516,6 +3516,8 @@ export function createDetailController(
             togglePreviewRegionDisclosure(state.previewRegions, intent.action.regionId);
             break;
           case "callout.disclosure.toggle":
+          case "document.disclosure.toggle":
+            state.previewRegions.focusedRegionId = intent.action.regionId;
             togglePreviewRegionDisclosure(state.previewRegions, intent.action.regionId);
             break;
           case "backlinks.disclosure.toggle":
@@ -4226,7 +4228,7 @@ export function createDetailController(
     dispatch,
     captureResourcePointerSelection,
     setPreviewRegions(regions) {
-      reconcilePreviewRegions(state.previewRegions, regions);
+      reconcilePreviewRegions(state.previewRegions, regions, state.document.kind === 'loading' || (state.document.kind === 'ready' && state.readStatus === 'pending'));
     },
     releaseDocument() {
       openGeneration++;destinationChooser!.dispose();

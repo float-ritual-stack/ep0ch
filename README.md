@@ -805,6 +805,21 @@ Markdown components. This keeps following authored text outside a lifted table,
 list, quote, or code fence while preserving structural syntax and full-width
 embed backgrounds at narrow and wide terminal widths.
 
+#### Folding a document
+
+In Pi Detail and local Preview, click a heading label or its disclosure to fold
+the section. A list disclosure hides nested items and continuation paragraphs
+while retaining the leading item and task mark. Links keep their own targets.
+`Tab` reaches visible disclosures; `Enter` toggles the focused one.
+
+Folding changes only this reader's view. Nested choices survive reopening their
+parent and resizing; another reader can show the same note differently. Exact
+fragment navigation and comment reveal open the necessary ancestors. Anonymous
+folds reset after a source edit rather than hiding a different section; unique
+explicit fragment IDs retain their identity. Editor draft previews stay expanded.
+Dragging copies visible text without the generated disclosure arrow; authored
+arrows remain text. Whole-source copy still includes the full document.
+
 #### Callout appearance
 
 Detail gives each canonical Obsidian callout type a terminal-safe one-column glyph

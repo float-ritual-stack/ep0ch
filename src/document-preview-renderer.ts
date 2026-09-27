@@ -19,7 +19,7 @@ export interface DocumentPreviewFrame {
   divider?: PreviewRect;
   placement?: 'beside'|'below'|'compact';
 }
-const cache=new WeakMap<DetailReadPreviewDocument,{width:number;lines:string[];links:PreviewLink[]}>();
+const cache=new WeakMap<DetailReadPreviewDocument,{width:number;disclosures:string;lines:string[];links:PreviewLink[]}>();
 export type PreviewLink = RenderedLink;
 export function documentPreviewLinks(document:DetailReadPreviewDocument,width:number):PreviewLink[]{documentPreviewLines(document,width);return cache.get(document)!.links;}
 const background='\x1b[48;5;236m';
@@ -29,11 +29,12 @@ function shade(line:string,width:number):string {
 /** Shared row measurement and painting cache, invalidated by document identity or width. */
 export function documentPreviewLines(document:DetailReadPreviewDocument,width:number):string[] {
   let entry=cache.get(document);
-  if(entry?.width!==width){
+  const disclosures=JSON.stringify([...(document.previewRegions?.disclosureOverrides ?? [])]);
+  if(entry?.width!==width || entry.disclosures!==disclosures){
     // OSC links are an internal geometry map; they never reach the terminal.
     // Render synchronously with links even when the host does not support OSC 8.
     const rendered=withInternalLinks(()=>renderDetailReadPreviewLines(document,width,getMarkdownTheme(),undefined,true));
-    entry={width,links:measureRenderedLinks(rendered),lines:rendered.map(stripRenderedLinks)};
+    entry={width,disclosures,links:measureRenderedLinks(rendered),lines:rendered.map(stripRenderedLinks)};
     cache.set(document,entry);
   }
   return entry.lines;
