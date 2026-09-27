@@ -1,5 +1,5 @@
 import {expect, spyOn, test} from "bun:test";
-import {mkdtempSync, writeFileSync} from "node:fs";
+import {mkdtempSync, writeFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {ViewPreferences} from "../src/view-preferences";
@@ -7,7 +7,8 @@ import {ViewPreferences} from "../src/view-preferences";
 function preferencesWith(contents: string): ViewPreferences {
   const path = join(mkdtempSync(join(tmpdir(), "view-preferences-")), "view.json");
   writeFileSync(path, contents);
-  return new ViewPreferences({OUTLINER_VIEW_PREFERENCES_PATH: path});
+  try { return new ViewPreferences({OUTLINER_VIEW_PREFERENCES_PATH: path}); }
+  finally { rmSync(join(path, ".."), {recursive:true,force:true}); }
 }
 
 test("malformed or unsupported view preferences fall back to compact with a diagnostic", () => {

@@ -1223,6 +1223,21 @@ test.each([
 });
 
 
+test.each([
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}],
+  ["QUERY ERROR", {queryError:"query unavailable"}],
+] as Array<[string, Partial<VirtualBranchState>]>)("compact Tree keeps %s visible at narrow widths", (label, error) => {
+  const state=branchState({...error});
+  const render=renderTreeFrame(view([block("definition")], {
+    density:"compact", status:"", branchStates:new Map([["definition",state]]),
+  }),40,8,0,{clearScreen:false});
+  const lines=render.frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(8);
+  expect(lines[7]).toStartWith(label+":");
+  expect(lines[7]).not.toContain("matched root");
+  expect(visibleWidth(lines[7]!)).toBeLessThanOrEqual(40);
+});
+
 test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {
   const rows = Array.from({length: 20}, (_,index) => block(`Item ${index + 1}`));
   const compact = view(rows, {density:"compact", status:""});

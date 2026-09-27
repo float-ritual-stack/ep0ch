@@ -508,9 +508,9 @@ export function renderTreeFrame(
       : undefined;
   // Compact browse omits routine branch detail but must keep failures visible.
   const compactStatus = view.recoveryStatus || view.status ||
-    (selectedBranchState && (selectedBranchState.configurationErrors.length > 0 || selectedBranchState.queryError)
-      ? branchStatusText(selectedBranchState)
-      : "");
+    (selectedBranchState?.configurationErrors.length
+      ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
+      : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "");
   const compactFooter = view.recoveryHelp ? 2 : compactStatus ? 1 : 0;
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
   const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
