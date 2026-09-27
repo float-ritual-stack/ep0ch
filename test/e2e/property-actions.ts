@@ -89,6 +89,17 @@ try { result=await runHerdrScenario({name:'property-actions',async prepare(){},a
  assert.equal((await s.client.request<Block>({action:'get',blockId:source.id})).revision,source.revision);
  assert.ok((await s.registrations()).some(c=>c.clientId===reader.clientId&&c.currentTarget?.kind==='block'&&c.currentTarget.blockId===source.id));
  await s.checkpoint('05-copy-then-internal-navigation');
+ await terminal.resize(340,110);
+ const preview=await s.client.request<Block>({action:'create',text:'PREVIEW COPY\n[state::preview-value]\n\nPreview body.'});
+ await s.client.request({action:'ui.command.send',command:{targetClientId:detail.clientId,command:'preview',target:{kind:'block',blockId:preview.id}}});
+ await s.focus(s.panes.detail);await s.waitVisible(s.panes.detail,'Preview body.');
+ await click('Preview body.');await s.keys(s.panes.detail,'p','tab');
+ await copied(()=>click('preview-value'),'preview-value');
+ await copied(()=>s.keys(s.panes.detail,'y'),'preview-value');
+ const retained=(await s.registrations()).find(c=>c.clientId===detail.clientId)!;
+ assert.deepEqual(retained.currentTarget,{kind:'block',blockId:destination.id});
+ assert.deepEqual(retained.previewTarget,{kind:'block',blockId:preview.id});
+ await s.checkpoint('06-preview-copy-retains-current');
  await s.record('coverage',{clipboard:'Exact OSC52 payload, not physical clipboard paste',external:'Actual platform command with recording receiver; no browser/network'});
 }});
 } finally {process.env.PATH=originalPath;}

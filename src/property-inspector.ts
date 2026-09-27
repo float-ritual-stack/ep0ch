@@ -116,8 +116,7 @@ export function classifyPropertyInspectorTarget(
   value: string,
 ): PropertyInspectorTarget | null {
   const normalizedValue = value.trim();
-  if (/^(https?:|pi-outliner:)\/\//.test(normalizedValue) &&
-      !/[\s\u0000-\u001f\u007f]/.test(normalizedValue) && URL.canParse(normalizedValue)) {
+  if (!/[\s\u0000-\u001f\u007f]/.test(normalizedValue) && isFollowablePropertyLink(normalizedValue)) {
     return {kind: "link", uri: normalizedValue, source: "value"};
   }
   if (CANONICAL_BLOCK_ID_PATTERN.test(normalizedValue)) {
@@ -149,6 +148,11 @@ function isFollowablePropertyLink(href: string): boolean {
 }
 
 function propertyValueParts(value: string, occurrenceId: string): PropertyValuePart[] {
+  const wholeTarget = classifyPropertyInspectorTarget("", value);
+  // Markdown does not recognize bare Outliner URIs; preserve their complete address.
+  if (wholeTarget?.kind === "link") {
+    return [{text: value, regionId: occurrenceId, uri: wholeTarget.uri}];
+  }
   let links = 0;
   const parts: PropertyValuePart[] = [];
   const visit = (tokens: Token[]) => {

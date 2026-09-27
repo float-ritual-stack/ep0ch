@@ -5813,6 +5813,23 @@ test("property actions copy the chosen occurrence and follow its URL without edi
 });
 
 
+test.each([
+  {uri: "pi-outliner://resource/30000000-0000-4000-8000-000000000001", target: {kind: "resource", resourceId: "30000000-0000-4000-8000-000000000001"}, intent: "open"},
+  {uri: "pi-outliner://block/30000000-0000-4000-8000-000000000002?fragment=step-two&intent=reveal", target: {kind: "block", blockId: "30000000-0000-4000-8000-000000000002", fragmentId: "step-two"}, intent: "reveal"},
+])("property navigation preserves the complete raw URI: $uri", async ({uri, target, intent}) => {
+  const harness = createHarness(makeBlock({text: `Links\nlink:: ${uri}`}));
+  const navigations: unknown[] = [];
+  const navigate = harness.effects.dispatchNavigation;
+  harness.effects.dispatchNavigation = async (target, intent, options) => {
+    navigations.push({target, intent});
+    return navigate(target, intent, options);
+  };
+  await harness.controller.initialize();
+  const entry = harness.controller.state.propertyInspector.model!.entries[0]!;
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entry.occurrenceId, intent: "open"}, viewport);
+  expect(navigations).toEqual([{target, intent}]);
+});
+
 test("embedded property links retain separate targets while copy and edit own the whole occurrence", async () => {
   const value = "Read https://example.test/one then [Second](https://example.test/two?mode=read&v=2)";
   const harness = createHarness(makeBlock({text: `Links\nlinks:: ${value}`}));
