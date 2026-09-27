@@ -103,6 +103,7 @@ test("Tree exposes explicit recovery and preserves unavailable targets until the
   await c.handleAction("tree.selection.inspect");
   expect(c.view().actionMenuItems?.some(item=>item.id===`tree.selection.remove:${f.ids[0]}`)).toBe(true);
   await c.handleAction(`tree.selection.remove:${f.ids[0]}`);
+  expect(c.view().status).not.toContain("unavailable");
   expect(c.view().collectedIds?.size).toBe(0);
   expect(await f.client.request<WorkingSelection|null>({action:"working-selection.get",ownerClientId:"new-tree"})).toBeNull();
 });

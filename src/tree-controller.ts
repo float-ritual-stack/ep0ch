@@ -2073,6 +2073,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (actionId.startsWith("tree.selection.")) {
       const activeMode = mode === "action-menu" ? actionMenuReturnMode : mode;
       if (activeMode !== "browse") return;
+      status = "";
       const origin = rows[selectedIndex]?.rowId;
       try {
         if (actionId === "tree.selection.inspect") {
