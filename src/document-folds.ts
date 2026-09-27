@@ -52,6 +52,14 @@ export function documentFolds(source: string, boundaries: readonly {startLine: n
     }
   };
   visit(nodes, lines.length - 1);
+  // A leading heading and its list item often name the very same content.
+  // One disclosure owns that extent; different section extents remain separate.
+  for (let index = folds.length - 1; index >= 0; index--) {
+    const fold = folds[index]!;
+    if (fold.structure === 'list-item' && folds.some(other => other.structure === 'heading' &&
+      other.sourceSpan!.startLine === fold.sourceSpan!.startLine && other.contentStartLine === fold.contentStartLine &&
+      other.sourceSpan!.endLine === fold.sourceSpan!.endLine)) folds.splice(index, 1);
+  }
   folds.sort((a, b) => a.sourceSpan!.startLine - b.sourceSpan!.startLine || b.sourceSpan!.endLine - a.sourceSpan!.endLine);
   for (const fold of folds) {
     const parent = folds.filter(other => other !== fold && other.contentStartLine <= fold.sourceSpan!.startLine && other.sourceSpan!.endLine >= fold.sourceSpan!.endLine)
@@ -89,24 +97,27 @@ export function foldDocument(source: string, folds: readonly DocumentFold[], sta
     if (hidden) {lineMap.push(lineMap[hidden.sourceSpan!.startLine] ?? 0); continue;}
     lineMap.push(output.length);visibleSourceLines.push(line);
     let text = lines[line]!;
-    const fold = folds.find(fold => fold.sourceSpan!.startLine === line);
-    if (fold) {
-      const uri = previewRegionActionUri(fold.activation!);
-      // Distinct presentation target lets copy omit the generated glyph only,
-      // including when the author used the same glyph in the heading itself.
-      const controlUri = uri.replace('//document-toggle/', '//document-control/');
-      const control = `[${expanded(fold) ? '▾' : '▸'} ](${controlUri})`;
-      if (fold.structure === 'heading') {
-        const heading = /^((?:[ \t]*>[ \t]?)*[ \t]*#{1,6}[ \t]+)(.*?)(\r?\n)?$/.exec(text);
-        if (heading) text = heading[1] + control + headingLabel(marked.Lexer.lexInline(heading[2]!), uri) + (heading[3] ?? '');
-        else {
-          const label = /^((?:[ \t]*>[ \t]?)*[ \t]*)(.*?)(\r?\n)?$/.exec(text)!;
-          text = label[1] + control + headingLabel(marked.Lexer.lexInline(label[2]!), uri) + (label[3] ?? '');
-        }
-      } else {
-        const marker = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?)/.exec(text);
-        if (marker) text = marker[1] + control + text.slice(marker[1].length);
+    const leading = folds.filter(fold => fold.sourceSpan!.startLine === line);
+    const heading = folds.find(fold => fold.structure === 'heading' && fold.sourceSpan!.startLine <= line && line <= fold.headerEndLine);
+    const controls = leading.map(fold => {
+      const uri = previewRegionActionUri(fold.activation!).replace('//document-toggle/', '//document-control/');
+      return `[${expanded(fold) ? '▾' : '▸'} ](${uri})`;
+    }).join('');
+    if (heading) {
+      // Preserve list/quote prefixes, closing ATX hashes and Setext underlines.
+      // Every line of a multiline heading points to the same disclosure.
+      const prefix = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?)?)(.*?)(\r?\n)?$/.exec(text)!;
+      const atx = /^(#{1,6}[ \t]+)(.*)$/.exec(prefix[2]!);
+      const underline = !atx && line === heading.headerEndLine && /^[ \t]*(?:=+|-+)[ \t]*$/.test(prefix[2]!);
+      if (!underline) {
+        const body = atx?.[2] ?? prefix[2]!;
+        const closing = atx ? /[ \t]+#+[ \t]*$/.exec(body)?.[0] ?? '' : '';
+        const label = closing ? body.slice(0, -closing.length) : body;
+        text = prefix[1] + (atx?.[1] ?? '') + controls + headingLabel(marked.Lexer.lexInline(label), previewRegionActionUri(heading.activation!)) + closing + (prefix[3] ?? '');
       }
+    } else if (leading.length) {
+      const marker = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?)/.exec(text);
+      if (marker) text = marker[1] + controls + text.slice(marker[1].length);
     }
     output.push(text);
   }

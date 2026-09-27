@@ -487,13 +487,14 @@ function renderedAuthoredCallouts(
   }));
 }
 
-export function renderDetailReadPreviewLines(
+export function renderDetailReadPreview(
   input: DetailReadPreviewDocument,
   width: number,
   markdownTheme: MarkdownTheme,
   calloutTheme?: DetailCalloutTheme,
   linksEnabled = false,
-): string[] {
+  revealSourceLine?: number,
+): {lines:string[]; sourceLineRow:(line:number)=>number} {
   const sourceText = input.preserveMetadata?input.resolvedText:propertyInspectorAuthoredText(input.resolvedText);
   const projectedText = input.preserveMetadata?input.projectedText:propertyInspectorAuthoredText(input.projectedText);
   const metadataRemoved = projectedText !== input.projectedText;
@@ -527,6 +528,7 @@ export function renderDetailReadPreviewLines(
     disclosureOverrides: new Map(),
   };
   reconcilePreviewRegions(previewRegions, [...folds, ...callouts]);
+  if (revealSourceLine !== undefined) revealFoldedLine(previewRegions, [...folds, ...callouts], renderedLineForAuthoredLine(revealSourceLine));
   const markdown = new SourceSpannedMarkdown(
     markdownTheme,
     applyEmbedBackground,
@@ -544,7 +546,15 @@ export function renderDetailReadPreviewLines(
     const label = sanitizeMarkdownDocument(link.label).replace(/([\\[\]`*_])/g, "\\$1");
     return [`[File: ${label}](${outlinerLinkUri(target.kind, target.value, target)})`];
   });
-  return [...(metadataLinks.length ? new Markdown(metadataLinks.join(" · "), 0, 0, markdownTheme).render(Math.max(1, width)) : []), ...markdown.render(Math.max(1, width))];
+  const metadataRows = metadataLinks.length ? new Markdown(metadataLinks.join(" · "), 0, 0, markdownTheme).render(Math.max(1, width)) : [];
+  return {lines:[...metadataRows, ...markdown.render(Math.max(1, width))],
+    sourceLineRow:line=>metadataRows.length+markdown.sourceLineRow(Math.max(1,width),renderedLineForAuthoredLine(line))};
+}
+
+/** Static thumbnails and interactive readers use the same document layout. */
+export function renderDetailReadPreviewLines(input: DetailReadPreviewDocument, width: number, markdownTheme: MarkdownTheme,
+  calloutTheme?: DetailCalloutTheme, linksEnabled = false): string[] {
+  return renderDetailReadPreview(input,width,markdownTheme,calloutTheme,linksEnabled).lines;
 }
 
 const PREVIEW_HELP = DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail", "preview");
@@ -1125,6 +1135,7 @@ export class DetailPiPreviewLayout extends VStack {
   private authoredCallouts: AuthoredCalloutParse | undefined;
   private renderedCalloutRegions: DetailCalloutRegion[] = [];
   private documentFoldRegions: DocumentFold[] = [];
+  private readerAnchorCache: {key:string; lines:number[]; rows:Map<number,number>; renderedCount:number} | null = null;
   private renderedLineForSourceLine = (line: number) => line;
   private renderedFragmentSourceLine = 0;
   private renderedAttentionSourceLine = 0;
@@ -1276,25 +1287,36 @@ export class DetailPiPreviewLayout extends VStack {
       resourceEndRow !== null &&
       this.scrollView.scrollTop >= annotated.mapMarkdownRow(resourceEndRow)
     ) return null;
-    const sourceAnchors = this.readerSourceAnchors(sourceText, annotated.contentWidth);
-    const anchors = sourceAnchors.map(anchor => annotated.mapMarkdownRow(anchor.row));
-    if (this.state.context.selected && !(this.options.splitActive?.() ?? false)) {
-      const inspector = this.inspectorMarkdown.render(contentWidth);
-      const arrangement = arrangeInlinePreview(annotated.lines, inspector);
-      for (let index = 0; index < anchors.length; index += 1) {
-        anchors[index] = arrangement.mapAuthoredRow(anchors[index]!);
-      }
-    }
-    const index = nearestDraftSourceLine(anchors, this.scrollView.scrollTop);
-    return index === null ? null : sourceAnchors[index]?.line ?? null;
+    const inspector = this.state.context.selected && !(this.options.splitActive?.() ?? false)
+      ? arrangeInlinePreview(annotated.lines,this.inspectorMarkdown.render(contentWidth)) : null;
+    return this.readerSourceAnchorAtRow(sourceText,annotated.contentWidth,this.scrollView.scrollTop,
+      row=>inspector?.mapAuthoredRow(annotated.mapMarkdownRow(row)) ?? annotated.mapMarkdownRow(row))?.line ?? null;
   }
 
-  private readerSourceAnchors(sourceText: string, width: number): Array<{line:number;row:number}> {
-    if (!this.documentFoldRegions.length) return draftSourceRowAnchors(sourceText, width, this.markdownTheme).map((row,line) => ({line,row}));
-    return sourceText.split(/\r?\n/).flatMap((_,line) => {
-      const rendered = this.renderedLineForSourceLine(line);
-      return this.markdown.isSourceLineVisible(rendered) ? [{line, row:this.markdown.sourceLineRow(width,rendered)}] : [];
-    });
+  /** Locate one visible source line lazily, rather than render every prefix on each pointer event. */
+  private readerSourceAnchorAtRow(sourceText:string,width:number,targetRow:number,mapRow=(row:number)=>row):{line:number;row:number}|null {
+    if (!this.documentFoldRegions.length) {
+      const rows=draftSourceRowAnchors(sourceText,width,this.markdownTheme);
+      const line=nearestDraftSourceLine(rows.map(mapRow),targetRow);
+      return line===null?null:{line,row:rows[line]!};
+    }
+    const key=JSON.stringify([width,sourceText,this.renderedRawText,this.renderedEmbedPresentation,[...this.state.previewRegions.disclosureOverrides]]);
+    if(this.readerAnchorCache?.key!==key){
+      const visible=this.markdown.visibleSourceLines();
+      const lines=sourceText.split(/\r?\n/).flatMap((_,line)=>!visible||visible.has(this.renderedLineForSourceLine(line))?[line]:[]);
+      this.readerAnchorCache={key,lines,rows:new Map(),renderedCount:this.markdown.render(width).length};
+    }
+    const cache=this.readerAnchorCache;
+    const rowAt=(index:number)=>{
+      const line=cache.lines[index]!;
+      let row=cache.rows.get(line);
+      if(row===undefined){row=this.markdown.sourceLineRow(width,this.renderedLineForSourceLine(line),cache.renderedCount);cache.rows.set(line,row);}
+      return row;
+    };
+    if(!cache.lines.length)return null;
+    let low=0,high=cache.lines.length;
+    while(low+1<high){const middle=(low+high)>>>1;if(mapRow(rowAt(middle))<=targetRow)low=middle;else high=middle;}
+    return {line:cache.lines[low]!,row:rowAt(low)};
   }
 
   sourcePointAtViewport(
@@ -1313,8 +1335,6 @@ export class DetailPiPreviewLayout extends VStack {
       inlineInspector ? this.inspectorMarkdown.render(contentWidth) : [],
     );
     const sourceLines = sourceText.split(/\r?\n/);
-    const sourceAnchors = this.readerSourceAnchors(sourceText, annotated.contentWidth);
-    const markdownAnchors = sourceAnchors.map(anchor => anchor.row);
     const bodyRow = this.scrollView.scrollTop + Math.max(0, viewportRow - 3);
     const annotatedRow = arrangement.authoredRowAt(bodyRow);
     if (annotatedRow === null) return null;
@@ -1322,10 +1342,10 @@ export class DetailPiPreviewLayout extends VStack {
     if (markdownRow === null) return null;
     const resourceEndRow = this.resourceMarkdownEndRow(annotated);
     if (resourceEndRow !== null && markdownRow >= resourceEndRow) return null;
-    const sourceIndex = nearestDraftSourceLine(markdownAnchors, markdownRow);
-    if (sourceIndex === null) return null;
-    const sourceLine = sourceAnchors[sourceIndex]!.line;
-    const markdownAnchor = markdownAnchors[sourceIndex];
+    const anchor = this.readerSourceAnchorAtRow(sourceText,annotated.contentWidth,markdownRow);
+    if (!anchor) return null;
+    const sourceLine = anchor.line;
+    const markdownAnchor = anchor.row;
     if (markdownAnchor === undefined || markdownRow < markdownAnchor) return null;
     const projection = markdownTextProjection(sourceLines[sourceLine] ?? "");
     let projectionOffset = 0;

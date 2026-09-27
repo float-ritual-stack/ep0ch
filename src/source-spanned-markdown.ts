@@ -446,7 +446,7 @@ function traverseCalloutRows(
 
 export class SourceSpannedMarkdown implements Component {
   private folds: readonly DocumentFold[] = [];
-  private folded: {signature: string; projection: FoldedDocument; renderer: SourceSpannedMarkdown} | null = null;
+  private folded: {signature: string; projection: FoldedDocument; visible: ReadonlySet<number>; renderer: SourceSpannedMarkdown} | null = null;
   private segments: RenderSegment[] = [];
   private calloutDocument: DetailCalloutDocument | null = null;
   private sourceText = "";
@@ -611,9 +611,8 @@ export class SourceSpannedMarkdown implements Component {
     };
   }
 
-  isSourceLineVisible(sourceLine: number): boolean {
-    const folded = this.foldedDocument();
-    return !folded || folded.projection.visibleSourceLines.includes(sourceLine);
+  visibleSourceLines(): ReadonlySet<number> | null {
+    return this.foldedDocument()?.visible ?? null;
   }
 
   private foldedDocument() {
@@ -630,7 +629,7 @@ export class SourceSpannedMarkdown implements Component {
     });
     const renderer = new SourceSpannedMarkdown(this.theme, this.decorate, this.previewRegions, this.linksEnabled, this.calloutTheme, this.trackLinks);
     renderer.setContent(projection.text, this.ranges.map(range => ({startLine: mapLine(range.startLine), endLine: mapLine(range.endLine)})), this.decorationEnabled, callouts);
-    return this.folded = {signature, projection, renderer};
+    return this.folded = {signature, projection, visible, renderer};
   }
 
   render(width: number): string[] {
@@ -654,6 +653,7 @@ export class SourceSpannedMarkdown implements Component {
   }
 
   invalidate(): void {
+    this.folded?.renderer.invalidate();
     this.calloutDocument?.invalidate();
     for (const segment of this.segments) segment.component.invalidate();
   }

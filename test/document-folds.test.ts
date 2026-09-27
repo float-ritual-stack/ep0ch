@@ -111,3 +111,43 @@ test('a folded heading keeps authored callout defaults and quoted nested-list st
   expect(render()).toContain('Inner');
   expect(render()).not.toContain('Hidden callout');
 });
+
+test('a heading used as a list lead retains heading structure and reachable disclosures',()=>{
+ const text='- # Heading\n\n  Body\n\n  ## Inner\n\n  Inner body\n\n- Sibling';
+ const view=state(),folds=documentFolds(text);
+ reconcilePreviewRegions(view,folds);
+ const renderer=new SourceSpannedMarkdown({...theme,heading:text=>`HEADING(${text})`},text=>text,view,true,undefined,true);
+ renderer.setContent(text,[],false,[],folds);
+ const paint=()=>renderer.render(60).map(stripTerminalSequences).join('\n');
+ expect(paint()).toContain('HEADING(');
+ expect(paint()).not.toContain('# Heading');
+ for(const region of folds)expect(renderer.renderedLinks.some(link=>link.uri.includes(encodeURIComponent(region.id)))).toBe(true);
+ const list=folds.find(region=>region.structure==='list-item');
+ const owner=list??folds.find(region=>region.sourceSpan!.startLine===0)!;
+ togglePreviewRegionDisclosure(view,owner.id);
+ expect(paint()).not.toContain('Inner body');
+ expect(paint()).toContain('Sibling');
+});
+
+test.each([
+ {text:'# Heading ###\nBody',labels:['Heading']},
+ {text:'Multiline\nheading\n---\nBody',labels:['Multiline','heading']},
+])('heading labels preserve delimiter semantics and full interaction: $text',({text,labels})=>{
+ const view=state(),folds=documentFolds(text);
+ reconcilePreviewRegions(view,folds);
+ const renderer=new SourceSpannedMarkdown(theme,text=>text,view,true,undefined,true);
+ renderer.setContent(text,[],false,[],folds);
+ const visible=renderer.render(60).map(stripTerminalSequences).join('\n');
+ expect(visible).not.toContain('###');
+ for(const label of labels)expect(renderer.renderedLinks.some(link=>link.label===label&&link.uri.includes('document-toggle'))).toBe(true);
+});
+
+test('theme invalidation reaches the visible folded document',()=>{
+ let accent='FIRST';const view=state(),text='# Heading\nBody',folds=documentFolds(text);
+ reconcilePreviewRegions(view,folds);
+ const renderer=new SourceSpannedMarkdown({...theme,heading:text=>`${accent}:${text}`},text=>text,view,true);
+ renderer.setContent(text,[],false,[],folds);
+ expect(renderer.render(50).join('\n')).toContain('FIRST:');
+ accent='SECOND';renderer.invalidate();
+ expect(renderer.render(50).join('\n')).toContain('SECOND:');
+});

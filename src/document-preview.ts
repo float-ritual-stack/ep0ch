@@ -1,4 +1,4 @@
-import {documentPreviewLines,documentPreviewLinks} from './document-preview-renderer';
+import {documentPreviewLines,documentPreviewLinks,revealDocumentPreviewSourceLine} from './document-preview-renderer';
 import {parsePreviewRegionActionUri, previewRegionActionUri, togglePreviewRegionDisclosure} from './detail-preview-regions';
 import type {OutlinerRequester} from './client-target';
 import {loadDetailReadPreview} from './detail-read-preview';
@@ -156,10 +156,13 @@ export class DocumentPreview {
 
   async load(target: OutlinerNavigationTarget, refresh = false, navigating = false): Promise<boolean> {
     const generation = ++this.generation;
-    const previous = refresh && JSON.stringify(this.value?.target) === JSON.stringify(target) ? this.value?.document.previewRegions : undefined;
+    const previousDocument = this.value?.document;
+    const revealInDocument = target.kind === 'block' && !!target.fragmentId && previousDocument?.sourceBlock?.id === target.blockId;
+    const previous = (revealInDocument || refresh && JSON.stringify(this.value?.target) === JSON.stringify(target)) ? previousDocument?.previewRegions : undefined;
+    let revealSourceLine:number|undefined;
     if(!refresh&&!navigating){this.history=[];this.future=[];}
     let title = target.kind === 'block' ? target.blockId : target.resourceId;
-    const offset = refresh ? this.value?.offset ?? 0 : 0;
+    let offset = refresh ? this.value?.offset ?? 0 : 0;
     if (!refresh) this.value = {target, title, document: plain('Loading Preview…'), loading:true, offset:0, focused:this.value?.focused ?? false};
     this.changed();
     try {
@@ -171,7 +174,10 @@ export class DocumentPreview {
         if(target.fragmentId){
           const fragment=resolveFragmentSlice(block.text,target.fragmentId);
           if(fragment.status!=='resolved')throw Error(`Fragment ${fragment.status}: ${target.fragmentId}`);
-          document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
+          if (revealInDocument) {
+            document=await loadDetailReadPreview(this.client,block);
+            revealSourceLine=fragment.slice.anchor.lineIndex;
+          } else document={...await loadDetailReadPreview(this.client,{...block,text:fragment.slice.text}),sourceBlock:undefined};
         }else document = await loadDetailReadPreview(this.client,block);
       } else {
         if (!this.clientId) throw new Error('Resource preview requires a registered reader');
@@ -186,6 +192,7 @@ export class DocumentPreview {
       // Reconcile the saved choices against the new document at its next render.
       // Anonymous identities change on edits; explicit stable IDs may survive.
       if (previous) document.previewRegions = {regions:[],focusedRegionId:previous.focusedRegionId,disclosureOverrides:new Map(previous.disclosureOverrides)};
+      if(revealSourceLine!==undefined && previousDocument) offset=revealDocumentPreviewSourceLine(document,revealSourceLine,previousDocument);
       this.value = {target,title,document,offset,focused:this.value?.focused ?? false};
       this.changed(); return true;
     } catch (error) {

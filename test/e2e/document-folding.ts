@@ -9,12 +9,15 @@ import {runHerdrScenario} from './herdr-runner';
 const result = await runHerdrScenario({name:'document-folding', async prepare(){}, async run(s){
   const terminal = await s.attachClient();
   await terminal.resize(180,65);
-  const source = await s.client.request<Block>({action:'create',text:[
+  let source = await s.client.request<Block>({action:'create',text:[
     'FOLDING PLAN', '', '## First section ▾', 'Intro paragraph',
     '- [ ] Parent item', '  - Nested destination ^step', '',
     '## Other section', 'Other content', '',
     '> [!note]- Saved callout', '> Callout body',
   ].join('\n')});
+  source = await s.client.request<Block>({action:'update',blockId:source.id,expectedRevision:source.revision,
+    mutation:{author:'agent',actorId:'document-folding-fixture'},
+    text:source.text.replace('FOLDING PLAN','FOLDING PLAN\n\n[Jump within note](pi-outliner://block/'+source.id+'?fragment=step)')});
   const registrations = await s.registrations();
   const tree = registrations.find(c=>c.runtime?.paneId===s.panes.tree)!;
   const detail = registrations.find(c=>c.runtime?.paneId===s.panes.detail)!;
@@ -98,6 +101,12 @@ const result = await runHerdrScenario({name:'document-folding', async prepare(){
   await s.waitFor('local Preview folded',previewText,f=>f.includes('First section')&&!f.includes('Nested destination'));
   await s.keys(local.tree,'enter');
   await s.waitFor('local Preview reopens with Enter',previewText,f=>f.includes('Nested destination'));
+  await click('Other section',local.tree,'● Preview ·');
+  await s.waitFor('Preview unrelated section folded',previewText,f=>!f.includes('Other content'));
+  await click('First section',local.tree,'● Preview ·');
+  await s.waitFor('Preview target hidden',previewText,f=>!f.includes('Nested destination'));
+  await click('Jump within note',local.tree,'● Preview ·');
+  await s.waitFor('Preview fragment revealed in context',previewText,f=>f.includes('Nested destination')&&f.includes('Other section')&&!f.includes('Other content'));
   // Local Preview state must not reopen the unrelated fold in Detail.
   assert.ok(!(await s.visible(s.panes.detail)).includes('Other content'));
   await s.checkpoint('05-independent-preview');

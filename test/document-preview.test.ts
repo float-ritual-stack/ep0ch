@@ -185,13 +185,13 @@ test('narrow Preview preserves clickable navigation ahead of optional layout con
 test('refresh retains local folds until a source edit makes their identity ambiguous',async()=>{
  const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
  const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
- let text='Plan\n\n## Section\nHidden body';
+ let text='Plan\n\n## Section\nHidden body ^inside\n\n## Other\nOther body';
  const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
-  if(input.action==='get')return block('plan',text) as T;
+  if(input.action==='get')return block('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',text) as T;
   if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
   throw Error('unexpected '+input.action);
  }},()=>{});
- const target={kind:'block' as const,blockId:'plan'};
+ const target={kind:'block' as const,blockId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'};
  await reader.load(target);
  const link=documentPreviewLinks(reader.state!.document,60).find(link=>link.uri.includes('document-toggle'))!;
  await reader.action('preview.link:'+encodeURIComponent(link.uri),async()=>{});
@@ -199,6 +199,12 @@ test('refresh retains local folds until a source edit makes their identity ambig
  expect(paint()).not.toContain('Hidden body');
  await reader.load(target,true);
  expect(paint()).not.toContain('Hidden body');
+ const other=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Other')!;
+ await reader.action('preview.link:'+encodeURIComponent(other.uri),async()=>{});
+ await reader.action('preview.link:'+encodeURIComponent('pi-outliner://block/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?fragment=inside'),async()=>{});
+ expect(paint()).toContain('Hidden body');
+ expect(paint()).toContain('Other');
+ expect(paint()).not.toContain('Other body');
  text=text.replace('Section','Changed');
  await reader.load(target,true);
  expect(paint()).toContain('Hidden body');
