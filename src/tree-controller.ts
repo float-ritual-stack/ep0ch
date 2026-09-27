@@ -19,7 +19,7 @@ import {
   serializePropertyFilterValue,
 } from "./block-query";
 import { referencedFilePreview, type FileContents } from "./files";
-import { getProperty } from "./properties";
+import { getProperty, parseProperties } from "./properties";
 import {
   firstOutlinerReference,
   outlinerLinkUri, parseOutlinerLinkUri,
@@ -80,8 +80,7 @@ import {
   isVirtualBranchOccurrence,
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
-  VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH,
-  VIRTUAL_BRANCH_MAX_ROWS,
+  planVirtualChild,
   type PhysicalTreeRow as ProjectedPhysicalRow,
   type TreeRow as ProjectedTreeRow,
   type VirtualBranchOccurrenceRow as ProjectedOccurrenceRow,
@@ -340,7 +339,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let expandedDocuments = new Map<string, ExpandedTreeDocument>();
   let indexSequence: number | null = null;
   let quickEditSource: Pick<Block, "id" | "revision"> | null = null;
-  let projectedChildDraft: { parent: VirtualBranchOccurrenceRow; created?: Block } | null = null;
+  let projectedChildDraft: { parent: VirtualBranchOccurrenceRow; created?: Block; rowId?: (id: string) => string } | null = null;
+  let projectionVisible: TreeIndexBlock[] = [];
+  let projectionRanks: TreeIndexSnapshot["virtualOccurrenceRanks"] = [];
   let physicalRowCount = 0;
   let occurrenceRowCount = 0;
   let workIdPrefix: string | null = null;
@@ -733,6 +734,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     for (const row of projection.rows) {
       if (row.kind === "occurrence" && row.attention && row.hasChildren && !row.collapsed) expandedOccurrenceRowIds.add(row.rowId);
     }
+    projectionVisible = visible;
+    projectionRanks = snapshot.virtualOccurrenceRanks;
     fullRowsById = new Map(projection.rows.map(row=>[row.rowId,row]));
     const rootIndex = root ? projection.rows.findIndex(row => row.rowId === root!.rowId) : -1;
     let scope = projection.rows;
@@ -964,8 +967,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         if (current?.rowId !== draft.parent.rowId || current.kind !== "occurrence") {
           throw new Error("The selected occurrence is no longer available; draft retained. Cancel and reveal source to add there.");
         }
-        const problem = projectedChildProblem(current);
-        if (problem) throw new Error(problem);
+        const placement = await projectedChildPlacement(current, text);
+        if ("problem" in placement) throw new Error(placement.problem);
+        draft.rowId = placement.rowId;
         const created = await effects.request<Block>({
           action: "create", parentId: draft.parent.canonicalId, text, author: "user",
         });
@@ -1300,6 +1304,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       preferredRowId: occurrenceRowId ?? editingRowId,
       exactOccurrence: !!occurrenceRowId,
     });
+    if (occurrenceRowId && rows[selectedIndex]?.rowId === occurrenceRowId) status = "Added child in this view";
     effects.invalidate();
   }
 
@@ -1660,38 +1665,21 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   function projectedChildRowId(): string | undefined {
-    if (!projectedChildDraft?.created) return undefined;
-    const { parent, created } = projectedChildDraft;
-    const prefix = parent.rowId.slice(0, parent.rowId.lastIndexOf("occurrence:"));
-    return `${prefix}occurrence:${parent.viewId}:${parent.matchRootCanonicalId}:${created.id}`;
+    const draft = projectedChildDraft;
+    return draft?.created ? draft.rowId?.(draft.created.id) : undefined;
   }
 
-  function projectedChildProblem(selected: VirtualBranchOccurrenceRow): string | null {
-    const route = "Use Reveal source (Shift+R) to add there, or adjust this view.";
-    if (selected.block.effectiveDeletedRootId) return `Cannot add a child in Trash. ${route}`;
-    if (selected.relativeDepth > 0 && isVirtualBranchDefinition(selected.block)) {
-      return `This nested definition projects its query rather than canonical children. ${route}`;
-    }
-    const fullSelected = fullRowsById.get(selected.rowId) ?? selected;
-    let ancestor: TreeRow | undefined = fullSelected;
-    while (ancestor?.kind === "occurrence") {
-      const state = branchStates.get(ancestor.viewId);
-      if (!state?.config || state.queryError) return `Virtual branch is unavailable. ${route}`;
-      const depth = ancestor.relativeDepth + fullSelected.depth - ancestor.depth + 1;
-      const limit = state.config.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH;
-      if (depth > limit) return `Add child exceeds this view's child-depth ${limit}. ${route}`;
-      if (state.truncation.budget || state.count + state.descendantCount >= VIRTUAL_BRANCH_MAX_ROWS) {
-        return `Add child exceeds this view's row budget. ${route}`;
-      }
-      const parent = fullRowsById.get(ancestor.parentRowId);
-      if (parent?.kind === "physical") {
-        const projected = [...fullRowsById.values()].filter(row => row.kind === "occurrence" &&
-          (row.rowId.startsWith(`occurrence:${parent.canonicalId}:`)));
-        if (projected.length >= VIRTUAL_BRANCH_MAX_ROWS) return `Add child exceeds this view's row budget. ${route}`;
-      }
-      ancestor = parent;
-    }
-    return null;
+  async function projectedChildPlacement(selected: VirtualBranchOccurrenceRow, text = "") {
+    if (selected.block.effectiveDeletedRootId) return { problem: "Cannot add a child in Trash; restore the parent first." };
+    const parent = physicalBlocksById.get(selected.canonicalId);
+    if (!parent) return { problem: "The canonical parent is no longer available" };
+    const child: TreeIndexBlock = {
+      ...parent, id: crypto.randomUUID(), parentId: parent.id, position: 0,
+      depth: parent.depth + 1, hasChildren: false, properties: parseProperties(text),
+    };
+    return planVirtualChild(selected, child, projectionVisible, [...physicalBlocksById.values()],
+      query => effects.request<TreeIndexCollection>({ action: "tree.query", query }),
+      projectionRanks, { collapsedBlockIds: activeFilter ? uncollapsedPresentationIds : collapsedBlockIds, collapsedOccurrenceRowIds, expandedOccurrenceRowIds, multilineExpandedRowIds });
   }
 
   function occurrenceMutationDisabled(action: string): void {
@@ -2766,9 +2754,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate();
       return;
     } else if (str === "a" && selected) {
-      const problem = isVirtualBranchOccurrence(selected)
-        ? projectedChildProblem(selected)
-        : virtualBranchCreationProblem(selected);
+      const placement = isVirtualBranchOccurrence(selected) ? await projectedChildPlacement(selected) : null;
+      const problem = placement && "problem" in placement ? placement.problem
+        : selected.kind === "physical" ? virtualBranchCreationProblem(selected) : null;
       if (problem) status = problem;
       else {
         await beginInput("add-child");

@@ -914,3 +914,38 @@ export async function projectVirtualBranches<T extends ProjectionBlock>(
     occurrenceRowCount,
   };
 }
+
+
+/** Check a proposed first child with the same bounded allocation used by Tree. */
+export async function planVirtualChild<T extends ProjectionBlock>(
+  parent: VirtualBranchOccurrenceRow<T>,
+  child: T,
+  visibleBlocks: readonly T[],
+  physicalBlocks: readonly T[],
+  queryBlocks: VirtualBranchQueryEffect<T>,
+  ranks: readonly VirtualOccurrenceRank[],
+  presentation: TreePresentationState,
+): Promise<{ problem: string } | { rowId: (createdId: string) => string }> {
+  const parentIndex = physicalBlocks.findIndex(block => block.id === parent.canonicalId);
+  if (parentIndex < 0) return { problem: "The canonical parent is no longer available" };
+  const physical = [...physicalBlocks];
+  physical.splice(parentIndex + 1, 0, child);
+  const collapsed = new Set(presentation.collapsedOccurrenceRowIds);
+  collapsed.delete(parent.rowId);
+  const expanded = new Set(presentation.expandedOccurrenceRowIds);
+  expanded.add(parent.rowId);
+  const prefix = parent.rowId.slice(0, parent.rowId.lastIndexOf("occurrence:"));
+  const rowId = (id: string) => prefix + descendantOccurrenceRowId(parent.viewId, parent.matchRootCanonicalId, id);
+  const projected = await projectVirtualBranches(visibleBlocks, physical, async query => {
+    const result = await queryBlocks(query);
+    // Reserve a matching new root before the limit. This conservative admission
+    // also covers a new child that sorts before the parent's current match root.
+    return matchesFilters(child.properties, query.filters ?? [])
+      ? { ...result, blocks: [child, ...result.blocks] }
+      : result;
+  }, ranks, { ...presentation, collapsedOccurrenceRowIds: collapsed, expandedOccurrenceRowIds: expanded });
+  if (projected.rows.some(row => row.rowId === rowId(child.id))) return { rowId };
+  const state = projected.branchStates.get(parent.viewId);
+  const depth = state?.config?.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH;
+  return { problem: `Cannot display a new child here: child-depth ${depth}, result limit ${state?.config?.limit ?? DEFAULT_VIRTUAL_BRANCH_LIMIT}, row budget ${VIRTUAL_BRANCH_MAX_ROWS}, or nested definition boundary. Use Reveal source (Shift+R) to add there, or adjust this view.` };
+}

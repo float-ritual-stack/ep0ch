@@ -3293,16 +3293,20 @@ describe("createTreeController", () => {
     } finally { store.close(); }
   });
 
-  test("a full virtual row budget refuses child creation before opening input", async () => {
+  test.each(["full", "overlapping"])("%s virtual row budget refuses child creation before opening input", async (shape) => {
     const definition = block("view", { properties: [{ key: "type", value: "virtual-branch" }, { key: "query", value: "fixture=child" }, { key: "limit", value: "1000" }] });
-    const cards = Array.from({ length: 1000 }, (_, i) => block(`card-${i}`, { properties: [{ key: "fixture", value: "child" }] }));
+    const cards = shape === "full"
+      ? Array.from({ length: 1000 }, (_, i) => block(`card-${i}`, { properties: [{ key: "fixture", value: "child" }] }))
+      : [block("ancestor", { hasChildren: true }), block("target", { parentId: "ancestor", depth: 1 }),
+        ...Array.from({ length: 996 }, (_, i) => block(`context-${i}`, { parentId: "ancestor", depth: 1 }))];
+    const roots = shape === "full" ? cards : cards.slice(0, 2);
     const fake = harness(input => {
       if (input.action === "tree.index") return snapshot([definition, ...cards], definition);
-      if (input.action === "tree.query") return { blocks: cards, completeness: { kind: "complete" } };
+      if (input.action === "tree.query") return { blocks: roots, completeness: { kind: "complete" } };
     });
     const controller = createTreeController(fake.effects);
     await controller.initialize();
-    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleRowClick(`occurrence:view:${shape === "full" ? "card-0" : "target"}`);
     await controller.handleKeypress("a", { name: "a" }, "pass");
     expect(controller.view().mode).toBe("browse");
     expect(controller.view().status).toContain("row budget");
