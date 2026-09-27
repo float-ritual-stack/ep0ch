@@ -213,7 +213,10 @@ export function propertyInspectorTargetLink(
   target: PropertyInspectorTarget,
   options: { preserveSource?: boolean; intent?: "reveal" } = {},
 ): OutlinerLinkTarget {
-  if (target.kind === "link") return {...parseOutlinerLinkUri(target.uri), ...options};
+  if (target.kind === "link") {
+    const parsed = parseOutlinerLinkUri(target.uri);
+    return {...parsed, ...options, preserveSource: parsed.preserveSource === true || options.preserveSource === true};
+  }
   if (target.kind === "resource-reference") {
     throw new Error("Resource property navigation requires its source occurrence");
   }
@@ -3639,9 +3642,9 @@ export function createDetailController(
           if (uri.startsWith("http://") || uri.startsWith("https://")) {
             await dispatch({type: "preview.action", action: {type: "link.open", uri}, routing: intent.routing}, viewport);
           } else {
-            await dispatch({type: "reference.open", target: {...parseOutlinerLinkUri(uri),
+            await dispatch({type: "reference.open", target: propertyInspectorTargetLink({kind: "link", uri, source: "value"}, {
               preserveSource: state.propertyInspector.presentation === "dedicated",
-              ...(intent.intent === "reveal" ? {intent: "reveal" as const} : {})},
+              ...(intent.intent === "reveal" ? {intent: "reveal" as const} : {})}),
               routing: intent.routing ?? "linked"}, viewport);
           }
           break;
