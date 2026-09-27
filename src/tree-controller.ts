@@ -582,16 +582,25 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
   }
 
+  function selectionRankReason(): string | null {
+    const reason = collected.rankReason();
+    if (reason) return reason;
+    const viewId = collected.current?.targets[0]?.viewId;
+    const sort = viewId ? branchStates.get(viewId)?.config?.sort : undefined;
+    return sort ? `Virtual branch is sorted by ${sort.field} ${sort.direction}; manual reorder is disabled` : null;
+  }
+
   function selectionMenuItems(): OutlinerActionMenuItem[] {
     const result = actionKeymap.menuItems("tree", "browse").filter(item => item.id.startsWith("tree.selection.") && !["tree.selection.inspect","tree.selection.toggle"].includes(item.id));
     if (placementMenu) {
+      if (selectionRankReason()) return [];
       const targets = collected.current?.targets ?? [], first = targets[0];
       const selectedIds = new Set(targets.map(t=>t.blockId));
       return rows.filter((row):row is VirtualBranchOccurrenceRow => isBlockTreeRow(row) && isVirtualBranchRootOccurrence(row)
         && row.viewId === first?.viewId && row.parentRowId === first.parentRowId && !selectedIds.has(row.canonicalId))
         .map(row=>({id:`tree.selection.place:${placementMenu}:${row.canonicalId}`, label:`${placementMenu === "before" ? "Before" : "After"} · ${row.block.preview}`,description:"Place in full branch order, preserving hidden items",binding:"",group:"Edit"}));
     }
-    const reason = collected.rankReason();
+    const reason = selectionRankReason();
     for (const item of result) {
       if (item.id.startsWith("tree.selection.move-") && reason) item.description = `Unavailable: ${reason}`;
     }
@@ -1774,15 +1783,15 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     selected: VirtualBranchOccurrenceRow,
     offset: -1 | 1,
   ): Promise<string | null> {
-    if (branchFilter) {
-      const expected = await effects.request<import("./types").VirtualBranchOrder>({action:"virtual.occurrences.order",viewId:selected.viewId});
-      await effects.request({action:"virtual.occurrences.place",input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
-      status = "Moved one position in full branch order (including hidden items)"; return selected.rowId;
-    }
     const sort = branchStates.get(selected.viewId)?.config?.sort;
     if (sort) {
       status = `Virtual branch is sorted by ${sort.field} ${sort.direction}; manual reorder is disabled`;
       return null;
+    }
+    if (branchFilter) {
+      const expected = await effects.request<import("./types").VirtualBranchOrder>({action:"virtual.occurrences.order",viewId:selected.viewId});
+      await effects.request({action:"virtual.occurrences.place",input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
+      status = "Moved one position in full branch order (including hidden items)"; return selected.rowId;
     }
     const branchRows = rows.filter(
       (row): row is VirtualBranchOccurrenceRow =>
@@ -2161,6 +2170,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if (actionId.startsWith("tree.selection.place:")) {
       if ((mode === "action-menu" ? actionMenuReturnMode : mode) !== "browse") return;
+      const reason = selectionRankReason();
+      if (reason) { mode = "browse"; selectionMenu = false; placementMenu = null; status = reason; effects.invalidate(); return; }
       const [kind, anchorBlockId] = actionId.slice("tree.selection.place:".length).split(":");
       mode = "browse"; selectionMenu = false; placementMenu = null;
       try { if ((kind !== "before" && kind !== "after") || !anchorBlockId) throw Error("Invalid placement");
@@ -2207,7 +2218,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         } else if (actionId.startsWith("tree.selection.move-")) {
           const kind = actionId.slice("tree.selection.move-".length);
           if (kind === "before" || kind === "after") {
-            const reason = collected.rankReason(); if (reason) throw Error(reason);
+            const reason = selectionRankReason(); if (reason) throw Error(reason);
             await reload(origin);
             placementMenu = kind; selectionMenu = true; locationMenu = null; destinationMenu = null;
             actionMenuReturnMode = "browse"; mode = "action-menu"; updateActionMenuQuery(""); effects.invalidate(); return;
