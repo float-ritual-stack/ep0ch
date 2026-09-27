@@ -1235,9 +1235,23 @@ test.each([
   }),40,8,0,{clearScreen:false});
   const lines=render.frame.split("\n").map(stripTerminalSequences);
   expect(lines).toHaveLength(8);
-  expect(lines[7]).toStartWith(label+":");
-  expect(lines[7]).not.toContain("matched root");
-  expect(visibleWidth(lines[7]!)).toBeLessThanOrEqual(40);
+  const errorRow=lines.findIndex(line=>line.startsWith(label+":"));
+  expect(errorRow).toBe(status ? 6 : 7);
+  expect(lines[errorRow]).not.toContain("matched root");
+  expect(visibleWidth(lines[errorRow]!)).toBeLessThanOrEqual(40);
+});
+
+test.each(["Workspace service disconnected; reconnecting…", "Failed to open target"])("compact branch errors retain concurrent safety state: %s", status => {
+  const tree=view([block("definition")],{density:"compact",status,
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  for(const recoveryStatus of [undefined,"Retained draft needs recovery"]){
+    const lines=renderTreeFrame({...tree,recoveryStatus},60,10,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+    expect(lines).toHaveLength(10);
+    expect(lines).toContain("QUERY ERROR: query unavailable");
+    expect(lines).toContain(status);
+    if(recoveryStatus) expect(lines).toContain(recoveryStatus);
+    expect(lines[1]).toContain("definition");
+  }
 });
 
 test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {

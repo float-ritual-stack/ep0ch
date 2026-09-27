@@ -506,13 +506,12 @@ export function renderTreeFrame(
     selectedRow?.kind === "physical"
       ? view.branchStates.get(selectedRow.canonicalId)
       : undefined;
-  // Compact browse omits routine branch detail but must keep failures visible.
-  const compactStatus = view.recoveryStatus ||
-    (selectedBranchState?.configurationErrors.length
-      ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
-      : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "") ||
-    view.status;
-  const compactFooter = view.recoveryHelp ? 2 : compactStatus ? 1 : 0;
+  // Concurrent failures need their own rows; priority must never conceal writing or connection state.
+  const branchError = selectedBranchState?.configurationErrors.length
+    ? `CONFIG ERROR: ${selectedBranchState.configurationErrors.join("; ")}`
+    : selectedBranchState?.queryError ? `QUERY ERROR: ${selectedBranchState.queryError}` : "";
+  const compactStatuses = [...new Set([view.recoveryStatus, branchError, view.status].filter((text): text is string => Boolean(text)))];
+  const compactFooter = compactStatuses.length + Number(Boolean(view.recoveryHelp));
   const footerHeight = compact && view.mode === "browse" ? compactFooter : 2;
   const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
@@ -815,7 +814,7 @@ export function renderTreeFrame(
   }
   while (output.length < height - footerHeight) output.push("");
   if (compact && view.mode === "browse") {
-    if (compactFooter) output.push(truncateToWidth(sanitizeDynamicText(compactStatus), width));
+    for (const text of compactStatuses) output.push(truncateToWidth(sanitizeDynamicText(text), width));
     if (view.recoveryHelp) output.push(truncateToWidth(view.recoveryHelp, width));
     const selected = selectedExpandedInfo.current;
     return {frame: clear + output.slice(0,height).join("\n"), scrollStartEntryIndex, mouseTargets,
