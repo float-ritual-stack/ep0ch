@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = scenario === "desk" || scenario === "river" || scenario === "board";
+const wide = ["desk", "river", "board", "board2"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
@@ -150,6 +150,26 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "board2") {
+  const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+  app.push(new MainMenu()); app.push(new DeliveryBoard());
+  await Bun.sleep(6000);
+  press({ kind: "right" }); press({ kind: "right" }); press({ kind: "right" }); ch("c");   // collapse Review
+  press({ kind: "left" }); press({ kind: "left" }); press({ kind: "left" });
+  press({ kind: "down" }); press({ kind: "enter" }); await Bun.sleep(1500);
+  mouse("down", 60, 25); mouse("drag", 60, 18); mouse("up", 60, 18);          // drag the lanes/readers border up
+  await snap("1-collapsed-resized", 1500);
+  ch("o"); await Bun.sleep(300);                                               // pop the detail out as a float
+  mouse("down", 70, 7); mouse("drag", 110, 4); mouse("up", 110, 4);            // drag it by its title
+  await snap("2-float", 1000);
+  press({ kind: "esc" }); ch("S");                                             // outline drawer on the right
+  press({ kind: "down" }); press({ kind: "down" });
+  await snap("3-tree-right", 3000);
+  press({ kind: "esc" }); ch("b");
+  press({ kind: "down" });
+  await snap("4-backlink-preview", 5000);
+  board.close(); process.exit(0);
+}
 if (scenario === "board") {
   app.push(new MainMenu()); app.push(new DeliveryBoard());
   await snap("1-lanes", 6000);

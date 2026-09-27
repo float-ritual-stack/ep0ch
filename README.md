@@ -49,17 +49,30 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 The layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
-## The delivery board
+## The board
 
-`K` on the menu, or `bun src/main.ts --board [hub-block-id]` (default: the hub titled "Delivery Flow").
+`K` on the menu, or `bun src/main.ts [--ws <workspace root>] --board [hub-block-id]`. Any block with two or more
+virtual-branch children is a board; `g` picks one (Delivery Flow on the pi-outliner outline, Outbox on float-hub).
+The last board per workspace is remembered.
 
-- **Lanes** are the hub's virtual-branch children, run with their own saved `query`, `limit` and `sort` (Superseded hidden; order validate, doing, queued, review, done).
-- **One preview** under the lanes follows the selected card.
-- **⏎** opens the card in the detail area (the same one each time); **alt+⏎** opens a second detail beside it. `x` closes a detail.
-- **`t` outline drawer** slides over from the left without moving anything; `T` pins it, and then the layout makes room.
-- **`b` backlinks drawer** spans all readers and shows backlinks for the reader you pressed it in (preview when on the lanes). `B` pins it. ⏎ opens a source in the detail.
-- `tab` walks lanes → preview → details → drawers; click and wheel work everywhere; `esc` closes an unpinned drawer, then returns to the lanes.
-- Lanes reload quietly when the outline changes.
+`--ws ~/float-hub` finds that workspace's socket the way the outliner does
+(`~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`).
+
+- **Lanes** are read the way Tree and `pie view` read saved views (`src/views.ts`, ported from the outliner's
+  `saved-view-read.ts`): the query is parsed into property filters, views without a sort use the service's
+  branch-local rank order (`rankViewId`), roots are kept once, the authored limit (default 200) applies, and
+  a lane says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty.
+  Checked identical against the outliner's evaluator for every branch on float-hub.
+- **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
+- **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
+- **Resize** by dragging any border (lanes/readers, preview/details, drawer edges), or `{ }` and `< >`.
+- **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
+  to nudge, `o` again to dock it back as a detail, `x` to close.
+- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`); `S` moves it
+  to the other side so it doesn't cover the preview.
+- **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
+  snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
+- Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
 
 ## The river
 

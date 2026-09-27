@@ -1,6 +1,7 @@
 // Delivery board: a hub's virtual branches as lanes across the top, one shared preview,
-// details you open into, an outline drawer that slides over (or pins), and a backlinks
-// drawer spanning the readers. Nothing reflows when a drawer opens unless it is pinned.
+// details you open into, floating panes you can drag above everything, an outline drawer
+// (left or right, with its own mini preview) and a backlinks drawer with its own preview.
+// Drawers slide over; nothing reflows unless it is pinned. Every border can be dragged.
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
@@ -9,16 +10,24 @@ import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
+import { readView, type ViewRead } from "../views";
 import { ReaderPane, TreePane, type DeskApi, type Pane, type PaneKind } from "./panes";
 
-interface Lane { name: string; query: string; limit: number; sort: "created" | "updated"; direction: "asc" | "desc"; items: Msg[] | null; sel: number; top: number }
-type Region = "lanes" | "preview" | "detail0" | "detail1" | "tree" | "backlinks";
-interface Saved { treePinned: boolean; linksPinned: boolean; lane: number }
+interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead }
+interface Float { pane: ReaderPane; rect: Rect }
+type Region = "lanes" | "preview" | `detail${number}` | `float${number}` | "tree" | "backlinks";
+type Drag =
+  | { kind: "lanes-split" } | { kind: "preview-split" } | { kind: "tree-edge" } | { kind: "links-edge" }
+  | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float };
+interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right" }
+interface Saved extends Layout { treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string> }
 
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 const HIDDEN = new Set(["superseded"]);
 const SEL = bg(C.blue) + fg(C.white);
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
+const SPINE = 3;
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 export class DeliveryBoard implements Screen, DeskApi {
   title = "delivery";
@@ -27,53 +36,90 @@ export class DeliveryBoard implements Screen, DeskApi {
   private hub: Msg | null = null;
   private lanes: Lane[] = [];
   private lane = 0;
+  private collapsed = new Set<string>();
   private preview = new ReaderPane();
   private details: ReaderPane[] = [];
-  private active = 0;                       // which detail Enter replaces
+  private floats: Float[] = [];
+  private active = 0;                        // which detail Enter replaces
   private tree = new TreePane();
+  private treePreview = new ReaderPane();
   private treeReady = false;
   private treeOpen = false;
   private treePinned = false;
   private links: { target: Msg; from: string; items: Backlink[] | null; sel: number; top: number } | null = null;
+  private linksPreview = new ReaderPane();
   private linksPinned = false;
+  private lay: Layout = { laneFrac: 0.42, previewFrac: 0.4, treeFrac: 0.3, linksFrac: 0.45, treeSide: "left" };
   private focus: Region = "lanes";
-  private rects = new Map<Region, Rect>();
-  private laneRects: Rect[] = [];
+  private rects = new Map<string, Rect>();   // region → rect, plus "float-title:N", splitter lines
+  private laneRects: { lane: number; rect: Rect; spine: boolean }[] = [];
+  private drag: Drag | null = null;
   private reload: Timer | null = null;
-  private status = "finding the Delivery Flow hub…";
+  private status = "looking for boards…";
+  private hubs: Record<string, string> = {};          // workspace → last board hub id
+  private picker: { items: { hub: Msg; lanes: number }[]; sel: number } | null = null;
 
   constructor(private readonly hubId?: string) {
-    const s = readState<Saved>("delivery.json");
-    if (s) { this.treePinned = s.treePinned; this.treeOpen = s.treePinned; this.linksPinned = s.linksPinned; this.lane = s.lane; }
+    const s = readState<Partial<Saved>>("delivery.json");
+    if (s) {
+      this.treePinned = !!s.treePinned; this.treeOpen = !!s.treePinned; this.linksPinned = !!s.linksPinned;
+      this.lane = s.lane ?? 0; this.collapsed = new Set(s.collapsed ?? []); this.hubs = s.hubs ?? {};
+      for (const k of ["laneFrac", "previewFrac", "treeFrac", "linksFrac", "treeSide"] as const) if (s[k] !== undefined) (this.lay as any)[k] = s[k];
+    }
   }
 
-  private save() { writeState("delivery.json", { treePinned: this.treePinned, linksPinned: this.linksPinned, lane: this.lane } satisfies Saved); }
+  private save() {
+    writeState("delivery.json", { ...this.lay, treePinned: this.treePinned, linksPinned: this.linksPinned, lane: this.lane, collapsed: [...this.collapsed], hubs: this.hubs } satisfies Saved);
+  }
 
   // ── data ───────────────────────────────────────────────────────────────────
 
   async enter(ctx: Ctx) {
     this.ctx = ctx;
     try {
-      this.hub = this.hubId ? await ctx.board.get(this.hubId)
-        : (await ctx.board.search("Delivery Flow", 20)).find(m => subject(m) === "Delivery Flow") ?? null;
-      if (!this.hub) { this.status = "no Delivery Flow hub found; pass --board <block-id>"; return ctx.redraw(); }
-      const kids = await ctx.board.children(this.hub.id);
-      const lanes = kids.filter(k => k.props.type === "virtual-branch" && k.props.query && !HIDDEN.has(subject(k).toLowerCase()));
-      const rank = (n: string) => { const i = PREFERRED.indexOf(n.toLowerCase()); return i < 0 ? 99 : i; };
-      this.lanes = lanes.sort((a, b) => rank(subject(a)) - rank(subject(b))).map(k => ({
-        name: subject(k), query: k.props.query!, limit: Number(k.props.limit) || 50,
-        sort: k.props.sort === "created" ? "created" : "updated", direction: k.props.direction === "asc" ? "asc" : "desc",
-        items: null, sel: 0, top: 0,
-      }));
-      this.lane = Math.min(this.lane, Math.max(0, this.lanes.length - 1));
-      this.status = "";
-      this.loadLanes();
+      const remembered = this.hubId ?? this.hubs[ctx.workspace];
+      const hub = remembered ? await ctx.board.get(remembered) : null;
+      if (hub) return this.useHub(hub);
+      const found = await this.findBoards();
+      const df = found.find(f => subject(f.hub) === "Delivery Flow");
+      if (df || found.length === 1) return this.useHub((df ?? found[0]!).hub);
+      if (!found.length) { this.status = "no hub with virtual-branch children here; pass --board <block-id>"; return ctx.redraw(); }
+      this.picker = { items: found, sel: 0 };
     } catch (e) { this.status = String((e as Error).message); }
     ctx.redraw();
   }
 
+  /** Every block with two or more virtual-branch children is a board. */
+  private async findBoards(): Promise<{ hub: Msg; lanes: number }[]> {
+    const branches = await this.ctx.board.query("type=virtual-branch", 500);
+    const count = new Map<string, number>();
+    for (const b of branches) if (b.parentId && b.props.query) count.set(b.parentId, (count.get(b.parentId) ?? 0) + 1);
+    const ids = [...count].filter(([, n]) => n >= 2).map(([id]) => id);
+    const hubs = await Promise.all(ids.map(id => this.ctx.board.get(id)));
+    return hubs.flatMap((h, i) => (h ? [{ hub: h, lanes: count.get(ids[i]!)! }] : [])).sort((a, b) => b.hub.updatedAt - a.hub.updatedAt);
+  }
+
+  private async useHub(hub: Msg) {
+    this.hub = hub; this.picker = null;
+    this.hubs[this.ctx.workspace] = hub.id; this.save();
+    this.title = `board · ${subject(hub)}`;
+    const kids = await this.ctx.board.children(hub.id);
+    const lanes = kids.filter(k => (k.props.type ?? "").toLowerCase() === "virtual-branch" && !HIDDEN.has(subject(k).toLowerCase()));
+    // Stage-named lanes get the delivery order; anything else keeps the hub's own order.
+    const staged = lanes.some(k => PREFERRED.slice(0, 4).includes(subject(k).toLowerCase()));
+    const rank = (n: string) => { const i = PREFERRED.indexOf(n.toLowerCase()); return i < 0 ? 99 : i; };
+    if (staged) lanes.sort((a, b) => rank(subject(a)) - rank(subject(b)));
+    this.lanes = lanes.map(k => ({ name: subject(k), def: k, items: null, sel: 0, top: 0 }));
+    this.lane = clamp(this.lane, 0, Math.max(0, this.lanes.length - 1));
+    this.status = "";
+    this.loadLanes();
+    this.ctx.redraw();
+  }
+
   private loadLanes() {
-    for (const l of this.lanes) this.ctx.board.query(l.query, l.limit, l.sort, l.direction).then(items => {
+    for (const l of this.lanes) readView(this.ctx.board, l.def).then(read => {
+      const items = read.items;
+      l.read = read;
       const keep = l.items?.[l.sel]?.id;
       l.items = items;
       l.sel = Math.max(0, keep ? items.findIndex(m => m.id === keep) : Math.min(l.sel, items.length - 1));
@@ -82,22 +128,22 @@ export class DeliveryBoard implements Screen, DeskApi {
     }, () => { l.items = []; });
   }
 
-  onEvent(e: OutlineEvent) {
+  onEvent(_e: OutlineEvent) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => this.loadLanes(), 1200);
-    void e;
   }
 
   private card(): Msg | undefined { const l = this.lanes[this.lane]; return l?.items?.[l.sel]; }
   private follow() { const m = this.card(); if (m && m.id !== this.preview.msg?.id) { this.current = m; this.preview.show(m, this); } }
 
-  // ── DeskApi (the reused tree and reader panes call back through this) ────
+  // ── DeskApi: the reused tree and reader panes call back through this ───────
 
   setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } = {}) {
     if (!m) return;
     this.current = m;
     const from = opts.from;
-    if (from instanceof ReaderPane && from !== this.preview) from.show(m, this);   // links open in place
+    if (from === this.tree) this.treePreview.show(m, this);                     // tree → its own mini preview
+    else if (from instanceof ReaderPane && from !== this.preview) from.show(m, this);   // links open in place
     else this.preview.show(m, this);
     this.redraw();
   }
@@ -111,14 +157,17 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.active = this.details.length - 1;
     }
     this.details[this.active]!.show(m, this);
-    this.focus = `detail${this.active}` as Region;
+    this.focus = `detail${this.active}`;
     if (!this.treePinned) this.treeOpen = false;
     this.redraw();
   }
 
   private readerFor(r: Region): { pane: ReaderPane; label: string } | null {
     if (r === "preview" || r === "lanes") return { pane: this.preview, label: "preview" };
-    if (r === "detail0" || r === "detail1") { const i = Number(r.slice(6)); const p = this.details[i]; return p ? { pane: p, label: `detail ${i + 1}` } : null; }
+    if (r === "tree") return { pane: this.treePreview, label: "outline preview" };
+    if (r === "backlinks") return { pane: this.linksPreview, label: "backlink preview" };
+    if (r.startsWith("detail")) { const i = Number(r.slice(6)); const p = this.details[i]; return p ? { pane: p, label: `detail ${i + 1}` } : null; }
+    if (r.startsWith("float")) { const i = Number(r.slice(5)); const f = this.floats[i]; return f ? { pane: f.pane, label: `float ${i + 1}` } : null; }
     return null;
   }
 
@@ -128,9 +177,46 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (!rd || !m) return this.ctx.flash("nothing in that reader to find backlinks for");
     const links: NonNullable<DeliveryBoard["links"]> = { target: m, from: rd.label, items: null, sel: 0, top: 0 };
     this.links = links;
+    this.linksPreview.show(null, this);
     this.focus = "backlinks";
-    this.ctx.board.backlinks(m.id).then(items => { links.items = items; this.redraw(); }, e => { links.items = []; this.ctx.flash(String(e.message)); });
+    this.ctx.board.backlinks(m.id).then(items => { links.items = items; this.previewLink(); this.redraw(); }, e => { links.items = []; this.ctx.flash(String(e.message)); });
     this.redraw();
+  }
+
+  private previewLink() {
+    const b = this.links?.items?.[this.links.sel];
+    if (!b || b.id === this.linksPreview.msg?.id) return;
+    this.ctx.board.get(b.id).then(m => { if (m && this.links?.items?.[this.links.sel]?.id === m.id) { this.linksPreview.show(m, this); this.redraw(); } }, () => {});
+  }
+
+  /** Pop the focused reader out as a floating pane, or dock a floating one back as a detail. */
+  private popOut() {
+    const f = this.focus;
+    const W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
+    if (f.startsWith("float")) {
+      const i = Number(f.slice(5)), fl = this.floats[i]!;
+      this.floats.splice(i, 1);
+      if (this.details.length >= 2) this.details.shift();
+      this.details.push(fl.pane);
+      this.active = this.details.length - 1;
+      this.focus = `detail${this.active}`;
+      return this.redraw();
+    }
+    const rd = this.readerFor(f);
+    if (!rd?.pane.msg) return this.ctx.flash("focus a reader with something in it, then o to pop it out");
+    let pane: ReaderPane;
+    if (f.startsWith("detail")) { pane = this.details.splice(Number(f.slice(6)), 1)[0]!; this.active = Math.max(0, this.details.length - 1); }
+    else { pane = new ReaderPane(); pane.show(rd.pane.msg, this); }            // preview and drawer previews keep following; float a copy
+    const n = this.floats.length;
+    this.floats.push({ pane, rect: { col: Math.round(W * 0.22) + n * 3, row: Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) } });
+    this.focus = `float${this.floats.length - 1}`;
+    this.redraw();
+  }
+
+  private raise(i: number) {
+    const [f] = this.floats.splice(i, 1);
+    this.floats.push(f!);
+    this.focus = `float${this.floats.length - 1}`;
   }
 
   // ── drawing ────────────────────────────────────────────────────────────────
@@ -140,37 +226,50 @@ export class DeliveryBoard implements Screen, DeskApi {
     const H = rows - 2;
     const canvas = new Canvas(W, rows - 1);
     this.rects.clear();
-    const treeW = Math.max(30, Math.min(64, Math.round(W * 0.3)));
-    const x0 = this.treePinned && this.treeOpen ? treeW : 0;
-    const area: Rect = { col: x0, row: 0, cols: W - x0, rows: H };
+    const treeW = clamp(Math.round(W * this.lay.treeFrac), 28, Math.round(W * 0.7));
+    const pinnedTree = this.treePinned && this.treeOpen;
+    const area: Rect = {
+      col: pinnedTree && this.lay.treeSide === "left" ? treeW : 0, row: 0,
+      cols: W - (pinnedTree ? treeW : 0), rows: H,
+    };
 
     // Lanes across the top.
-    const laneH = Math.max(8, Math.round(H * 0.42));
+    const laneH = clamp(Math.round(H * this.lay.laneFrac), 5, H - 6);
     this.drawLanes(canvas, { ...area, rows: laneH });
+    this.rects.set("split:lanes", { col: area.col, row: laneH, cols: area.cols, rows: 1 });
 
-    // Readers: the shared preview plus up to two details, side by side.
+    // Docked readers: the shared preview plus up to two details.
     let readersH = H - laneH;
-    const linksH = Math.max(8, Math.round(readersH * 0.45));
+    const linksH = clamp(Math.round(readersH * this.lay.linksFrac), 6, readersH - 3);
     if (this.links && this.linksPinned) readersH -= linksH;
-    const readers: { region: Region; pane: ReaderPane; label: string }[] = [
+    const docked: { region: Region; pane: ReaderPane; label: string }[] = [
       { region: "preview", pane: this.preview, label: "preview · follows the board" },
       ...this.details.map((p, i) => ({ region: `detail${i}` as Region, pane: p, label: `detail ${i + 1}${this.details.length > 1 && i === this.active ? " · ⏎ opens here" : ""}` })),
     ];
-    const pw = this.details.length ? Math.max(30, Math.round(area.cols * (this.details.length === 1 ? 0.4 : 0.3))) : area.cols;
+    const pw = this.details.length ? clamp(Math.round(area.cols * this.lay.previewFrac), 20, area.cols - 20 * this.details.length) : area.cols;
     let x = area.col;
-    readers.forEach((r, i) => {
-      const w = i === 0 ? pw : i === readers.length - 1 ? area.col + area.cols - x : Math.round((area.cols - pw) / this.details.length);
+    docked.forEach((r, i) => {
+      const w = i === 0 ? pw : i === docked.length - 1 ? area.col + area.cols - x : Math.round((area.cols - pw) / this.details.length);
       this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label);
       x += w;
     });
+    if (this.details.length) this.rects.set("split:preview", { col: area.col + pw, row: laneH, cols: 1, rows: readersH });
 
     // Backlinks drawer spans every reader; overlays unless pinned.
     if (this.links) {
       const r: Rect = { col: area.col, row: laneH + (this.linksPinned ? readersH : readersH - linksH), cols: area.cols, rows: linksH };
       this.drawLinks(canvas, r);
+      this.rects.set("split:links", { col: r.col, row: r.row, cols: r.cols, rows: 1 });
     }
-    // Outline drawer slides over from the left unless pinned.
-    if (this.treeOpen) this.drawTree(canvas, { col: 0, row: 0, cols: treeW, rows: H }, !this.treePinned);
+    // Outline drawer on the left or right, sliding over unless pinned.
+    if (this.treeOpen) {
+      const r: Rect = { col: this.lay.treeSide === "left" ? 0 : W - treeW, row: 0, cols: treeW, rows: H };
+      this.drawTree(canvas, r, !this.treePinned);
+      this.rects.set("split:tree", { col: this.lay.treeSide === "left" ? r.col + r.cols - 1 : r.col, row: 0, cols: 1, rows: H });
+    }
+    if (this.picker) this.drawPicker(canvas, W, H);
+    // Floating panes last, in z-order.
+    this.floats.forEach((f, i) => this.drawFloat(canvas, f, i, W, H));
 
     canvas.text(0, rows - 2, this.hints(W), W);
     return { lines: canvas.lines() };
@@ -186,44 +285,66 @@ export class DeliveryBoard implements Screen, DeskApi {
   private drawLanes(canvas: Canvas, r: Rect) {
     this.laneRects = [];
     if (!this.lanes.length) { canvas.box(r, fg(C.blue), fg(C.grey) + (this.hub ? subject(this.hub) : "board")); canvas.text(r.col + 2, r.row + 1, fg(C.dark) + this.status + RESET); return; }
-    const n = this.lanes.length;
-    let x = r.col;
+    const open = this.lanes.filter(l => !this.collapsed.has(l.name)).length;
+    const spines = this.lanes.length - open;
+    const each = open ? Math.floor((r.cols - spines * SPINE) / open) : 0;
+    let x = r.col, seenOpen = 0;
     this.lanes.forEach((l, i) => {
-      const w = i === n - 1 ? r.col + r.cols - x : Math.floor(r.cols / n);
+      const spine = this.collapsed.has(l.name);
+      if (!spine) seenOpen++;
+      const w = spine ? SPINE : seenOpen === open ? r.col + r.cols - x - (this.lanes.slice(i + 1).filter(n => this.collapsed.has(n.name)).length * SPINE) : each;
       const rect: Rect = { col: x, row: r.row, cols: w, rows: r.rows };
-      this.laneRects.push(rect);
+      this.laneRects.push({ lane: i, rect, spine });
       x += w;
       const on = this.focus === "lanes" && i === this.lane;
+      if (spine) {
+        for (let y = rect.row; y < rect.row + rect.rows; y++) canvas.text(rect.col + rect.cols - 1, y, fg(C.blue) + "│" + RESET, 1);
+        const label = `${l.name} ${l.items?.length ?? "…"}`;
+        [...label].slice(0, rect.rows).forEach((ch, k) => canvas.text(rect.col + 1, rect.row + k, (on ? SEL : fg(C.cyan)) + ch + RESET, 1));
+        return;
+      }
       canvas.box(rect, fg(on ? C.lcyan : i === this.lane ? C.cyan : C.blue),
-        `${fg(on ? C.white : C.grey)}${l.name} ${fg(C.dark)}${l.items ? l.items.length : "…"}`);
+        `${fg(on ? C.white : C.grey)}${l.name} ${fg(C.dark)}${l.items ? l.items.length : "…"}${l.read?.truncated ? fg(C.yellow) + ` of ${l.read.limit}+` : ""}${l.read && l.read.status !== "ready" ? fg(C.lred) + " " + l.read.status : ""}`, on ? fg(C.dark) + "c collapse" : "");
       const inner = { col: rect.col + 1, row: rect.row + 1, cols: rect.cols - 2, rows: rect.rows - 2 };
       const items = l.items ?? [];
-      const rowsPer = 2;
-      const fit = Math.max(1, Math.floor(inner.rows / rowsPer));
+      const fit = Math.max(1, Math.floor(inner.rows / 2));
       if (l.sel < l.top) l.top = l.sel;
       if (l.sel >= l.top + fit) l.top = l.sel - fit + 1;
       items.slice(l.top, l.top + fit).forEach((m, j) => {
         const k = l.top + j, sel = k === l.sel;
-        const wid = m.props["work-id"] ?? "";
-        const title = subject(m).replace(new RegExp(`^${wid}\\s*[—-]\\s*`), "");
+        const wid = m.props["work-id"] ?? m.props.ticket ?? "";
+        const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
         const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
-        const meta = `${fg(pri)}● ${fg(C.lcyan)}${wid} ${fg(C.dark)}${m.props.track ?? ""} · ${ago(m.updatedAt)}`;
-        const y = inner.row + j * rowsPer;
+        // Whatever this lane's cards carry: stage fields, or outbox fields (to · channel · waiting on).
+        const extra = [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]
+          .filter(Boolean).join(" · ");
+        const y = inner.row + j * 2;
         if (sel) {
           const style = on ? SEL : bg(C.dark) + fg(C.white);
-          canvas.text(inner.col, y, style + pad(` ${wid} ${m.props.priority ?? ""} · ${ago(m.updatedAt)}`, inner.cols) + RESET, inner.cols);
+          canvas.text(inner.col, y, style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, inner.cols) + RESET, inner.cols);
           canvas.text(inner.col, y + 1, style + pad(` ${title}`, inner.cols) + RESET, inner.cols);
         } else {
-          canvas.text(inner.col, y, pad(" " + meta, inner.cols) + RESET, inner.cols);
+          canvas.text(inner.col, y, pad(` ${fg(pri)}● ${fg(C.lcyan)}${wid}${wid ? " " : ""}${fg(C.dark)}${extra} · ${ago(m.updatedAt)}`, inner.cols) + RESET, inner.cols);
           canvas.text(inner.col, y + 1, fg(C.grey) + pad(` ${title}`, inner.cols) + RESET, inner.cols);
         }
       });
       if (!l.items) canvas.text(inner.col, inner.row, fg(C.dark) + " loading…" + RESET, inner.cols);
+      else if (l.read && l.read.status !== "ready") l.read.errors.forEach((e, k) => canvas.text(inner.col, inner.row + k, fg(C.lred) + " " + e + RESET, inner.cols));
+      else if (!items.length) canvas.text(inner.col, inner.row, fg(C.dark) + " empty" + RESET, inner.cols);
     });
   }
 
-  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string) {
-    const inner = this.frame(canvas, r, region, label, pane.hint());
+  private drawPicker(canvas: Canvas, W: number, H: number) {
+    const P = this.picker!;
+    const r: Rect = { col: Math.round(W * 0.2), row: Math.round(H * 0.15), cols: Math.round(W * 0.6), rows: Math.min(H - 4, P.items.length + 4) };
+    canvas.clear(r, bg(C.black));
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + `pick a board · ${this.ctx.workspace}`, fg(C.dark) + "⏎ open · esc back");
+    P.items.forEach((it, i) => canvas.text(r.col + 1, r.row + 1 + i,
+      (i === P.sel ? SEL : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
+  }
+
+  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint()) {
+    const inner = this.frame(canvas, r, region, label, hint);
     if (inner.cols < 4 || inner.rows < 1) return;
     pane.render(inner.cols, inner.rows).lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
   }
@@ -232,34 +353,70 @@ export class DeliveryBoard implements Screen, DeskApi {
     const L = this.links!;
     if (!this.linksPinned) canvas.clear(r, bg(C.black));
     const count = L.items ? `${L.items.length} source${L.items.length === 1 ? "" : "s"}` : "…";
-    const inner = this.frame(canvas, r, "backlinks", `backlinks · ${subject(L.target).slice(0, 60)} · ${count} ${fg(C.dark)}(from ${L.from})${this.linksPinned ? " · pinned" : ""}`, "⏎ open in detail · B pin · esc close");
+    const listW = Math.round(r.cols * 0.5);
+    const listR: Rect = { ...r, cols: listW };
+    const inner = this.frame(canvas, listR, "backlinks", `backlinks · ${subject(L.target).slice(0, 50)} · ${count} ${fg(C.dark)}(from ${L.from})${this.linksPinned ? " · pinned" : ""}`, "⏎ open · alt⏎ new detail · B pin · esc");
     const items = L.items ?? [];
-    const per = 2, fit = Math.max(1, Math.floor(inner.rows / per));
+    const fit = Math.max(1, Math.floor(inner.rows / 2));
     if (L.sel < L.top) L.top = L.sel;
     if (L.sel >= L.top + fit) L.top = L.sel - fit + 1;
     items.slice(L.top, L.top + fit).forEach((b, j) => {
-      const k = L.top + j, sel = k === L.sel && this.focus === "backlinks";
-      const y = inner.row + j * per;
-      canvas.text(inner.col, y, (sel ? SEL : fg(C.white)) + pad(` ${b.title}`, Math.floor(inner.cols * 0.55)) + (sel ? "" : fg(C.dark)) + pad(` ${b.context}`, inner.cols - Math.floor(inner.cols * 0.55)) + RESET, inner.cols);
-      canvas.text(inner.col, y + 1, fg(C.dark) + `   ${b.kinds} · ${ago(b.updatedAt)}  ` + fg(C.grey) + b.snippet + RESET, inner.cols);
+      const sel = L.top + j === L.sel;
+      const y = inner.row + j * 2;
+      canvas.text(inner.col, y, (sel ? (this.focus === "backlinks" ? SEL : bg(C.dark) + fg(C.white)) : fg(C.white)) + pad(` ${b.title}`, inner.cols) + RESET, inner.cols);
+      canvas.text(inner.col, y + 1, fg(C.dark) + pad(`   ${b.context} · ${b.kinds} · ${ago(b.updatedAt)}`, inner.cols) + RESET, inner.cols);
     });
     if (L.items && !items.length) canvas.text(inner.col + 1, inner.row, fg(C.dark) + "nothing links here" + RESET, inner.cols);
+    // Its own preview, following the selected source.
+    const pr: Rect = { col: r.col + listW, row: r.row, cols: r.cols - listW, rows: r.rows };
+    canvas.box(pr, fg(C.blue), fg(C.grey) + "backlink preview");
+    const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
+    const snip = items[L.sel]?.snippet;
+    if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`“${snip}”`, pin.cols) + RESET, pin.cols);
+    this.linksPreview.render(pin.cols, pin.rows - 1).lines.slice(0, pin.rows - 1).forEach((l, i) => canvas.text(pin.col, pin.row + 1 + i, l, pin.cols));
   }
 
   private drawTree(canvas: Canvas, r: Rect, overlay: boolean) {
     if (!this.treeReady) { this.tree.init(this); this.treeReady = true; }
     if (overlay) canvas.clear(r, bg(C.black));
-    const inner = this.frame(canvas, r, "tree", `outline${this.treePinned ? " · pinned" : " · drawer"}`, "⏎ open in detail · T pin · esc close");
+    const treeRows = r.rows >= 24 ? Math.round(r.rows * 0.6) : r.rows;
+    const tr: Rect = { ...r, rows: treeRows };
+    const inner = this.frame(canvas, tr, "tree", `outline · ${this.treePinned ? "pinned" : "drawer"} · ${this.lay.treeSide}`, "⏎ open · T pin · S side · esc");
     this.tree.render(inner.cols, inner.rows, this.focus === "tree", this).lines.slice(0, inner.rows)
       .forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
-    // A shadow edge so the drawer reads as floating.
-    if (overlay) for (let y = r.row; y < r.row + r.rows; y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▐" + RESET, 1);
+    if (treeRows < r.rows) {
+      const pr: Rect = { col: r.col, row: r.row + treeRows, cols: r.cols, rows: r.rows - treeRows };
+      canvas.box(pr, fg(C.blue), fg(C.grey) + "outline preview");
+      const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
+      this.treePreview.render(pin.cols, pin.rows).lines.slice(0, pin.rows).forEach((l, i) => canvas.text(pin.col, pin.row + i, l, pin.cols));
+    }
+    if (overlay) {
+      const edge = this.lay.treeSide === "left" ? r.col + r.cols : r.col - 1;
+      for (let y = r.row; y < r.row + r.rows; y++) canvas.text(edge, y, fg(C.dark) + (this.lay.treeSide === "left" ? "▐" : "▌") + RESET, 1);
+    }
+  }
+
+  private drawFloat(canvas: Canvas, f: Float, i: number, W: number, H: number) {
+    const r = f.rect;
+    r.cols = clamp(r.cols, 20, W); r.rows = clamp(r.rows, 5, H);
+    r.col = clamp(r.col, 0, W - r.cols); r.row = clamp(r.row, 0, H - r.rows);
+    canvas.clear(r, bg(C.black));
+    // Drop shadow on the right and bottom.
+    for (let y = r.row + 1; y <= Math.min(H - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
+    canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, W - r.col - 1))) + RESET, W);
+    const title = `${fg(C.yellow)}⧉ ${f.pane.msg ? subject(f.pane.msg).slice(0, r.cols - 12) : "float"}`;
+    this.drawReader(canvas, r, `float${i}`, f.pane, title, "drag title · drag ◢ · o dock · x close");
+    canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
+    this.rects.set(`float-title:${i}`, { col: r.col, row: r.row, cols: r.cols, rows: 1 });
+    this.rects.set(`float-corner:${i}`, { col: r.col + r.cols - 2, row: r.row + r.rows - 2, cols: 2, rows: 2 });
   }
 
   private hints(W: number): string {
     const base = this.focus === "lanes"
-      ? "|08 h l lane · j k card · |15⏎|08 open in detail · |15alt⏎|08 new detail · |15t|08 outline · |15b|08 backlinks · |15tab|08 next area · |15x|08 close detail · |15esc|08 menu"
-      : "|08 |15tab|08 next area · |15t|08 outline · |15b|08 backlinks of this reader · |15x|08 close detail · |15esc|08 back to lanes";
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15alt⏎|08 new detail · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15{ } < >|08 size · |15tab|08 area"
+      : this.focus.startsWith("float")
+        ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
+        : "|08 |15tab|08 area · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
     return pad(paint(base + (this.status ? ` · |14${this.status}` : "")), W);
   }
 
@@ -269,27 +426,56 @@ export class DeliveryBoard implements Screen, DeskApi {
     const r: Region[] = ["lanes", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
     if (this.links) r.push("backlinks");
     if (this.treeOpen) r.push("tree");
+    this.floats.forEach((_, i) => r.push(`float${i}`));
     return r;
   }
 
   key(k: Key, ctx: Ctx) {
-    if (k.kind === "mouse") return this.mouse(k);
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    // Globals first.
+    if (this.picker) {
+      const P = this.picker;
+      if (k.kind === "down" || c === "j") P.sel = Math.min(P.items.length - 1, P.sel + 1);
+      else if (k.kind === "up" || c === "k") P.sel = Math.max(0, P.sel - 1);
+      else if (k.kind === "enter") { void this.useHub(P.items[P.sel]!.hub); return; }
+      else if (k.kind === "esc") { if (this.hub) this.picker = null; else return ctx.pop(); }
+      return this.redraw();
+    }
+    if (k.kind === "mouse") return this.mouse(k);
+    if (c === "g") { this.status = "looking for boards…"; this.redraw(); this.findBoards().then(items => { this.status = ""; this.picker = { items, sel: Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id)) }; this.redraw(); }, () => {}); return; }
     if (k.kind === "tab" || k.kind === "backtab") {
       const rs = this.regions(), i = rs.indexOf(this.focus);
       this.focus = rs[(i + (k.kind === "tab" ? 1 : rs.length - 1)) % rs.length]!;
       if (this.focus.startsWith("detail")) this.active = Number(this.focus.slice(6));
       return this.redraw();
     }
+    // Layout keys work from anywhere.
+    const nudge = (key: keyof Layout, d: number, lo: number, hi: number) => { (this.lay as any)[key] = clamp((this.lay as any)[key] + d, lo, hi); this.save(); this.redraw(); };
+    if (c === "{") return nudge("laneFrac", -0.05, 0.15, 0.8);
+    if (c === "}") return nudge("laneFrac", 0.05, 0.15, 0.8);
+    if (c === "<") return this.focus === "tree" ? nudge("treeFrac", -0.04, 0.15, 0.7) : nudge("previewFrac", -0.05, 0.15, 0.8);
+    if (c === ">") return this.focus === "tree" ? nudge("treeFrac", 0.04, 0.15, 0.7) : nudge("previewFrac", 0.05, 0.15, 0.8);
     if (c === "t") { this.treeOpen = !this.treeOpen || this.focus !== "tree"; this.focus = this.treeOpen ? "tree" : "lanes"; if (!this.treeOpen) this.treePinned = false; this.save(); return this.redraw(); }
     if (c === "T") { this.treePinned = !this.treePinned; this.treeOpen = this.treePinned || this.treeOpen; this.save(); return this.redraw(); }
+    if (c === "S") { this.lay.treeSide = this.lay.treeSide === "left" ? "right" : "left"; this.treeOpen = true; this.save(); return this.redraw(); }
     if (c === "b" && this.focus !== "backlinks") return this.showLinks(this.focus);
     if (c === "B") { this.linksPinned = !this.linksPinned; if (!this.links) this.showLinks(this.focus); this.save(); return this.redraw(); }
+    if (c === "o") return this.popOut();
+    if (c === "C") { this.collapsed.clear(); this.save(); return this.redraw(); }
     if (c === "x" && this.focus.startsWith("detail")) {
       this.details.splice(Number(this.focus.slice(6)), 1);
       this.active = Math.max(0, this.details.length - 1);
-      this.focus = this.details.length ? `detail${this.active}` as Region : "lanes";
+      this.focus = this.details.length ? `detail${this.active}` : "lanes";
+      return this.redraw();
+    }
+    if (c === "x" && this.focus.startsWith("float")) {
+      this.floats.splice(Number(this.focus.slice(5)), 1);
+      this.focus = this.floats.length ? `float${this.floats.length - 1}` : "lanes";
+      return this.redraw();
+    }
+    if (this.focus.startsWith("float") && "HJKL".includes(c) && c) {
+      const f = this.floats[Number(this.focus.slice(5))]!;
+      f.rect.col += c === "H" ? -4 : c === "L" ? 4 : 0;
+      f.rect.row += c === "K" ? -2 : c === "J" ? 2 : 0;
       return this.redraw();
     }
     if (c === "V") return ctx.cycleVideo();
@@ -310,10 +496,13 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   private laneKey(k: Key, c: string) {
+    const visible = this.lanes.map((_, i) => i);
     const l = this.lanes[this.lane];
     const n = l?.items?.length ?? 0;
-    if (k.kind === "left" || c === "h") this.lane = Math.max(0, this.lane - 1);
-    else if (k.kind === "right" || c === "l") this.lane = Math.min(this.lanes.length - 1, this.lane + 1);
+    if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
+    else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
+    else if (c === "c" && l) { this.collapsed.has(l.name) ? this.collapsed.delete(l.name) : this.collapsed.add(l.name); this.save(); return this.redraw(); }
+    else if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) { this.collapsed.delete(l.name); this.save(); return this.redraw(); }
     else if (l && (k.kind === "down" || c === "j")) l.sel = Math.min(Math.max(0, n - 1), l.sel + 1);
     else if (l && (k.kind === "up" || c === "k")) l.sel = Math.max(0, l.sel - 1);
     else if (l && k.kind === "pgdn") l.sel = Math.min(Math.max(0, n - 1), l.sel + 8);
@@ -326,46 +515,92 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   private linksKey(k: Key, c: string) {
     const L = this.links!, n = L.items?.length ?? 0;
-    if (k.kind === "down" || c === "j") L.sel = Math.min(Math.max(0, n - 1), L.sel + 1);
-    else if (k.kind === "up" || c === "k") L.sel = Math.max(0, L.sel - 1);
+    if (k.kind === "down" || c === "j") { L.sel = Math.min(Math.max(0, n - 1), L.sel + 1); this.previewLink(); }
+    else if (k.kind === "up" || c === "k") { L.sel = Math.max(0, L.sel - 1); this.previewLink(); }
+    else if (k.kind === "pgdn" || k.kind === "pgup") this.linksPreview.key(k, this);
     else if (k.kind === "enter" || k.kind === "alt-enter") {
-      const b = L.items?.[L.sel];
-      if (b) this.ctx.board.get(b.id).then(m => { if (m) { this.current = m; this.openDetail(m, k.kind === "alt-enter"); } }, () => {});
+      const m = this.linksPreview.msg;
+      if (m) { this.current = m; this.openDetail(m, k.kind === "alt-enter"); }
       return;
     }
     this.redraw();
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
-    const inside = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
-    // Drawers sit on top, so they get first claim.
-    const order: Region[] = ["tree", "backlinks", "preview", "detail0", "detail1"];
-    const region = order.find(r => this.rects.has(r) && inside(this.rects.get(r)!) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
-    if (k.action === "wheel-up" || k.action === "wheel-down") {
-      const dir = k.action === "wheel-up" ? -1 : 1;
-      const rd = region ? this.readerFor(region) : null;
-      if (rd) rd.pane.wheel(dir as 1 | -1, this);
-      else if (region === "tree") this.tree.wheel(dir as 1 | -1, this);
-      else { const li = this.laneRects.findIndex(inside); const l = this.lanes[li]; if (l) { l.sel = Math.max(0, Math.min((l.items?.length ?? 1) - 1, l.sel + dir)); if (li === this.lane) this.follow(); this.redraw(); } }
+    const inside = (r?: Rect) => !!r && k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
+    if (k.action === "up") { if (this.drag) { this.drag = null; this.save(); } return; }
+    if (k.action === "drag" && this.drag) return this.dragTo(k.x, k.y);
+
+    // Topmost first: floats, drawers, then the docked layout.
+    const floatHit = [...this.floats.keys()].reverse().find(i => inside(this.floats[i]!.rect));
+    const W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
+    if (k.action === "down") {
+      if (floatHit !== undefined) {
+        this.raise(floatHit);
+        const top = this.floats.length - 1, f = this.floats[top]!;
+        if (inside({ col: f.rect.col + f.rect.cols - 2, row: f.rect.row + f.rect.rows - 2, cols: 2, rows: 2 })) this.drag = { kind: "float-size", f };
+        else if (k.y === f.rect.row) this.drag = { kind: "float-move", f, dx: k.x - f.rect.col, dy: k.y - f.rect.row };
+        return this.redraw();
+      }
+      for (const [name, kind] of [["split:tree", "tree-edge"], ["split:links", "links-edge"], ["split:preview", "preview-split"], ["split:lanes", "lanes-split"]] as const) {
+        const r = this.rects.get(name);
+        if (r && (inside(r) || (kind === "preview-split" && inside({ ...r, col: r.col - 1 })) || (kind === "tree-edge" && inside({ ...r, col: r.col + (this.lay.treeSide === "left" ? 1 : -1) })))) {
+          if ((kind === "tree-edge" && !this.treeOpen) || (kind === "links-edge" && !this.links)) continue;
+          this.drag = { kind } as Drag; return;
+        }
+      }
+      const order: Region[] = ["tree", "backlinks", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
+      const region = order.find(r => inside(this.rects.get(r)) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
+      if (region) {
+        if (this.treeOpen && !this.treePinned && region !== "tree") this.treeOpen = false;
+        this.focus = region;
+        if (region.startsWith("detail")) this.active = Number(region.slice(6));
+        if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
+        if (region === "backlinks") {
+          const r = this.rects.get("backlinks")!, L = this.links!;
+          const idx = L.top + Math.floor((k.y - r.row - 1) / 2);
+          if (L.items && idx >= 0 && idx < L.items.length) { L.sel = idx; this.previewLink(); }
+        }
+        return this.redraw();
+      }
+      const hit = this.laneRects.find(l => inside(l.rect));
+      if (hit) {
+        if (this.treeOpen && !this.treePinned) this.treeOpen = false;
+        const l = this.lanes[hit.lane]!;
+        if (hit.spine) { this.collapsed.delete(l.name); this.lane = hit.lane; this.focus = "lanes"; this.save(); return this.redraw(); }
+        const idx = l.top + Math.floor((k.y - hit.rect.row - 1) / 2);
+        const same = this.lane === hit.lane && l.sel === idx && this.focus === "lanes";
+        this.lane = hit.lane; this.focus = "lanes";
+        if (l.items && idx >= 0 && idx < l.items.length) { l.sel = idx; this.follow(); if (same) return this.openDetail(l.items[idx]!, false); }
+        this.redraw();
+      }
+      void W; void H;
       return;
     }
-    if (k.action !== "down") return;
-    if (region) {
-      if (this.treeOpen && !this.treePinned && region !== "tree") this.treeOpen = false;
-      this.focus = region;
-      if (region.startsWith("detail")) this.active = Number(region.slice(6));
-      if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
-      return this.redraw();
+    if (k.action === "wheel-up" || k.action === "wheel-down") {
+      const dir = (k.action === "wheel-up" ? -1 : 1) as 1 | -1;
+      if (floatHit !== undefined) return this.floats[floatHit]!.pane.wheel(dir, this);
+      if (this.treeOpen && inside(this.rects.get("tree"))) return this.tree.wheel(dir, this);
+      if (this.links && inside(this.rects.get("backlinks"))) { const L = this.links; L.sel = clamp(L.sel + dir, 0, Math.max(0, (L.items?.length ?? 1) - 1)); this.previewLink(); return this.redraw(); }
+      for (const r of ["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]) if (inside(this.rects.get(r))) return this.readerFor(r)!.pane.wheel(dir, this);
+      const hit = this.laneRects.find(l => inside(l.rect));
+      if (hit && !hit.spine) { const l = this.lanes[hit.lane]!; l.sel = clamp(l.sel + dir, 0, Math.max(0, (l.items?.length ?? 1) - 1)); if (hit.lane === this.lane) this.follow(); this.redraw(); }
     }
-    const li = this.laneRects.findIndex(inside);
-    if (li >= 0) {
-      if (this.treeOpen && !this.treePinned) this.treeOpen = false;
-      const l = this.lanes[li]!, r = this.laneRects[li]!;
-      const idx = l.top + Math.floor((k.y - r.row - 1) / 2);
-      const same = this.lane === li && l.sel === idx && this.focus === "lanes";
-      this.lane = li; this.focus = "lanes";
-      if (l.items && idx >= 0 && idx < l.items.length) { l.sel = idx; this.follow(); if (same) return this.openDetail(l.items[idx]!, false); }
-      this.redraw();
+  }
+
+  private dragTo(x: number, y: number) {
+    const d = this.drag!, W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
+    const pinnedLeft = this.treePinned && this.treeOpen && this.lay.treeSide === "left";
+    const pinnedW = this.treePinned && this.treeOpen ? clamp(Math.round(W * this.lay.treeFrac), 28, Math.round(W * 0.7)) : 0;
+    if (d.kind === "lanes-split") this.lay.laneFrac = clamp(y / H, 0.12, 0.85);
+    else if (d.kind === "preview-split") this.lay.previewFrac = clamp((x - (pinnedLeft ? pinnedW : 0)) / (W - pinnedW), 0.12, 0.85);
+    else if (d.kind === "tree-edge") this.lay.treeFrac = clamp((this.lay.treeSide === "left" ? x + 1 : W - x) / W, 0.15, 0.7);
+    else if (d.kind === "links-edge") {
+      const laneH = Math.round(H * this.lay.laneFrac);
+      this.lay.linksFrac = clamp((H - y) / (H - laneH), 0.2, 0.9);
     }
+    else if (d.kind === "float-move") { d.f.rect.col = x - d.dx; d.f.rect.row = y - d.dy; }
+    else if (d.kind === "float-size") { d.f.rect.cols = Math.max(20, x - d.f.rect.col + 1); d.f.rect.rows = Math.max(5, y - d.f.rect.row + 1); }
+    this.redraw();
   }
 }

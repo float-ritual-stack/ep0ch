@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 // ep0ch-door: a read-only BBS door into a pi-herdr-outliner outline, over its socket.
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { dirname, join } from "node:path";
 import { App } from "./app";
 import { Desk } from "./desk/desk";
@@ -23,7 +26,13 @@ const args = process.argv.slice(2);
 const deskFirst = args.includes("--desk");
 const riverFirst = args.includes("--river");
 const boardAt = args.indexOf("--board");
-const board = new SocketBoard(args.find((a, i) => a.includes("/") && args[i - 1] !== "--board") ?? DEFAULT_SOCKET);
+// --ws <workspace root>: the outliner keeps each workspace's socket at state/<sha256(root)[0:12]>/outliner.sock.
+const wsAt = args.indexOf("--ws");
+const wsSocket = wsAt >= 0 && args[wsAt + 1]
+  ? join(process.env.OUTLINER_STATE_DIR ?? join(homedir(), ".local/state/pi-herdr-outliner"),
+      createHash("sha256").update(resolve(args[wsAt + 1]!.replace(/^~/, homedir()))).digest("hex").slice(0, 12), "outliner.sock")
+  : null;
+const board = new SocketBoard(wsSocket ?? args.find((a, i) => a.includes("/") && !["--board", "--ws"].includes(args[i - 1] ?? "")) ?? DEFAULT_SOCKET);
 let info;
 try { info = await board.info(); }
 catch (e) {

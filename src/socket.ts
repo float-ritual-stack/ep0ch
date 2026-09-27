@@ -83,6 +83,8 @@ export class SocketBoard implements Board {
     });
   }
 
+  toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
+
   async info(): Promise<BoardInfo> {
     const r = await this.request<{ protocolVersion: number; location: { hostname: string; workspaceRoot: string } }>("ping");
     if (r.protocolVersion !== PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door was written for ${PROTOCOL}`);
