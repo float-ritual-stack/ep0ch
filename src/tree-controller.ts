@@ -958,7 +958,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
     }
     await reload(origin, {exactRowIdOnly:true});
-    if (restore) { scrollStartEntryIndex = restore.scroll; expandedBlockOffset = restore.documentOffset; expandedPage = null; }
+    if (restore && rows[selectedIndex]?.rowId === origin) {
+      scrollStartEntryIndex = restore.scroll;
+      expandedBlockOffset = restore.documentOffset;
+      expandedPage = null;
+    }
     status = rows.some(row=>row.rowId===origin) ? "Branch filter cleared" : "Filter cleared; original occurrence is no longer available";
     await publishDisplayRowSelection(rows[selectedIndex]); effects.invalidate();
   }

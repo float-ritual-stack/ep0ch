@@ -116,6 +116,9 @@ test('filter restoration includes expanded document state and its viewport',asyn
  await c.handleAction('tree.filter.clear');expect(c.view().expandedBlockOffset).toBe(offset);
  expect(c.view().rows.filter(isBlockTreeRow).find(r=>r.rowId===match)?.multilineExpanded).toBe(false);
  expect(c.view().rows.filter(isBlockTreeRow).find(r=>r.rowId===f.branch.id)?.multilineExpanded).toBe(true);
+ await c.handleKeypress('/',{},'pass');
+ await f.notify(c,()=>f.client.request({action:'delete',blockId:f.branch.id}));
+ await c.handleAction('tree.filter.clear');expect(c.view().expandedBlockOffset).toBe(0);
 });
 
 test('a removed filtered target explains the focus change and explicit workspace navigation exits search',async()=>{
