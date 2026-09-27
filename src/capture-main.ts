@@ -1,8 +1,10 @@
+import {hostname} from "node:os";
+import {focusCaptureOwner} from "./capture-owner";
 import {initTheme} from "@earendil-works/pi-coding-agent";
 import {attachCaptureInput} from './capture-input';
 import {referenceCompletionProvider} from './reference-completion';
 import {parseTreePlainClick,treeLinkAtClick} from './tree-mouse';
-import { pluginInvocationPaneId, reportCurrentPaneWorkspace } from "./pane-control";
+import { currentPaneIdentity, pluginInvocationPaneId, reportCurrentPaneWorkspace } from "./pane-control";
 import { createOutlinerClient } from "./client";
 import {
   CapturePopupController,
@@ -18,7 +20,7 @@ import {
   BRACKETED_PASTE_DISABLE,
   BRACKETED_PASTE_ENABLE,
 } from "./terminal";
-import type { Block, QuickCaptureDraft, WorkIdAllocatorStatus } from "./types";
+import type { Block, CaptureOwnerClaim, QuickCaptureDraft, WorkIdAllocatorStatus } from "./types";
 
 if (process.env.HERDR_ENV !== "1") {
   throw new Error("Quick capture popup requires Herdr");
@@ -32,10 +34,49 @@ await client.requireCompatibleService();
 const recovery = new EditRecoveryClient(client, paths.stateDir);
 const requestId = process.env.OUTLINER_CAPTURE_REQUEST_ID?.trim() || crypto.randomUUID();
 const capturedFromBlockId = process.env.OUTLINER_CAPTURE_FROM_BLOCK_ID?.trim() || undefined;
-const draft = await client.request<QuickCaptureDraft | null>({ action: "capture.draft.get" });
-const retainedWriting = draft?.blockId ? await recovery.list(draft.blockId) : [];
 const handoffDirectory = process.env.OUTLINER_CAPTURE_HANDOFF;
 const handoff = handoffDirectory ? await loadCaptureHandoff(handoffDirectory) : undefined;
+const ownerClientId = crypto.randomUUID();
+const identity = currentPaneIdentity();
+if (!identity?.paneId || !process.env.HERDR_SOCKET_PATH) throw Error("Capture needs its current Herdr session and pane identity");
+const ownerLocation = {hostname: hostname(), herdrSocket: process.env.HERDR_SOCKET_PATH,
+  paneId: identity.paneId, popup: !handoff || handoff.placement === "popup"};
+const ownerReady = Promise.withResolvers<CaptureOwnerClaim>();
+let ownerInitialized = false;
+let initialTransferToken = handoff?.transferToken;
+const claimOwner = () => client.request<CaptureOwnerClaim>({action: "capture.owner.claim", clientId: ownerClientId,
+  location: ownerLocation, transferToken: initialTransferToken});
+const ownerWatcher = client.watch({client: {clientId: ownerClientId, contextId: "capture", role: "observer"},
+  async onConnect() {
+    const claim = await claimOwner();
+    initialTransferToken = undefined;
+    if (!ownerInitialized) {ownerInitialized = true; ownerReady.resolve(claim);}
+    else if (!claim.acquired) stopAfterRetainingDraft(0);
+  },
+  onEvent() {},
+  onError(error) { if (!ownerInitialized) ownerReady.reject(error); },
+});
+let ownerClaim: CaptureOwnerClaim;
+try {ownerClaim = await ownerReady.promise;} catch (error) {await ownerWatcher.stop(); throw error;}
+if (!ownerClaim.acquired) {
+  await ownerWatcher.stop();
+  await focusCaptureOwner(ownerClaim.owner);
+  process.exit(0);
+}
+let draft = await client.request<QuickCaptureDraft | null>({ action: "capture.draft.get" });
+// Give every interactive buffer a recovery identity before accepting keystrokes.
+// If ownership is later lost, its local writing can use the existing journal
+// without overwriting whichever draft the replacement surface now owns.
+if (!draft?.blockId && draft?.submittedText === undefined) {
+  draft = await client.request<QuickCaptureDraft>({action: "capture.draft.save", input: {
+    ownerClientId, requestId: draft?.requestId ?? requestId, text: draft?.text ?? "",
+    cursorRow: draft?.cursorRow ?? 0, cursorColumn: draft?.cursorColumn ?? 0,
+    selectionAnchor: draft?.selectionAnchor,
+    capturedFromBlockId: draft?.capturedFromBlockId ?? capturedFromBlockId,
+    expectedRevision: draft?.revision ?? null, prepareBlock: true,
+  }});
+}
+const retainedWriting = draft?.blockId ? await recovery.list(draft.blockId) : [];
 const originPaneId = handoff?.originPaneId ?? process.env.OUTLINER_CAPTURE_ORIGIN_PANE ?? pluginInvocationPaneId();
 const workIds=await client.request<WorkIdAllocatorStatus>({action:'work-ids.status'});
 let detachInput:(()=>void)|undefined;
@@ -47,6 +88,7 @@ let writingReview: EditRecoveryReview | undefined;
 function stop(exitCode = 0): void {
   if (stopping) return;
   stopping = true;
+  void ownerWatcher.stop();
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdout.off("resize", draw);
   detachInput?.();
@@ -75,18 +117,20 @@ const controller = new CapturePopupController({
       capturedFromBlockId: input.capturedFromBlockId,
       author: "user",
       expectedDraftRevision: input.expectedDraftRevision,
+      ownerClientId,
     });
   },
   async persistDraft(input) {
     return await client.request<QuickCaptureDraft>({
       action: "capture.draft.save",
-      input,
+      input: {...input, ownerClientId},
     });
   },
   async clearDraft(expectedRevision) {
     await client.request({
       action: "capture.draft.clear",
       expectedRevision,
+      ownerClientId,
     });
   },
   async editExternal(draft) {
@@ -127,8 +171,15 @@ const controller = new CapturePopupController({
   },
   async relocate(placement, draft) {
     if (!originPaneId) throw Error("The originating Herdr pane is unavailable");
-    await openCaptureSurface(client, {workspaceRoot: paths.workspaceRoot, stateDir: paths.stateDir,
-      draft, originPaneId, placement});
+    try {
+      await openCaptureSurface(client, {workspaceRoot: paths.workspaceRoot, stateDir: paths.stateDir,
+        draft, originPaneId, placement, ownerClientId});
+    } catch (error) {
+      // A failed destination cannot silently leave the source as a second writer.
+      // Reclaim only if that owner is gone; the server still guards every write.
+      await claimOwner();
+      throw error;
+    }
   },
   async retainWriting(draft, text) {
     try {

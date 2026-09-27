@@ -1,3 +1,4 @@
+import {focusActiveCapture} from "./capture-owner";
 import { createOutlinerClient } from "./client";
 import { openCapturePopup, pluginInvocationPaneId, pluginInvocationWorkspaceRoot } from "./pane-control";
 import { resolveClientPaths } from "./paths";
@@ -10,6 +11,7 @@ const workspaceRoot = pluginInvocationWorkspaceRoot();
 const paths = resolveClientPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot });
 const client = createOutlinerClient(paths);
 await client.requireCompatibleService();
+if (await focusActiveCapture(client)) process.exit(0);
 if (process.argv.includes("--editor")) {
   const originPaneId = pluginInvocationPaneId();
   if (!originPaneId) throw Error("Quick Capture requires the invoking Herdr pane");

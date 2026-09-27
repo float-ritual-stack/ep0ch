@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type {Block, QuickCaptureDraft} from "../../src/types";
+import type {Block, CaptureOwner, QuickCaptureDraft} from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 const nvim = Bun.which("nvim");
 if (!nvim) throw Error("Neovim is required for the global capture journey");
@@ -36,6 +36,18 @@ const result = await runHerdrScenario({
     await wait("-- INSERT --");
     await terminal.write("\x1b[200~GLOBAL SIDEBAR NOTE\x1b[201~");
     await wait("GLOBAL SIDEBAR NOTE");
+    // Invoke the global command from the shell while nvim still owns unsaved
+    // writing. It must focus that editor, never prepare a stale second draft.
+    const ownerBefore = await session.client.request<CaptureOwner>({action: "capture.owner.get"});
+    const draftBefore = await draft();
+    await terminal.write("\x02"); await wait("PREFIX"); await terminal.write("h");
+    await session.waitFor("shell while editor is open", () => session.focusedPane(), pane => pane === shell);
+    await terminal.write("\x02"); await wait("PREFIX"); await terminal.write("N");
+    await session.waitFor("global shortcut returns to the existing editor", () => session.focusedPane(), pane => pane === globalDock);
+    await wait("GLOBAL SIDEBAR NOTE");
+    assert.deepEqual(await draft(), draftBefore);
+    assert.deepEqual(await session.client.request({action: "capture.owner.get"}), ownerBefore);
+    await session.checkpoint("repeated-global-entry-preserves-unsaved-editor");
     await terminal.write("\x1b:wq\r");
     await wait("Writing retained");
     assert.equal((await draft())!.blockId, globalDraft.blockId);

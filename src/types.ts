@@ -227,7 +227,18 @@ export interface QuickCaptureDraft {
   updatedAt: string;
 }
 
+/** Live Capture ownership follows its subscribed client, never a durable lock. */
+export interface CaptureOwnerLocation {
+  hostname: string;
+  herdrSocket: string;
+  paneId: string;
+  popup: boolean;
+}
+export interface CaptureOwner extends CaptureOwnerLocation { clientId: string }
+export interface CaptureOwnerClaim { acquired: boolean; owner: CaptureOwner }
+
 export interface QuickCaptureDraftSaveInput {
+  ownerClientId?: string;
   requestId: string;
   text: string;
   submittedText?: string;
@@ -1482,6 +1493,7 @@ export type OutlinerRequest =
       author?: BlockAuthor;
       provenance?: BlockProvenance;
       expectedDraftRevision?: number;
+      ownerClientId?: string;
     }
   | {
       id: string;
@@ -1491,6 +1503,9 @@ export type OutlinerRequest =
       title: string;
       mutation: MutationProvenance;
     }
+  | { id: string; action: "capture.owner.get" }
+  | { id: string; action: "capture.owner.claim"; clientId: string; location: CaptureOwnerLocation; transferToken?: string }
+  | { id: string; action: "capture.owner.handoff"; clientId: string; requestId: string; expectedDraftRevision: number }
   | { id: string; action: "capture.draft.get" }
   | { id: string; action: "edit-recovery.start"; input: import("./edit-recovery").EditRecoveryStart }
   | { id: string; action: "edit-recovery.get"; recoveryId: string }
@@ -1511,6 +1526,7 @@ export type OutlinerRequest =
   | {
       id: string;
       action: "capture.draft.clear";
+      ownerClientId?: string;
       expectedRevision: number | null;
     }
   | {

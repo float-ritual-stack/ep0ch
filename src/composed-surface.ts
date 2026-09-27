@@ -1,3 +1,4 @@
+import {focusActiveCapture} from "./capture-owner";
 import {TextViewerInput} from './text-viewer-input';
 import {openExternalUrl} from "./open-external";
 import {DocumentPreviewInput} from './document-preview-input';
@@ -137,7 +138,7 @@ export class ComposedTree implements Component {
       async createTreePane(root,direction) { openTreePane({workspaceRoot:options.workspaceRoot,root,direction}); },
       createDetailPane: (blockId, direction = "right", targetPaneId) => options.detach({kind: "block", blockId}, direction, targetPaneId),
       createDetailDestination: (blockId,placement) => createDetailDestination(options.client,options.clientId,{workspaceRoot:options.workspaceRoot,initialTarget:{kind:"block",blockId},placement,timeoutMs:60_000}),
-      async openCapturePopup(capturedFromBlockId) { openCapturePopup({workspaceRoot: options.workspaceRoot, capturedFromBlockId}); },
+      async openCapturePopup(capturedFromBlockId) { if (await focusActiveCapture(options.client)) return; openCapturePopup({workspaceRoot: options.workspaceRoot, capturedFromBlockId}); },
       openVirtualBranchNavigator(viewId, adapter) { openVirtualBranchNavigatorPopup({workspaceRoot: options.workspaceRoot, browsingContextId: options.contextId, sourceClientId: options.clientId, sourceRole: "tree", viewId, ...(adapter ? {adapter} : {})}); },
       focusSelf: options.focus, terminalWidth: options.width, terminalHeight: options.height,
       invalidate: options.invalidate, stop: options.stop,

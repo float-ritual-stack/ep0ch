@@ -55,6 +55,9 @@ import {
   type BookmarkRemoveReceipt,
   type BookmarkToggleReceipt,
   type CaptureReceipt,
+  type CaptureOwner,
+  type CaptureOwnerClaim,
+  type CaptureOwnerLocation,
   type QuickCaptureDraft,
   type ComputedExecutionResult,
   type ComputedInvocation,
@@ -123,6 +126,8 @@ export class OutlinerServer {
   private readonly noteRepository: NoteAssistanceRepository;
   private inboxUnavailable = "Automatic Inbox cleanup is not enabled for this service";
   private activeGotoRankings = 0;
+  private captureOwner: CaptureOwner | null = null;
+  private captureTransfer?: {token: string; clientId: string; requestId: string; revision: number; deadline: number};
   private server: Server | null = null;
   private readonly navigationLinks = new Map<string, OutlinerViewAddress>();
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
@@ -176,6 +181,8 @@ export class OutlinerServer {
     if (!server) return;
     for (const subscriber of this.subscribers.keys()) subscriber.destroy();
     this.subscribers.clear();
+    this.captureOwner = null;
+    this.captureTransfer = undefined;
     for (const timer of this.attentionTimers.values()) clearTimeout(timer);
     this.attentionTimers.clear();
     this.attentionStates.clear();
@@ -328,6 +335,10 @@ export class OutlinerServer {
   private removeSubscriber(socket: Socket): void {
     const removed = this.subscribers.get(socket);
     this.subscribers.delete(socket);
+    if (removed?.clientId === this.captureOwner?.clientId) {
+      this.captureOwner = null;
+      this.captureTransfer = undefined;
+    }
     if (removed) {
       for (const [key, destination] of this.navigationLinks) {
         if (key === JSON.stringify([removed.clientId, "tree"]) || key === JSON.stringify([removed.clientId, "detail"]) || destination.clientId === removed.clientId) this.navigationLinks.delete(key);
@@ -449,6 +460,39 @@ export class OutlinerServer {
       : this.withoutTopology(normalized);
     this.subscribers.set(socket, stored);
     return this.reconcileClientRuntime(stored);
+  }
+
+  private currentCaptureOwner(): CaptureOwner | null {
+    this.pruneDestroyedSubscribers();
+    return this.captureOwner;
+  }
+
+  private requireCaptureOwner(clientId?: string): void {
+    const owner = this.currentCaptureOwner();
+    if ((owner && owner.clientId !== clientId) || (clientId && owner?.clientId !== clientId)) {
+      throw Error("Capture owner changed; return to the active Capture surface or retain writing in history");
+    }
+  }
+
+  private claimCaptureOwner(clientId: string, location: CaptureOwnerLocation, transferToken?: string): CaptureOwnerClaim {
+    if (!this.hasClient(clientId)) throw Error("Capture owner must have a live client connection");
+    for (const field of ["hostname", "herdrSocket", "paneId"] as const) {
+      if (typeof location?.[field] !== "string" || !location[field] || location[field].length > 4096 || /[\u0000-\u001f\u007f]/.test(location[field])) {
+        throw Error("Invalid Capture owner location");
+      }
+    }
+    if (typeof location.popup !== "boolean") throw Error("Invalid Capture owner presentation");
+    const owner = this.currentCaptureOwner();
+    if (transferToken !== undefined) {
+      const transfer = this.captureTransfer, draft = this.store.quickCaptureDraft();
+      if (!transfer || transfer.token !== transferToken || transfer.deadline <= Date.now() ||
+        owner?.clientId !== transfer.clientId || draft?.requestId !== transfer.requestId || draft.revision !== transfer.revision) {
+        throw Error("Capture handoff expired or changed; the draft remains retained");
+      }
+    } else if (owner && owner.clientId !== clientId) return {acquired: false, owner};
+    this.captureOwner = {clientId, hostname: location.hostname, herdrSocket: location.herdrSocket, paneId: location.paneId, popup: location.popup};
+    this.captureTransfer = undefined;
+    return {acquired: true, owner: this.captureOwner};
   }
 
   private withoutTopology(
@@ -1856,6 +1900,9 @@ export class OutlinerServer {
           );
           break;
         case "capture.create":
+          if (request.expectedDraftRevision !== undefined || request.requestId === this.store.quickCaptureDraft()?.requestId) {
+            this.requireCaptureOwner(request.ownerClientId);
+          }
           result = this.store.capture(
             request.requestId,
             request.text,
@@ -1874,6 +1921,23 @@ export class OutlinerServer {
             request.mutation,
           );
           break;
+        case "capture.owner.get":
+          result = this.currentCaptureOwner();
+          break;
+        case "capture.owner.claim":
+          result = this.claimCaptureOwner(request.clientId, request.location, request.transferToken);
+          break;
+        case "capture.owner.handoff": {
+          this.requireCaptureOwner(request.clientId);
+          const draft = this.store.quickCaptureDraft();
+          if (!draft || draft.requestId !== request.requestId || draft.revision !== request.expectedDraftRevision) {
+            throw Error("Capture changed before handoff");
+          }
+          this.captureTransfer = {token: crypto.randomUUID(), clientId: request.clientId,
+            requestId: draft.requestId, revision: draft.revision, deadline: Date.now() + 30_000};
+          result = {token: this.captureTransfer.token};
+          break;
+        }
         case "capture.draft.get":
           result = this.store.quickCaptureDraft();
           break;
@@ -1912,6 +1976,7 @@ export class OutlinerServer {
           result = this.editRecovery.separate(request.recoveryId,request.expectedRevision,request.mutation);
           break;
         case "capture.draft.save":
+          this.requireCaptureOwner(request.input.ownerClientId);
           result = this.store.database.transaction(() => {
             const reviewed = request.input.recovery;
             if (!reviewed) return this.store.saveQuickCaptureDraft(request.input);
@@ -1928,6 +1993,7 @@ export class OutlinerServer {
           })();
           break;
         case "capture.draft.clear":
+          this.requireCaptureOwner(request.ownerClientId);
           result = this.store.clearQuickCaptureDraft(request.expectedRevision);
           break;
         case "update":

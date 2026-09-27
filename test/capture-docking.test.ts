@@ -4,7 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {OutlinerServer} from "../src/server";
 import {OutlinerClient} from "../src/client";
-import type {Block, QuickCaptureDraft, QuickCaptureDraftSaveInput} from "../src/types";
+import type {Block, CaptureOwnerClaim, QuickCaptureDraft, QuickCaptureDraftSaveInput} from "../src/types";
 import type {EditRecovery} from "../src/edit-recovery";
 import {OutlinerStore} from "../src/store";
 import {InboxRepository} from "../src/inbox-repository";
@@ -159,4 +159,57 @@ test("capture editor retains selection and exact writing through an uncertain sa
     expect(store.children(saved.parentId!)).toHaveLength(1);
     expect(store.isCaptureDraft(blockId)).toBe(false);
   } finally {store.close(); rmSync(directory, {recursive: true, force: true});}
+});
+
+
+test("one live Capture owner transfers explicitly and releases on disconnect without losing its draft", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-capture-owner-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"), {workspaceRoot: root});
+  const server = new OutlinerServer(store, join(root, "rpc.sock"));
+  await server.start();
+  const client = new OutlinerClient(join(root, "rpc.sock"));
+  const watchers: ReturnType<OutlinerClient["watch"]>[] = [];
+  const location = {hostname: "fixture-host", herdrSocket: join(root, "herdr.sock"), paneId: "w1:p1", popup: true};
+  const register = async (clientId: string) => {
+    const ready = Promise.withResolvers<void>();
+    const watcher = client.watch({client: {clientId, contextId: "capture", role: "observer"},
+      onConnect: ready.resolve, onEvent() {}, onError: ready.reject});
+    watchers.push(watcher); await ready.promise; return watcher;
+  };
+  const claim = (clientId: string, transferToken?: string) => client.request<CaptureOwnerClaim>({
+    action: "capture.owner.claim", clientId, location, transferToken});
+  try {
+    const first = await register("first");
+    const second = await register("second");
+    expect((await claim("first")).acquired).toBe(true);
+    let draft = await client.request<QuickCaptureDraft>({action: "capture.draft.save", input: {
+      requestId: "owned-draft", text: "Unsaved work belongs here", cursorRow: 0, cursorColumn: 3,
+      expectedRevision: null, prepareBlock: true, ownerClientId: "first"}});
+    expect(await claim("second")).toMatchObject({acquired: false, owner: {clientId: "first"}});
+    await expect(client.request({action: "capture.draft.save", input: {...draft, text: "Competing editor",
+      expectedRevision: draft.revision, ownerClientId: "second"}})).rejects.toThrow(/owner/);
+    await expect(client.request({action: "capture.draft.save", input: {...draft, expectedRevision: draft.revision}})).rejects.toThrow(/owner/);
+    await expect(client.request({action: "capture.owner.handoff", clientId: "second", requestId: draft.requestId,
+      expectedDraftRevision: draft.revision})).rejects.toThrow(/owner/);
+    const transfer = await client.request<{token: string}>({action: "capture.owner.handoff", clientId: "first",
+      requestId: draft.requestId, expectedDraftRevision: draft.revision});
+    await expect(claim("second", "invalid-token")).rejects.toThrow(/handoff/);
+    expect((await claim("second", transfer.token)).acquired).toBe(true);
+    await expect(client.request({action: "capture.draft.clear", expectedRevision: draft.revision, ownerClientId: "first"})).rejects.toThrow(/owner/);
+    await expect(client.request({action: "capture.create", requestId: draft.requestId, text: draft.text,
+      source: "tree", expectedDraftRevision: draft.revision, ownerClientId: "first"})).rejects.toThrow(/owner/);
+    draft = await client.request<QuickCaptureDraft>({action: "capture.draft.save", input: {...draft, text: "Continued in new surface",
+      expectedRevision: draft.revision, ownerClientId: "second"}});
+    await expect(claim("first", transfer.token)).rejects.toThrow(/handoff/);
+    expect((await claim("first")).acquired).toBe(false);
+    await first.stop();
+    expect(await client.request({action: "capture.owner.get"})).toMatchObject({clientId: "second"});
+    await second.stop();
+    await register("first");
+    // Process/socket closure, rather than a timeout or stale file, releases ownership.
+    await client.request({action: "clients.list"});
+    expect((await claim("first")).acquired).toBe(true);
+    expect(await client.request<QuickCaptureDraft>({action: "capture.draft.get"})).toEqual(draft);
+    expect(store.require(draft.blockId!).text).toBe("Continued in new surface");
+  } finally {await Promise.all(watchers.map(w => w.stop())); await server.close(); store.close(); rmSync(root, {recursive: true, force: true});}
 });

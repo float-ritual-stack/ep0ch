@@ -12,6 +12,7 @@ import type {OutlinerClientRegistration, QuickCaptureDraft} from "./types";
 
 export type CapturePlacement = "popup" | "left" | "right" | "bottom";
 const HandoffSchema = Type.Object({
+  transferToken: Type.Optional(Type.String()),
   requestId: Type.String(), revision: Type.Integer({minimum: 1}),
   placement: Type.Union([Type.Literal("popup"), Type.Literal("left"), Type.Literal("right"), Type.Literal("bottom")]),
   originPaneId: Type.String({minLength: 1}), editor: Type.Boolean(), deadline: Type.Number(),
@@ -69,12 +70,14 @@ export async function confirmCaptureHandoff(directory: string, handoff: CaptureH
 
 export async function openCaptureSurface(client: OutlinerRequester, options: {
   workspaceRoot: string; stateDir: string; draft: QuickCaptureDraft;
-  originPaneId: string; placement: CapturePlacement; editor?: boolean;
+  originPaneId: string; placement: CapturePlacement; editor?: boolean; ownerClientId?: string;
 }): Promise<void> {
   if (process.env.HERDR_ENV !== "1") throw Error("Capture docking requires Herdr");
+  const transfer = options.ownerClientId ? await client.request<{token: string}>({action: "capture.owner.handoff",
+    clientId: options.ownerClientId, requestId: options.draft.requestId, expectedDraftRevision: options.draft.revision}) : undefined;
   await mkdir(options.stateDir, {recursive: true, mode: 0o700});
   const directory = await mkdtemp(join(options.stateDir, "capture-handoff-"));
-  const handoff: CaptureHandoff = {requestId: options.draft.requestId, revision: options.draft.revision,
+  const handoff: CaptureHandoff = {...(transfer ? {transferToken: transfer.token} : {}), requestId: options.draft.requestId, revision: options.draft.revision,
     placement: options.placement, originPaneId: options.originPaneId, editor: options.editor ?? false, deadline: Date.now() + 25_000};
   let paneId: string | undefined;
   let activated = false;
