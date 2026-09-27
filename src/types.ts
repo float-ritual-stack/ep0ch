@@ -229,6 +229,7 @@ export interface QuickCaptureDraft {
 
 /** Live Capture ownership follows its subscribed client, never a durable lock. */
 export interface CaptureOwnerLocation {
+  launching?: boolean;
   hostname: string;
   herdrSocket: string;
   paneId: string;

@@ -1,5 +1,5 @@
 import {hostname} from "node:os";
-import {focusCaptureOwner} from "./capture-owner";
+import {focusActiveCapture} from "./capture-owner";
 import {initTheme} from "@earendil-works/pi-coding-agent";
 import {attachCaptureInput} from './capture-input';
 import {referenceCompletionProvider} from './reference-completion';
@@ -60,7 +60,7 @@ let ownerClaim: CaptureOwnerClaim;
 try {ownerClaim = await ownerReady.promise;} catch (error) {await ownerWatcher.stop(); throw error;}
 if (!ownerClaim.acquired) {
   await ownerWatcher.stop();
-  await focusCaptureOwner(ownerClaim.owner);
+  await focusActiveCapture(client);
   process.exit(0);
 }
 let draft = await client.request<QuickCaptureDraft | null>({ action: "capture.draft.get" });

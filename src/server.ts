@@ -481,7 +481,7 @@ export class OutlinerServer {
         throw Error("Invalid Capture owner location");
       }
     }
-    if (typeof location.popup !== "boolean") throw Error("Invalid Capture owner presentation");
+    if (typeof location.popup !== "boolean" || (location.launching !== undefined && typeof location.launching !== "boolean")) throw Error("Invalid Capture owner presentation");
     const owner = this.currentCaptureOwner();
     if (transferToken !== undefined) {
       const transfer = this.captureTransfer, draft = this.store.quickCaptureDraft();
@@ -490,7 +490,7 @@ export class OutlinerServer {
         throw Error("Capture handoff expired or changed; the draft remains retained");
       }
     } else if (owner && owner.clientId !== clientId) return {acquired: false, owner};
-    this.captureOwner = {clientId, hostname: location.hostname, herdrSocket: location.herdrSocket, paneId: location.paneId, popup: location.popup};
+    this.captureOwner = {clientId, hostname: location.hostname, herdrSocket: location.herdrSocket, paneId: location.paneId, popup: location.popup, ...(location.launching ? {launching: true} : {})};
     this.captureTransfer = undefined;
     return {acquired: true, owner: this.captureOwner};
   }

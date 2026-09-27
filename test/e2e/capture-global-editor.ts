@@ -25,7 +25,13 @@ const result = await runHerdrScenario({
       frame.includes("Capture from shell") && !frame.includes("Quick capture") && !frame.includes("Outliner"));
     await terminal.write("\x02");
     await wait("PREFIX");
-    await terminal.write("N");
+    // Two launch actions before either destination is ready must converge.
+    await terminal.write("N\x02N");
+    const launches = await session.waitFor("both initial capture shortcuts succeed", () => session.pluginActionLogs(), logs => {
+      const captures = logs.filter(log => log.actionId === "capture-editor");
+      return captures.length === 2 && captures.every(log => log.status === "succeeded");
+    });
+    await session.record("concurrent-capture-launches", launches);
     await wait("draft.md");
     const globalDraft = (await draft())!;
     assert.ok(globalDraft.blockId);
