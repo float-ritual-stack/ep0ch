@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {visibleWidth} from "@earendil-works/pi-tui";
-import type {Block, QuickCaptureDraft, VisibleBlockCollection} from "../../src/types";
+import type {Block, CaptureOwner, QuickCaptureDraft, VisibleBlockCollection} from "../../src/types";
 import type {EditRecovery} from "../../src/edit-recovery";
 import {runHerdrScenario} from "./herdr-runner";
 
@@ -16,7 +16,8 @@ const result = await runHerdrScenario({
     const wait = (text: string) => session.waitFor(text, () => terminal.visible(), frame => frame.includes(text));
     await wait("Outliner");
     await session.focus(session.panes.tree);
-    const origin = await session.client.request<Block>({action: "create", text: "Capture browsing reference"});
+    const origin = await session.client.request<Block>({action: "create", text: "Capture browsing reference\n\n" +
+      Array.from({length: 60}, (_, n) => `Reference paragraph ${n + 1}: Keep this reading position.\n`).join("\n")});
     const draft = () => session.client.request<QuickCaptureDraft | null>({action: "capture.draft.get"});
     const open = async () => {
       await session.waitFor("previous capture surface closed", () => terminal.visible(), frame => !frame.includes("Quick capture"));
@@ -66,9 +67,20 @@ const result = await runHerdrScenario({
     assert.deepEqual((await draft())!.selectionAnchor, {row: 0, column: 0});
     assert.equal((await draft())!.cursorColumn, 1);
     await session.checkpoint("03b-docked-exact-draft");
+    const owner = await session.client.request<CaptureOwner>({action: "capture.owner.get"});
+    await session.restartService();
+    await session.waitFor("Capture reclaimed ownership after service restart", () =>
+      session.client.request<CaptureOwner | null>({action: "capture.owner.get"}), value => value?.clientId === owner.clientId);
+    assert.equal((await draft())!.blockId, prepared.blockId);
+    await terminal.write("\x1b[F");
+    await terminal.write("\x1b[200~ after restart\x1b[201~");
+    await session.waitFor("continued writing after reconnect", draft, value => !!value?.text.includes(" after restart"));
+    await terminal.write("\x1b[H\x1b[1;2C");
+    await session.waitVisible(dock, "C▏APTURE WRITING");
+    await session.checkpoint("03b-reconnected-writing");
     await terminal.resize(80, 12);
     await session.waitFor("cursor visible in a short dock", async () => ({screen: await terminal.visible(), capture: await session.visible(dock)}),
-      view => view.screen.split("\n").length === 12 && view.capture.includes("C▏APTURE"));
+      view => view.screen.split("\n").length === 12 && view.screen.includes("C▏") && view.capture.includes("C▏"));
     await session.checkpoint("03b-short-dock-keeps-cursor");
     await terminal.resize(160, 55);
     await wait("[Save to Inbox]");
@@ -76,13 +88,31 @@ const result = await runHerdrScenario({
     await wait("PREFIX");
     await terminal.write("h");
     await session.waitFor("browse in Tree beside Capture", () => session.focusedPane(), pane => pane === session.panes.tree);
-    await terminal.write("\x1b[B");
-    await session.waitVisible(session.panes.tree, "Workspace › Documentation");
+    // Navigation links are session-owned; explicitly pair these fixture readers
+    // after restarting the service, then exercise the real Enter action.
+    const readers = await session.registrations();
+    const treeReader = readers.find(client => client.runtime?.paneId === session.panes.tree)!;
+    const detailReader = readers.find(client => client.runtime?.paneId === session.panes.detail)!;
+    await session.client.request({action: "navigation.link.set", source: {clientId: treeReader.clientId, region: "tree"},
+      destination: {clientId: detailReader.clientId, region: "detail"}});
+    await session.record("reference-reader-pair", {tree: treeReader.clientId, detail: detailReader.clientId});
+    await session.revealTree(session.panes.tree, origin.id);
+    await terminal.write("\r");
+    await session.waitVisible(session.panes.detail, "Reference paragraph 1:");
+    await terminal.write("\x02"); await wait("PREFIX"); await terminal.write("j");
+    await session.waitFor("read reference in Detail", () => session.focusedPane(), pane => pane === session.panes.detail);
+    await terminal.write("\x1b[6~");
+    const reading = await session.waitFor("reference reading scrolled", () => session.visible(session.panes.detail), text =>
+      text.includes("Reference paragraph") && !text.includes("Reference paragraph 1:"));
+    await session.record("reference-reading-position", reading);
     await terminal.write("\x02");
     await wait("PREFIX");
     await terminal.write("l");
     await session.waitFor("return to docked writing", () => session.focusedPane(), pane => pane === dock);
     await session.waitVisible(dock, "C▏APTURE WRITING");
+    assert.equal(await session.visible(session.panes.detail), reading, "Returning to writing preserves the reference reading position");
+    const captureColumn = (await wait("C▏APTURE WRITING")).split("\n").find(row => row.includes("C▏APTURE WRITING"))!.indexOf("C▏APTURE WRITING");
+    await session.waitFor("docked Capture focus is rendered", () => terminal.cursor(), cursor => cursor.column >= captureColumn);
     // Returning to popup must carry the same cursor/selection without writing a
     // second note or making a closing surface flush over the destination.
     await click("[Popup]");

@@ -49,6 +49,7 @@ export interface HerdrScenarioSession {
   moveDetachedToNewTab(paneId: string): Promise<void>;
   closeDetached(paneId: string): Promise<void>;
   rejectCompetingService(): Promise<CommandResult>;
+  restartService(): Promise<void>;
   attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; cursor(): Promise<{column: number; row: number}>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
   openRemoteBrowsingContext(options?: { name?: string; renderer?: "pi-tui" | "ansi"; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
@@ -925,6 +926,29 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           signal: abort.signal,
           expectedExitCode: 1,
         });
+      },
+      async restartService() {
+        const previous = ownedPanes.service;
+        const location = parsePane(parseResult((await runHerdr(["pane", "get", previous])).stdout, "pane_info", "service before restart").pane, "service pane");
+        await runHerdr(["pane", "close", previous]);
+        owned.delete(previous);
+        await poll({label: "private service stopped", signal: abort.signal, artifacts,
+          read: async () => {try {await client.request({action: "ping"}, 300); return false;} catch {return true;}},
+          accept: stopped => stopped,
+        });
+        const opened = parseResult((await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID,
+          "--entrypoint", "service", "--workspace", location.workspaceId, "--no-focus",
+          "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
+          "--env", `OUTLINER_STATE_DIR=${outlinerState}`])).stdout, "plugin_pane_opened", "restarted service");
+        const pane = parsePane(recordValue(opened.plugin_pane, "service plugin pane").pane, "restarted service pane");
+        ownedPanes.service = pane.paneId;
+        owned.add(pane.paneId);
+        await poll({label: "private service ready after restart", signal: abort.signal, artifacts,
+          read: () => client.request<OutlinerServiceStatus>({action: "ping"}, 500),
+          accept: status => status.status === "ready" && status.protocolVersion === OUTLINER_PROTOCOL_VERSION,
+        });
+        processEvidence.push(await verifyProcess(pane.paneId, pluginRoot));
+        await artifacts.record("service-restarted", {previous, current: pane.paneId});
       },
       async attachClient() {
         if (resources.client) throw new Error("This fixture already owns an attached Herdr client");

@@ -2129,7 +2129,7 @@ export class OutlinerServer {
     }
   }
 
-  private eventFor(request: OutlinerRequest, response: Extract<OutlinerResponse, { ok: true }>): OutlinerEvent | null {
+  private eventFor(request: OutlinerRequest, response: Extract<OutlinerResponse, { ok: true }>, previousSequence: number): OutlinerEvent | null {
     let domain: OutlinerEvent["domain"];
     let blockId: string | undefined;
     let resourceId: string | undefined;
@@ -2293,11 +2293,13 @@ export class OutlinerServer {
         blockId = (response.result as Block).id;
         break;
       case "capture.draft.save":
+        if (response.sequence === previousSequence) return null;
         blockId = (response.result as QuickCaptureDraft).blockId;
         if (!blockId) return null;
         domain = "content";
         break;
       case "capture.draft.clear":
+        if (response.sequence === previousSequence) return null;
         domain = "content";
         break;
       case "annotations.create":
@@ -2476,6 +2478,7 @@ export class OutlinerServer {
   private async respond(socket: Socket, line: string): Promise<void> {
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
+    const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
       const subscribedClient = request.action === "events.subscribe"
@@ -2492,7 +2495,7 @@ export class OutlinerServer {
     }
     socket.write(`${JSON.stringify(response)}\n`);
     if (!request || !response.ok) return;
-    const event = this.eventFor(request, response);
+    const event = this.eventFor(request, response, previousSequence);
     if (event) this.broadcast(event);
     if (event?.domain === "content" && event.blockId) {
       this.refreshAttentionForBlock(event.blockId);
