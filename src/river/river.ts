@@ -669,7 +669,7 @@ export class River implements Screen {
   pick(sel?: string, actor?: Actor): { name: string; at: string; ci: number; pi: number; p: PaneS; by: "focused" | "id" | "position" | "block" } {
     let ci = this.focus, pi = this.cols[ci]?.pane ?? 0, by: "focused" | "id" | "position" | "block" = "focused";
     if (sel && sel !== "focused") {
-      const n = /^(\d+)(?:\.(\d+))?$/.exec(sel), r = /^r(\d+)$/.exec(sel);
+      const n = riverPosition(sel), r = /^r(\d+)$/.exec(sel);
       if (r) {
         const p = this.panes().find(x => x.id === Number(r[1]));
         if (!p) throw new ActionRefused(`there is no reader ${sel} in the river; it was closed (\`actions\` lists the open ones)`);
@@ -1003,3 +1003,9 @@ export const RIVER_ACTIONS = new ActionSet<{
     run: (_, { r, reader }) => r.closeIn(reader),
   },
 });
+
+/**
+ * A reader named by position: "3" (column 3) or "3.2" (its second stacked pane). At most three digits
+ * each, so a block id that happens to start with eight digits ("12345678") is still read as a block id.
+ */
+export function riverPosition(sel: string): RegExpExecArray | null { return /^(\d{1,3})(?:\.(\d{1,3}))?$/.exec(sel); }
