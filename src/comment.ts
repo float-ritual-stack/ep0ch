@@ -333,6 +333,8 @@ export class CommentSession {
       this.out.done();
       this.composer = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
       this.mode = "threads"; this.busy = "loading the thread...";
+      // From an expanded thread: straight back to reading (the reader shows the reloaded thread there).
+      if (this.inline) this.finished = true;
       env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
       this.threads = await env.reloadComments();
       this.busy = null;
@@ -340,7 +342,6 @@ export class CommentSession {
       this.sel = Math.max(0, this.threads.findIndex(x => x.id === root));
       // A comment on a checklist step gives the step a stable id, which changes the note.
       if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
-      if (this.inline) this.finished = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.busy = null;
