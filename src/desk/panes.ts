@@ -185,6 +185,12 @@ export class ReaderPane implements Pane {
   readonly kind = "reader";
   readonly surface = new NoteSurface();
   private pinned = false;
+  /**
+   * `follows`: this reader shows the view's current note as it changes (the desk's readers), so `p` pins
+   * it to the note it shows. Readers that never follow (the board's preview, details, drawers and floats)
+   * have nothing to pin, so they don't offer it.
+   */
+  constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
   get draft() { return this.surface.draft; }
   get session() { return this.surface.session; }
@@ -197,9 +203,9 @@ export class ReaderPane implements Pane {
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   title() {
     const st = this.surface.state();
-    return st ? `reader · ${st}` : this.pinned ? "reader · pinned" : "reader";
+    return ["reader", this.pinned ? "pinned" : "", st].filter(Boolean).join(" · ");
   }
-  hint() { return this.surface.hint("p pin · "); }
+  hint() { return this.surface.hint(this.follows ? (this.pinned ? "p unpin · " : "p pin · ") : ""); }
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
   host(desk: DeskApi): SurfaceHost {
@@ -231,7 +237,7 @@ export class ReaderPane implements Pane {
   describe() { return { title: this.title(), pinned: this.pinned, ...this.surface.describe() }; }
 
   key(k: Key, desk: DeskApi): boolean {
-    if (!this.editing && ch(k) === "p") { this.pinned = !this.pinned; if (!this.pinned) this.show(desk.current, desk); desk.redraw(); return true; }
+    if (this.follows && !this.editing && ch(k) === "p") { this.pinned = !this.pinned; if (!this.pinned) this.show(desk.current, desk); desk.redraw(); return true; }
     return this.surface.key(k, this.host(desk));
   }
 
@@ -490,7 +496,7 @@ export class ArtPane implements Pane {
 export function makePane(kind: PaneKind): Pane {
   switch (kind) {
     case "tree": return new TreePane();
-    case "reader": return new ReaderPane();
+    case "reader": return new ReaderPane(true);
     case "thread": return new ThreadPane();
     case "activity": return new ActivityPane();
     case "who": return new WhoPane();
