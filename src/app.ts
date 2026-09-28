@@ -2,7 +2,7 @@
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
 import type { SocketBoard, OutlineEvent } from "./socket";
-import { bg, C, fg, pad, RESET } from "./style";
+import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
@@ -25,6 +25,8 @@ export interface Ctx {
   redraw(): void;
   flash(msg: string): void;
   cycleVideo(): void;
+  /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
+  suspend(run: () => void): void;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
 }
@@ -38,6 +40,10 @@ export interface Screen {
   /** Called ~30×/s while it returns true (modem-speed reveals). */
   tick?(ctx: Ctx): boolean;
   onEvent?(e: OutlineEvent, ctx: Ctx): void;
+  /** True while the screen holds a draft that hasn't been saved; closing it or quitting then asks twice. */
+  unsaved?(): boolean;
+  /** The screen is being closed with unsaved drafts: copy them to disk, return where they went. */
+  keepDrafts?(): string[];
   /** What this screen shows, for agents (`ep0ch-door peek`). */
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
@@ -51,16 +57,20 @@ export class App implements Ctx {
   private messageUntil = 0;
   private timer: Timer | null = null;
   private started = Date.now();
+  private quitArmed = 0;
   host = "";
   workspace = "";
   video: Video;
   events = 0;
+  /** The event connection to the service is down; the door is reconnecting. */
+  offline = false;
 
   constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void) {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
     setLiveSource(board, () => this.redraw());
+    board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
   }
@@ -69,8 +79,21 @@ export class App implements Ctx {
   get graphics() { return this.video !== "cells"; }
 
   push(s: Screen) { this.stack.push(s); s.enter?.(this); this.redraw(); }
-  pop() { this.stack.pop(); if (!this.stack.length) return this.quit(); this.redraw(); }
-  replace(s: Screen) { this.stack.pop(); this.push(s); }
+  pop() { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); if (!this.stack.length) return this.quit(); this.redraw(); }
+  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); this.push(s); }
+
+  /**
+   * Closing screens that hold unsaved edits asks twice. The second time goes ahead, but the drafts are
+   * copied to disk first, so typed text is never simply dropped.
+   */
+  private leaving(screens: (Screen | undefined)[]): boolean {
+    const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
+    if (!dirty.length) return true;
+    if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
+    this.quitArmed = Date.now();
+    this.flash("an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)");
+    return false;
+  }
   flash(msg: string) { this.message = msg; this.messageUntil = Date.now() + 4000; this.redraw(); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
@@ -79,17 +102,29 @@ export class App implements Ctx {
     this.flash(`video: ${this.video}`);
   }
 
+  suspend(run: () => void) {
+    this.kitty.dispose();                  // images don't survive the screen switch; the next paint re-uploads
+    this.term.stop();
+    try { run(); } finally {
+      this.term.resume();
+      this.redraw();
+    }
+  }
+
   event(e: OutlineEvent) {
-    if (e.domain !== "content") return;
-    invalidateLive();
-    this.events++;
+    if (!forScreens(e)) return;
+    if (e.change?.kind !== "draft") invalidateLive();
+    if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();
   }
 
   describe() {
     const s = this.stack.at(-1);
-    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, state: s?.describe?.() ?? null };
+    const b = this.board;
+    const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
+      uses: (["views.read", "blocks.read", "changes.since", "properties.preview"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
+    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, service, state: s?.describe?.() ?? null };
   }
 
   async openBlock(id: string): Promise<string> {
@@ -103,6 +138,20 @@ export class App implements Ctx {
     return m.id;
   }
 
+  /**
+   * SIGTERM or SIGHUP: there is no one to ask. Every screen's unsaved edits and comments are copied to
+   * disk first, then the door quits.
+   */
+  terminate(): string[] {
+    const kept: string[] = [];
+    for (const s of this.stack) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
+    this.keptOnExit = kept;
+    this.quit();
+    return kept;
+  }
+  /** Where `terminate` copied unsaved text, for the exit message. */
+  keptOnExit: string[] = [];
+
   quit() {
     if (this.timer) clearInterval(this.timer);
     this.kitty.dispose();
@@ -110,7 +159,7 @@ export class App implements Ctx {
   }
 
   private key(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "c") return this.quit();
+    if (k.kind === "char" && k.ctrl && k.ch === "c") { if (this.leaving(this.stack)) this.quit(); return; }
     this.stack.at(-1)?.key(k, this);
   }
 
@@ -139,9 +188,19 @@ export class App implements Ctx {
     const mins = Math.floor((Date.now() - this.started) / 60000);
     const clock = new Date().toTimeString().slice(0, 5);
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
-    const right = `${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
-    const body = pad(left + middle, Math.max(0, cols - [...right.replace(/\x1b\[[\d;]*m/g, "")].length));
+    const room = Math.max(0, cols - [...right.replace(/\x1b\[[\d;]*m/g, "")].length);
+    // A message outranks the location: in a narrow pane it replaces it rather than being cut off.
+    const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
     return bg(C.blue) + fg(C.lcyan) + body + right + RESET;
   }
+}
+
+/**
+ * Which service events the screens see: content changes, and change records in other domains (a
+ * lane's reorder arrives with `domain: "view"`). Other view events (clients registering) aren't news.
+ */
+export function forScreens(e: OutlineEvent): boolean {
+  return e.domain === "content" || !!e.change;
 }

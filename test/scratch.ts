@@ -1,0 +1,62 @@
+// A throwaway outliner service for tests: its own state, workspace and config dirs, background agents
+// off, Herdr unset. Never a real outline. `restart()` stops it and starts it again on the same state,
+// the way a deploy would.
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import type { Subprocess } from "bun";
+
+export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
+  .find(p => p && existsSync(join(p, "src/server-main.ts")));
+
+export const until = async (ok: () => boolean, what: string, ms = 5000) => {
+  const end = Date.now() + ms;
+  while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
+};
+
+export class Scratch {
+  readonly root = mkdtempSync(join(tmpdir(), "ep0ch-scratch-"));
+  sock = "";
+  private proc: Subprocess | null = null;
+  constructor() { for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d)); }
+  get workspace() { return join(this.root, "ws"); }
+
+  async start(): Promise<string> {
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      OUTLINER_STATE_DIR: join(this.root, "state"), OUTLINER_WORKSPACE_ROOT: this.workspace, XDG_CONFIG_HOME: join(this.root, "config"),
+      OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
+    };
+    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"]) delete env[k];
+    this.proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
+    const ping = async (path: string) => {
+      const { SocketBoard } = await import("../src/socket");
+      const b = new SocketBoard(path, 1000);
+      try { await b.info(); return true; } catch { return false; } finally { b.close(); }
+    };
+    const end = Date.now() + 20_000;
+    for (;;) {
+      const dirs = existsSync(join(this.root, "state")) ? readdirSync(join(this.root, "state")) : [];
+      const path = dirs.map(d => join(this.root, "state", d, "outliner.sock")).find(existsSync);
+      if (path && await ping(path)) return (this.sock = path);
+      if (Date.now() > end) throw new Error("the scratch service didn't start");
+      await Bun.sleep(50);
+    }
+  }
+
+  /** SIGTERM, as a deploy would; true when the service shut down by itself within `ms` (else it's killed). */
+  async stop(ms = 8000): Promise<boolean> {
+    const p = this.proc;
+    this.proc = null;
+    if (!p) return true;
+    p.kill();
+    const graceful = await Promise.race([p.exited.then(() => true), Bun.sleep(ms).then(() => false)]);
+    if (!graceful) { p.kill(9); await p.exited; }
+    return graceful;
+  }
+
+  /** Stop and start on the same state. Resolves once the new service answers, with whether the stop was graceful. */
+  async restart(): Promise<{ sock: string; graceful: boolean }> { const graceful = await this.stop(); return { sock: await this.start(), graceful }; }
+
+  async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
+}

@@ -5,7 +5,12 @@ import type { Ctx } from "../app";
 import { subject, type Caller, type Msg } from "../board";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import type { Activity, Comment } from "../socket";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CommentSession, type CommentEnv } from "../comment";
+import { Draft } from "../edit";
+import { EditConflict, type Activity, type Comment } from "../socket";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, colourBody, rule, wrap } from "../text";
@@ -169,7 +174,19 @@ export class TreePane implements Pane {
 
 // ── reader ───────────────────────────────────────────────────────────────────
 
+/** Comment and reply blocks: stored as children of the note they're about. */
+const isAnnotation = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
+
 const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
+/** `-stage=queued +stage=doing`, or "" when the property set is the same. */
+export function propertyChange(before: Record<string, string>, after: Record<string, string>): string {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(before)) if (after[k] !== v) out.push(`-${k}=${v}`);
+  for (const [k, v] of Object.entries(after)) if (before[k] !== v) out.push(`+${k}=${v}`);
+  return out.join(" ");
+}
+const linksOf = (m: Msg): { block?: string; page?: string; media?: string }[] =>
+  [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! }));
 
 export class ReaderPane implements Pane {
   readonly kind = "reader";
@@ -177,38 +194,109 @@ export class ReaderPane implements Pane {
   private pinned = false;
   private scroll = 0;
   private crumbs = "";
+  /** Shown under the header after a save that changed the note's properties, until the reader moves on. */
+  private notice = "";
   private links: { block?: string; page?: string; media?: string }[] = [];
   private unfold = false;
   private link = -1;
-  title() { return this.pinned ? "reader · pinned" : "reader"; }
+  /** An open edit of `msg`. While it exists every key goes to it and the reader stays on its note. */
+  draft: Draft | null = null;
+  /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
+  session: CommentSession | null = null;
+  /** The note's comment threads, for the count in the header and the marks while picking a passage. */
+  comments: Comment[] | null = null;
+  private commentsFor = "";
+  private commentTimer: Timer | null = null;
+  /** Why the whole note behind a list row couldn't be read; empty while reading or once read. */
+  unread = "";
+  get editing() { return this.draft !== null || this.session !== null; }
+  /** Typed text that isn't saved or sent: an edit, or a comment being written. */
+  unsaved() { return !!this.draft?.dirty || !!this.session?.dirty; }
+  /** Copy unsaved text to disk (the screen is closing anyway). */
+  keepDrafts(): string[] {
+    const out: string[] = [];
+    if (this.draft?.dirty) out.push(this.draft.copyOut());
+    if (this.session?.composer?.dirty) out.push(this.session.composer.copyOut(`${this.session.blockId.slice(0, 8)}-comment`));
+    return out;
+  }
+  title() {
+    if (this.session) return `reader · ${this.session.mode === "compose" ? `writing${this.session.dirty ? " · unsent" : ""}` : this.session.mode === "select" ? "quoting" : "comments"}`;
+    return this.draft ? `reader · editing${this.draft.dirty ? " · unsaved" : ""}` : this.pinned ? "reader · pinned" : "reader";
+  }
   hint() {
+    if (this.session) return this.session.hint();
+    if (this.draft) return "ctrl+s save · ctrl+e $EDITOR · ctrl+r reload · esc done";
     const l = this.links[this.link];
-    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up";
+    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up · c comment · m comments";
   }
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
 
-  /** Same note, new text: keep the scroll position and link selection. */
-  refresh(m: Msg) { if (this.msg?.id === m.id) this.msg = m; }
+  /**
+   * Same note, new text: keep the scroll position and link selection. An open draft is never replaced;
+   * it is marked "changed elsewhere" and the save's revision check decides.
+   */
+  refresh(m: Msg) {
+    if (this.msg?.id !== m.id) return;
+    const d = this.draft;
+    if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
+    if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
+    if (!m.partial) this.unread = "";
+    this.msg = m;
+    if (!d) this.links = linksOf(m);
+  }
 
   show(m: Msg | null, desk: DeskApi) {
-    this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
-    this.links = m ? [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! })) : [];
+    if (this.draft && m?.id !== this.draft.blockId) return;   // an edit keeps the reader on its note
+    if (this.session && m?.id !== this.session.blockId) return;   // so does commenting
+    if (m?.id !== this.msg?.id) this.notice = "";
+    this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…"; this.unread = "";
+    this.links = m ? linksOf(m) : [];
+    if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return;
+    // Lists carry title, properties and revision only; the reader fetches the whole note.
+    if (m.partial) this.readWhole(desk);
+    void this.loadComments(desk);
     desk.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
       this.crumbs = a.map(subject).join(" › ") || "top level"; desk.redraw();
     }, () => {});
   }
 
+  /** A list row's whole note. A failure is shown, and `retry` (on reconnect) asks again. */
+  private readWhole(desk: DeskApi) {
+    const id = this.msg?.id;
+    if (!id) return;
+    this.unread = "";
+    desk.ctx.board.get(id).then(full => {
+      if (this.msg?.id !== id || !this.msg.partial) return;
+      if (full) { this.msg = full; this.links = linksOf(full); }
+      else this.unread = "it isn't in the outline any more";
+      desk.redraw();
+    }, (e: Error) => {
+      if (this.msg?.id !== id || !this.msg.partial) return;
+      this.unread = e.message || String(e);
+      desk.redraw();
+    });
+  }
+
+  /** Still showing a list row (its read failed or was cut off): read the whole note again. */
+  retry(desk: DeskApi) { if (this.msg?.partial) this.readWhole(desk); }
+
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
+    if (this.draft) return this.renderDraft(this.draft, m, w, h);
+    if (this.session) return { lines: this.session.render(w, h, subject(m)) };
+    if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
+    const open = this.comments?.filter(c => c.open).length ?? 0;
+    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
-      fg(C.brown) + pad(meta, w) + RESET,
+      pad(fg(C.brown) + meta + said, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
+      ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       rule(w),
     ];
     const t = desk?.ctx.t;
@@ -235,8 +323,180 @@ export class ReaderPane implements Pane {
     return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)], placements };
   }
 
+  private renderDraft(d: Draft, m: Msg, w: number, h: number): PaneView {
+    const state = d.conflict ? fg(C.lred) + `! ${d.conflict}`
+      : d.saving ? fg(C.grey) + "saving…"
+      : d.changedElsewhere ? fg(C.yellow) + "!! changed elsewhere · saving checks it first"
+      : d.dirty ? fg(C.yellow) + "unsaved" : fg(C.dark) + "no changes";
+    const head = [
+      fg(C.yellow) + pad(`» editing · ${subject(m)}`, w) + RESET,
+      fg(C.brown) + `rev ${d.base} · ` + pad(state, Math.max(1, w - `rev ${d.base} · `.length)) + RESET,
+      fg(C.cyan) + pad(d.note || "whole text: subject, body and [key::value] properties", w) + RESET,
+      rule(w),
+    ];
+    return { lines: [...head, ...d.render(w - 2, Math.max(1, h - head.length)).map(l => " " + l)] };
+  }
+
+  /** Open a draft on the block as the service has it now, not as this reader last drew it. */
+  async edit(desk: DeskApi, external = false): Promise<void> {
+    const m = this.msg;
+    if (!m || this.editing) return;
+    const fresh = await desk.ctx.board.get(m.id);
+    if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
+    if (this.msg?.id !== m.id || this.editing) return;
+    this.msg = fresh;
+    this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
+    desk.redraw();
+    if (external) this.external(desk);
+  }
+
+  private draftKey(k: Key, desk: DeskApi): boolean {
+    const d = this.draft!;
+    if (d.saving) return true;
+    const a = d.key(k);
+    if (a === "save") void this.save(desk);
+    else if (a === "editor") this.external(desk);
+    else if (a === "reload") void this.reload(desk);
+    else if (a === "close") { this.draft = null; if (this.msg) this.links = linksOf(this.msg); }
+    desk.redraw();
+    return true;
+  }
+
+  /** Whole-text update from the draft's base revision. A refusal keeps the draft and copies it to disk. */
+  async save(desk: DeskApi): Promise<void> {
+    const d = this.draft;
+    if (!d) return;
+    if (!d.dirty) { this.draft = null; desk.ctx.flash("nothing changed"); desk.redraw(); return; }
+    // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
+    if (d.propertyWarned !== d.text) {
+      const next = await desk.ctx.board.previewProperties(d.text).catch(() => null);
+      const change = next ? propertyChange(d.baseProps, next) : "";
+      if (change && this.draft === d) {
+        d.propertyWarned = d.text;
+        d.note = `this save changes properties: ${change} · ctrl+s again saves`;
+        desk.redraw();
+        return;
+      }
+    }
+    d.saving = true; d.note = "saving…"; desk.redraw();
+    try {
+      const m = await desk.ctx.board.update(d.blockId, d.text, d.base);
+      if (this.draft === d) this.draft = null;
+      this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
+      this.links = linksOf(this.msg);
+      // The service decides which [key::value] tokens are properties (a token followed by more text on
+      // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
+      const change = propertyChange(d.baseProps, m.props);
+      this.notice = change ? `properties changed: ${change}` : "";
+      desk.ctx.flash(change ? `saved · revision ${m.revision} · properties changed: ${change}` : `saved · revision ${m.revision}`);
+    } catch (e) {
+      d.saving = false;
+      if (e instanceof EditConflict) {
+        d.conflict = "changed elsewhere since you started · not saved";
+        d.note = `your draft is kept and copied to ${d.copyOut()} · ctrl+r loads the current text`;
+      } else {
+        d.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    desk.redraw();
+  }
+
+  /** Drop the draft for the block's current text. Typed work is copied to disk first. */
+  private async reload(desk: DeskApi) {
+    const d = this.draft!;
+    if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
+    const copy = d.dirty ? d.copyOut() : d.savedCopy;
+    const m = await desk.ctx.board.get(d.blockId);
+    if (this.draft !== d) return;
+    if (!m) { d.note = "the note is gone from the outline"; desk.redraw(); return; }
+    this.msg = m;
+    d.rebase(m);
+    if (copy) d.note = `loaded revision ${d.base} · your earlier draft is at ${copy}`;
+    desk.redraw();
+  }
+
+  /** Ctrl+E: the draft (or a comment being written) goes to $VISUAL/$EDITOR in a temp file and comes back. */
+  private external(desk: DeskApi, d: Draft | null = this.draft) {
+    if (!d) return;
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-edit-"));
+    const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
+    writeFileSync(path, d.text + "\n");
+    const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+    let code: number | null = null;
+    try {
+      desk.ctx.suspend(() => {
+        code = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], { stdio: ["inherit", "inherit", "inherit"] }).exitCode;
+      });
+      if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
+      else {
+        const before = d.text;
+        d.replace(readFileSync(path, "utf8"));
+        d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    desk.redraw();
+  }
+
+  // ── comments ────────────────────────────────────────────────────────────────
+
+  async loadComments(desk: DeskApi): Promise<void> {
+    const id = this.msg?.id;
+    if (!id) return;
+    try {
+      const c = await desk.ctx.board.comments(id);
+      if (this.msg?.id !== id) return;
+      this.comments = c; this.commentsFor = id;
+      if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c;
+      desk.redraw();
+    } catch { /* comments are extra; the note still reads */ }
+  }
+
+  /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
+  onEvent(desk: DeskApi) {
+    if (!this.msg) return;
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = setTimeout(() => void this.loadComments(desk), 700);
+  }
+
+  private commentEnv(desk: DeskApi): CommentEnv {
+    return {
+      board: desk.ctx.board,
+      fetch: id => desk.ctx.board.get(id),
+      setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
+      reloadComments: async () => { await this.loadComments(desk); return this.comments ?? []; },
+      external: d => this.external(desk, d),
+      flash: m => desk.ctx.flash(m),
+      redraw: () => desk.redraw(),
+    };
+  }
+
+  /** `c`: pick a passage of the note as the service has it now; `m`: the thread list. */
+  async comment(desk: DeskApi, mode: "select" | "threads"): Promise<void> {
+    const m = this.msg;
+    if (!m || this.editing) return;
+    const fresh = mode === "select" || m.partial ? await desk.ctx.board.get(m.id) : m;
+    if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't comment: the outline didn't say which revision this note is at"); return; }
+    if (this.msg?.id !== m.id || this.editing) return;
+    this.msg = fresh;
+    if (this.commentsFor !== m.id) await this.loadComments(desk);
+    this.session = new CommentSession(fresh, this.comments ?? [], mode);
+    desk.redraw();
+  }
+
   key(k: Key, desk: DeskApi): boolean {
+    if (this.draft) return this.draftKey(k, desk);
+    if (this.session) {
+      if (this.session.key(k, this.commentEnv(desk)) === "close") this.session = null;
+      desk.redraw();
+      return true;
+    }
     const c = ch(k);
+    if (c === "c" && this.msg) { void this.comment(desk, "select"); return true; }
+    if (c === "m" && this.msg) { void this.comment(desk, "threads"); return true; }
+    if (c === "e" && this.msg) { void this.edit(desk); return true; }
+    if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(desk, true); return true; }
     if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 1); desk.redraw(); return true; }
     if (isDown(k)) { this.scroll++; desk.redraw(); return true; }
     if (k.kind === "pgdn" || c === " ") { this.scroll += 15; desk.redraw(); return true; }
@@ -285,14 +545,23 @@ export class ThreadPane implements Pane {
   private top = 0;
   private kidLine: number[] = [];
   title() { return this.kids ? `thread · ${this.kids.length} repl${this.kids.length === 1 ? "y" : "ies"} · ${this.comments?.length ?? "…"} comment${this.comments?.length === 1 ? "" : "s"}` : "thread"; }
-  hint() { return "⏎ open reply · u up"; }
+  hint() { return "⏎ open reply · u up · comment from a reader: c, m"; }
 
   select(m: Msg | null, desk: DeskApi) {
     this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.top = 0;
     if (!m) return;
-    desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k; desk.redraw(); } }, () => { this.kids = []; });
-    desk.ctx.board.comments(m.id).then(c => { if (this.msg?.id === m.id) { this.comments = c; desk.redraw(); } }, () => { this.comments = []; });
+    // Comment and reply blocks live under the note too; they show below as comments, not as replies.
+    desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k.filter(x => !isAnnotation(x)); desk.redraw(); } }, () => { this.kids = []; });
+    this.loadComments(desk);
   }
+
+  private loadComments(desk: DeskApi) {
+    const m = this.msg;
+    if (m) desk.ctx.board.comments(m.id).then(c => { if (this.msg?.id === m.id) { this.comments = c; desk.redraw(); } }, () => { this.comments ??= []; });
+  }
+
+  private timer: Timer | null = null;
+  onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.loadComments(desk), 700); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.msg) return { lines: [dim("no message selected")] };
@@ -311,10 +580,10 @@ export class ThreadPane implements Pane {
     const open = this.comments?.filter(c => c.open).length ?? 0;
     lines.push(fg(C.lcyan) + `COMMENTS ${this.comments ? `${open} open · ${this.comments.length - open} resolved` : "…"}` + RESET);
     for (const c of this.comments ?? []) {
-      lines.push(`${fg(c.open ? C.yellow : C.dark)}${c.open ? "●" : "○"} ${fg(C.white)}${c.author}${fg(C.dark)} · ${ago(c.at)}${RESET}`);
-      if (c.quote) lines.push(fg(C.green) + pad(`  “${c.quote}”`, w) + RESET);
+      lines.push(`${fg(c.open ? C.yellow : C.dark)}${c.open ? "■" : "·"} ${fg(C.white)}${c.author}${fg(C.dark)} · ${ago(c.at)}${c.open ? "" : " · resolved"}${RESET}`);
+      if (c.quote) lines.push(fg(C.green) + pad(`  ▐ "${c.quote}"`, w) + RESET);
       for (const l of wrap(c.body, w - 2).slice(0, 4)) lines.push("  " + fg(C.grey) + l + RESET);
-      for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  ↳ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
+      for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  └ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
     }
     const selLine = this.kidLine[this.sel] ?? 0;
     this.top = follow(selLine, this.top, h - 1);
@@ -383,6 +652,7 @@ export class WhoPane implements Pane {
   readonly kind = "who";
   private callers: Caller[] | null = null;
   private names = new Map<string, string>();
+  private asking = new Set<string>();
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
   init(desk: DeskApi) { this.load(desk); }
@@ -390,10 +660,13 @@ export class WhoPane implements Pane {
   private load(desk: DeskApi) {
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
-      for (const x of c) if (x.target && !this.names.has(x.target)) {
-        this.names.set(x.target, "…");
-        desk.ctx.board.get(x.target).then(m => { if (m) { this.names.set(x.target!, subject(m)); desk.redraw(); } }, () => {});
-      }
+      // Titles only, in one read where the service can (blocks.read).
+      // Only names that were read are kept; a failed or missing one is asked again on the next load.
+      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.names.has(t) && !this.asking.has(t)))];
+      if (!ids.length) return;
+      for (const id of ids) this.asking.add(id);
+      const done = () => { for (const id of ids) this.asking.delete(id); desk.redraw(); };
+      desk.ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.names.set(m.id, subject(m)); done(); }, done);
     }, () => {});
   }
   render(w: number, _h: number, _f: boolean, desk: DeskApi): PaneView {
@@ -401,7 +674,7 @@ export class WhoPane implements Pane {
     return {
       lines: this.callers.map((c, i) => {
         const you = c.id === desk.ctx.board.clientId;
-        const act = c.target ? this.names.get(c.target) ?? "…" : c.activity;
+        const act = c.target ? this.names.get(c.target) ?? (this.asking.has(c.target) ? "…" : c.activity || c.target.slice(0, 8)) : c.activity;
         return `${fg(C.lcyan)}${String(i + 1).padStart(2)} ${fg(you ? C.yellow : C.white)}${pad(you ? "you" : c.name, 9)}${fg(C.grey)}${pad(act, w - 12)}${RESET}`;
       }),
     };

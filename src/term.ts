@@ -3,7 +3,7 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
-  | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" }
+  | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
@@ -14,6 +14,7 @@ export class Term {
   private keyHandler: (k: Key) => void = () => {};
   private resizeHandler: () => void = () => {};
   private pending = "";
+  private decoder = new TextDecoder("utf-8");
   private probing: { kitty: boolean | null; done: () => void } | null = null;
 
   write = (s: string) => { process.stdout.write(s); };
@@ -21,7 +22,7 @@ export class Term {
   async start(): Promise<void> {
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
-    process.stdin.on("data", (d: Buffer) => this.feed(d.toString("latin1")));
+    process.stdin.on("data", (d: Buffer) => this.feed(this.decoder.decode(d, { stream: true })));
     process.stdout.on("resize", () => { this.measure(); this.last = []; this.resizeHandler(); });
     this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h");
     this.measure();
@@ -38,6 +39,16 @@ export class Term {
     this.write("\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
     process.stdin.setRawMode?.(false);
     process.stdin.pause();
+  }
+
+  /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */
+  resume(): void {
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    this.pending = "";
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h");
+    this.measure();
+    this.invalidate();
   }
 
   onKey(fn: (k: Key) => void) { this.keyHandler = fn; }
@@ -90,7 +101,7 @@ export class Term {
         [/^\x1b\[A|^\x1bOA/, { kind: "up" }], [/^\x1b\[B|^\x1bOB/, { kind: "down" }],
         [/^\x1b\[C|^\x1bOC/, { kind: "right" }], [/^\x1b\[D|^\x1bOD/, { kind: "left" }],
         [/^\x1b\[Z/, { kind: "backtab" }], [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
-        [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
+        [/^\x1b\[3~/, { kind: "delete" }], [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
       ];
       let hit = false;
       for (const [re, key] of keys) {
@@ -105,8 +116,11 @@ export class Term {
         if (!k) this.keyHandler({ kind: "esc" });
         continue;
       }
-      const c = p[0]!;
-      this.pending = p.slice(1);
+      // A character outside the BMP arrives as a surrogate pair; keep the pair together.
+      const hi = p.charCodeAt(0) >= 0xd800 && p.charCodeAt(0) <= 0xdbff;
+      if (hi && p.length < 2) return;
+      const c = hi ? p.slice(0, 2) : p[0]!;
+      this.pending = p.slice(c.length);
       const code = c.charCodeAt(0);
       if (c === "\r" || c === "\n") this.keyHandler({ kind: "enter" });
       else if (c === "\t") this.keyHandler({ kind: "tab" });

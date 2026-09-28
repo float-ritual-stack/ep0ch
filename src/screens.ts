@@ -356,11 +356,18 @@ export class WhoOnline implements Screen {
   title = "who's online";
   private callers: Caller[] | null = null;
   private subjects = new Map<string, string>();
+  private asking = new Set<string>();
   enter(ctx: Ctx) { this.load(ctx); }
   private load(ctx: Ctx) {
     ctx.board.callers().then(c => {
       this.callers = c; ctx.redraw();
-      for (const x of c) if (x.target && !this.subjects.has(x.target)) ctx.board.get(x.target).then(m => { if (m) { this.subjects.set(x.target!, subject(m)); ctx.redraw(); } }, () => {});
+      // Titles only, in one read where the service can (blocks.read).
+      // Only titles that were read are kept; a failed or missing one is asked again on the next load.
+      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.subjects.has(t) && !this.asking.has(t)))];
+      if (!ids.length) return;
+      for (const id of ids) this.asking.add(id);
+      const done = () => { for (const id of ids) this.asking.delete(id); ctx.redraw(); };
+      ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.subjects.set(m.id, subject(m)); done(); }, done);
     }, e => ctx.flash(String(e.message)));
   }
   onEvent(_: unknown, ctx: Ctx) { this.load(ctx); }

@@ -446,6 +446,10 @@ export class River implements Screen {
   }
 
   onEvent(e: OutlineEvent) {
+    if (e.action === "reset") {                        // reconnected without a catch-up: every pane again
+      for (const c of this.cols) for (const p of c.panes) this.load(p);
+      return this.refreshIndex();
+    }
     const id = e.blockId;
     if (id) for (const c of this.cols) for (const p of c.panes) {
       const shows = (p.source.kind === "block" && p.source.id === id) || p.items?.some(m => m.id === id || m.parentId === id);

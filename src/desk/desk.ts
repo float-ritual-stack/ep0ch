@@ -84,16 +84,24 @@ export class Desk implements Screen, DeskApi {
     for (const p of this.panes.values()) p.onEvent?.(this);
     const id = e.blockId;
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane);
-    if (id && readers.some(r => r.msg?.id === id)) this.ctx.board.get(id).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+    // After a reconnect that couldn't catch up, every reader re-reads its note (a draft is only marked).
+    const stale = e.action === "reset" ? readers.map(r => r.msg?.id).filter((x): x is string => !!x)
+      : id && readers.some(r => r.msg?.id === id && !(e.change?.revision !== undefined && r.msg.revision === e.change.revision && !r.msg.partial)) ? [id] : [];
+    for (const x of new Set(stale)) this.ctx.board.get(x).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+    if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
   }
 
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
+
+  unsaved() { return this.drafts().length > 0; }
+  keepDrafts() { return this.drafts().flatMap(p => p.keepDrafts()); }
+  private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
 
   describe() {
     const order = leaves(this.root);
     return {
       kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
-      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined }; }),
+      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined, commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined }; }),
     };
   }
 
@@ -147,6 +155,13 @@ export class Desk implements Screen, DeskApi {
     if (this.search) {
       if (this.search.key(k, this) === "close") this.search = null;
       return this.redraw();
+    }
+    // An open edit takes every key, window commands included, until it is saved or closed,
+    // and clicks can't move focus off it.
+    const focused = this.panes.get(this.focus);
+    if (focused instanceof ReaderPane && focused.editing) {
+      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
+      focused.key(k, this); return;
     }
     if (k.kind === "mouse") return this.mouse(k);
     if (this.prefix) return this.command(k);
