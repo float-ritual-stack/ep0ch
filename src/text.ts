@@ -1,5 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
-import { C, fg, RESET, width } from "./style";
+import { C, fg, RESET, stripTags, width } from "./style";
 
 export const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -14,15 +14,25 @@ export const bbsDate = (ms: number) => {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())}-${String(d.getFullYear()).slice(2)} (${p(d.getHours())}:${p(d.getMinutes())})`;
 };
 
+/** The first `w` visible characters of `s` (link tags ride along) and the rest. */
+function cut(s: string, w: number): [string, string] {
+  const chars = [...s];
+  let n = 0, i = 0;
+  for (; i < chars.length && n < w; i++) if (!/^[\u{100000}-\u{10FFFD}]$/u.test(chars[i]!)) n++;
+  return [chars.slice(0, i).join(""), chars.slice(i).join("")];
+}
+
 export function wrap(text: string, w: number): string[] {
   const out: string[] = [];
   for (const raw of text.split("\n")) {
     if (!raw.length) { out.push(""); continue; }
     let line = "";
+    // Link tags (src/style.ts) take no room.
+    const len = (s: string) => [...stripTags(s)].length;
     for (const word of raw.split(/(\s+)/)) {
-      if ([...line].length + [...word].length > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
+      if (len(line) + len(word) > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
       else line += word;
-      while ([...line].length > w) { out.push([...line].slice(0, w).join("")); line = [...line].slice(w).join(""); }
+      while (len(line) > w) { const [head, tail] = cut(line, w); out.push(head); line = tail; }
     }
     out.push(line);
   }

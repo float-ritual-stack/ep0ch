@@ -15,9 +15,10 @@ import type { Draft } from "../edit";
 import type { CommentSession } from "../comment";
 import type { Actor, IndexBlock, OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
-import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, type Link, type SurfaceHost } from "../surface/note";
+import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
-import { bg, C, fg, pad, paint, RESET } from "../style";
+import { bg, C, extractLinks, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
 import { rasterize, rotateCW, type Rgba } from "../vga";
@@ -46,7 +47,9 @@ interface PaneS {
 interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean }
 type Cover = "full" | "peek" | "spine";
 interface Row { m: Msg; depth: number }
-interface Hit { rect: Rect; col: number; pane: number; rows: { card: number; replies: boolean }[] }
+/** A row of a pane as drawn: its card, whether it's the replies toggle, and the links on it (PIE-415). */
+type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[] };
+interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[] }
 
 const SPINE = 3, PEEK = 24;
 /** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
@@ -345,7 +348,7 @@ export class River implements Screen {
     const w = r.cols;
     // Editing, quoting, the thread list: the shared surface, drawn in the column.
     if (p.surface.editing && p.surface.msg) return { lines: p.surface.render(w, r.rows, this.hostFor(p)).lines, rows: [] };
-    const all: { text: string; card: number; replies: boolean }[] = [];
+    const all: (HitRow & { text: string })[] = [];
     const push = (text: string, card = -1, replies = false) => all.push({ text, card, replies });
     if (p.error) push(fg(C.lred) + p.error + RESET);
     const root = this.rootOf(p);
@@ -354,8 +357,11 @@ export class River implements Screen {
       push(fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, w) + RESET);
       push(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`);
       for (const l of this.banner(p, m, w)) push(l);
-      const body = wrap(bodyLines(m).join("\n"), w - 1);
-      body.slice(0, 12).forEach(l => push(" " + colourBody(l)));
+      // Links read as Detail shows them (titles, not ids), and a click on one opens it beside (PIE-415).
+      const drawn: Link[] = [];
+      const body = wrap(presentLinks(bodyLines(m).join("\n"), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text, drawn), w - 1);
+      const shown = extractLinks(body.slice(0, 12).map(l => stripMarks(colourBody(l))));
+      shown.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: shown.ranges.filter(r => r.line === i && drawn[r.n]).map(r => ({ from: r.from + 1, to: r.to + 1, link: drawn[r.n]! })) }));
       if (body.length > 12) push(fg(C.dark) + ` … ${body.length - 12} more lines (open in the desk reader for all)` + RESET);
       const label = `── ${p.items ? this.flat(p).length : "…"} replies `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
@@ -385,7 +391,7 @@ export class River implements Screen {
     }
     p.top = Math.max(0, Math.min(p.top, Math.max(0, all.length - r.rows)));
     const view = all.slice(p.top, p.top + r.rows);
-    return { lines: view.map(l => l.text), rows: view.map(l => ({ card: l.card, replies: l.replies })) };
+    return { lines: view.map(l => l.text), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
   }
 
   private hints(W: number): string {
@@ -926,6 +932,14 @@ export class River implements Screen {
         col.pane = h.pane;
         this.seen(p);
         const row = h.rows[k.y - h.rect.row];
+        const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
+        if (link && !p.surface.editing) {
+          // A link in the column's note: it opens beside, as [ ] then ⏎ on it would.
+          try { void this.ready(p).open(link.link, this.hostFor(p)); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+          if (this.entered && this.entered.p !== this.paneS) this.entered = null;
+          this.save();
+          return this.ctx.redraw();
+        }
         if (row && row.card >= 0) {
           const same = p.sel === row.card;
           p.sel = row.card;

@@ -54,7 +54,7 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 | Pane | What it shows |
 |---|---|
 | outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow, `u` parent |
+| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow (or click it), `u` parent |
 | thread | the current block's children as replies, and its comment threads with quoted passages |
 | last callers · live | `activity.recent`, refreshed on outline events |
 | who's online | `clients.list`, with what each client is reading |
@@ -100,7 +100,8 @@ The last board per workspace is remembered.
 - **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`); `S` moves it
   to the other side so it doesn't cover the preview.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
-  snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
+  snippet; `B` pins it; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
+  preview opens in a detail too.
 - Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
 
 ## Moving cards
@@ -312,6 +313,12 @@ printed; they are in the **property panel**, one key away.
   `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
   target reads `label · Missing target`; a trashed one `title · Trash`; a missing fragment says so.
   Code keeps its text, and edit mode, comments and storage keep the raw syntax.
+- **Clicking a link opens it**, where `[ ]` then ⏎ on it would (in place in a board reader or float,
+  the desk's reader, a column beside in the river), and it becomes the selected link: `((…))`, `[[page]]`,
+  `[[Work ID]]`, an embed's title and an embedded view's results, and in the summary line and the
+  property panel a value that names a block, a page or a Work ID (a click on a panel row selects it).
+  Clicks find links where they are drawn, so scrolling and wrapping move them with the text. A missing
+  target says so and nothing opens.
 - **Transclusions.** `!((id))` shows the target note, read-only, in a shaded region. A virtual-branch
   target shows its results (`views.read`), with the view's `[summary-properties::]`, its count and
   `TRUNCATED at N`, or `EMPTY`, `CONFIG ERROR`, `QUERY FAILED`. `!((id^fragment))` checks the fragment
@@ -390,7 +397,7 @@ Bodies render with `src/doc.ts`:
 - **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
-- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `c` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside, `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
+- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `c` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
 - **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action.
   - `reader=` is a pane id (`r7`: stable while the pane is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
   - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the pane holding it: addressed by a number that now names another pane, it's refused with the pane's id.
@@ -463,7 +470,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `c`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
-| `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter`, `u` |
+| `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |

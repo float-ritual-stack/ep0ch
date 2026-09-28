@@ -90,6 +90,8 @@ export class PropertyPanel {
   field: Field | null = null;
   /** What the last copy, follow or save said, until the selection moves. */
   note = "";
+  /** Where the last render drew each row (`y` in its lines) and where its value starts, for clicks. */
+  at: { y: number; n: number; from: number; target: boolean }[] = [];
 
   /** Keys while the panel is open. Most become intents the surface runs (the same code as the actions). */
   key(k: Key, rows: number): PanelIntent {
@@ -139,6 +141,7 @@ export class PropertyPanel {
     if (this.sel < this.top) this.top = this.sel;
     if (this.sel >= this.top + room) this.top = this.sel - room + 1;
     const keyW = Math.min(16, Math.max(3, ...rows.map(r => width(r.key))));
+    this.at = [];
     for (const r of rows.slice(this.top, this.top + room)) {
       const i = r.n - 1, on = i === this.sel;
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";
@@ -155,6 +158,7 @@ export class PropertyPanel {
       } else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
       const shown = pad(value, valW);
       const line = mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
+      if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 4, target: !!r.target });
       out.push(on ? bg(C.blue) + pad(line.split(RESET).join(RESET + bg(C.blue)), w) + RESET : pad(line, w));
     }
     if (foot) out.push(fg(this.field?.changedElsewhere || /not saved|can't|refused|failed/.test(foot) ? C.lred : C.yellow) + pad(foot, w) + RESET);

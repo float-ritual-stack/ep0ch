@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { media, MEDIA_LINE, type Media } from "./media";
-import { C, fg, pad, RESET, width as vwidth } from "./style";
+import { C, extractLinks, fg, pad, RESET, width as vwidth, type LinkRange } from "./style";
 import { colourBody, wrap } from "./text";
 import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
 import { EMBED, stripMarks } from "./refs";
@@ -16,7 +16,8 @@ export interface DocEnv {
   embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
-export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[] }
+/** `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. */
+export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[]; links: LinkRange[] }
 
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 const inline = (s: string) => colourBody(s).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
@@ -161,7 +162,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
     out.push(...prose(line, W));
   }
-  return { lines: out.map(stripMarks), images, media: mediaRefs };
+  const { lines, ranges } = extractLinks(out.map(stripMarks));
+  return { lines, images, media: mediaRefs, links: ranges };
 }
 
 /** Blockquote, heading, list item or paragraph. */
