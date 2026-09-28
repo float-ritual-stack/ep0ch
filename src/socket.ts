@@ -1,6 +1,7 @@
 // Board over the outliner's JSON-lines socket (protocol 80 or newer).
-// Reads use the service's safe-read actions. The one write is `update`, which names the revision it
-// started from, so the service refuses a stale draft instead of overwriting someone else's edit.
+// Reads use the service's safe-read actions. The writes are `update` (a saved edit) and
+// `properties.patch` (a card moved between lanes); both name the revision they started from, so the
+// service refuses a stale one instead of overwriting someone else's change.
 import { connect, type Socket } from "node:net";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 
@@ -36,7 +37,15 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   author: b.actorId ?? b.author ?? null,
   props: Object.fromEntries((b.properties ?? []).map(p => [p.key, p.value])),
   revision: b.revision,
+  properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
 });
+
+/** One property token in a block's text, numbered the way `properties.patch` addresses it. */
+export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
+/** The outliner's PropertyPatchOperation. */
+export type PropertyPatch =
+  | { op: "replace"; ordinal: number; value: string }
+  | { op: "append"; key: string; value: string };
 
 /** The block changed after the draft was read; the service kept the other writer's text. */
 export class EditConflict extends Error {
@@ -232,6 +241,35 @@ export class SocketBoard implements Board {
       return Object.fromEntries(r.properties.map(p => [p.key, p.value]));
     } catch (e) {
       if (/unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e))) { this.previewUnsupported = true; return null; }
+      throw e;
+    }
+  }
+
+  /**
+   * The block's own property tokens for `key`, as the service numbers them (`ordinal` is what
+   * `properties.patch` replaces), at the revision the service read them. Asking the service keeps the
+   * door from re-deriving the property parser: fences, code spans, hashtags and bare `key::` lines.
+   */
+  async propertyTokens(blockId: string, key: string): Promise<{ revision: number; tokens: PropertyToken[] }> {
+    const r = await this.request<{ blocks: (WireBlock & { propertyMatches?: PropertyToken[] })[]; completeness: { kind: string } }>("blocks.query", {
+      query: { filters: [{ key }], subtreeRootId: blockId, propertyScope: "all", limit: 200 },
+    });
+    const own = r.blocks.find(b => b.id === blockId);
+    if (own) return { revision: own.revision!, tokens: (own.propertyMatches ?? []).filter(t => t.key === key) };
+    if (r.completeness?.kind !== "complete") throw new Error(`couldn't read ${key}:: on the card (its subtree is too large to scan)`);
+    // The block has no such token, in any scope; its revision still has to be known.
+    const b = await this.request<{ selected: WireBlock | null }>("blocks.context", { blockId });
+    if (!b.selected) throw new Error("the card is gone from the outline");
+    return { revision: b.selected.revision!, tokens: [] };
+  }
+
+  /** Patch property tokens, if the block is still at `expectedRevision`. Throws EditConflict when it isn't. */
+  async patchProperties(blockId: string, expectedRevision: number, operations: PropertyPatch[]): Promise<Msg> {
+    try {
+      return toMsg(await this.request<WireBlock>("properties.patch", { blockId, expectedRevision, operations, mutation: EDIT_MUTATION }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/changed since editing began/i.test(msg)) throw new EditConflict(blockId, msg);
       throw e;
     }
   }

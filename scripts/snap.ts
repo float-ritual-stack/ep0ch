@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -156,6 +156,59 @@ if (scenario === "edit") {
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
   console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  other.close(); board.close(); process.exit(0);
+}
+if (scenario === "move") {
+  // Writes: seeds its own board and moves cards between lanes by key, picker and mouse. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("move writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Scratch move board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  await mk(hub.id, "Review [type::virtual-branch] [query::stage=review track=door]");
+  await mk(hub.id, "Done [type::virtual-branch] [query::stage=done]");
+  await mk(hub.id, "Parked [type::virtual-branch] [query::stage=parked or stage=blocked]");
+  const lamp = await mk(null, "Fix the lamp timer [stage::queued] [track::garden] [priority::high]\nThe porch lamp turns on at noon.");
+  await mk(null, "Paint the shed [stage::queued] [track::door]\nTwo coats, green.");
+  const gate = await mk(null, "Oil the gate hinge [stage::doing] [track::door]\nIt squeaks.");
+  await mk(null, "Sort the seed box [stage::done]\nDone last week.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id);
+  const S = B as any;
+  const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+  const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(300); };
+  const laneOf = (name: string) => S.lanes.findIndex((l: any) => l.name === name);
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-lanes", 2500);
+  // Keyboard: the lamp card (Queued) → the picker shows every lane's patch, or why not.
+  S.lane = laneOf("Queued"); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === lamp.id); app.redraw();
+  ch("m");
+  while (S.mover.sel !== laneOf("Review")) ch(S.mover.sel < laneOf("Review") ? "j" : "k");
+  await snap("2-picker", 400);
+  press({ kind: "enter" }); await settle();
+  await snap("3-moved-two-values", 300);
+  ch("L"); await settle();                                                     // Review → Done: one value
+  await snap("4-moved-right", 300);
+  ch("L"); await settle();                                                     // Done → Parked: refused, OR isn't in the grammar
+  await snap("5-refused", 300);
+  // Mouse: drag the gate card from Doing and hover over Review, then drop.
+  S.lane = laneOf("Doing"); S.lanes[S.lane].sel = 0; app.redraw(); await Bun.sleep(200);
+  const from = S.laneRects.find((r: any) => r.lane === laneOf("Doing")).rect, to = S.laneRects.find((r: any) => r.lane === laneOf("Review")).rect;
+  mouse("down", from.col + 4, from.row + 1); mouse("drag", to.col + 6, to.row + 4);
+  await snap("6-dragging", 300);
+  mouse("up", to.col + 6, to.row + 4); await settle();
+  await snap("7-dropped", 300);
+  // Someone else edits the card after the board drew it: the move is refused, nothing written.
+  const other = new SocketBoard();
+  const now = (await other.request("blocks.context", { blockId: gate.id })).selected;
+  await other.request("update", { blockId: gate.id, text: now.text.replace("It squeaks.", "It squeaks less."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  ch("L"); await settle();
+  await snap("8-stale-refused", 300);
+  for (const id of [lamp.id, gate.id]) {
+    const b = (await other.request("blocks.context", { blockId: id })).selected;
+    console.log(`${id.slice(0, 8)} revision ${b.revision} · ${b.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}\n  ${b.text.split("\n")[0]}`);
+  }
+  console.log(JSON.stringify(B.describe(), null, 1).split("\n").filter(l => /lastMove|result|"to"/.test(l)).join("\n"));
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {

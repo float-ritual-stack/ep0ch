@@ -12,16 +12,18 @@ import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
-import { readView, type ViewRead } from "../views";
+import { applyMove, describeChanges, planMove, type MovePlan } from "../move";
+import { matchesFilters, readView, type ViewRead } from "../views";
 import { ReaderPane, TreePane, type DeskApi, type Pane, type PaneKind } from "./panes";
 
-interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead }
+interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead; want?: string }
 interface Float { pane: ReaderPane; rect: Rect }
 type Region = "lanes" | "preview" | `detail${number}` | `float${number}` | "tree" | "backlinks";
 type Drag =
   | { kind: "lanes-split" } | { kind: "tree-edge" } | { kind: "links-edge" }
   | { kind: "lane-edge"; a: number; b: number } | { kind: "reader-edge"; a: number; b: number }
-  | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float };
+  | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float }
+  | { kind: "card"; from: number; card: Msg; over: number | null; open: boolean };
 interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right"; laneWeights: Record<string, number>; readerWeights: number[] }
 interface Saved extends Layout { treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string> }
 
@@ -65,6 +67,11 @@ export class DeliveryBoard implements Screen, DeskApi {
   private status = "looking for boards…";
   private hubs: Record<string, string> = {};          // workspace → last board hub id
   private picker: { items: { hub: Msg; lanes: number }[]; sel: number } | null = null;
+  /** The move picker (`m`): every lane with what moving the selected card there would patch. */
+  private mover: { card: Msg; from: number; plans: MovePlan[]; sel: number } | null = null;
+  /** The card a move is patching right now; a second move waits for it. */
+  private moving: string | null = null;
+  private lastMove: { card: string; to: string; result: string } | null = null;
 
   constructor(private readonly hubId?: string) {
     const s = readState<Partial<Saved>>("delivery.json");
@@ -129,9 +136,14 @@ export class DeliveryBoard implements Screen, DeskApi {
     for (const l of this.lanes) readView(this.ctx.board, l.def).then(read => {
       const items = read.items;
       l.read = read;
-      const keep = l.items?.[l.sel]?.id;
+      const keep = l.want ?? l.items?.[l.sel]?.id;
       l.items = items;
-      l.sel = Math.max(0, keep ? items.findIndex(m => m.id === keep) : Math.min(l.sel, items.length - 1));
+      const at = keep ? items.findIndex(m => m.id === keep) : -1;
+      if (l.want) {
+        if (at < 0) this.ctx.flash(`moved, but ${l.name} doesn't list it${read.truncated ? ` (past its limit of ${read.limit})` : ""}`);
+        l.want = undefined;
+      }
+      l.sel = Math.max(0, at >= 0 ? at : Math.min(l.sel, items.length - 1));
       if (l === this.lanes[this.lane]) this.follow();
       this.ctx.redraw();
     }, () => { l.items = []; });
@@ -164,6 +176,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg) },
       backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
       images: this.placed.length,
+      moving: this.moving, lastMove: this.lastMove,
+      mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
     };
   }
@@ -259,6 +273,74 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.focus = `float${this.floats.length - 1}`;
   }
 
+  // ── moving cards ───────────────────────────────────────────────────────────
+
+  /** Why the selected card can't move at all right now, before any lane is considered. */
+  private moveBlocked(card: Msg): string | null {
+    if (this.moving) return "another move is still landing";
+    // An open draft of this card keeps it where it is: the draft's base revision would go stale under
+    // it. Saving or closing the edit first lets the revision checks decide in order.
+    const r = this.readers().find(p => p.draft?.blockId === card.id);
+    if (r) return `it's open for editing${r.draft!.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
+    return null;
+  }
+
+  /** Move the selected card into lane `to` by patching the properties its query names. */
+  private async moveTo(to: number) {
+    const from = this.lane, card = this.card(), target = this.lanes[to];
+    if (!card || !target || to === from) return;
+    const blocked = this.moveBlocked(card);
+    if (blocked) return this.ctx.flash(`not moved: ${blocked}`);
+    const plan = planMove(card, target);
+    if (plan.kind === "refused") { this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}` }; return this.ctx.flash(`can't move to ${target.name}: ${plan.reason}`); }
+    if (plan.kind === "already") {
+      this.lane = to; target.want = card.id; this.loadLanes();
+      return this.ctx.flash(`already in ${target.name} · nothing to change`);
+    }
+    this.moving = card.id; this.status = `moving to ${target.name}...`; this.redraw();
+    try {
+      const m = await applyMove(this.ctx.board, card, plan.changes);
+      const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters)).map(l => l.name);
+      this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}` };
+      this.ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
+      for (const r of this.readers()) r.refresh({ ...m, childIds: r.msg?.id === m.id ? r.msg.childIds : m.childIds });
+      if (this.lane === from) this.lane = to;           // follow the card unless the user already went elsewhere
+      target.want = card.id;
+      if (this.collapsed.delete(target.name)) this.save();   // a card moved into a spine should still be seen
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}` };
+      this.ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
+    } finally {
+      this.moving = null; this.status = "";
+      this.loadLanes();                                  // either way, show the lanes as the service has them now
+    }
+  }
+
+  private openMover() {
+    const card = this.card();
+    if (!card) return this.ctx.flash("select a card to move");
+    const blocked = this.moveBlocked(card);
+    if (blocked) return this.ctx.flash(`not moved: ${blocked}`);
+    const plans = this.lanes.map(l => planMove(card, l));
+    const first = plans.findIndex((p, i) => i !== this.lane && p.kind === "patch");
+    this.mover = { card, from: this.lane, plans, sel: first >= 0 ? first : this.lane };
+    this.redraw();
+  }
+
+  private moverKey(k: Key, c: string) {
+    const M = this.mover!;
+    if (k.kind === "down" || c === "j") M.sel = Math.min(this.lanes.length - 1, M.sel + 1);
+    else if (k.kind === "up" || c === "k") M.sel = Math.max(0, M.sel - 1);
+    else if (k.kind === "esc" || c === "m" || c === "q") this.mover = null;
+    else if (k.kind === "enter") {
+      this.mover = null;
+      if (this.card()?.id !== M.card.id || this.lane !== M.from) return this.ctx.flash("the selection changed · not moved");
+      void this.moveTo(M.sel);
+    }
+    this.redraw();
+  }
+
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(ctx: Ctx): Frame {
@@ -312,6 +394,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.rects.set("split:tree", { col: this.lay.treeSide === "left" ? r.col + r.cols - 1 : r.col, row: 0, cols: 1, rows: H });
     }
     if (this.picker) this.drawPicker(canvas, W, H);
+    if (this.mover) this.drawMover(canvas, W, H);
     // Floating panes last, in z-order.
     this.floats.forEach((f, i) => { this.overlays.push({ r: { ...f.rect, cols: f.rect.cols + 1, rows: f.rect.rows + 1 }, layer: 3 + i }); this.drawFloat(canvas, f, i, W, H); });
 
@@ -354,14 +437,16 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.laneRects.push({ lane: i, rect, spine });
       x += w;
       const on = this.focus === "lanes" && i === this.lane;
+      const drop = this.drag?.kind === "card" && this.drag.over === i && i !== this.drag.from ? planMove(this.drag.card, l) : null;
       if (spine) {
         for (let y = rect.row; y < rect.row + rect.rows; y++) canvas.text(rect.col + rect.cols - 1, y, fg(C.blue) + "│" + RESET, 1);
         const label = `${l.name} ${l.items?.length ?? "…"}`;
         [...label].slice(0, rect.rows).forEach((ch, k) => canvas.text(rect.col + 1, rect.row + k, (on ? SEL : fg(C.cyan)) + ch + RESET, 1));
         return;
       }
-      canvas.box(rect, fg(on ? C.lcyan : i === this.lane ? C.cyan : C.blue),
-        `${fg(on ? C.white : C.grey)}${l.name} ${fg(C.dark)}${l.items ? l.items.length : "…"}${l.read?.truncated ? fg(C.yellow) + ` of ${l.read.limit}+` : ""}${l.read && l.read.status !== "ready" ? fg(C.lred) + " " + l.read.status : ""}`, on ? fg(C.dark) + "c collapse" : "");
+      canvas.box(rect, fg(drop ? (drop.kind === "refused" ? C.lred : C.yellow) : on ? C.lcyan : i === this.lane ? C.cyan : C.blue),
+        `${fg(on ? C.white : C.grey)}${l.name} ${fg(C.dark)}${l.items ? l.items.length : "…"}${l.read?.truncated ? fg(C.yellow) + ` of ${l.read.limit}+` : ""}${l.read && l.read.status !== "ready" ? fg(C.lred) + " " + l.read.status : ""}`,
+        drop ? (drop.kind === "patch" ? fg(C.yellow) + "drop: " + describeChanges(drop.changes) : drop.kind === "already" ? fg(C.dark) + "already here" : fg(C.lred) + "can't: " + drop.reason) : on ? fg(C.dark) + "c collapse · H L move" : "");
       const inner = { col: rect.col + 1, row: rect.row + 1, cols: rect.cols - 2, rows: rect.rows - 2 };
       const items = l.items ?? [];
       const fit = Math.max(1, Math.floor(inner.rows / 2));
@@ -398,6 +483,24 @@ export class DeliveryBoard implements Screen, DeskApi {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + `pick a board · ${this.ctx.workspace}`, fg(C.dark) + "⏎ open · esc back");
     P.items.forEach((it, i) => canvas.text(r.col + 1, r.row + 1 + i,
       (i === P.sel ? SEL : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
+  }
+
+  private drawMover(canvas: Canvas, W: number, H: number) {
+    const M = this.mover!;
+    const r: Rect = { col: Math.round(W * 0.15), row: Math.round(H * 0.12), cols: Math.round(W * 0.7), rows: Math.min(H - 4, this.lanes.length * 2 + 3) };
+    canvas.clear(r, bg(C.black));
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + `move · ${subject(M.card).slice(0, r.cols - 20)}`, fg(C.dark) + "enter move · esc back");
+    const inner = r.cols - 2;
+    this.lanes.forEach((l, i) => {
+      const p = M.plans[i]!, sel = i === M.sel, y = r.row + 1 + i * 2;
+      if (y + 1 >= r.row + r.rows - 1) return;
+      const what = i === M.from ? fg(C.dark) + "the card's lane now"
+        : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
+        : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
+        : fg(C.lred) + "can't: " + p.reason;
+      canvas.text(r.col + 1, y, (sel ? SEL : fg(C.white)) + pad(` ${sel ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def.props.query ?? "" : l.read?.status ?? "loading"}`, inner) + RESET, inner);
+      canvas.text(r.col + 1, y + 1, pad(`     ${what}`, inner) + RESET, inner);
+    });
   }
 
   private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint(), layer = 0) {
@@ -476,8 +579,19 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   private hints(W: number): string {
+    const d = this.drag?.kind === "card" ? this.drag : null;
+    if (d) {
+      const over = d.over === null ? null : this.lanes[d.over];
+      const p = over && d.over !== d.from ? planMove(d.card, over) : null;
+      const say = !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
+        : p.kind === "patch" ? `|08 release to move into |15${over.name}|08 · |14${describeChanges(p.changes)}`
+        : p.kind === "already" ? `|08 already in |15${over.name}|08 · nothing to change`
+        : `|12 can't drop into ${over.name}: ${p.reason}`;
+      return pad(paint(say), W);
+    }
+    if (this.mover) return pad(paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched"), W);
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15alt⏎|08 new detail · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15{ } < >|08 size · |15tab|08 area"
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15alt⏎|08 new detail · |15H L|08 move card · |15m|08 move to... · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15{ } < >|08 size · |15tab|08 area"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
         : "|08 |15tab|08 area · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
@@ -503,6 +617,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       editing.key(k, this); return;
     }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    if (this.mover && k.kind !== "mouse") return this.moverKey(k, c);
     if (this.picker) {
       const P = this.picker;
       if (k.kind === "down" || c === "j") P.sel = Math.min(P.items.length - 1, P.sel + 1);
@@ -578,6 +693,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
     else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
     else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
+    else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
+    else if (c === "m") return this.openMover();
     else if (c === "c" && l) { this.collapsed.has(l.name) ? this.collapsed.delete(l.name) : this.collapsed.add(l.name); this.save(); return this.redraw(); }
     else if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) { this.collapsed.delete(l.name); this.save(); return this.redraw(); }
     else if (l && (k.kind === "down" || c === "j")) l.sel = Math.min(Math.max(0, n - 1), l.sel + 1);
@@ -605,7 +722,18 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const inside = (r?: Rect) => !!r && k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
-    if (k.action === "up") { if (this.drag) { this.drag = null; this.save(); } return; }
+    if (k.action === "up") {
+      const d = this.drag;
+      this.drag = null;
+      if (d?.kind === "card") {
+        // Released over another lane: move it there. Released where it started: a click (a second click opens it).
+        if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.moveTo(d.over); }
+        else if (d.open) return this.openDetail(d.card, false);
+        return this.redraw();
+      }
+      if (d) this.save();
+      return;
+    }
     if (k.action === "drag" && this.drag) return this.dragTo(k.x, k.y);
 
     // Topmost first: floats, drawers, then the docked layout.
@@ -655,7 +783,11 @@ export class DeliveryBoard implements Screen, DeskApi {
         const idx = l.top + Math.floor((k.y - hit.rect.row - 1) / 2);
         const same = this.lane === hit.lane && l.sel === idx && this.focus === "lanes";
         this.lane = hit.lane; this.focus = "lanes";
-        if (l.items && idx >= 0 && idx < l.items.length) { l.sel = idx; this.follow(); if (same) return this.openDetail(l.items[idx]!, false); }
+        if (l.items && idx >= 0 && idx < l.items.length) {
+          l.sel = idx; this.follow();
+          // Drag it onto another lane to move it; a click on the selected card opens it when released.
+          this.drag = { kind: "card", from: hit.lane, card: l.items[idx]!, over: null, open: same };
+        }
         this.redraw();
       }
       void W; void H;
@@ -700,6 +832,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     }
     else if (d.kind === "float-move") { d.f.rect.col = x - d.dx; d.f.rect.row = y - d.dy; }
     else if (d.kind === "float-size") { d.f.rect.cols = Math.max(20, x - d.f.rect.col + 1); d.f.rect.rows = Math.max(5, y - d.f.rect.row + 1); }
+    else if (d.kind === "card") d.over = this.laneRects.find(l => x >= l.rect.col && x < l.rect.col + l.rect.cols && y >= l.rect.row && y < l.rect.row + l.rect.rows)?.lane ?? null;
     this.redraw();
   }
 }
