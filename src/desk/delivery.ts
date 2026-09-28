@@ -618,6 +618,23 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.redraw();
   }
 
+  /**
+   * A click in a reader's frame at `r`: to the surface, in its own cells (`skip`: rows above the pane in
+   * the frame, the backlink preview's quote). A link clicked in a drawer's preview opens in a detail.
+   */
+  private clickReader(pane: ReaderPane, r: Rect, k: { x: number; y: number }, skip = 0) {
+    const x = k.x - r.col - 1, y = k.y - r.row - 1 - skip;
+    if (x < 0 || y < 0 || x >= r.cols - 2 || y >= r.rows - 2 - skip) return;
+    const drawer = pane === this.treePreview || pane === this.linksPreview;
+    pane.click(x, y, this, drawer ? m => { this.current = m; this.openDetail(m, false); } : undefined);
+  }
+
+  /** The backlink source `id` in a detail (the list's click, like ⏎), read whole first. */
+  private openLink(id: string) {
+    this.ctx.board.get(id).then(m => { if (m) { this.current = m; this.openDetail(m, false); } else this.ctx.flash("that source isn't in the outline any more"); },
+      (e: Error) => this.ctx.flash(`couldn't read the source: ${e.message}`));
+  }
+
   private previewLink() {
     const b = this.links?.items?.[this.links.sel];
     if (!b || b.id === this.linksPreview.msg?.id) return;
@@ -1619,6 +1636,7 @@ export class DeliveryBoard implements Screen, DeskApi {
         const top = this.floats.length - 1, f = this.floats[top]!;
         if (inside({ col: f.rect.col + f.rect.cols - 2, row: f.rect.row + f.rect.rows - 2, cols: 2, rows: 2 })) this.drag = { kind: "float-size", f };
         else if (k.y === f.rect.row) this.drag = { kind: "float-move", f, dx: k.x - f.rect.col, dy: k.y - f.rect.row };
+        else this.clickReader(f.pane, f.rect, k);
         return this.redraw();
       }
       const near = (x: number, edge: number) => x === edge || x === edge - 1;
@@ -1635,8 +1653,10 @@ export class DeliveryBoard implements Screen, DeskApi {
       };
       const e = edgeHit();
       if (e) { this.drag = e; return; }
-      // The drawers' previews aren't areas of their own (yet): a click there doesn't reach what's under them.
-      if ((this.treeOpen && inside(this.rects.get("tree-preview"))) || (this.links && inside(this.rects.get("links-preview")))) return;
+      // The drawers' previews aren't areas of their own (yet): a click there doesn't reach what's under
+      // them, but a link clicked in one opens in a detail (their previews follow the drawer's selection).
+      if (this.treeOpen && inside(this.rects.get("tree-preview"))) return void this.clickReader(this.treePreview, this.rects.get("tree-preview")!, k);
+      if (this.links && inside(this.rects.get("links-preview"))) return void this.clickReader(this.linksPreview, this.rects.get("links-preview")!, k, 1);
       const order: Region[] = ["tree", "backlinks", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
       const region = order.find(r => inside(this.rects.get(r)) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
       if (region) {
@@ -1645,10 +1665,16 @@ export class DeliveryBoard implements Screen, DeskApi {
         if (region.startsWith("detail")) this.active = Number(region.slice(6));
         if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
         if (region === "backlinks") {
+          // A source clicked in the list: its preview follows, and it opens in a detail, as ⏎ opens it.
+          // Only the rows drawn are sources: not the frame, nor the spare row an odd height leaves.
           const r = this.rects.get("backlinks")!, L = this.links!;
-          const idx = L.top + Math.floor((k.y - r.row - 1) / 2);
-          if (L.items && idx >= 0 && idx < L.items.length) { L.sel = idx; this.previewLink(); }
+          const j = Math.floor((k.y - r.row - 1) / 2), fit = Math.max(1, Math.floor((r.rows - 2) / 2));
+          const idx = L.top + j;
+          const drawn = k.y > r.row && k.y < r.row + r.rows - 1 && k.x > r.col && k.x < r.col + r.cols - 1 && j < fit;
+          if (L.items && drawn && idx < L.items.length) { L.sel = idx; this.previewLink(); this.openLink(L.items[idx]!.id); }
         }
+        const rd = this.readerFor(region);
+        if (region !== "tree" && region !== "backlinks" && rd) this.clickReader(rd.pane, this.rects.get(region)!, k);
         return this.redraw();
       }
       const hit = this.laneRects.find(l => inside(l.rect));

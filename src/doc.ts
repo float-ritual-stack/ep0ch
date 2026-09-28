@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { media, MEDIA_LINE, type Media } from "./media";
-import { C, fg, pad, RESET, width as vwidth } from "./style";
+import { balanceTags, C, extractLinks, fg, pad, RESET, splitVisible, stripTags, trimTagged, width as vwidth, type LinkRange } from "./style";
 import { colourBody, wrap } from "./text";
 import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
 import { EMBED, stripMarks } from "./refs";
@@ -16,7 +16,8 @@ export interface DocEnv {
   embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
-export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[] }
+/** `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. */
+export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[]; links: LinkRange[] }
 
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 const inline = (s: string) => colourBody(s).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
@@ -106,12 +107,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // A title too long for the top edge keeps a short head there and flows the rest into the box.
       let title = co[3]?.trim() || type[0]!.toUpperCase() + type.slice(1);
       let spill = "";
+      // Counted and cut in visible characters: a link's tags take no room and are never split, and a link
+      // open at the cut is closed on the top edge (a folded callout drops the spill) and re-opened in it.
       const room = bw - 8 - [...icon].length;
-      if ([...title].length > room) {
-        const cut = title.lastIndexOf(" ", room - 1);
-        const at = cut > room * 0.4 ? cut : room - 1;
-        spill = title.slice(at).trim();
-        title = title.slice(0, at).trimEnd() + " …";
+      if (vwidth(title) > room) {
+        const seen = [...stripTags(title)];
+        const cut = seen.lastIndexOf(" ", room - 1);
+        const [h, t] = splitVisible(title, cut > room * 0.4 ? cut : room - 1);
+        spill = trimTagged(t);
+        title = trimTagged(h) + " …";
       }
       const head = ` ${icon} ${title} `;
       out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head))) + "╮" + RESET);
@@ -161,7 +165,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
     out.push(...prose(line, W));
   }
-  return { lines: out.map(stripMarks), images, media: mediaRefs };
+  const { lines, ranges } = extractLinks(out.map(stripMarks));
+  return { lines, images, media: mediaRefs, links: ranges };
 }
 
 /** Blockquote, heading, list item or paragraph. */
@@ -182,11 +187,10 @@ function prose(line: string, W: number): string[] {
 }
 
 function chunk(s: string, w: number): string[] {
-  const chars = [...s];
-  if (chars.length <= w) return [s];
+  if (vwidth(s) <= w) return [s];
   const out: string[] = [];
-  for (let i = 0; i < chars.length; i += w) out.push(chars.slice(i, i + w).join(""));
-  return out;
+  for (let rest = s; rest; ) { const [head, tail] = splitVisible(rest, w); out.push(head); rest = tail; }
+  return balanceTags(out);
 }
 
 function cells(row: string): string[] {

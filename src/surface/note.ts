@@ -12,7 +12,7 @@ import { CommentSession, type CommentEnv } from "../comment";
 import { renderDoc, type DocEnv } from "../doc";
 import { embedRegion } from "../embeds";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix } from "../refs";
+import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
@@ -22,7 +22,7 @@ import type { Key } from "../term";
 import { bbsDate, rule } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
 import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
-import { checkValue, propertyRows, PropertyPanel, valueView, type PropRow } from "./props-panel";
+import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -36,7 +36,15 @@ export interface SurfaceHost {
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
-export type Link = { block?: string; fragment?: string; label?: string; page?: string; media?: string };
+export type Link = LinkTarget;
+/** Two links name the same target the same way (a click finds the `[ ]` link it is). */
+const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media;
+/**
+ * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
+ * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
+ */
+/** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string } | { prop: number; follow: boolean });
 
 /** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
 const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
@@ -53,7 +61,7 @@ const linkText = (l: Link, text: string, src: Source | null) => l.block
  * The body a reader draws: the note without its subject line and without the lines that only hold block
  * metadata (those are in the summary and the property panel), links as they read.
  */
-export function readableBody(m: Msg, embeds: boolean, src: Source | null): string {
+export function readableBody(m: Msg, embeds: boolean, src: Source | null, sink?: Link[]): string {
   const tokens = tokensOf(m.text, src);
   const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
   let fenced = false;
@@ -61,7 +69,7 @@ export function readableBody(m: Msg, embeds: boolean, src: Source | null): strin
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(l => (/^\s*```/.test(l) ? ((fenced = !fenced), l) : fenced ? l : l.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, "")))
     .join("\n").replace(/^\n+/, "");
-  return presentLinks(body, embeds, src, m.text);
+  return presentLinks(body, embeds, src, m.text, sink);
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
@@ -88,6 +96,8 @@ export class NoteSurface {
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
   notice = "";
   private links: Link[] = [];
+  /** What the last render put where, for clicks (PIE-415). */
+  private hits: Hit[] = [];
   private unfold = false;
   private link = -1;
   /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
@@ -222,6 +232,7 @@ export class NoteSurface {
 
   /** The surface at any width: a board reader, a desk pane, or a narrow river column. */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    this.hits = [];
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
@@ -233,11 +244,13 @@ export class NoteSurface {
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
-    const summary = this.summary(m).text;
+    // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
+    const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
     const count = this.rows(m).length;
+    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key });
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
-      ...(summary ? [pad(fg(C.lgreen) + summary + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
+      ...(summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
       pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
@@ -247,9 +260,12 @@ export class NoteSurface {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
       const info = { revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
-      if (this.panel.full) return { lines: [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)] };
+      const at = head.length;
+      const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
+      if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
       const ph = Math.min(rows.length + 2 + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
+      panelHits();
     }
     head.push(rule(w));
     const t = host?.ctx.t;
@@ -259,7 +275,9 @@ export class NoteSurface {
     };
     // Transclusions: the target drawn the way this reader draws a note, without expanding its own embeds.
     const inner = (target: Msg, width: number) => renderDoc(readableBody(target, false, src), { ...env, width, graphics: false }).lines;
-    const doc = renderDoc(readableBody(m, true, src), { ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner) });
+    // Every link drawn (the body's, an embed's title and results) is tagged with its place in `drawn`.
+    const drawn: Link[] = [];
+    const doc = renderDoc(readableBody(m, true, src, drawn), { ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn) });
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
     if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
@@ -279,6 +297,12 @@ export class NoteSurface {
       const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / im.rows) * img.height), w: img.width, h: Math.max(1, Math.round((visible / im.rows) * img.height)) } : undefined;
       placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
     }
+    // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
+    for (const r of doc.links) {
+      const row = r.line - this.scroll;
+      const link = drawn[r.n];
+      if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: head.length + row, from: r.from + 1, to: Math.min(w, r.to + 1), link });
+    }
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h));
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
@@ -289,6 +313,29 @@ export class NoteSurface {
   summary(m: Msg): { keys: string[]; source: string; text: string } {
     const { keys, source } = summaryKeys(this.viewKeys);
     return { keys, source, text: summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ") };
+  }
+
+  /**
+   * The summary line as drawn: its text, the line with linked values coloured as links, and where each
+   * linked value sits (columns from the line's start).
+   */
+  private summaryView(m: Msg, src: Source | null) {
+    const segs = summarySegments(m.properties ?? [], this.summary(m).keys);
+    const prefix = workIdPrefix(src) ?? null;
+    const links: { from: number; to: number; link: Link; key: string }[] = [];
+    let col = 0, line = "";
+    segs.forEach((s, i) => {
+      if (i) { line += " · "; col += 3; }
+      line += s.label + " "; col += [...s.label].length + 1;
+      s.value.split(", ").forEach((v, j) => {
+        if (j) { line += ", "; col += 2; }
+        const t = valueTarget(s.key, v, prefix), n = [...v].length;
+        if (t) { links.push({ from: col, to: col + n, link: t, key: s.key }); line += fg(C.lcyan) + v + fg(C.lgreen); }
+        else line += v;
+        col += n;
+      });
+    });
+    return { text: segs.map(s => s.plain).join(" · "), line, links };
   }
 
   /** The panel's rows for `m`: the service's tokens once it has answered, the block properties until then. */
@@ -326,7 +373,7 @@ export class NoteSurface {
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
-  async followValue(r: PropRow, host: SurfaceHost): Promise<Msg | null> {
+  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost): Promise<Msg | null> {
     const t = r.target;
     let target: Msg | null = null, why = "";
     if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
@@ -683,9 +730,56 @@ export class NoteSurface {
   }
 
   /** ⏎ on a selected link: media open in the system viewer, blocks and pages open through the host. */
-  private async follow(i: number, host: SurfaceHost): Promise<Msg | null> {
+  private follow(i: number, host: SurfaceHost): Promise<Msg | null> {
     const l = this.links[i];
-    if (!l) return null;
+    return l ? this.followTarget(l, host) : Promise.resolve(null);
+  }
+
+  /**
+   * A click in the last render (`x`, `y` in the surface's cells): a link opens where ⏎ on it would (and
+   * becomes the selected `[ ]` link when it is one of them); a property panel row is selected, and a
+   * click on its linked value follows it. False when nothing is there, or while an edit, a comment or a
+   * value being typed holds the surface.
+   */
+  click(x: number, y: number, host: SurfaceHost): boolean {
+    if (this.editing) return false;
+    this.use(host);
+    const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
+    const h = at.find(h => "link" in h || h.follow) ?? at[0];
+    if (!h) return false;
+    if ("prop" in h) {
+      const m = this.msg, r = m && this.panel ? this.rows(m)[h.prop - 1] : undefined;
+      if (!r || !this.panel) return false;
+      this.panel.sel = h.prop - 1; this.panel.note = "";
+      if (h.follow) void this.followValue(r, host);
+      host.redraw();
+      return true;
+    }
+    if (h.value !== undefined) {
+      // A summary-line value: the same resolution as the panel's `o` (no fuzzy search; the panel closes).
+      const i = this.links.findIndex(x => sameLink(x, h.link));
+      if (i >= 0) this.link = i;
+      host.redraw();
+      void this.followValue({ key: h.value, target: h.link.block ? { block: h.link.block } : { page: h.link.page! } }, host);
+      return true;
+    }
+    void this.open(h.link, host);
+    return true;
+  }
+
+  /**
+   * Open a link the host drew itself (the river's note body): it becomes the selected `[ ]` link when
+   * it is one of them, then opens where ⏎ on it would.
+   */
+  open(l: Link, host: SurfaceHost): Promise<Msg | null> {
+    const i = this.links.findIndex(x => sameLink(x, l));
+    if (i >= 0) this.link = i;
+    host.redraw();
+    return this.followTarget(l, host);
+  }
+
+  /** Open what a link names: media in the system viewer, blocks and pages through the host. */
+  private async followTarget(l: Link, host: SurfaceHost): Promise<Msg | null> {
     if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);

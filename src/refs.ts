@@ -3,6 +3,7 @@
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import type { Source } from "./props";
+import { LINK_END, linkTag } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
@@ -111,6 +112,8 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
 }
 
 export interface LinkView { text: string; missing: boolean }
+/** What a link points at: a block (and fragment), or a page or Work ID; `label` as the note wrote it. */
+export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string };
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
@@ -133,7 +136,7 @@ export function pageView(address: string, label: string | undefined, r: PageReso
  * inline code keep their text. Transclusions (`!((…))`) are left for the renderer when `embeds` is on;
  * inside an embed (off) they read as a link that says it isn't expanded: embeds are never recursive.
  */
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text): string {
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[]): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
   let fenced = false;
@@ -142,15 +145,20 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     if (fenced) return line;
     return line.split(/(`[^`]*`)/).map((part, i) => {
       if (i % 2) return part;
-      const mark = (v: LinkView) => (v.missing ? MISSING_ON : LINK_ON) + v.text + LINK_OFF;
+      // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
+      const mark = (v: LinkView, to: LinkTarget) => {
+        const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
+        return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
+      };
       return part
         .replace(new RegExp(`(!?)${REF.source}`, "g"), (all, bang: string, id: string, frag?: string, label?: string) => {
           if (label !== undefined && !label.trim()) return all;
           if (bang && !label && embeds) return all;
           const v = refView(id, frag, label, resolved.get(refKey(id, frag, label)));
-          return bang && !label ? `!${mark(v)} · embed not expanded here` : bang + mark(v);
+          const to: LinkTarget = { block: id, ...(frag ? { fragment: frag } : {}), ...(label !== undefined ? { label } : {}) };
+          return bang && !label ? `!${mark(v, to)} · embed not expanded here` : bang + mark(v, to);
         })
-        .replace(PAGE, (_all, address: string, label?: string) => mark(pageView(address, label, pageOf(address, src))));
+        .replace(PAGE, (_all, address: string, label?: string) => mark(pageView(address, label, pageOf(address, src)), { page: address.trim(), ...(label !== undefined ? { label } : {}) }));
     }).join("");
   }).join("\n");
 }

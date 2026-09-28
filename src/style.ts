@@ -18,19 +18,112 @@ export function paint(s: string): string {
 }
 
 const ANSI_RE = /\x1b\[[\d;]*m/g;
-export const visible = (s: string) => s.replace(ANSI_RE, "");
+
+// ── link tags: where a rendered link is, carried through wrapping, padding and colour (PIE-415) ──
+// A link drawn in a reader is bracketed by an open tag naming it (its index in the renderer's link list)
+// and a close tag. They take no room (width, wrap and pad skip them) and extractLinks turns them into
+// cell ranges before the lines are drawn. Plane 16's private use area: nothing a note holds lives there.
+const TAG0 = 0x100000, TAG_END = 0x10fffd;
+export const TAGS = /[\u{100000}-\u{10FFFD}]/gu;
+const HAS_TAG = /[\u{100000}-\u{10FFFD}]/u;
+export const linkTag = (n: number) => String.fromCodePoint(TAG0 + n);
+export const LINK_END = String.fromCodePoint(TAG_END);
+export const stripTags = (s: string) => s.replace(TAGS, "");
+const isTag = (ch: string) => { const c = ch.codePointAt(0)!; return c >= TAG0 && c <= TAG_END; };
+
+export const visible = (s: string) => s.replace(ANSI_RE, "").replace(TAGS, "");
 export const width = (s: string) => [...visible(s)].length;
+
+/** Where a link is on screen: row `line`, columns `from` (inclusive) to `to` (exclusive), link `n`. */
+export interface LinkRange { line: number; from: number; to: number; n: number }
+
+/**
+ * Tagged lines to plain ones plus where each link landed, in visible columns. Every row stands alone:
+ * a link that wraps is closed at the end of one row and re-opened at the start of the next (wrap and
+ * balanceTags do that), so a tag never carries into a neighbouring table cell, a border or the next row.
+ */
+export function extractLinks(lines: readonly string[]): { lines: string[]; ranges: LinkRange[] } {
+  const ranges: LinkRange[] = [];
+  const out = lines.map((l, line) => {
+    if (!HAS_TAG.test(l)) return l;
+    let col = 0, from = 0, text = "", open = -1;
+    const end = () => { if (open >= 0 && col > from) ranges.push({ line, from, to: col, n: open }); };
+    for (const part of l.split(/(\x1b\[[\d;]*m)/)) {
+      if (part.startsWith("\x1b[")) { text += part; continue; }
+      for (const ch of part) {
+        if (!isTag(ch)) { text += ch; col++; continue; }
+        end();
+        open = ch.codePointAt(0) === TAG_END ? -1 : ch.codePointAt(0)! - TAG0;
+        from = col;
+      }
+    }
+    end();
+    return text;
+  });
+  return { lines: out, ranges };
+}
+
+/**
+ * Lines cut from one tagged text, each made to stand alone: a link still open at the end of a line is
+ * closed there and re-opened at the start of the next, after whatever indent or frame the caller adds.
+ */
+export function balanceTags(lines: string[]): string[] {
+  let open = -1;
+  return lines.map(l => {
+    if (open < 0 && !HAS_TAG.test(l)) return l;
+    const head = open >= 0 ? linkTag(open) : "";
+    for (const ch of l) if (isTag(ch)) open = ch.codePointAt(0) === TAG_END ? -1 : ch.codePointAt(0)! - TAG0;
+    return head + l + (open >= 0 ? LINK_END : "");
+  });
+}
+
+/**
+ * `s` (plain text and link tags, no colour) split after `n` visible characters, by code point, so a tag
+ * (a surrogate pair) is never split. A link open at the cut is closed in the head and re-opened in the
+ * tail; a tag that opens right at the cut goes with the tail, one that closes there with the head.
+ */
+export function splitVisible(s: string, n: number): [string, string] {
+  const chars = [...s];
+  let seen = 0, open = -1, i = 0;
+  for (; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (isTag(ch)) {
+      const end = ch.codePointAt(0) === TAG_END;
+      if (seen >= n && !end) break;
+      open = end ? -1 : ch.codePointAt(0)! - TAG0;
+      continue;
+    }
+    if (seen >= n) break;
+    seen++;
+  }
+  const head = chars.slice(0, i).join(""), tail = chars.slice(i).join("");
+  if (open < 0) return [head, tail];
+  return [head + LINK_END, tail ? linkTag(open) + tail : ""];
+}
+
+/** `trim` that sees through the link tags at either end (`\u{100000}  plan` → `\u{100000}plan`). */
+export const trimTagged = (s: string) => s.trim().replace(/^([\u{100000}-\u{10FFFD}]*)\s+/u, "$1").replace(/\s+([\u{100000}-\u{10FFFD}]*)$/u, "$1");
 
 export function pad(s: string, w: number): string {
   const n = width(s);
   if (n <= w) return s + " ".repeat(w - n);
   let out = "", seen = 0;
-  for (const part of s.split(/(\x1b\[[\d;]*m)/)) {
+  const parts = s.split(/(\x1b\[[\d;]*m)/);
+  for (let p = 0; p < parts.length; p++) {
+    const part = parts[p]!;
     if (part.startsWith("\x1b[")) { out += part; continue; }
-    for (const ch of part) { if (seen >= w - 1) return out + "…" + RESET; out += ch; seen++; }
+    const chars = [...part];
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
+      if (isTag(ch)) { out += ch; continue; }
+      // Cut here; link tags past the cut still close what they opened.
+      if (seen >= w - 1) return out + "…" + RESET + tagsIn([...chars.slice(i), ...parts.slice(p + 1)].join(""));
+      out += ch; seen++;
+    }
   }
   return out;
 }
+const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 
 export const center = (s: string, w: number) => " ".repeat(Math.max(0, Math.floor((w - width(s)) / 2))) + s;
 
