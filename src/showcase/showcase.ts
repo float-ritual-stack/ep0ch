@@ -8,6 +8,7 @@
 import type { Ctx, Frame, Screen } from "../app";
 import type { Msg } from "../board";
 import { subject } from "../board";
+import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Actor, Capability, OutlineEvent } from "../socket";
@@ -97,8 +98,8 @@ export const SECTIONS: Section[] = [
     stage(n) { return new DeliveryBoard(n.hub?.id, false); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane", files: "src/surface/note.ts, src/desk/panes.ts, references.backlinks in src/socket.ts",
-    aside: "backlinks: only the board's drawer today (section 5, b) · resources: no list yet (PIE-432)",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane", files: "src/surface/note.ts, src/desk/panes.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    aside: "backlinks: only the board's drawer today (section 5, b), grouped and filtered as Detail does (src/backlinks.ts, PIE-442) · resources: no list yet (PIE-432)",
     stage(n, show) {
       const r = new ReaderPane(true), th = new ThreadPane();
       return deskOf({ title: "showcase · entity", panes: [r, th], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.shed) d.setCurrent(n.shed); });
@@ -387,7 +388,7 @@ export class ActionsPane implements Pane {
   wheel(dir: 1 | -1, desk: DeskApi) { for (let i = 0; i < 3; i++) this.step(dir); desk.redraw(); }
 }
 
-const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression"];
+const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression", "references.backlinks.facets"];
 
 /** What the service says about the seed, asked the way the door asks it. `r` asks again. */
 export class ServicePane implements Pane {
@@ -410,7 +411,7 @@ export class ServicePane implements Pane {
     if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return r ? `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(subject).join(", ")}` : "this service can't read views"; });
     if (n.hub) await tryIt(`blocks.read (${SEED.hub}'s lanes)`, async () => { const kids = await b.children(n.hub!.id); const r = await b.readMany(kids.map(k => k.id), ["title", "properties"]); return r.map(subject).join(", "); });
     if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r ? r.map(p => `${p.key}::${p.value}`).join(" ") : "this service can't preview"; });
-    if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => (await b.backlinks(n.shed!.id)).map(x => x.title).join(", ") || "none");
+    if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => { const c = await b.backlinks(n.shed!.id); return `${describeBacklinkView(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, new Set()).status}: ${c.sources.map(x => x.title).join(", ") || "none"}`; });
     await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return !r ? "this service has no change feed" : r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });
     this.answers = out;
     desk.redraw();

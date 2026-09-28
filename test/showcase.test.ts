@@ -98,7 +98,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(await scope("level")).toEqual(["inline"]);
     // The literal region's property is text, not a property.
     expect(await scope("mode")).toEqual([]);
-    expect((await board.backlinks(seeded.notes.shed.id)).map(b => b.id)).toContain(seeded.notes.notebook.id);
+    expect((await board.backlinks(seeded.notes.shed.id)).sources.map(b => b.blockId)).toContain(seeded.notes.notebook.id);
     expect((await board.resolvePage(SEED.shed)).status).toBe("resolved");
   });
 

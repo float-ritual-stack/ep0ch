@@ -16,7 +16,7 @@ three pane models and four searches (§4).
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
 | squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
-| show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks` | `src/surface/note.ts`, `src/socket.ts` |
+| show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents) | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
 | move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, comment marks, an expanded thread's controls), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; a comment mark expands its thread under the passage (PIE-420: `expanded`, the person's reading state like `folded`; drawn as body rows; its Select, Reply, Resolve controls act through `CommentSession`, the thread list's code); an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow` | `src/surface/note.ts`, `src/surface/selection.ts` |
@@ -141,7 +141,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | children | Blocks under a note | `ThreadPane` `pan:299`, river `space`, BBS `T` | Tree children |
 | up | The parent | `u` `note:766`, BBS `U` | ancestors menu |
 | outlinks | Links in the note (`[ ]` steps to them with the note's other elements, `⏎` follows) | `link.select`, `elements` `note` | **Outlinks** |
-| backlinks | Notes that link here | board drawer `del:1386` | **Backlinks** |
+| backlinks | Notes that link here, grouped by kind with Detail's defaults (PIE-442) | board drawer `drawLinks`, `src/backlinks.ts` | **Backlinks** |
 | resources | `[file::]`, `img::`, media | completion, `src/media.ts` | **Resources** |
 | search | Find a block by text | 4 versions, see §4 | Goto search |
 | history | Back/forward through opened notes | none | Detail history |
@@ -203,7 +203,7 @@ entity navigation
     ├── [~] children                      thread pane, river replies, BBS T
     ├── [x] up                            note surface u
     ├── [x] outlinks (in-note links)      note surface [ ] ⏎ click
-    ├── [~] backlinks                     board drawer only
+    ├── [~] backlinks                     board drawer only (Detail's view, PIE-442)
     ├── [ ] resources list                none (PIE-432)
     ├── [~] search / jump                 4 versions
     └── [ ] history (back/forward)        none
@@ -278,7 +278,7 @@ BBS = News, Conference and the BBS `Reader` together.
 | children | — (`N` writes one) | R `T` `scr:250` k·· | R `pan:299` km· | R `space` kma |
 | up | S `u` k·a | R `U` `scr:297` k·· | S `u` k·a | S `u` k·a |
 | outlinks | S `[ ]` ⏎ click kma | — | S kma | S kma |
-| backlinks | R drawer `del:1386` km· | — | — | — |
+| backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | — | — |
 | resources | S images, `[file::` | — | S | — |
 | search | R `g` boards only | R `scr:338` dead | R `/` `dsk:371` k·· | R `/` `riv:66` k·· |
 | history | — | — | — | — |
@@ -348,11 +348,20 @@ BBS = News, Conference and the BBS `Reader` together.
 
 - Pane operations should get one key layer (the desk's `^W` is the most complete). Reader keys
   are already consistent because they come from the surface.
+- The backlinks drawer (PIE-442) takes Detail's backlinks keys where they're free with the drawer
+  focused: `/` filter (the desk's and river's `/` also search), `s` sort (the lanes' `s` is steps),
+  `h` resolved (the lanes' and river's `h` is left; the drawer has no left), `n` this note (the lanes'
+  `n` is a new card), `.` or space a group. Two clash and are moved: Detail's `k` kind is up in every
+  door list, so kind is `K` (a float's `K` nudges it up, only with the float focused); Detail's `t`
+  stage is the board's outline drawer from any focus, so stage is `w` (the steps overlay's `w`
+  "waiting" can't be open at the same time). A filter being typed holds every key, `t b g` included.
 - `c` collapses wherever something collapses, and `C` comments in every reader (PIE-440).
 
 ### F5. Entity navigation is scattered
 
-- Backlinks: board drawer only. Children: three shapes (thread pane, river replies, BBS `T`).
+- Backlinks: board drawer only. Children: three shapes (thread pane, river replies, BBS `T`). Since
+  PIE-442 the drawer groups, filters and sorts as Detail does through `src/backlinks.ts`; the PIE-432
+  connections screen should list backlinks through it too, not a new list.
 - Outlinks are in-note only (`[ ]`); no list of them. No resources list. No history anywhere.
 - **Resolves:** PIE-432 (connections screen: children, outlinks, backlinks, resources) as one
   shared entity-nav component; PIE-413 puts backlinks under details.

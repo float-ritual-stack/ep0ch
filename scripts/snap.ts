@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
+const wide = ["backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+// `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -229,6 +229,48 @@ if (scenario === "spines") {
   await snap("4-all-open", 800);
   await app.act({ action: "edit.close", args: { discard: true }, reader: "detail1", as: "snap-agent" });
   board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "backlinks") {
+  // PIE-442: a note many things link to, in the board's backlinks drawer, as Detail shows it: this note and
+  // resolved comments hidden, groups by kind with stage counts, open items first, one line each; then
+  // everything shown, a kind and a filter. Its own scratch service, fictional notes.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  const swap = await mk(null, "Seed swap at the allotment [stage::queued]\nSaturday, by the water butts.");
+  const ref = `((${swap.id}))`;
+  await mk(swap.id, `Table plan\nTwo trestles for ${ref}.`);
+  const outbox: [string, string][] = [["Ask the society for the hall key", "waiting"], ["Offer spare onion sets", "draft"], ["Invite the school garden", "waiting"],
+    ["Thank last year's hosts", "sent"], ["Post the swap poster", "sent"], ["Book the urn", "done"], ["Ask about bean seed", "done"], ["Share the seed list", "done"]];
+  for (const [t, st] of outbox) await mk(null, `${t} [type::outbox-item] [outbox::${st}]\nAbout ${ref}.`);
+  const plot = await mk(null, "Plot 14 [page::Plot 14]");
+  await mk(plot.id, `Rota for the stall\nCovers ${ref}.`);
+  await mk(null, `Seed tins to bring\nLabelled for ${ref}.`);
+  const day = (await board.request<any>("pages.follow", { address: "2026-03-14", author: "agent" })).block;
+  await mk(day.id, `Market morning, then ${ref}`);
+  await mk(null, `Garden club takeaways [type::meeting]\nWe agreed ${ref} goes ahead.`);
+  const notes = await mk(null, "Allotment notes\nMondays and Thursdays.");
+  const c1 = await board.comment("c1", notes.id, notes.revision, `Bring labels to ${ref}`, { quote: "Mondays", start: notes.text.indexOf("Mondays") });
+  const c2 = await board.comment("c2", notes.id, notes.revision, `Gate code for ${ref}`, { quote: "Thursdays", start: notes.text.indexOf("Thursdays") });
+  await board.setLifecycle(c2.id, "resolved"); void c1;
+  const hub = await mk(null, "Swap board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id, false), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  for (let i = 0; i < 100 && S.preview.msg?.id !== swap.id; i++) await Bun.sleep(50);
+  ch("b");
+  for (let i = 0; i < 100 && !S.links?.data; i++) await Bun.sleep(50);
+  const said = () => console.log(`  ${S.describe().backlinks.status}`);
+  await snap("1-defaults", 1500); said();
+  ch("h"); ch("n"); ch(".");                                   // resolved and this note shown, the outbox group opened
+  await snap("2-everything", 800); said();
+  ch("h"); ch("n"); ch("K");                                   // one kind: the first group's
+  await snap("3-one-kind", 800); said();
+  ch("K"); for (let i = 0; i < 10 && S.linkView.options.kind !== null; i++) ch("K");
+  ch("/"); for (const c of "poster") ch(c);                      // typed, not yet kept
+  await snap("4-filter", 800); said();
+  press({ kind: "enter" }); press({ kind: "esc" });
+  board.close(); process.exit(0);
 }
 if (scenario === "kanban") {
   // PIE-406 on an All-work-shaped board (its own scratch service, fictional cards): OR lanes, moving into
