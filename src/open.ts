@@ -27,7 +27,7 @@ const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
  */
 export function destinationOf(url: string): { web: string } | { target: LinkTarget } | { refused: string } {
   const u = url.trim();
-  if (u.startsWith("http://") || u.startsWith("https://")) {
+  if (/^https?:\/\//i.test(u)) {
     try { return { web: new URL(u).href }; } catch { return { refused: `not a web address: ${u}` }; }
   }
   if (!URL.canParse(u)) return { refused: `not a web or outliner link: ${u}` };
