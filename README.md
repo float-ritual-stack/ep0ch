@@ -82,8 +82,22 @@ content it needs; the review checklist's "The map" item covers both.
 ## Run
 
     bun install
-    bun src/main.ts                 # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
-    bun src/main.ts /path/to/outliner.sock
+    ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (any directory on PATH)
+
+    ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
+    ep0ch /path/to/outliner.sock
+    ep0ch --ws /path/to/workspace   # the socket of that workspace's service
+    ep0ch --showcase | --desk | --river | --board [<hub-id>]
+
+`ep0ch help` lists everything. Besides opening the door:
+
+| Command | What it does |
+|---|---|
+| `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
+| `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
+| `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
+
+`bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
 
 | Env | Meaning |
 |---|---|
