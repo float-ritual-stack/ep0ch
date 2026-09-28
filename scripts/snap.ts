@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "comment"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -156,6 +156,52 @@ if (scenario === "edit") {
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
   console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  other.close(); board.close(); process.exit(0);
+}
+if (scenario === "comment") {
+  // Writes: seeds its own board, comments on a passage from the preview, replies, resolves, and has a
+  // second writer move the note under an open comment. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("comment writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Scratch delivery board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Done [type::virtual-branch] [query::stage=done]");
+  const card = await mk(null, "EPD-004 scratch card [stage::queued]\nShip the release notes before Friday.\n\nThe release notes need a review before they go out.\n\n- [ ] ask for a second reader\n- [ ] post the notes");
+  await mk(null, "Already shipped [stage::done]\nA finished card.");
+  board.subscribe(e => app.event(e));
+  const screen = new DeliveryBoard(hub.id);
+  app.push(new MainMenu()); app.push(screen);
+  await snap("1-lanes", 2500);
+  for (let i = 0; i < 6 && (screen as any).focus !== "preview"; i++) press({ kind: "tab" });
+  ch("c"); await Bun.sleep(500);
+  ch("j"); ch("l"); for (let i = 0; i < 7; i++) ch("H");          // "release notes" on the second line that has it
+  await snap("2-picking", 600);
+  press({ kind: "enter" });
+  for (const c of "Who reviews these? Needs a name before Friday.") ch(c);
+  await snap("3-writing", 600);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("4-sent", 1500);
+  ch("r"); for (const c of "Taking it: reading tonight.") ch(c);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("5-replied", 1500);
+  ch("x");
+  await snap("6-resolved", 1500);
+  press({ kind: "esc" });
+  await snap("7-reader", 1500);
+  // A second writer moves the note while a new comment is being written.
+  ch("c"); await Bun.sleep(500);
+  press({ kind: "enter" }); for (const c of "Friday is tight.") ch(c);
+  const other = new SocketBoard();
+  const now = (await other.request("blocks.context", { blockId: card.id })).selected;
+  await other.update(card.id, now.text.replace("\nShip", "\nScope moved to v2.\nShip"), now.revision);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("8-refused", 1500);
+  press({ kind: "char", ch: "r", ctrl: true });
+  await snap("9-found-again", 1200);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("10-sent-after-move", 1500);
+  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
+  for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {

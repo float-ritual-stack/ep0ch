@@ -28,7 +28,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const images: DocImage[] = [];
   const mediaRefs: Doc["media"] = [];
   const W = Math.max(10, env.width);
-  const src = body.split("\n");
+  // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
+  // is bookkeeping, not prose.
+  const src = body.split("\n").map(l => l.replace(/ \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g, ""));
   for (let i = 0; i < src.length; i++) {
     const line = src[i]!;
 

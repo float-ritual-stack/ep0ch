@@ -62,10 +62,10 @@ export class Draft {
   }
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
-  copyOut(): string {
+  copyOut(label = this.blockId.slice(0, 8)): string {
     const dir = join(stateDir(), "drafts");
     mkdirSync(dir, { recursive: true });
-    const path = join(dir, `${this.blockId.slice(0, 8)}-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
+    const path = join(dir, `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
     writeFileSync(path, this.text + "\n");
     this.savedCopy = path;
     return path;

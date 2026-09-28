@@ -1,6 +1,8 @@
 // Board over the outliner's JSON-lines socket (protocol 80 or newer).
-// Reads use the service's safe-read actions. The one write is `update`, which names the revision it
-// started from, so the service refuses a stale draft instead of overwriting someone else's edit.
+// Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
+// `update` names the revision it started from, so a stale draft is refused instead of overwriting;
+// a comment names the note's revision and an exact quote, and carries a requestId, so a retry after a
+// lost answer returns the comment that was already saved instead of adding a second one.
 import { connect, type Socket } from "node:net";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 
@@ -16,8 +18,13 @@ interface WireBlock {
 export interface Activity { cursor: number; block: Msg; author: string; actor: string; kind: string; at: number }
 export interface Comment {
   id: string; author: string; body: string; quote: string; at: number; open: boolean;
-  replies: { author: string; body: string; at: number }[];
+  /** Where the quote sits in the note's current text (UTF-16 offsets), when the service could place it. */
+  start: number | null; end: number | null;
+  replies: { id: string; author: string; body: string; at: number }[];
 }
+/** A passage to comment on: exact source text of the note, and where it starts (UTF-16 offset). */
+export interface CommentPassage { quote: string; start: number }
+export interface CommentReceipt { id: string; deduplicated: boolean }
 /** One row of the whole-outline index: everything but the full text. */
 export interface IndexBlock {
   id: string; parentId: string | null; position: number; title: string; author: string;
@@ -43,8 +50,21 @@ export class EditConflict extends Error {
   constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
 }
 
+/**
+ * The service answered with an error: it refused the request and wrote nothing. Anything else that
+ * fails (a timeout, a dropped socket) leaves the outcome unknown, which is why comment writes carry a requestId.
+ */
+export class Refused extends Error {
+  constructor(message: string) { super(message); this.name = "Refused"; }
+}
+
 /** How door edits are attributed: a person typing in the door, like the outliner's own Detail. */
 export const EDIT_MUTATION = { author: "user", actorId: "ep0ch-door" } as const;
+/**
+ * Comments and replies are a person's, like the outliner's own Detail sends them. The service takes an
+ * actor id only on agent-authored annotations, so these can't say "ep0ch-door"; resolve/reopen can.
+ */
+export const COMMENT_AUTHOR = "user";
 
 class Line {
   private buf = "";
@@ -74,7 +94,7 @@ export class SocketBoard implements Board {
       const w = this.waiting.get(r.id);
       if (!w) return;
       this.waiting.delete(r.id); clearTimeout(w.timer);
-      r.ok ? w.resolve(r.result) : w.reject(new Error(r.error ?? "request failed"));
+      r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed"));
     });
     s.on("data", d => lines.feed(d));
     const fail = (e: Error) => { for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(e); } this.waiting.clear(); this.sock = null; };
@@ -202,11 +222,43 @@ export class SocketBoard implements Board {
     const who = (r: any) => r?.block?.actorId ?? r?.source ?? r?.block?.author ?? "?";
     const text = (r: any) => String(r?.body ?? r?.block?.text ?? "").trim();
     const when = (r: any) => Date.parse(r?.block?.createdAt ?? r?.createdAt ?? "") || 0;
-    return threads.map(t => ({
-      id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
-      quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
-      replies: (t.replies ?? []).map((r: any) => ({ author: who(r), body: text(r), at: when(r) })),
-    })).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
+    const offset = (v: unknown) => (typeof v === "number" ? v : null);
+    return threads.map(t => {
+      // resolvedTarget follows the quote through later edits; null means the service lost it.
+      const at = t.resolvedTarget?.anchor;
+      return {
+        id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
+        quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
+        start: at?.kind === "text-quote" ? offset(at.start) : null, end: at?.kind === "text-quote" ? offset(at.end) : null,
+        replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r) })),
+      };
+    }).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
+  }
+
+  /**
+   * A block comment on an exact passage (`annotations.batch` / `block-comment`). The service refuses it
+   * when the note is no longer at `expectedRevision` or the quote isn't where `start` says. `requestId`
+   * must be the same on a retry of the same comment: the service then returns the saved one.
+   */
+  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage): Promise<CommentReceipt> {
+    const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
+      requestId, author: COMMENT_AUTHOR,
+      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source: COMMENT_AUTHOR, passage } }],
+    });
+    return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
+  }
+
+  /** A reply on a comment thread, idempotent by `requestId` like `comment`. */
+  async reply(requestId: string, annotationId: string, body: string): Promise<CommentReceipt> {
+    const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.reply", {
+      requestId, author: COMMENT_AUTHOR, input: { annotationId, body, source: COMMENT_AUTHOR },
+    });
+    return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
+  }
+
+  /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */
+  async setLifecycle(annotationId: string, lifecycle: "open" | "resolved"): Promise<void> {
+    await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: EDIT_MUTATION });
   }
 
   /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */

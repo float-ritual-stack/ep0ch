@@ -140,14 +140,15 @@ export class DeliveryBoard implements Screen, DeskApi {
   onEvent(e: OutlineEvent) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => this.loadLanes(), 1200);
+    for (const r of this.readers()) r.onEvent(this);   // comment counts and threads
     // Any open reader showing the changed block re-reads it in place.
     const id = e.blockId;
     if (id && this.readers().some(r => r.msg?.id === id))
       this.ctx.board.get(id).then(m => { if (m) { for (const r of this.readers()) r.refresh(m); this.redraw(); } }, () => {});
   }
 
-  unsaved() { return this.readers().some(r => r.draft?.dirty); }
-  keepDrafts() { return this.readers().filter(r => r.draft?.dirty).map(r => r.draft!.copyOut()); }
+  unsaved() { return this.readers().some(r => r.unsaved()); }
+  keepDrafts() { return this.readers().flatMap(r => r.keepDrafts()); }
 
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
 
@@ -165,6 +166,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
       images: this.placed.length,
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
+      commenting: this.readers().filter(r => r.session).map(r => r.session!.describe()),
     };
   }
 

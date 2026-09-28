@@ -1,6 +1,6 @@
 # ep0ch-door
 
-A BBS door into a pi-herdr-outliner outline: it reads everything and edits notes in place. It talks
+A BBS door into a pi-herdr-outliner outline: it reads everything, edits notes in place, and comments on them. It talks
 straight to the outliner service's Unix socket (protocol 80 or newer) and is not part of the outliner.
 
 The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art packs:
@@ -98,6 +98,40 @@ On a board lane, `e` edits the selected card in the preview. The river stays rea
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
 
+## Commenting
+
+The same readers comment on the note they show. On the board, Tab to the preview (or a detail) first:
+`c` on a lane still collapses it.
+
+| Keys | Action |
+|---|---|
+| `c` | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
+| `j k` | move to the next / previous line with text (the whole line, without its indent) |
+| `J K` | extend / shrink the passage by a line |
+| `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
+| `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
+| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `c` a new comment |
+| `Esc` | back a step; with unsent text it asks for a second `Esc` |
+
+- **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
+  rendered view restyles and drops text (properties, markup, checklist ids), so a quote picked there
+  could fail to match. Lines that already carry comments have a `▐` in the gutter.
+- **Sending** is `annotations.batch` with a `block-comment` operation: the note's revision, the exact
+  quote and its offset. The service refuses it if the note changed since you picked the passage, or the
+  quote isn't where the offset says. Nothing is written then; the comment stays open, and `Ctrl+R` finds
+  the same words in the current text (nearest the old place) or, if they are gone, goes back to picking
+  with your text kept.
+- **Retries can't duplicate.** Every comment and reply carries a `requestId`, made once per comment and
+  reused when you send the same text again. If the answer is lost (timeout, dropped socket), `Ctrl+S`
+  again gets back the comment the service already saved. If you change the text after a lost answer,
+  the door says it could become a second comment and waits for another `Ctrl+S`.
+- **Resolve / reopen** is `annotations.lifecycle`. It sets a state, so repeating it is harmless.
+- **While commenting** the reader stays on its note and takes every key. `Ctrl+C` and closing the
+  screen ask twice when a comment is unsent, and copy it to `drafts/` if you go ahead.
+- **Attribution:** comments and replies are `author: user`, like the outliner's own Detail (the service
+  takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door`.
+- The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
+
 ## Reading notes
 
 Every reader (board, desk) renders bodies with `src/doc.ts`:
@@ -187,8 +221,15 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 `annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
 puts the door in `clients.list` until it exits.
 
-One write: `update`, only when you save an edit, always with `expectedRevision`. The service has no
-auth or read-only mode, so these limits are the door's own discipline.
+Writes, only on an explicit key:
+
+- `update` when you save an edit, always with `expectedRevision`.
+- `annotations.batch` (one `block-comment` operation) when you send a comment: `expectedRevision`, the
+  exact quote and its offset, and a `requestId`.
+- `annotations.reply` when you send a reply, with a `requestId`.
+- `annotations.lifecycle` when you resolve or reopen a thread.
+
+The service has no auth or read-only mode, so these limits are the door's own discipline.
 
 ## Checking it
 
@@ -200,11 +241,12 @@ auth or read-only mode, so these limits are the door's own discipline.
     bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
 
-`test/edit.test.ts` saves and races real writes against a throwaway outliner service it starts itself
-(own state dir and workspace, Inbox agents off). Point `EP0CH_OUTLINER` at a pi-herdr-outliner checkout
-(default `../pi-herdr-outliner`); without one those tests skip. The `edit` snapshot writes too, so it
-refuses to run unless `EP0CH_SNAP_WRITES=1`: never point it at a real outline.
+`test/edit.test.ts` and `test/comment.test.ts` save and race real writes against a throwaway outliner
+service they start themselves (own state dir and workspace, Inbox agents off). Point `EP0CH_OUTLINER` at a
+pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests skip. The `edit` and
+`comment` snapshots write too, so they refuse to run unless `EP0CH_SNAP_WRITES=1`: never point them at a real outline.
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,
 Kitty upload, place, crop and delete) and composites them into a PNG.
