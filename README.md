@@ -8,6 +8,9 @@ The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art p
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
+The words used here for screens, panes, readers and actions are defined in the
+[UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
+
 ## Try it
 
     scripts/try-it.sh --ws /home/evan/test
