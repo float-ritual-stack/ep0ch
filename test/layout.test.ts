@@ -172,6 +172,25 @@ describe("saved forms", () => {
     expect(t).toEqual(pair("row", 0.24, leaf(0), pair("col", 0.6, leaf(1), leaf(2))));
   });
 
+  test("review: saved weights that aren't positive, finite numbers fall back to equal shares", () => {
+    const leafOf = () => 1;
+    expect(revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "leaf" }], weights: [0, Number.NaN] } as any, leafOf)).toMatchObject({ weights: [1, 1] });
+    expect(revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "leaf" }], weights: [2] } as any, leafOf)).toMatchObject({ weights: [1, 1] });
+    expect(revive({ t: "split", dir: "sideways", ratio: 7, a: { t: "leaf" }, b: { t: "leaf" } } as any, leafOf)).toMatchObject({ dir: "row", weights: [0.5, 0.5] });
+    expect(revive({ t: "split", dir: "col", ratio: -1, a: { t: "leaf" }, b: { t: "leaf" } } as any, leafOf)).toMatchObject({ weights: [0.5, 0.5] });
+  });
+
+  test("review: a sliding drawer's neighbours' borders are the tree's own splits, so a drag changes the tree", () => {
+    const root = beside(splitOf<string>("row", [leaf("a"), leaf("b")], [1, 1], "readers"), { key: "readers" }, leaf("links"), { dir: "col", weight: 0.4 });
+    const s = placeScreen({ root, over: new Set(["links"]), floats: [] }, { col: 0, row: 0, cols: 100, rows: 30 });
+    const d = s.dividers.find(x => x.node.key === "readers")!;
+    expect(d.node).toBe(node(root, "readers")!);
+    dragTo(dividerAt([d], d.at - 1, 5)!, 70, 5);
+    expect(placeScreen({ root, over: new Set(["links"]), floats: [] }, { col: 0, row: 0, cols: 100, rows: 30 }).rects.get("a")!.cols).toBe(71);
+    expect(s.rects.has("links")).toBe(false);
+    expect(s.over.get("links")!.rect.rows).toBe(12);
+  });
+
   test("pairs are written in the binary form (an older door reads them), wider splits as kids and weights", () => {
     const t = pair("row", 0.3, leaf(1), pair("col", 0.5, leaf(2), leaf(3)));
     const s = serialize(t, id => ({ t: "leaf" as const, kind: `k${id}` }));

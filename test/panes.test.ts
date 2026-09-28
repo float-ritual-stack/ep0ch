@@ -194,6 +194,79 @@ describe.skipIf(!outliner)("the board on the layout tree, against a scratch outl
     key({ kind: "esc" });
   });
 
+  test("review: borders drag while a drawer slides over the board: the readers', the lanes', a pinned outline's", async () => {
+    await withDetails();
+    key(char("b"));
+    await until(() => !!B().links?.data, "the backlinks");
+    expect(layout().sliding).toEqual(["backlinks"]);
+    const p = rect("preview");
+    drag(p.col + p.cols - 1, p.row + 2, p.col + p.cols + 7, p.row + 2);          // above the drawer: a reader border
+    expect(rect("preview").col + rect("preview").cols - 1).toBe(p.col + p.cols + 7);
+    const top = rect("preview").row;
+    drag(20, top, 20, top + 3);                                                    // the lanes' border
+    expect(rect("preview").row).toBe(top + 3);
+    key({ kind: "esc" }); key(char("T"));                                          // a pinned outline, backlinks sliding
+    key({ kind: "tab" }); key(char("b"));
+    await until(() => !!B().links?.data, "the backlinks");
+    const edge = rect("split:tree");
+    drag(edge.col, 4, edge.col + 10, 4);
+    expect(rect("split:tree").col).toBe(edge.col + 10);
+    key({ kind: "esc" }); key(char("T")); key(char("t"));
+  });
+
+  test("review: a click inside a sliding drawer is the drawer's, even over a border hidden under it", async () => {
+    await withDetails();
+    key(char("t"));                                                                // the outline slides over the lanes' border
+    const border = rect("split:lanes").row, tree = rect("tree");
+    expect(border).toBeLessThan(tree.row + tree.rows - 1);
+    B().focus = "lanes";
+    b.render(B().ctx);
+    mouse("down", tree.col + 5, border);
+    expect(B().drag?.kind).not.toBe("border");                                     // not the lanes' border under it
+    mouse("up", tree.col + 5, border);
+    expect(B().focus).toBe("tree");
+    key({ kind: "esc" });
+    key({ kind: "tab" }); key(char("b"));                                          // backlinks slide over the readers' borders
+    await until(() => !!B().links?.data, "the backlinks");
+    const edge = rect("preview").col + rect("preview").cols, row = rect("backlinks").row + 3;
+    const before = layout().tree.kids[1].kids[0].kids.map((k: any) => k.share);
+    mouse("down", edge, row); mouse("drag", edge + 6, row); mouse("up", edge + 6, row);
+    expect(layout().tree.kids[1].kids[0].kids.map((k: any) => k.share)).toEqual(before);
+    key({ kind: "esc" });
+  });
+
+  test("review: a delivery.json with sizes out of range, of the wrong type or missing still gives a sound tree", async () => {
+    writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({ laneFrac: "x", treeFrac: 1.2, linksFrac: -3, readerWeights: null, laneWeights: { Queued: "wide" }, treePinned: true, treeSide: "middle", hubs: {} }));
+    await fresh(true);
+    const t = layout().tree;
+    expect(t).toMatchObject({ split: "row", kids: [{ pane: "tree", share: 0.7 }, { key: "board", kids: [{ pane: "lanes", share: 0.42 }, {}] }] });
+    for (const r of ["preview", "tree", "split:lanes"].map(rect)) for (const v of Object.values(r)) expect(Number.isFinite(v) && v >= 0).toBe(true);
+    key({ kind: "tab" }); key(char("b"));
+    await until(() => !!B().links?.data, "the backlinks");
+    expect(layout().tree.kids[1].kids[1].kids[1]).toMatchObject({ pane: "backlinks", share: 0.2 });
+    key({ kind: "esc" }); key(char("T")); key(char("t"));
+    expect(B().lay.readerWeights).toEqual([4, 3, 3]);
+    expect(B().lay.laneWeights).toEqual({ Queued: 1 });
+  });
+
+  test("review: pane.pin takes reader=focused and says nothing when nothing changed; pane.resize keeps a float on screen", async () => {
+    await fresh();
+    key(char("t")); key(char("T"));
+    expect(B().focus).toBe("tree");
+    (app as any).message = "";
+    const r = await act("pane.pin", { on: true }, "focused") as any;
+    expect(r).toMatchObject({ pane: "tree", pinned: true, changed: false });
+    expect(message()).not.toContain("pinned tree");
+    await act("pane.pin", { on: false }, "focused");
+    expect(message()).toContain("unpinned tree");
+    key(char("t"));
+    await act("open", { id: B().lanes[0].items[0].id }, "float");
+    for (let i = 0; i < 2; i++) { await act("pane.resize", { by: 20 }, "float1"); await act("pane.resize", { by: 20, axis: "col" }, "float1"); }
+    expect(B().floats[0].rect.cols).toBe(180);
+    expect(B().floats[0].rect.rows).toBe(48);
+    key(char("x"));
+  });
+
   test("o floats a detail out of the tree and docks it back: the same pane, its note kept", async () => {
     await withDetails();
     key({ kind: "tab" }); key({ kind: "tab" });
@@ -267,6 +340,20 @@ describe.skipIf(!outliner)("the board on the layout tree, against a scratch outl
     await act("pane.close", {}, "float1");
     expect(B().floats).toHaveLength(0);
     expect(message()).toContain(`an agent (${AS}) closed float1`);
+  });
+
+  test("review: an agent's quiet open never replaces the person's focused detail, even when it's the only one free", async () => {
+    await withDetails();
+    await act("edit.text", { text: "Prune the apples [stage::queued]\nAn agent's draft." }, "detail2");
+    await until(() => !!B().details[1].draft, "the agent's draft");
+    key({ kind: "tab" }); key({ kind: "tab" });
+    expect(B().focus).toBe("detail0");
+    const mine = B().details[0], held = B().details[1];
+    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, agent: true });
+    expect(B().details).toEqual([mine, held]);
+    expect(B().focus).toBe("detail0");
+    expect(message()).toContain("not opened");
+    await act("edit.close", { discard: true }, "detail2");
   });
 
   test("a note an agent opens in a new detail without the keys (a link it followed) replaces the detail the person doesn't have", async () => {

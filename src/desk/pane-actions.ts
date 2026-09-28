@@ -28,6 +28,8 @@ const axisOf = (s: string | undefined, action: string): Axis | undefined => {
   throw new ActionRefused(`${action}: axis is row (across) or col (down), not ${s}`);
 };
 const say = (h: PaneHost, actor: Actor, what: string) => h.ctx.flash(`${agentLabel(actor)} ${what}`);
+/** Said on screen only when something changed (a pin already in place isn't news). */
+const sayIf = (h: PaneHost, actor: Actor, r: PaneDone, what: string) => { if (r.changed !== false) say(h, actor, what); };
 
 export const PANE_ACTIONS = new ActionSet<{
   "pane.split": { kind?: string; dir?: string };
@@ -94,7 +96,7 @@ export const PANE_ACTIONS = new ActionSet<{
     args: { on: { type: "boolean", optional: true, about: "true pins, false unpins; default toggles" } },
     run({ on }, { h, reader }, actor) {
       const r = h.pinPane(reader, on, actor);
-      say(h, actor, `${r.pinned ? "pinned" : "unpinned"} ${r.pane}`);
+      sayIf(h, actor, r, `${r.pinned ? "pinned" : "unpinned"} ${r.pane}`);
       return r;
     },
   },

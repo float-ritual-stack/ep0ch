@@ -34,7 +34,8 @@ export interface Placed<I = number> {
 /** The border between `node.kids[i]` and `kids[i + 1]`: `at` is the first cell of the second. */
 export interface Divider<I = number> { node: Split<I>; i: number; area: Rect; at: number; sizes: [number, number] }
 
-const MIN_COLS = 6, MIN_ROWS = 3;
+/** The fewest cells a kid gets when a view names no minimum: across a row, down a col. */
+export const MIN_COLS = 6, MIN_ROWS = 3;
 
 export const leaf = <I>(id: I): LNode<I> => ({ t: "leaf", id });
 /** A split of `kids` by `weights` (default equal). */
@@ -274,32 +275,17 @@ export interface PlacedScreen<I = number> extends Placed<I> {
   over: Map<I, { rect: Rect; divider: Divider<I> | null }>;
 }
 
-/** Place a screen: the docked panes without the sliding drawers, then each drawer where docking would put it. */
+/**
+ * Place a screen: the docked panes as if the sliding drawers took no room (each is a fixed size of 0, so
+ * the tree itself is placed and its borders are the real splits a drag changes), then each drawer where
+ * docking would put it.
+ */
 export function placeScreen<I>(s: ScreenLayout<I, Float>, r: Rect, opts: PlaceOpts<I> = {}): PlacedScreen<I> {
-  const sliding = new Set(leaves(s.root).filter(id => s.over.has(id)));
-  // Take the sliding drawers out as remove() would, but keep untouched splits as they are and remember
-  // which split each copy came from (and its kept kids' places), so a border dragged here moves the tree.
-  const orig = new Map<Split<I>, { node: Split<I>; idx: number[] }>();
-  const prune = (n: LNode<I>): LNode<I> | null => {
-    if (n.t === "leaf") return sliding.has(n.id) ? null : n;
-    const kids: LNode<I>[] = [], weights: number[] = [], idx: number[] = [];
-    n.kids.forEach((k, i) => { const p = prune(k); if (p) { kids.push(p); weights.push(n.weights[i]!); idx.push(i); } });
-    if (!kids.length) return null;
-    if (kids.length === 1 && !n.key) return kids[0]!;
-    if (kids.length === n.kids.length && kids.every((k, i) => k === n.kids[i])) return n;
-    const copy: Split<I> = { ...n, kids, weights };
-    orig.set(copy, { node: n, idx });
-    return copy;
-  };
-  const base = sliding.size ? prune(s.root) : s.root;
-  const placed = base ? place(base, r, opts) : { rects: new Map<I, Rect>(), nodes: new Map<string, Rect>(), dividers: [] };
-  placed.dividers = placed.dividers.map(d => {
-    const o = orig.get(d.node);
-    if (!o || o.idx[d.i + 1] !== o.idx[d.i]! + 1) return d;
-    return { ...d, node: o.node, i: o.idx[d.i]! };
-  });
-  const out: PlacedScreen<I> = { ...placed, over: new Map() };
-  if (sliding.size) {
+  const sliding = leaves(s.root).filter(id => s.over.has(id));
+  const base = place(s.root, r, { ...opts, fixed: (id, dir) => (s.over.has(id) ? 0 : opts.fixed?.(id, dir)) });
+  for (const id of sliding) base.rects.delete(id);
+  const out: PlacedScreen<I> = { ...base, over: new Map() };
+  if (sliding.length) {
     const full = place(s.root, r, opts);
     for (const id of sliding) {
       const rect = full.rects.get(id);
@@ -321,9 +307,18 @@ export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weig
 export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L>, leafOf: (l: L) => I): LNode<I> {
   if (s.t === "leaf") return leaf(leafOf(s as L));
   const x = s as any;
-  if (Array.isArray(x.kids)) return splitOf(x.dir, x.kids.map((k: any) => revive(k, leafOf)), [...x.weights], x.key);
-  return pair(x.dir, x.ratio, revive(x.a, leafOf), revive(x.b, leafOf));
+  const dir: Axis = x.dir === "col" ? "col" : "row";
+  if (Array.isArray(x.kids)) {
+    const kids = x.kids.map((k: any) => revive(k, leafOf));
+    // Weights that aren't positive, finite numbers (or don't match the kids) fall back to equal shares.
+    const ok = Array.isArray(x.weights) && x.weights.length === kids.length && x.weights.every(good);
+    return splitOf(dir, kids, ok ? [...x.weights] : undefined, typeof x.key === "string" ? x.key : undefined);
+  }
+  const ratio = good(x.ratio) && x.ratio < 1 ? x.ratio : 0.5;
+  return pair(dir, ratio, revive(x.a, leafOf), revive(x.b, leafOf));
 }
+
+const good = (w: unknown): w is number => typeof w === "number" && Number.isFinite(w) && w > 0;
 
 /** Write a tree, pairs in the binary form (so an older door still reads it), anything wider as kids and weights. */
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L> | NaryForm<L> {

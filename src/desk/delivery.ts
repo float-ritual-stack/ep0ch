@@ -28,7 +28,7 @@ import { matchesFilters, readView, type ViewRead } from "../views";
 import { holds } from "../query";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, TreePane, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import {
-  beside, describeTree, dividerAt, dragTo as dragBorder, grow, has, insert, leaf, node, placeScreen, remove, resize, share, splitOf,
+  MIN_COLS, MIN_ROWS, beside, describeTree, dividerAt, dragTo as dragBorder, grow, has, insert, leaf, node, placeScreen, remove, resize, share, splitOf,
   type Axis, type Divider, type Grab, type LNode, type PlacedScreen, type PlaceOpts, type ScreenLayout, type Split,
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
@@ -69,6 +69,24 @@ const HIDDEN = new Set(["superseded"]);
 const SEL = bg(C.blue) + fg(C.white);
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+
+/**
+ * The board's sizes, in one place (PIE-412). `share`: the range a pane's share of its split stays in,
+ * whatever sets it (a border drag, `pane.resize`, a saved file); `keys`: the range its keys step within
+ * (the lanes' keys stop short of what a drag reaches, as they always did), by `step`. A reader's size is
+ * its weight in the readers row. `min`: the fewest cells each keeps.
+ */
+const SIZE = {
+  lanes: { share: [0.12, 0.85], keys: [0.15, 0.8], step: 0.05 },
+  tree: { share: [0.15, 0.7], keys: [0.15, 0.7], step: 0.04 },
+  backlinks: { share: [0.2, 0.9], keys: [0.2, 0.9], step: 0.05 },
+  reader: { weight: [0.2, 20], keys: [0.5, 20], step: 0.5, fallback: 3 },
+  lane: { weight: [0.3, 5], step: 0.2 },
+  float: { cols: 20, rows: 5, stepCols: 4, stepRows: 2 },
+  min: { lanes: 5, tree: 28, backlinks: 6, reader: 12, underLanes: 6, overLinks: 3 },
+} as const satisfies Record<string, unknown>;
+type Range = readonly [number, number];
+const within = (v: unknown, [lo, hi]: Range, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? clamp(v, lo, hi) : fallback);
 
 export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   title = "delivery";
@@ -161,7 +179,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   /** `persist: false`: layout, collapsed lanes and the remembered hub stay in memory (the showcase's board). */
   constructor(private readonly hubId?: string, private readonly persist = true) {
     const s = readState<Partial<Saved>>("delivery.json");
-    if (s) for (const k of ["laneFrac", "previewFrac", "treeFrac", "linksFrac", "treeSide", "laneWeights", "readerWeights"] as const) if (s[k] !== undefined) (this.lay as any)[k] = s[k];
+    if (s) this.lay = this.checked(s);
     const lf = this.lay.laneFrac;
     this.screen.root = splitOf("col", [leaf("lanes"), splitOf("row", [leaf("preview")], [1], "readers")], [lf, 1 - lf], "board");
     this.slots("into");
@@ -170,6 +188,26 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       this.lane = s.lane ?? 0; this.collapsed = new Set(s.collapsed ?? []); this.hubs = s.hubs ?? {};
       if (s.collapsedReaders?.includes("preview")) this.shut.set(this.preview, { seen: null });
     }
+  }
+
+  /**
+   * delivery.json as written by any door, or by hand: each size within its range (a share out of range, a
+   * weight that isn't a number, a missing list all fall back or clamp), so the tree never gets a negative
+   * or NaN weight.
+   */
+  private checked(s: Partial<Saved>): Layout {
+    const d = this.lay;
+    const rw = Array.isArray(s.readerWeights) ? s.readerWeights : [];
+    const lw = s.laneWeights && typeof s.laneWeights === "object" ? s.laneWeights : {};
+    return {
+      laneFrac: within(s.laneFrac, SIZE.lanes.share, d.laneFrac),
+      previewFrac: within(s.previewFrac, [0, 1], d.previewFrac),
+      treeFrac: within(s.treeFrac, SIZE.tree.share, d.treeFrac),
+      linksFrac: within(s.linksFrac, SIZE.backlinks.share, d.linksFrac),
+      treeSide: s.treeSide === "right" ? "right" : "left",
+      laneWeights: Object.fromEntries(Object.entries(lw).map(([k, v]) => [k, within(v, SIZE.lane.weight, 1)])),
+      readerWeights: d.readerWeights.map((w, i) => within(rw[i], SIZE.reader.weight, w)).concat(rw.slice(d.readerWeights.length).map(w => within(w, SIZE.reader.weight, SIZE.reader.fallback))),
+    };
   }
 
   private save() {
@@ -226,7 +264,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const row = node(this.screen.root, "readers");
     if (!row) return;
     const rw = this.lay.readerWeights;
-    if (way === "into") row.weights = row.kids.map((_, i) => Math.max(0.2, rw[i] ?? 3));
+    if (way === "into") row.weights = row.kids.map((_, i) => within(rw[i], SIZE.reader.weight, SIZE.reader.fallback));
     else row.weights.forEach((w, i) => { rw[i] = w; });
   }
 
@@ -289,14 +327,15 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** The smallest a pane gets, in cells: what the board's fixed fractions clamped to before PIE-412. */
   private minOf(n: LNode<string>, dir: Axis, parent: Split<string>): number | undefined {
+    const M = SIZE.min;
     if (n.t === "leaf") {
-      if (n.id === "lanes" && dir === "col") return 5;
-      if (n.id === "tree" && dir === "row") return 28;
-      if (n.id === "backlinks" && dir === "col") return 6;
-      if (parent.key === "readers" && dir === "row") return 12;
+      if (n.id === "lanes" && dir === "col") return M.lanes;
+      if (n.id === "tree" && dir === "row") return M.tree;
+      if (n.id === "backlinks" && dir === "col") return M.backlinks;
+      if (parent.key === "readers" && dir === "row") return M.reader;
     }
-    if (parent.key === "board" && parent.kids[1] === n) return 6;              // under the lanes
-    if (n.t === "split" && n.key === "readers" && dir === "col") return 3;      // over a pinned backlinks drawer
+    if (parent.key === "board" && parent.kids[1] === n) return M.underLanes;              // under the lanes
+    if (n.t === "split" && n.key === "readers" && dir === "col") return M.overLinks;      // over a pinned backlinks drawer
     return undefined;
   }
 
@@ -748,11 +787,11 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     // A detail holding an edit, a comment or the panel is never reused or dropped, nor the one the person is in.
     if (fresh || !this.details.length || this.details[this.active]?.holdsKeys) {
       if (this.details.length >= 2) {
-        // An agent's (quiet) open replaces the detail the person doesn't have focused, when it can.
         const free = (d: ReaderPane) => !d.holdsKeys && d !== keep;
         const mine = this.focusedReader();
-        const drop = quiet && this.details.some(d => free(d) && d !== mine) ? this.details.findIndex(d => free(d) && d !== mine) : this.details.findIndex(free);
-        if (drop < 0) { this.ctx.flash("both details hold edits, comments or properties · save or close one first"); return false; }
+        // An agent's (quiet) open never replaces the detail the person has focused: it's refused instead.
+        const drop = this.details.findIndex(d => free(d) && !(quiet && d === mine));
+        if (drop < 0) { this.ctx.flash(quiet && this.details.some(free) ? "not opened: the other detail holds an edit, a comment or properties, and you have this one" : "both details hold edits, comments or properties · save or close one first"); return false; }
         // An agent's (quiet) open leaves the person on the reader they had, wherever the row moved it.
         const out = this.details[drop]!;
         if (quiet) this.keepPlace(() => this.dropReader(out)); else this.dropReader(out);
@@ -1665,25 +1704,28 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    */
   private resizeRegion(region: Region, axis: Axis, by: number): boolean {
     const root = this.screen.root;
-    if (region === "lanes" && axis === "col") return resize(root, "lanes", "col", 0.05 * by, [0.15, 0.8]);
+    const step = (id: "lanes" | "tree" | "backlinks", n: number) => resize(root, id, id === "tree" ? "row" : "col", SIZE[id].step * n, [...SIZE[id].keys]);
+    if (region === "lanes" && axis === "col") return step("lanes", by);
     if (region === "lanes") {
       const n = this.lanes[this.lane]?.name;
-      if (n) this.lay.laneWeights[n] = clamp((this.lay.laneWeights[n] ?? 1) + 0.2 * by, 0.3, 5);
+      if (n) this.lay.laneWeights[n] = clamp((this.lay.laneWeights[n] ?? 1) + SIZE.lane.step * by, ...SIZE.lane.weight);
       return !!n;
     }
-    if (region === "tree") return axis === "row" && this.treeOpen && resize(root, "tree", "row", 0.04 * by, [0.15, 0.7]);
-    if (region === "backlinks") return axis === "col" && !!this.links && resize(root, "backlinks", "col", 0.05 * by, [0.2, 0.9]);
+    if (region === "tree") return axis === "row" && this.treeOpen && step("tree", by);
+    if (region === "backlinks") return axis === "col" && !!this.links && step("backlinks", by);
     if (region.startsWith("float")) {
       const f = this.floats[Number(region.slice(5))];
       if (!f) return false;
-      if (axis === "row") f.rect.cols = Math.max(20, f.rect.cols + 4 * by); else f.rect.rows = Math.max(5, f.rect.rows + 2 * by);
+      // Never smaller than a float is drawn, never bigger than the screen.
+      const W = this.ctx.t.cols, H = this.ctx.t.rows - 2, F = SIZE.float;
+      if (axis === "row") f.rect.cols = clamp(f.rect.cols + F.stepCols * by, F.cols, W); else f.rect.rows = clamp(f.rect.rows + F.stepRows * by, F.rows, H);
       return true;
     }
     const rd = this.readerFor(region), id = rd && this.idOf(rd.pane);
     if (!id || !this.readerIds().includes(id)) return false;
     // A reader's height is the room the lanes (or a pinned backlinks drawer) leave it.
-    if (axis === "col") return this.links && this.linksPinned ? resize(root, "backlinks", "col", -0.05 * by, [0.2, 0.9]) : resize(root, "lanes", "col", -0.05 * by, [0.15, 0.8]);
-    const ok = grow(root, id, 0.5 * by, 0.5, 20, 3);
+    if (axis === "col") return this.links && this.linksPinned ? step("backlinks", -by) : step("lanes", -by);
+    const ok = grow(root, id, SIZE.reader.step * by, ...SIZE.reader.keys, SIZE.reader.fallback);
     this.slots("out");
     return ok;
   }
@@ -1769,7 +1811,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
 
   pinPane(sel: string | undefined, on: boolean | undefined, actor: Actor): PaneDone {
-    const which = sel ?? (this.focus === "tree" || this.focus === "backlinks" ? this.focus : undefined);
+    const which = !sel || sel === "focused" ? (this.focus === "tree" || this.focus === "backlinks" ? this.focus : undefined) : sel;
     if (which !== "tree" && which !== "backlinks") throw new ActionRefused("only a drawer pins: reader=tree (the outline) or reader=backlinks");
     const pinned = which === "tree" ? this.treePinned : this.linksPinned;
     const want = on ?? !pinned;
@@ -1780,7 +1822,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
         this.pinLinks();
       }
     }
-    return { pane: which, pinned: want };
+    return { pane: which, pinned: want, changed: want !== pinned };
   }
   /** `B` or a click on the backlinks drawer's `[ ] pin`, as `pinTree`. */
   private pinLinks() { this.linksPinned = !this.linksPinned; if (!this.links) this.showLinks(this.focus); this.save(); this.redraw(); }
@@ -2347,8 +2389,14 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
           const g = d ? dividerAt([d], k.x, k.y) : null;
           return g && (only === undefined || g.side === only) ? this.borderDrag(g) : null;
         };
-        const hit = grab(tree) ?? grab(links, this.linksPinned ? undefined : 1);
+        const P = this.placedScreen;
+        const treeR = this.treeOpen ? P?.rects.get("tree") ?? P?.over.get("tree")?.rect : undefined;
+        const inTree = !!treeR && inside({ ...treeR, cols: treeR.cols + (this.treePinned ? 0 : 1) });   // its shadow column too
+        const hit = grab(tree) ?? (inTree ? null : grab(links, this.linksPinned ? undefined : 1));
         if (hit) return hit;
+        // Under a drawer (sliding or pinned) a click is the drawer's: no border hidden beneath it drags.
+        const top = this.topAt(k.x, k.y);
+        if (inTree || top === "tree" || top === "backlinks" || top === "covered") return null;
         for (const e of this.laneEdges) if (near(k.x, e.x) && k.y >= e.rect.row && k.y < e.rect.row + e.rect.rows) return { kind: "lane-edge", a: e.a, b: e.b };
         const rest = (this.placedScreen?.dividers ?? []).filter(d => d !== tree && d !== links);
         for (const d of [...rest.filter(d => d.node.key === "readers"), ...rest.filter(d => d.node.key !== "readers")]) { const g = grab(d); if (g) return g; }
@@ -2446,9 +2494,13 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    */
   private borderDrag(g: Grab<string>): Drag {
     const n = g.d.node, a = n.kids[g.d.i]!, b = n.kids[g.d.i + 1]!;
-    const mins: [number, number] = [this.minOf(a, n.dir, n) ?? (n.dir === "row" ? 6 : 3), this.minOf(b, n.dir, n) ?? (n.dir === "row" ? 6 : 3)];
+    const fallback = n.dir === "row" ? MIN_COLS : MIN_ROWS;
+    const mins: [number, number] = [this.minOf(a, n.dir, n) ?? fallback, this.minOf(b, n.dir, n) ?? fallback];
+    // The first kid's share: the drawer's or the lanes' own range, or its complement when that pane is second.
     const is = (k: LNode<string>, id: string) => k.t === "leaf" && k.id === id;
-    const bounds: [number, number] = is(a, "tree") ? [0.15, 0.7] : is(b, "tree") ? [0.3, 0.85] : is(b, "backlinks") ? [0.1, 0.8] : is(a, "lanes") ? [0.12, 0.85] : [0, 1];
+    const own = (["tree", "backlinks", "lanes"] as const).find(id => is(a, id) || is(b, id));
+    const [lo, hi] = own ? SIZE[own].share : [0, 1];
+    const bounds: [number, number] = own && is(b, own) ? [1 - hi, 1 - lo] : [lo, hi];
     return { kind: "border", g, mins, bounds };
   }
 
