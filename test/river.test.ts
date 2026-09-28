@@ -139,8 +139,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await until(() => !S().draft, "closed");
   });
 
-  test("c: pick a passage in the column, write, ctrl+s sends the comment", async () => {
-    key(char("c"));
+  test("C: pick a passage in the column, write, ctrl+s sends the comment", async () => {
+    key(char("C"));
     await until(() => surfaceOf(2).session?.mode === "select", "the passage picker");
     expect(screen()).toContain("quoting");
     key({ kind: "enter" }); type("Which canes, bamboo?");
@@ -225,7 +225,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(surfaceOf(2).draft).toBeNull();
   });
 
-  test("in the Library the selected note is the one e and c act on", async () => {
+  test("in the Library the selected note is the one e and C act on", async () => {
     expect(await act("select", { id: notes.squash.id }, "1")).toMatchObject({ at: "1", selected: notes.squash.id });
     expect(await act("edit.text", { text: "Plant the squash [stage::queued]\nBy the compost heap, in June." }, "1")).toMatchObject({ at: "1", dirty: true });
     expect(surfaceOf(1).draft.blockId).toBe(notes.squash.id);

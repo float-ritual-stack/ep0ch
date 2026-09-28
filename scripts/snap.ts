@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
+const wide = ["spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
+// `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -153,6 +153,33 @@ if (scenario === "board2") {
   press({ kind: "down" });
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
+}
+if (scenario === "spines") {
+  // PIE-440 (its own scratch service, fictional cards): a lane, a detail holding an agent's draft and the
+  // preview collapsed to spines, their titles rotated under Kitty graphics.
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Allotment board");
+  for (const [lane, q] of [["Queued", "stage=queued"], ["Doing", "stage=doing"], ["Done", "stage=done"]]) await mk(hub.id, `${lane} [type::virtual-branch] [query::${q}]`);
+  for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"], ["Paint the shed", "done"]])
+    await mk(null, `${t} [stage::${st}]\n${t}: the rake leans on the shed, the hose runs along the fence.`);
+  const b = new DeliveryBoard(hub.id);
+  app.push(new MainMenu()); app.push(b);
+  await Bun.sleep(2500);
+  press({ kind: "down" }); press({ kind: "enter" }); await Bun.sleep(800);             // a detail
+  press({ kind: "esc" }); press({ kind: "right" }); press({ kind: "right" }); ch("c");  // collapse Done
+  press({ kind: "left" }); press({ kind: "left" });
+  const held = (b as any).details[0].msg;
+  await app.act({ action: "edit.text", args: { text: `${held.text}\nOil the hinge before the frost.` }, reader: "detail1", as: "snap-agent" });
+  await snap("1-open", 800);
+  press({ kind: "tab" }); press({ kind: "tab" }); ch("c");                              // the detail, holding the agent's draft
+  await snap("2-detail-spine", 800);
+  press({ kind: "backtab" }); ch("c");                                                  // the preview
+  await snap("3-preview-spine", 800);
+  console.log(JSON.stringify((b as any).placed.map((x: any) => x.p.key)), JSON.stringify((app.describe() as any).state.collapsedReaders));
+  press({ kind: "alt", ch: "c" });
+  await snap("4-all-open", 800);
+  await app.act({ action: "edit.close", args: { discard: true }, reader: "detail1", as: "snap-agent" });
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "kanban") {
   // PIE-406 on an All-work-shaped board (its own scratch service, fictional cards): OR lanes, moving into

@@ -15,6 +15,7 @@ three pane models and four searches (§4).
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
+| squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
 | show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks` | `src/surface/note.ts`, `src/socket.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
@@ -97,7 +98,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | zoom | One pane fills the view | `dsk:326` (desk only) | Herdr zoom |
 | float | A reader popped out over the board | `popOut` `del:671` | none |
 | drawer | Slide-over pane: outline or backlinks | `del:1386`, `del:1414` | none |
-| spine | A pane squeezed to a title strip | river `Cover` `riv:48`, board `c` | none |
+| spine | A pane squeezed to a title strip | `drawSpine` (`src/spine.ts`); river `Cover` `riv:48`, board lanes and readers `c` | none |
 | lane | A saved view shown as a board column | `Lane` `del:30` | virtual branch |
 | card | One block in a lane | lane items | branch root row |
 
@@ -154,7 +155,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | preview | Board reader following the card | Desk `/` search's right half `dsk:404` | A only |
 | detail | Door: a reader you opened (*Current*) | Outliner: the Detail pane | owner decides |
 | region | Board pane `del:31` | Outliner PreviewRegion (focusable item) | "pane" |
-| spine | River compression tier | Board collapsed lane | fine: same idea |
+| spine | River compression tier | Board collapsed lane or reader | fine: same idea, one part (`src/spine.ts`) |
 | `alt+⏎` | Board: second detail | Outliner: keep Preview as Current | align in PIE-413 |
 
 ---
@@ -184,7 +185,7 @@ pane operations
     ├── [~] close                         desk ^W x, board x, river x
     ├── [~] resize                        desk drag/^W<>, board drag/{}<>
     ├── [~] dock / move                   desk ^W HJKL, board float HJKL
-    ├── [~] squeeze (width tiers)         river full/peek/spine; board lane c
+    ├── [~] squeeze (width tiers)         river full/peek/spine; board lanes, readers c · one spine part
     └── [~] persist layout                desk.json, delivery.json, river.json
 entity navigation
     ├── [~] children                      thread pane, river replies, BBS T
@@ -255,7 +256,7 @@ BBS = News, Conference and the BBS `Reader` together.
 | dock / move | R float HJKL, drag km· | — | R `^W HJKL` k·· | R `p` pin k·a |
 | float | R `o` `del:671` km· | — | — | — |
 | drawer | R `t b` `del:1414` km· | — | — | — |
-| squeeze | R lane `c` km· | — | — | R `riv:243` auto, `p` |
+| squeeze | S spine: lane `c` km·, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
 | persist | R `delivery.json` | — | R `desk.json` | R `river.json` |
 
 ### Entity navigation
@@ -276,7 +277,7 @@ BBS = News, Conference and the BBS `Reader` together.
 |---|---|---|---|---|
 | properties | S `i I` kma | R `Stat:` line only | S kma | S `i` k·a |
 | edit | S `e` kma | — | S kma | S kma |
-| comments | S `c m` kma | — | S kma | S kma |
+| comments | S `C m` kma | — | S kma | S kma |
 | completion | S (not in composer) | — | S | S |
 | folds | S kma | — | S kma | — (cards) |
 | presence | — | R `scr:355` k·· | R `pan:411` k·· | — |
@@ -309,7 +310,8 @@ BBS = News, Conference and the BBS `Reader` together.
 
 - Every reader shares `NOTE_ACTIONS` (`note:1329`). Good.
 - Desk agent actions: `open`, `focus` only (`dsk:417`). No zoom, split, close, dock, add pane.
-- Board: no pop out, drawer, collapse or resize actions (`del:1799`). River: no filter, `#` or
+- Board: no pop out, drawer, lane collapse or resize actions (`del:1799`). Readers collapse and expand
+  by action since PIE-440 (`reader.collapse`, `reader.expand`). River: no filter, `#` or
   jump actions (`riv:976`).
 - BBS screens have no `act`, `openBlock` or `describe` (`app:163`, `app:183`).
 - **Resolves:** PIE-434 should make "every pane operation is an action" part of core. PIE-426
@@ -319,7 +321,8 @@ BBS = News, Conference and the BBS `Reader` together.
 
 | Key | Board | Desk | River | BBS |
 |---|---|---|---|---|
-| `c` | collapse lane / comment in a reader | comment | comment | — |
+| `c` | collapse a lane or a reader | — (says `C` comments) | — (says so) | — |
+| `C` | comment (was: reopen all lanes; now `alt+c`) | comment | comment | — |
 | `s` | steps | `^W s` swap | split | — |
 | `m` | move card / threads in a reader | threads | threads | — |
 | `x` | close detail or float | `^W x` close | close pane | — |
@@ -332,6 +335,7 @@ BBS = News, Conference and the BBS `Reader` together.
 
 - Pane operations should get one key layer (the desk's `^W` is the most complete). Reader keys
   are already consistent because they come from the surface.
+- `c` collapses wherever something collapses, and `C` comments in every reader (PIE-440).
 
 ### F5. Entity navigation is scattered
 

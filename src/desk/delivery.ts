@@ -9,6 +9,7 @@ import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
 import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
+import { drawSpine, SPINE } from "../spine";
 import { NOTE_ACTIONS } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
@@ -35,13 +36,16 @@ type Drag =
   | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float }
   | { kind: "card"; from: number; card: Msg; over: number | null; open: boolean };
 interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right"; laneWeights: Record<string, number>; readerWeights: number[] }
-interface Saved extends Layout { treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string> }
+interface Saved extends Layout {
+  treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string>;
+  /** Docked readers collapsed to a spine, by name (preview, detail1, detail2). Only the preview outlives the board: details aren't saved. */
+  collapsedReaders?: string[];
+}
 
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 const HIDDEN = new Set(["superseded"]);
 const SEL = bg(C.blue) + fg(C.white);
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
-const SPINE = 3;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 export class DeliveryBoard implements Screen, DeskApi {
@@ -52,6 +56,15 @@ export class DeliveryBoard implements Screen, DeskApi {
   private lanes: Lane[] = [];
   private lane = 0;
   private collapsed = new Set<string>();
+  /**
+   * Docked readers collapsed to a spine (`c`), by identity: the detail list shifts under them. A collapsed
+   * reader keeps its note, draft, comment and property panel exactly as they were. `by`: the agent that
+   * collapsed it. `seen`: the note's comment and reply ids when it collapsed (null until they're read),
+   * so ones arriving later mark the spine.
+   */
+  private shut = new Map<ReaderPane, { by?: string; seen: Set<string> | null }>();
+  /** Where each collapsed reader's spine was drawn, for clicks. */
+  private readerSpines: { region: Region; rect: Rect }[] = [];
   private preview = new ReaderPane();
   private details: ReaderPane[] = [];
   private floats: Float[] = [];
@@ -108,12 +121,15 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (s) {
       this.treePinned = !!s.treePinned; this.treeOpen = !!s.treePinned; this.linksPinned = !!s.linksPinned;
       this.lane = s.lane ?? 0; this.collapsed = new Set(s.collapsed ?? []); this.hubs = s.hubs ?? {};
+      if (s.collapsedReaders?.includes("preview")) this.shut.set(this.preview, { seen: null });
       for (const k of ["laneFrac", "previewFrac", "treeFrac", "linksFrac", "treeSide", "laneWeights", "readerWeights"] as const) if (s[k] !== undefined) (this.lay as any)[k] = s[k];
     }
   }
 
   private save() {
-    writeState("delivery.json", { ...this.lay, treePinned: this.treePinned, linksPinned: this.linksPinned, lane: this.lane, collapsed: [...this.collapsed], hubs: this.hubs } satisfies Saved);
+    for (const p of this.shut.keys()) if (this.regionOf(p) === null || this.regionOf(p)!.startsWith("float")) this.shut.delete(p);   // closed or floated
+    const collapsedReaders = this.namedReaders().filter(r => this.shut.has(r.pane)).map(r => r.name);
+    writeState("delivery.json", { ...this.lay, treePinned: this.treePinned, linksPinned: this.linksPinned, lane: this.lane, collapsed: [...this.collapsed], hubs: this.hubs, collapsedReaders } satisfies Saved);
   }
 
   // ── data ───────────────────────────────────────────────────────────────────
@@ -337,6 +353,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     const args = { ...(req.args ?? {}) };
     if (BOARD_ACTIONS.has(req.action)) return BOARD_ACTIONS.runUntyped(req.action, args, { b: this, reader: req.reader }, actor);
     const r = this.pickReader(req.reader);
+    // Like a shut drawer's reader: an action there would change a note where the person can't see it.
+    if (this.shut.has(r.pane)) throw new ActionRefused(`${r.name} is collapsed to a spine; reader.expand reader=${r.name} opens it first`);
     const out = await r.pane.act(req.action, args, this, actor);
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
   }
@@ -414,6 +432,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (r.region && !keep) this.focus = r.region;
       shown = r.pane;
     }
+    if (shown && this.shut.delete(shown)) this.save();   // a note opened into a spine is meant to be seen
     this.entered.follow(this.focusedReader());
     this.redraw();
     // The reader it opened in (focus may have stayed with the person's).
@@ -494,7 +513,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       refreshes: { ...this.refreshes },
       views: this.lanes[0]?.read?.by ?? null,
       mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
-      readers: this.namedReaders().filter(r => r.pane.msg).map(r => ({ name: r.name, focused: r.region === this.focus, ...r.pane.describe() })),
+      readers: this.namedReaders().filter(r => r.pane.msg).map(r => ({ name: r.name, focused: r.region === this.focus, ...r.pane.describe(), ...this.collapsedState(r.pane) })),
+      collapsedReaders: this.namedReaders().filter(r => this.shut.has(r.pane)).map(r => r.name),
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
       commenting: this.readers().filter(r => r.session).map(r => r.session!.describe()),
     };
@@ -533,6 +553,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.active = this.details.length - 1;
     }
     this.details[this.active]!.show(m, this);
+    if (this.shut.delete(this.details[this.active]!)) this.save();   // opening a note into a collapsed detail reopens it
     // Focus follows the note into its detail, unless the person is in an edit, comment or panel: it stays
     // on that reader, wherever the list moved it.
     this.focus = keep ? this.regionOf(keep) ?? this.focus : `detail${this.active}`;
@@ -686,6 +707,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       return this.redraw();
     }
     const rd = this.readerFor(f);
+    if (rd && this.shut.has(rd.pane)) return this.ctx.flash("it's collapsed · c or ⏎ opens it first");
     if (!rd?.pane.msg) return this.ctx.flash("focus a reader with something in it, then o to pop it out");
     let pane: ReaderPane;
     if (f.startsWith("detail")) { pane = this.details.splice(Number(f.slice(6)), 1)[0]!; this.active = Math.max(0, this.details.length - 1); }
@@ -694,6 +716,85 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.floats.push({ pane, rect: { col: Math.round(W * 0.22) + n * 3, row: Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) } });
     this.focus = `float${this.floats.length - 1}`;
     this.redraw();
+  }
+
+  // ── collapsed readers ──────────────────────────────────────────────────────
+
+  /** The note's comment and reply ids as the reader last read them, or null before they're read. */
+  private commentIds(p: ReaderPane): Set<string> | null {
+    return p.comments ? new Set(p.comments.flatMap(t => [t.id, ...t.replies.map(r => r.id)])) : null;
+  }
+
+  /** Comments or replies that arrived since `p` collapsed. */
+  private newComments(p: ReaderPane): number {
+    const s = this.shut.get(p);
+    if (!s) return 0;
+    const now = this.commentIds(p);
+    if (!now) return 0;
+    if (!s.seen) { s.seen = now; return 0; }                     // read for the first time while collapsed: the baseline
+    return [...now].filter(id => !s.seen!.has(id)).length;
+  }
+
+  /**
+   * Collapse a docked reader (the preview or a detail) to a spine, or reopen it: `c`, a click on its
+   * spine, and `reader.collapse` / `reader.expand` all come here. Nothing in the reader changes: a draft,
+   * a comment being written or the property panel is kept exactly, never saved or dropped, and reopening
+   * shows it again. The freed width goes to the other readers. An agent never collapses the reader the
+   * person has focused (they may be in it), and its reopen never moves their focus.
+   */
+  private setShut(pane: ReaderPane, on: boolean, actor: Actor = USER): string | null {
+    const region = this.regionOf(pane);
+    if (!region || region.startsWith("float")) return "only the preview and details collapse; a float docks with o";
+    const agent = actor.kind === "agent";
+    if (on === this.shut.has(pane)) return null;
+    if (on) {
+      if (agent && pane === this.focusedReader()) return `the person is in ${this.labelOf(pane)} (it has their keys); an agent doesn't collapse it`;
+      if (this.pending?.pane === pane) this.pending = null;              // an edit still opening there doesn't open behind a spine
+      this.shut.set(pane, { ...(agent ? { by: actor.id } : {}), seen: this.commentIds(pane) });
+    } else this.shut.delete(pane);
+    this.save();
+    this.redraw();
+    return null;
+  }
+
+  /** `reader.collapse` / `reader.expand`: the named reader (default the focused one, or the preview). */
+  collapseReader(sel: string | undefined, on: boolean, actor: Actor): { reader: string; collapsed: boolean; holds: string | null } | { reopened: string[] } {
+    if (sel === "all") {
+      if (on) throw new ActionRefused("reader=all only reopens (alt+c); collapse readers one by one");
+      const reopened = [...this.namedReaders().filter(r => this.shut.has(r.pane)).map(r => r.name), ...[...this.collapsed].map(n => `lane ${n}`)];
+      this.reopenAll();
+      if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} opened every collapsed lane and reader`);
+      return { reopened };
+    }
+    const r = this.pickReader(sel);
+    const why = this.setShut(r.pane, on, actor);
+    if (why) throw new ActionRefused(why);
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} ${on ? "collapsed" : "reopened"} ${this.labelOf(r.pane)}`);
+    return { reader: r.name, collapsed: this.shut.has(r.pane), holds: r.pane.surface.state() };
+  }
+
+  /** How `peek` shows a reader's spine: collapsed, by which agent, and comments that arrived since. */
+  private collapsedState(p: ReaderPane) {
+    const s = this.shut.get(p);
+    return s ? { collapsed: true, ...(s.by ? { collapsedBy: s.by } : {}), newComments: this.newComments(p) } : { collapsed: false };
+  }
+
+  /** alt+c: every collapsed lane and reader opens again. */
+  private reopenAll() {
+    this.collapsed.clear(); this.shut.clear();
+    this.save(); this.redraw();
+  }
+
+  /** A collapsed reader's spine: its note's title, what it holds (✎ edit, ¶ comment, ≡ properties) and new comments (■). */
+  private drawReaderSpine(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string) {
+    const on = this.focus === region, s = pane.surface;
+    const hold = s.draft ? "✎" : s.session ? "¶" : s.panel ? "≡" : "";
+    const marks = [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET];
+    if (this.newComments(pane)) marks.push(fg(C.yellow) + "■" + RESET);
+    const title = pane.msg ? subject(pane.msg) : label;
+    const p = drawSpine(canvas, r, { key: `reader-spine:${region}`, title, colour: on ? C.white : C.cyan, marks, cellStyle: on ? SEL : undefined }, this.ctx);
+    if (p) this.placed.push({ layer: 0, p });
+    this.readerSpines.push({ region, rect: r });
   }
 
   private raise(i: number) {
@@ -1156,7 +1257,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const H = rows - 2;
     const canvas = new Canvas(W, rows - 1);
     this.rects.clear();
-    this.placed = []; this.overlays = []; this.readerEdges = [];
+    this.placed = []; this.overlays = []; this.readerEdges = []; this.readerSpines = [];
     const treeW = clamp(Math.round(W * this.lay.treeFrac), 28, Math.round(W * 0.7));
     const pinnedTree = this.treePinned && this.treeOpen;
     const area: Rect = {
@@ -1177,15 +1278,27 @@ export class DeliveryBoard implements Screen, DeskApi {
       { region: "preview", pane: this.preview, label: "preview · follows the board" },
       ...this.details.map((p, i) => ({ region: `detail${i}` as Region, pane: p, label: `detail ${i + 1}${this.details.length > 1 && i === this.active ? " · ⏎ opens here" : ""}` })),
     ];
+    // Collapsed readers are spines; the others share what's left by their weights, as the lanes do.
     const ww = docked.map((_, i) => Math.max(0.2, this.lay.readerWeights[i] ?? 3));
-    const wsum = ww.reduce((a, b) => a + b, 0);
-    let x = area.col;
+    const isOpen = (i: number) => !!docked[i] && !this.shut.has(docked[i]!.pane);
+    const open = docked.filter((_, i) => isOpen(i)).length;
+    const room = area.cols - (docked.length - open) * SPINE;
+    const wsum = docked.reduce((a, _, i) => a + (isOpen(i) ? ww[i]! : 0), 0) || 1;
+    let x = area.col, openSeen = 0;
     docked.forEach((r, i) => {
-      const w = i === docked.length - 1 ? area.col + area.cols - x : Math.max(12, Math.round((area.cols * ww[i]!) / wsum));
+      if (!isOpen(i)) {
+        this.drawReaderSpine(canvas, { col: x, row: laneH, cols: SPINE, rows: readersH }, r.region, r.pane, r.label);
+        x += SPINE;
+        return;
+      }
+      openSeen++;
+      const rest = docked.slice(i + 1).filter(d => this.shut.has(d.pane)).length * SPINE;
+      const w = openSeen === open ? area.col + area.cols - x - rest : Math.max(12, Math.round((room * ww[i]!) / wsum));
       this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label, undefined, 0);
       x += w;
-      if (i < docked.length - 1) this.readerEdges.push({ a: i, b: i + 1, x, area: { col: area.col, row: laneH, cols: area.cols, rows: readersH } });
+      if (isOpen(i + 1)) this.readerEdges.push({ a: i, b: i + 1, x, area: { col: area.col, row: laneH, cols: area.cols, rows: readersH } });
     });
+    if (!open) canvas.text(x + 1, laneH + 1, fg(C.dark) + "every reader is collapsed · c ⏎ or a click on a spine opens one · alt+c opens them all" + RESET, Math.max(0, area.col + area.cols - x - 2));
 
     // Backlinks drawer spans every reader; overlays unless pinned.
     if (this.links) {
@@ -1254,9 +1367,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       const on = this.focus === "lanes" && i === this.lane;
       const drop = this.drag?.kind === "card" && this.drag.over === i && i !== this.drag.from ? planMove(this.drag.card, l) : null;
       if (spine) {
-        for (let y = rect.row; y < rect.row + rect.rows; y++) canvas.text(rect.col + rect.cols - 1, y, fg(C.blue) + "│" + RESET, 1);
-        const label = `${l.name} ${l.items?.length ?? "…"}`;
-        [...label].slice(0, rect.rows).forEach((ch, k) => canvas.text(rect.col + 1, rect.row + k, (on ? SEL : fg(C.cyan)) + ch + RESET, 1));
+        const p = drawSpine(canvas, rect, { key: `lane-spine:${i}`, title: `${l.name} ${l.items?.length ?? "…"}`, colour: on ? C.white : C.cyan, cellStyle: on ? SEL : undefined }, this.ctx);
+        if (p) this.placed.push({ layer: 0, p });
         return;
       }
       canvas.box(rect, fg(drop ? (drop.kind === "refused" ? C.lred : C.yellow) : on ? C.lcyan : i === this.lane ? C.cyan : C.blue),
@@ -1470,6 +1582,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.steps) return pad(paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read"), W);
     // A reader holding an edit, a comment or the property panel: what it is, and how to get in or out.
     const rd = this.focusedReader();
+    if (rd && this.shut.has(rd)) {
+      const holds = rd.holdsKeys ? ` · keeps ${sessionName(rd)}` : "";
+      return pad(paint(`|14 ${this.labelOf(rd)} · collapsed${holds}|08 · |15c ⏎|08 open · |15alt+c|08 open all · |15tab|08 area · |15esc|08 lanes`), W);
+    }
     if (rd?.holdsKeys) {
       const where = `${this.labelOf(rd)} · ${rd.surface.state()}`;
       return this.entered.in(rd)
@@ -1478,10 +1594,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     }
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
-        : "|08 |15tab|08 area · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
+        : "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
     return pad(undo + paint(base + (this.status ? ` · |14${this.status}` : "")), W);
   }
 
@@ -1508,7 +1624,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; this.ctx.flash("not opened"); return this.redraw(); }
     const rd = this.focusedReader();
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    if (rd?.holdsKeys) {
+    // A collapsed reader is a spine: c, ⏎ or space opens it; the board's keys keep working, and none of the
+    // reader's own (not even e into a session it holds) reach a note the person can't see.
+    const shut = !!rd && this.shut.has(rd);
+    if (rd?.holdsKeys && !shut) {
       if (this.entered.in(rd)) {
         // Every key is the edit's, comment's or panel's, board shortcuts included, until it's closed. The
         // wheel still scrolls whatever is under the pointer. A click can't move focus off an open edit
@@ -1543,6 +1662,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       return this.redraw();
     }
     if (k.kind === "mouse") return this.mouse(k);
+    if (shut && (c === "c" || c === " " || k.kind === "enter")) { this.setShut(rd!, false); return; }
     if (c === "g") { this.status = "looking for boards…"; this.redraw(); this.findBoards().then(items => { this.status = ""; this.picker = { items, sel: Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id)) }; this.redraw(); }, () => {}); return; }
     if (k.kind === "tab" || k.kind === "backtab") {
       const rs = this.regions(), i = rs.indexOf(this.focus);
@@ -1567,8 +1687,14 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (c === "b" && this.focus !== "backlinks") return this.showLinks(this.focus);
     if (c === "B") return this.pinLinks();
     if (c === "o") return this.popOut();
-    if (c === "C") { this.collapsed.clear(); this.save(); return this.redraw(); }
-    if (c === "x" && rd?.editing) return this.ctx.flash(`not closed: it holds ${sessionName(rd)} · e or ⏎ enters it`);
+    if (k.kind === "alt" && k.ch === "c") return this.reopenAll();
+    // c collapses the preview or a detail (the lanes' own c collapses a lane).
+    if (c === "c" && rd && (this.focus === "preview" || this.focus.startsWith("detail"))) {
+      this.setShut(rd, true);
+      return this.ctx.flash(`${this.labelOf(rd)} collapsed${rd.holdsKeys ? `, keeping ${sessionName(rd)}` : ""} · c opens it`);
+    }
+    if (c === "c" && this.focus.startsWith("float")) return this.ctx.flash("a float doesn't collapse · o docks it");
+    if (c === "x" && rd?.editing) return this.ctx.flash(`not closed: it holds ${sessionName(rd)} · ${shut ? "c opens it" : "e or ⏎ enters it"}`);
     if (c === "x" && this.focus.startsWith("detail")) {
       this.details.splice(Number(this.focus.slice(6)), 1);
       this.active = Math.max(0, this.details.length - 1);
@@ -1588,7 +1714,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     }
     if (c === "V") return ctx.cycleVideo();
     // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.
-    if (k.kind === "esc" && rd && !rd.holdsKeys && rd.key(k, this)) return this.redraw();
+    if (k.kind === "esc" && rd && !rd.holdsKeys && !shut && rd.key(k, this)) return this.redraw();
     if (k.kind === "esc") {
       if (this.focus === "tree" && !this.treePinned) { this.treeOpen = false; this.focus = "lanes"; return this.redraw(); }
       if (this.focus === "backlinks" && !this.linksPinned) { this.links = null; this.focus = "lanes"; return this.redraw(); }
@@ -1601,6 +1727,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.focus === "lanes") return this.laneKey(k, c);
     if (this.focus === "tree") { this.tree.key(k, this); return; }
     if (this.focus === "backlinks") return this.linksKey(k, c);
+    if (shut) return k.kind === "char" && !k.ctrl ? this.ctx.flash(`${this.labelOf(rd!)} is collapsed · c or ⏎ opens it`) : undefined;
     if (!rd || rd.holdsKeys) return;
     const start = sessionStart(k);
     if (start) return this.start(rd, start);
@@ -1614,7 +1741,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
     else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
     // e, ctrl+e, i, I edit or open the properties of the selected card in the preview, which takes the keys.
-    else if ((c === "e" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) return this.start(this.preview, sessionStart(k)!);
+    else if ((c === "e" || c === "C" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) {
+      if (this.shut.has(this.preview)) return this.ctx.flash("the preview is collapsed · tab to its spine and c, or click it, to open it");
+      return this.start(this.preview, sessionStart(k)!);
+    }
     else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
     else if (c === "m") return this.openMover();
     else if (c === "n") return this.openCardComposer();
@@ -1714,6 +1844,16 @@ export class DeliveryBoard implements Screen, DeskApi {
         }
         const rd = this.readerFor(region);
         if (region !== "tree" && region !== "backlinks" && rd) this.clickReader(rd.pane, this.rects.get(region)!, k);
+        return this.redraw();
+      }
+      // A collapsed reader's spine: it opens, and takes focus, as c on it does.
+      const sp = this.readerSpines.find(x => inside(x.rect));
+      const spPane = sp && this.readerFor(sp.region)?.pane;
+      if (sp && spPane) {
+        if (this.treeOpen && !this.treePinned) this.treeOpen = false;
+        this.focus = sp.region;
+        if (sp.region.startsWith("detail")) this.active = Number(sp.region.slice(6));
+        this.setShut(spPane, false);
         return this.redraw();
       }
       const hit = this.laneRects.find(l => inside(l.rect));
@@ -1817,6 +1957,8 @@ export const BOARD_ACTIONS = new ActionSet<{
   "step.set": { step: string; status?: string; card?: string };
   "card.trash": { confirm: string; card?: string };
   "card.restore": { id?: string };
+  "reader.collapse": Record<string, never>;
+  "reader.expand": Record<string, never>;
 }, BoardOn>("board", {
   "open": {
     summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "enter, alt+enter, o",
@@ -1888,6 +2030,16 @@ export const BOARD_ACTIONS = new ActionSet<{
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
     run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(), confirm, actor),
+  },
+  "reader.collapse": {
+    summary: "collapse reader=<name> (the preview or a detail) to a spine showing its note's title; a draft, comment or property panel in it is kept exactly. Refused for the reader the person has focused", keys: "c",
+    args: {},
+    run: (_, { b, reader }, actor) => b.collapseReader(reader, true, actor),
+  },
+  "reader.expand": {
+    summary: "open a collapsed reader=<name> again, as it was; reader=all opens every collapsed reader and lane (alt+c). The person's focus stays where it is", keys: "c, enter, click on the spine, alt+c",
+    args: {},
+    run: (_, { b, reader }, actor) => b.collapseReader(reader, false, actor),
   },
   "card.restore": {
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",

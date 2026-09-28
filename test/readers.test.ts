@@ -86,8 +86,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     delete process.env.EP0CH_STATE;
   });
 
-  test("m or c in a detail (meant as move or collapse) opens comments there: the frame and hints say so, and the wheel still scrolls the preview", async () => {
-    for (const k of ["m", "c"]) {
+  test("m or C in a detail (m meant as a move) opens comments there: the frame and hints say so, and the wheel still scrolls the preview", async () => {
+    for (const k of ["m", "C"]) {
       await fresh();
       key({ kind: "enter" });
       const d = B().details[0] as ReaderPane;
@@ -137,10 +137,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });           // cancel, then to the lanes
       await Bun.sleep(450);
       expect(d.draft).toBeNull();
-      // And a comment's passage picker (c reads the note first too).
+      // And a comment's passage picker (C reads the note first too).
       key({ kind: "tab" }); key({ kind: "tab" });
       expect(B().focus).toBe("detail0");
-      key(char("c")); key({ kind: "tab" });
+      key(char("C")); key({ kind: "tab" });
       await Bun.sleep(450);
       expect(d.session).toBeNull();
     } finally { (board as any).get = get; }

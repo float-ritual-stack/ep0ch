@@ -225,7 +225,7 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: "back" });
-    return "j k thread · r reply · x resolve/reopen · c comment on a passage · esc done";
+    return "j k thread · r reply · x resolve/reopen · C comment on a passage · esc done";
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
@@ -260,7 +260,7 @@ export class CommentSession {
     else if (k.kind === "up" || c === "k") this.sel = Math.max(0, this.sel - 1);
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
     else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
-    else if (c === "c") void this.pick(env);
+    else if (c === "C") void this.pick(env);
     return "keep";
   }
 
@@ -427,7 +427,7 @@ export class CommentSession {
     const head = [
       fg(C.yellow) + pad(`» comments · ${title}`, w) + RESET,
       fg(C.brown) + pad(`${open} open · ${this.threads.length - open} resolved`, w) + RESET,
-      state ?? status(this.note || (this.threads.length ? "" : "no comments yet · c comments on a passage"), C.cyan),
+      state ?? status(this.note || (this.threads.length ? "" : "no comments yet · C comments on a passage"), C.cyan),
       rule(w),
     ];
     const lines: string[] = [];
