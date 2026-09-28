@@ -61,12 +61,26 @@ async function fetchSource(p: Props): Promise<{ items: Msg[]; truncated: boolean
   let where: Record<string, unknown>;
   if (board.supports?.("query.expression") === true) where = { expression: q };
   else {
-    const shape = queryShape(q);
-    if ("unpatchable" in shape && !/doesn't parse|isn't a list/.test(shape.unpatchable)) throw new Error(`this query ${shape.unpatchable.replace(/;.*$/, "")}, which needs a service with query.expression (PIE-398)`);
+    const beyond = beyondClauses(q);
+    if (beyond) throw new Error(`this query ${beyond}, which needs a service with query.expression (PIE-398)`);
     where = { filters: parseFilterExpression(q) };
   }
   const r = await board.request<{ blocks: any[]; completeness: { kind: string } }>("blocks.query", { query: { ...where, limit, sort } });
   return { items: board.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated" };
+}
+
+/**
+ * What takes `q` past a plain list of property clauses (the PIE-398 grammar), in words, or null when it
+ * is plain clauses (or doesn't parse at all, which parseFilterExpression then reports itself).
+ */
+function beyondClauses(q: string): string | null {
+  const shape = queryShape(q);
+  if (!("query" in shape)) return null;
+  const outside = q.replace(/"(?:[^"\\]|\\.)*"/g, " ").toLowerCase();       // quoted values aren't operators
+  if (/(^|[\s()])or([\s()]|$)/.test(outside)) return "uses OR";
+  if (/(^|[\s()])not([\s()]|$)/.test(outside)) return "uses NOT";
+  if (outside.includes("(")) return "groups clauses in parentheses";
+  return "filters by when notes were created or updated";
 }
 
 /** Synchronous for the renderer: the last answer, refreshed in the background when stale. */
@@ -120,9 +134,8 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
   const status = `live · ${items.length}${a.truncated ? "+" : ""} result${items.length === 1 ? "" : "s"}`;
   // done: and now: are matched here against each result's properties, so they stay plain clauses.
   for (const k of ["done", "now"] as const) {
-    const shape = p[k] ? queryShape(String(p[k])) : null;
-    if (shape && "unpatchable" in shape && !/doesn't parse|isn't a list/.test(shape.unpatchable))
-      return { props: p, status: null, waiting: false, error: `${k}: takes plain property clauses (it is matched against each result here); this one ${shape.unpatchable.replace(/;.*$/, "")}` };
+    const beyond = p[k] ? beyondClauses(String(p[k])) : null;
+    if (beyond) return { props: p, status: null, waiting: false, error: `${k}: takes plain property clauses (it is matched against each result here); this one ${beyond}` };
   }
   const done = filterOf(p.done), now = filterOf(p.now);
   switch (kind) {
