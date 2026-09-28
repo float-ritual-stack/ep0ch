@@ -28,6 +28,8 @@ export const SEED = {
   figures: "Allotment figures",
   recipe: "Lentil soup",
   tickets: "Depot supplier call about ACME-12",
+  brief: "Daily brief — 2026-03-11",
+  briefBefore: "Daily brief — 2026-03-10",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -155,6 +157,83 @@ function figuresText(gardenViewId: string): string {
 }
 
 /**
+ * The daily brief (PIE-435): two mornings of a made-up household, as an agent drafts them
+ * (skills/daily-brief/SKILL.md). The newer one has every section: a headline, what needs you, yesterday as a
+ * story, today, live figures (a stat over the board's lanes by `view: ((…))`, a saved view's checklist),
+ * jump points, earlier briefs and a folded Sources callout. Prose never restates a figure's number.
+ */
+function briefText(o: { lanes: Msg[]; cards: Msg[]; hub: Msg; gardenView: Msg }): string {
+  const [queued, doing, review, done] = o.lanes;
+  const card = (i: number, label: string) => `((${o.cards[i]!.id}|${label}))`;
+  return [
+    `${SEED.brief} [type::daily-brief] [brief-date::2026-03-11] [feed-sequence::42]`,
+    "",
+    "> [!summary] Good morning. Nothing is on fire.",
+    "> **First thing:** true the front wheel before Saturday's ride. The kettle can wait until the afternoon.",
+    "",
+    "## Needs you",
+    "",
+    `- **Say yes or no to the knives.** ${card(4, "Sharpen the kitchen knives")} is waiting in Review.`,
+    `- **Find the spoke key** for ${card(2, "the front wheel")}; it was last seen in the shed.`,
+    "",
+    "## Yesterday, as a story",
+    "",
+    `**The shed stopped leaking.** The felt went on in the afternoon, so ${card(5, "the shed roof")} is done and the bikes are dry.`,
+    "",
+    `**On the plot** the beans were watered before the rain; the notes are in [[${SEED.notebook}]].`,
+    "",
+    "## Today",
+    "",
+    "1. **True the wheel** on the stand.",
+    `2. **Descale the kettle**: vinegar, then two boils of clean water (${card(3, "the kettle job")}).`,
+    "3. **Turn the compost** if it stays dry.",
+    "",
+    "## The board right now",
+    "",
+    "07:40, from the board's lanes (live below):",
+    "",
+    ...fig("stat", ["title: house jobs, live", "items:",
+      `  - { label: queued, view: ((${queued!.id})) }`, `  - { label: doing, view: ((${doing!.id})) }`,
+      `  - { label: review, view: ((${review!.id})) }`, `  - { label: done, view: ((${done!.id})) }`]),
+    ...fig("check", ["title: garden chores (saved view)", `view: ((${o.gardenView.id}))`, 'done: "stage=done"']),
+    "## Jump points",
+    "",
+    `- **Board:** ((${o.hub.id}|${SEED.hub})) · **Plot:** [[${SEED.notebook}]] · **Shed:** [[${SEED.shed}]]`,
+    "",
+    "## Earlier briefs",
+    "",
+    ...fig("table", ["title: earlier briefs", 'query: "type=daily-brief"', "sort: created", "limit: 7", "columns: [brief-date, title]", "headers: [Day, Brief]"]),
+    "> [!note]- Sources (drafted 07:40 by showcase-seed)",
+    "> - Change feed from sequence 17 to 42.",
+    "> - `updated >= -1d` over the house's jobs and chores.",
+    "> - The allotment notebook and the kitchen whiteboard.",
+    "> - Prose is as of 07:40. Figures are live.",
+  ].join("\n");
+}
+
+const BRIEF_BEFORE = [
+  `${SEED.briefBefore} [type::daily-brief] [brief-date::2026-03-10] [feed-sequence::17]`,
+  "",
+  "> [!summary] A quiet one.",
+  "> **First thing:** get felt and tacks for the shed roof before the rain on Wednesday.",
+  "",
+  "## Needs you",
+  "",
+  "- nothing",
+  "",
+  "## Yesterday, as a story",
+  "",
+  "**The kitchen got a rota.** Whoever cooks doesn't wash up; it is on the whiteboard.",
+  "",
+  "## Today",
+  "",
+  "1. **The shed roof**, if the hardware shop has felt.",
+  "",
+  "> [!note]- Sources (drafted 07:55 by showcase-seed)",
+  "> - The first brief: no earlier checkpoint, so `updated >= -1d` only.",
+].join("\n");
+
+/**
  * Resource projections (PIE-445): a call that names made-up tickets. Under each `jira::` line a reader
  * shows the ticket the line above names: a fetched one, a registered one not fetched yet (compact), two keys
  * on one line (ambiguous) and one never registered. Its child is a ticket page, shown at its top.
@@ -247,6 +326,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
+  notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);
+  notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
 
   // Comment threads on the shed: one open, one resolved with a reply.
   const quote = (text: string, q: string) => ({ quote: q, start: text.indexOf(q) });

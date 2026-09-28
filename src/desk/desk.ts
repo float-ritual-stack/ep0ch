@@ -141,6 +141,16 @@ export class Desk implements Screen, DeskApi, PaneHost {
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
   }
 
+  /** The reader panes with their numbers on screen (the ones `peek` shows), for a screen built on the desk. */
+  readerPanes(): { name: string; pane: ReaderPane }[] { return this.namedReaders().map(({ name, pane }) => ({ name, pane })); }
+
+  /**
+   * The person's keys belong to the desk right now: its search is open, a ^W command is pending, or they
+   * are in (or opening) a reader's edit, comment or property panel. A screen built on the desk leaves
+   * its own keys to the desk then.
+   */
+  personTyping(): boolean { return !!this.search || this.prefix !== "" || !!this.pending || !!this.personIn(); }
+
   /** Reader panes by their number on screen (the one `peek` shows): "2", "3"… */
   private namedReaders(): { name: string; id: number; pane: ReaderPane }[] {
     return leaves(this.root).map((id, i) => ({ name: String(i + 1), id, pane: this.panes.get(id)! }))

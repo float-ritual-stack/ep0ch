@@ -6,16 +6,13 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { dirname, join } from "node:path";
 import { App } from "./app";
-import { Desk } from "./desk/desk";
-import { River } from "./river/river";
-import { DeliveryBoard } from "./desk/delivery";
-import { Logon, MainMenu } from "./screens";
+import { Logon } from "./screens";
+import { startScreens } from "./start";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients, startControl } from "./control";
 import { skillCommand } from "./skills";
 import { Mirror } from "./mirror";
-import { Showcase } from "./showcase/showcase";
 
 const STATE = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door", "lastcall.json");
 
@@ -29,8 +26,10 @@ function writeLastCall(at: number) {
 const args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
 
-  ep0ch [--ws <root> | <socket>] [--board [<hub-id>] | --desk | --river | --showcase]
-                                   open the door (the board by default)
+  ep0ch [--ws <root> | <socket>] [--board [<hub-id>] | --desk | --river | --brief | --showcase]
+                                   open the door (the logon, then the main menu, by default);
+                                   --brief opens the newest daily brief (type::daily-brief), and
+                                   EP0CH_LANDING=brief lands on it after the logon
   ep0ch try --ws <root> [--copy --outliner <checkout>] [--hub <id>]
   ep0ch try --showcase [--reset] --outliner <checkout>
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
@@ -49,10 +48,6 @@ if (args[0] === "try") {
   process.exit(await run.exited);
 }
 if (["peek", "snap", "open", "actions", "act"].includes(args[0] ?? "")) process.exit(await controlClient(args));
-const deskFirst = args.includes("--desk");
-const riverFirst = args.includes("--river");
-const showcaseFirst = args.includes("--showcase");
-const boardAt = args.indexOf("--board");
 // --ws <workspace root>: the outliner keeps each workspace's socket at state/<sha256(root)[0:12]>/outliner.sock.
 const wsAt = args.indexOf("--ws");
 const wsSocket = wsAt >= 0 && args[wsAt + 1]
@@ -98,8 +93,4 @@ board.subscribe(e => app.event(e));
 for (const sig of ["SIGTERM", "SIGHUP"] as const) process.on(sig, () => app.terminate());
 let control: { close(): void } | null = null;
 startControl({ app, mirror, info: () => term.info }).then(c => { control = c; }, () => {});
-if (boardAt >= 0) { app.push(new MainMenu()); app.push(new DeliveryBoard(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])); }
-else if (showcaseFirst) { app.push(new MainMenu()); app.push(new Showcase()); }
-else if (riverFirst) { app.push(new MainMenu()); app.push(new River()); }
-else if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }
-else app.push(new Logon(app));
+for (const s of startScreens(args, process.env, then => new Logon(app, then))) app.push(s);
