@@ -55,6 +55,7 @@ const lastCall = readLastCall();
 const loggedOnAt = Date.now();
 const app = new App(term, board, lastCall, () => {
   term.stop();
+  if (app.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app.keptOnExit.join("\n  ")}`);
   control?.close();
   board.close();
   writeLastCall(loggedOnAt);
@@ -63,7 +64,8 @@ const app = new App(term, board, lastCall, () => {
 app.host = info.host;
 app.workspace = info.workspace;
 board.subscribe(e => app.event(e));
-process.on("SIGTERM", () => app.quit());
+// No one to ask on a signal: unsaved drafts and comments are copied to disk, then the door quits.
+for (const sig of ["SIGTERM", "SIGHUP"] as const) process.on(sig, () => app.terminate());
 let control: { close(): void } | null = null;
 startControl({ app, mirror, info: () => term.info }).then(c => { control = c; }, () => {});
 if (boardAt >= 0) { app.push(new MainMenu()); app.push(new DeliveryBoard(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])); }

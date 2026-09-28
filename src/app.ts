@@ -112,7 +112,7 @@ export class App implements Ctx {
   }
 
   event(e: OutlineEvent) {
-    if (e.domain !== "content") return;
+    if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") invalidateLive();
     if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
@@ -137,6 +137,20 @@ export class App implements Ctx {
     this.redraw();
     return m.id;
   }
+
+  /**
+   * SIGTERM or SIGHUP: there is no one to ask. Every screen's unsaved edits and comments are copied to
+   * disk first, then the door quits.
+   */
+  terminate(): string[] {
+    const kept: string[] = [];
+    for (const s of this.stack) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
+    this.keptOnExit = kept;
+    this.quit();
+    return kept;
+  }
+  /** Where `terminate` copied unsaved text, for the exit message. */
+  keptOnExit: string[] = [];
 
   quit() {
     if (this.timer) clearInterval(this.timer);
@@ -181,4 +195,12 @@ export class App implements Ctx {
     const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
     return bg(C.blue) + fg(C.lcyan) + body + right + RESET;
   }
+}
+
+/**
+ * Which service events the screens see: content changes, and change records in other domains (a
+ * lane's reorder arrives with `domain: "view"`). Other view events (clients registering) aren't news.
+ */
+export function forScreens(e: OutlineEvent): boolean {
+  return e.domain === "content" || !!e.change;
 }

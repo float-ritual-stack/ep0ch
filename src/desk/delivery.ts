@@ -164,6 +164,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       // Caught up; lanes that failed while the service was away are asked again.
       const failed = this.lanes.filter(l => l.read?.status === "failed" || !l.read);
       if (failed.length) this.loadLanes(failed);
+      for (const r of this.readers()) r.retry(this);           // so are notes still waiting for their whole text
       return;
     }
     if (!e.change) return this.legacyEvent(e);
@@ -218,11 +219,13 @@ export class DeliveryBoard implements Screen, DeskApi {
   /**
    * One committed change (PIE-399): refresh only what it can affect.
    *   - a reader showing the block re-reads it, unless it already has that revision (the door's own save);
+   *     either way an edit re-reads the note's comments, whose quoted passages may have moved;
    *     a reader with a draft is only marked "changed elsewhere", never replaced;
    *   - a comment or reply re-reads the threads of the note it belongs to, nowhere else;
    *   - a lane is asked again when the block is in it, or could now be: its properties satisfy the
    *     lane's clauses (read with blocks.read), or the lane's query is more than clauses (OR, NOT,
    *     dates) and the door can't tell. Membership itself always comes from the service;
+   *   - a reorder (Tree, `domain: "view"`) re-asks only the lane it names;
    *   - a moved, trashed or restored block can take a subtree with it, and `other` has no one block:
    *     every lane.
    */
@@ -232,15 +235,20 @@ export class DeliveryBoard implements Screen, DeskApi {
       const m = r.msg;
       if (!m) continue;
       if (id && m.id === id) {
-        if (c.revision !== undefined && m.revision === c.revision && !m.partial) { this.refreshes.skipped++; continue; }
-        this.refreshes.readers++;
-        this.ctx.board.get(id).then(n => { if (n) { r.refresh(n); this.redraw(); } }, () => {});
+        // The door's own save: the text is current, but its comments below still need their new offsets.
+        if (c.revision !== undefined && m.revision === c.revision && !m.partial) this.refreshes.skipped++;
+        else {
+          this.refreshes.readers++;
+          this.ctx.board.get(id).then(n => { if (n) { r.refresh(n); this.redraw(); } }, () => {});
+        }
       }
       const thread = (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
       if (c.kind === "annotate" && (m.id === c.parentId || thread)) r.onEvent(this);
       else if (id && m.id === id && c.kind === "edit") r.onEvent(this);   // an edit can move or drop a quoted passage
     }
     if (!this.hub || c.kind === "annotate" || c.kind === "draft") return;
+    // A reorder (made in Tree) changes one lane's ranks; its record names the lane, whose parent is the hub.
+    if (c.kind === "reorder") return this.markLanes(this.lanes.filter(l => l.def.id === id));
     if (c.parentId === this.hub.id || c.previousParentId === this.hub.id) return void this.relane();
     if (!id || c.kind === "other" || c.kind === "move" || c.kind === "delete" || c.kind === "restore" || c.kind === "purge") return this.markLanes(this.lanes);
     const own = this.lanes.filter(l => l.def.id === id);

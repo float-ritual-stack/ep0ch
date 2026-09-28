@@ -286,6 +286,29 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     app.quit();
   });
 
+  test("SIGTERM/SIGHUP (app.terminate): every screen's unsaved draft is copied out, without asking, then the door quits", async () => {
+    const b = await create("Signalled [stage::queued]\nbody");
+    let quit = 0;
+    const term = { info: { cols: 160, rows: 45, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term as any, board, Date.now(), () => { quit++; });
+    const desk = new Desk();
+    app.push(new MainMenu()); app.push(desk);
+    desk.openBlock((await board.get(b.id))!);
+    const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
+    await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
+    const d = desk as unknown as DeskApi;
+    reader().key(char("e"), d);
+    await until(() => reader().editing, "the draft");
+    const draft = reader().draft!;
+    for (const c of " typed") reader().key(char(c), d);
+    app.push(new MainMenu());                                           // the desk is no longer on top
+    const kept = app.terminate();
+    expect(quit).toBe(1);
+    expect(kept).toEqual([draft.savedCopy!]);
+    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Signalled [stage::queued] typed\nbody\n");
+    expect((await current(b.id)).text).toBe("Signalled [stage::queued]\nbody");   // copied, not saved
+  });
+
   test("ctrl+e hands the draft to $EDITOR and saves what comes back", async () => {
     const b = await create("Via editor [stage::queued]\nbody text");
     const was = { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR };

@@ -207,6 +207,8 @@ export class ReaderPane implements Pane {
   comments: Comment[] | null = null;
   private commentsFor = "";
   private commentTimer: Timer | null = null;
+  /** Why the whole note behind a list row couldn't be read; empty while reading or once read. */
+  unread = "";
   get editing() { return this.draft !== null || this.session !== null; }
   /** Typed text that isn't saved or sent: an edit, or a comment being written. */
   unsaved() { return !!this.draft?.dirty || !!this.session?.dirty; }
@@ -239,6 +241,7 @@ export class ReaderPane implements Pane {
     const d = this.draft;
     if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
+    if (!m.partial) this.unread = "";
     this.msg = m;
     if (!d) this.links = linksOf(m);
   }
@@ -247,14 +250,12 @@ export class ReaderPane implements Pane {
     if (this.draft && m?.id !== this.draft.blockId) return;   // an edit keeps the reader on its note
     if (this.session && m?.id !== this.session.blockId) return;   // so does commenting
     if (m?.id !== this.msg?.id) this.notice = "";
-    this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
+    this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return;
     // Lists carry title, properties and revision only; the reader fetches the whole note.
-    if (m.partial) desk.ctx.board.get(m.id).then(full => {
-      if (full && this.msg?.id === full.id && this.msg.partial) { this.msg = full; this.links = linksOf(full); desk.redraw(); }
-    }, () => {});
+    if (m.partial) this.readWhole(desk);
     void this.loadComments(desk);
     desk.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
@@ -262,12 +263,32 @@ export class ReaderPane implements Pane {
     }, () => {});
   }
 
+  /** A list row's whole note. A failure is shown, and `retry` (on reconnect) asks again. */
+  private readWhole(desk: DeskApi) {
+    const id = this.msg?.id;
+    if (!id) return;
+    this.unread = "";
+    desk.ctx.board.get(id).then(full => {
+      if (this.msg?.id !== id || !this.msg.partial) return;
+      if (full) { this.msg = full; this.links = linksOf(full); }
+      else this.unread = "it isn't in the outline any more";
+      desk.redraw();
+    }, (e: Error) => {
+      if (this.msg?.id !== id || !this.msg.partial) return;
+      this.unread = e.message || String(e);
+      desk.redraw();
+    });
+  }
+
+  /** Still showing a list row (its read failed or was cut off): read the whole note again. */
+  retry(desk: DeskApi) { if (this.msg?.partial) this.readWhole(desk); }
+
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return this.renderDraft(this.draft, m, w, h);
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
-    if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, dim("reading the note…")] };
+    if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
@@ -631,6 +652,7 @@ export class WhoPane implements Pane {
   readonly kind = "who";
   private callers: Caller[] | null = null;
   private names = new Map<string, string>();
+  private asking = new Set<string>();
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
   init(desk: DeskApi) { this.load(desk); }
@@ -639,9 +661,12 @@ export class WhoPane implements Pane {
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
       // Titles only, in one read where the service can (blocks.read).
-      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.names.has(t)))];
-      for (const id of ids) this.names.set(id, "…");
-      desk.ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.names.set(m.id, subject(m)); desk.redraw(); }, () => {});
+      // Only names that were read are kept; a failed or missing one is asked again on the next load.
+      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.names.has(t) && !this.asking.has(t)))];
+      if (!ids.length) return;
+      for (const id of ids) this.asking.add(id);
+      const done = () => { for (const id of ids) this.asking.delete(id); desk.redraw(); };
+      desk.ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.names.set(m.id, subject(m)); done(); }, done);
     }, () => {});
   }
   render(w: number, _h: number, _f: boolean, desk: DeskApi): PaneView {
@@ -649,7 +674,7 @@ export class WhoPane implements Pane {
     return {
       lines: this.callers.map((c, i) => {
         const you = c.id === desk.ctx.board.clientId;
-        const act = c.target ? this.names.get(c.target) ?? "…" : c.activity;
+        const act = c.target ? this.names.get(c.target) ?? (this.asking.has(c.target) ? "…" : c.activity || c.target.slice(0, 8)) : c.activity;
         return `${fg(C.lcyan)}${String(i + 1).padStart(2)} ${fg(you ? C.yellow : C.white)}${pad(you ? "you" : c.name, 9)}${fg(C.grey)}${pad(act, w - 12)}${RESET}`;
       }),
     };

@@ -125,6 +125,8 @@ export function queryShape(input: string): { filters: PropertyFilter[] } | { unp
     if (t.startsWith("(") || t.startsWith("not(")) { why ??= "groups clauses in parentheses; a move only satisfies a plain list of clauses"; grouped = true; continue; }
     if (t === "not") {
       why ??= "uses NOT; a move won't remove or invent properties to satisfy it";
+      // `NOT (a b)` negates a whole group: nothing inside it is a clause a member must carry.
+      if (bare(tokens[i + 1]).startsWith("(")) { grouped = true; continue; }
       const n = range(i + 1);
       i += n || 1;                                            // NOT applies to the next term only
       continue;

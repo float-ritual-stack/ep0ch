@@ -4,15 +4,17 @@
 // that service advertises, so the same file proves the new paths against a new service and the
 // fallbacks against an old one.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { forScreens } from "../src/app";
 import type { Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
-import { ReaderPane, type DeskApi } from "../src/desk/panes";
+import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
 import { planMove } from "../src/move";
+import { WhoOnline } from "../src/screens";
 import { ACTOR_ID, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
 import { queryShape, readView, readViewHere, type ViewRead } from "../src/views";
@@ -58,6 +60,76 @@ describe("list rows", () => {
   });
 });
 
+describe("review fixes without a service", () => {
+  const NOT = "uses NOT; a move won't remove or invent properties to satisfy it";
+  const row = (id: string, text: string, props: Record<string, string> = {}): Msg => ({
+    id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
+    properties: Object.entries(props).map(([key, value]) => ({ key, value })),
+  });
+
+  test("NOT before a group: nothing inside it is a clause a member must carry, so the lane isn't ruled out", () => {
+    for (const q of ["not (track=door priority=low) type=chore", "NOT ( track=door priority=low ) type=chore", "NOT (track=door)"])
+      expect({ q, shape: queryShape(q) }).toEqual({ q, shape: { unpatchable: NOT } });
+    // The card has neither track=door nor priority=low, so it satisfies `NOT (…)`; the lane must be asked.
+    const shape = queryShape("not (track=door priority=low) type=chore");
+    const lane = { name: "Open chores", def: row("v", "Open chores"), items: [], sel: 0, top: 0,
+      read: { status: "ready", items: [], limit: 200, truncated: false, errors: [], filters: [], by: "service", ...shape } };
+    expect((new DeliveryBoard("hub") as any).couldHold(lane, row("c", "Rake leaves", { type: "chore", priority: "high" }))).toBe(true);
+  });
+
+  test("a view-domain change record (a lane's reorder) reaches the screens; other view events don't", () => {
+    const reorder = { sequence: 5, changeId: 5, action: "virtual.occurrences.reorder", kind: "reorder" as const, blockId: "view", recordedAt: "" };
+    expect(forScreens({ domain: "view", action: "virtual.occurrences.reorder", blockId: "view", sequence: 5, change: reorder })).toBe(true);
+    expect(forScreens({ domain: "view", action: "clients.register", sequence: 5 })).toBe(false);
+    expect(forScreens({ domain: "content", action: "update", sequence: 5 })).toBe(true);
+  });
+
+  test("who's online: a title that couldn't be read is asked again on the next load, never cached as …", async () => {
+    let mode: "fail" | "missing" | "ok" = "fail";
+    const asked: string[][] = [];
+    const board = {
+      clientId: "me",
+      callers: async () => [{ id: "tree-1", name: "tree", host: "garden", activity: "browsing", target: "blk-fern" }],
+      readMany: async (ids: string[]) => { asked.push(ids); if (mode === "fail") throw new Error("socket closed"); return mode === "ok" ? [row("blk-fern", "Water the ferns")] : []; },
+    };
+    const desk = { ctx: { board, t: { cols: 100, rows: 30 }, redraw() {}, flash() {} }, redraw() {} } as any;
+    const pane = new WhoPane(), screen = new WhoOnline();
+    pane.init(desk); screen.enter(desk.ctx);
+    const text = () => pane.render(80, 10, false, desk).lines.join("\n") + "\n" + screen.render(desk.ctx).lines.join("\n");
+    for (const next of ["missing", "ok"] as const) {
+      const n = asked.length;
+      await until(() => asked.length === n + 2, "the title reads");
+      await Bun.sleep(5);
+      expect(text()).not.toContain("…");
+      expect(text()).not.toContain("Water the ferns");
+      mode = next;
+      pane.onEvent(desk); screen.onEvent(null, desk.ctx);
+    }
+    await until(() => asked.length === 6, "the reads after the service answers");
+    await until(() => text().split("Water the ferns").length === 3, "both views to show the title");
+  });
+
+  test("a reader whose whole-note read fails says so, and reads it again when the door reconnects", async () => {
+    let fail = true;
+    const full = row("blk-shed", "Paint the shed\nTwo coats, green.");
+    const board = {
+      get: async () => { if (fail) throw new Error("socket closed"); return full; },
+      comments: async () => [], ancestors: async () => [],
+    };
+    const b = new DeliveryBoard("hub") as any;
+    b.ctx = { board, t: { cols: 100, rows: 30, cellW: 9, cellH: 16 }, redraw() {}, flash() {}, graphics: false };
+    const pane = b.preview as ReaderPane;
+    pane.show({ ...full, text: "Paint the shed", partial: true }, b);
+    await until(() => pane.unread !== "", "the failed read");
+    expect(pane.render(80, 10, false, b).lines.join("\n")).toContain("couldn't read the note: socket closed");
+    fail = false;
+    b.onEvent({ domain: "content", action: "reconnected", sequence: 1, caughtUp: 0 });
+    await until(() => !pane.msg?.partial, "the note read again");
+    expect(pane.msg?.text).toBe(full.text);
+    expect(pane.render(80, 10, false, b).lines.join("\n")).toContain("Two coats");
+  });
+});
+
 describe("reconnecting to a fake service", () => {
   // Just enough of the protocol to drop the event connection and watch the door catch up.
   let server: Server, path = "", clients: Socket[] = [];
@@ -89,7 +161,7 @@ describe("reconnecting to a fake service", () => {
     });
     await new Promise<void>(r => server.listen(path, r));
   });
-  afterAll(() => { for (const c of clients) c.destroy(); server.close(); });
+  afterAll(() => { for (const c of clients) c.destroy(); server.close(); rmSync(dirname(path), { recursive: true, force: true }); });
 
   const connect = async () => {
     const b = new SocketBoard(path, 2000);
@@ -211,7 +283,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     const ctx = { board, t: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, workspace: info.workspace, host: "test", flash: (m: string) => flashes.push(m), redraw() {}, pop() {}, cycleVideo() {}, suspend: (r: () => void) => r(), graphics: false };
     board.onConnection = (s, d) => states.push(`${s}: ${d}`);
     board.reconnectMs = 100;
-    board.subscribe(e => { if (e.domain === "content") b.onEvent(e); });
+    board.subscribe(e => { if (forScreens(e)) b.onEvent(e); });       // as App.event routes them
     await b.enter(ctx as any);
     await loaded();
   }, 40_000);
@@ -277,6 +349,15 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     else expect(r.full).toBe(1);
   });
 
+  test("a reorder made in Tree (a view-domain change) asks that lane again, and its order follows", async () => {
+    if (!feed()) return;                                               // older services send it without a change record
+    const before = laneIds("Queued");
+    expect(before.length).toBe(2);
+    const r = await askedDuring(() => other.request("virtual.occurrences.reorder", { viewId: lanes.Queued.id, orderedBlockIds: [...before].reverse() }));
+    expect(r).toEqual({ lanes: ["Queued"], full: 0 });
+    expect(laneIds("Queued")).toEqual([...before].reverse());
+  });
+
   test("a stage change asks only the lanes the card was in or could now be in", async () => {
     const r = await askedDuring(() => write(cards.fern.id, t => t.replace("[stage::queued]", "[stage::doing]")));
     if (feed()) expect(r).toEqual({ lanes: ["Doing", "Either", "Not done", "Queued", "Recent"], full: 0 });   // not Done, not Urgent
@@ -302,19 +383,26 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
 
   test("the door's own save is not read back: the reader already has that revision", async () => {
     if (!feed()) return;
-    const pane = B().preview as ReaderPane, desk = b as unknown as DeskApi;
-    pane.show(await board.get(cards.seed.id), desk);
+    // A detail, so a lane reload's preview-follow can't swap the note out from under the check.
+    b.openBlock((await board.get(cards.seed.id))!);
+    const pane = B().details[B().active] as ReaderPane, desk = b as unknown as DeskApi;
     await until(() => pane.msg?.id === cards.seed.id && !pane.msg?.partial, "the note");
+    const reloads: (string | undefined)[] = [];
+    const load = pane.loadComments.bind(pane);
+    pane.loadComments = d => { reloads.push(pane.msg?.id); return load(d); };
     pane.key({ kind: "char", ch: "e" } as Key, desk);
     await until(() => !!pane.draft, "the draft");
     pane.key({ kind: "end" } as Key, desk);
     pane.key({ kind: "down" } as Key, desk); pane.key({ kind: "end" } as Key, desk);
     for (const c of " Labelled.") pane.key({ kind: "char", ch: c } as Key, desk);
     const skipped = B().refreshes.skipped;
+    reloads.length = 0;
     pane.key({ kind: "char", ch: "s", ctrl: true } as Key, desk);
     await until(() => !pane.draft, "the save");
-    await Bun.sleep(600);
+    await Bun.sleep(1000);
     expect(B().refreshes.skipped).toBeGreaterThan(skipped);
+    // …but its comments are read again: the edit may have moved the passages they quote.
+    expect(reloads).toContain(cards.seed.id);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     expect(log.entries.find((e: any) => e.block.id === cards.seed.id)?.actorId).toBe(ACTOR_ID);
   });
