@@ -87,6 +87,11 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
   `[!x]-` starts folded, `z` unfolds.
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
+- **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
+  a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
+  gantt, tree, table (`src/graphs.ts`). The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed
+  the same way. Unknown kinds say so inside the frame.
+- Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
 ## The river

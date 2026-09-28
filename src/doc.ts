@@ -4,6 +4,7 @@
 import { media, MEDIA_LINE, type Media } from "./media";
 import { C, fg, pad, RESET, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
+import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
 
 export interface DocEnv { width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
@@ -31,11 +32,23 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   for (let i = 0; i < src.length; i++) {
     const line = src[i]!;
 
+    // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
+    const gk = isGraphStart(line);
+    if (gk) {
+      const yaml: string[] = [];
+      let dashes = 0;
+      for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) { if (/^\s*---\s*$/.test(src[i]!)) { dashes++; continue; } if (dashes === 1) yaml.push(src[i]!); }
+      out.push(...renderGraph(gk, yaml.join("\n"), W));
+      continue;
+    }
+
     // Code fence.
     const fence = line.match(/^\s*```(.*)$/);
     if (fence) {
       const code: string[] = [];
       for (i++; i < src.length && !/^\s*```/.test(src[i]!); i++) code.push(src[i]!);
+      const figure = reframeAscii(code, W);
+      if (figure) { out.push(...figure); continue; }
       if (fence[1]) out.push(fg(C.dark) + `╭ ${fence[1].trim()}` + RESET);
       for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
       continue;
@@ -77,14 +90,24 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const type = co[1]!.toLowerCase();
       const [icon, colour] = CALLOUT[type] ?? ["▌", C.cyan];
       const folded = co[2] === "-" && !env.unfold;
-      const title = co[3]?.trim() || type[0]!.toUpperCase() + type.slice(1);
-      const head = ` ${icon} ${title} `;
       const bw = Math.max(12, W);
       const inner = bw - 4;
+      // A title too long for the top edge keeps a short head there and flows the rest into the box.
+      let title = co[3]?.trim() || type[0]!.toUpperCase() + type.slice(1);
+      let spill = "";
+      const room = bw - 8 - [...icon].length;
+      if ([...title].length > room) {
+        const cut = title.lastIndexOf(" ", room - 1);
+        const at = cut > room * 0.4 ? cut : room - 1;
+        spill = title.slice(at).trim();
+        title = title.slice(0, at).trimEnd() + " …";
+      }
+      const head = ` ${icon} ${title} `;
       out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head))) + "╮" + RESET);
       if (folded) {
         out.push(fg(colour) + "│ " + fg(C.dark) + pad(`▸ ${body.length} line${body.length === 1 ? "" : "s"} folded · z unfolds`, inner) + fg(colour) + " │" + RESET);
       } else {
+        for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
         for (const b of body.length ? body : [""]) for (const l of b ? wrap(b, inner) : [""])
           out.push(fg(colour) + "│ " + RESET + pad(inline(l), inner) + fg(colour) + " │" + RESET);
       }

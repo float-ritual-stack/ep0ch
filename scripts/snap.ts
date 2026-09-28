@@ -49,16 +49,25 @@ if (scenario === "doc") {
   const { ReaderPane } = await import("../src/desk/panes");
   const { onMediaChange } = await import("../src/media");
   const shot = "/opt/float/bbs/inbox/screenshots/Screenshot\\ 2026-09-27\\ at\\ 8.05.26 PM.png";
-  const text = ["Doc rendering demo", "[type::demo]", "", "> [!summary] Where the work is", "> Two tickets in flight. PC-762 waits on Sumit's eFax keys; PC-985 is ready for QA on staging.",
-    "", "> [!warning]- Folded until z", "> hidden detail", "", "| Ticket | State | Waiting on | Notes |", "|---|:-:|---|---|",
-    "| PC-762 | waiting | Sumit | Three eFax values into dev's Key Vault before the dev end-to-end test can run; Milind holds prod until then. |",
-    "| PC-985 | QA | Felipe, Adam | Registration works on dev and staging; the sign-up form stays hidden behind a CMS flag. |",
-    "", "## Screenshot", "", `img:: ${shot}`, "", "```ts", "const board = await readView(sock, def);", "```"].join("\n");
+  const text = ["Doc rendering demo", "[type::demo]", "",
+    "> [!note] Notes (not part of the message): follows the 2:34 PM ask, no reply yet.", "> New reason since then: Milind holds Rexall's production eFax deploy until our dev end-to-end test.", "",
+    "::graph-check", "---", "title: PC-762 path to prod", "items:", "  - { label: \"PR 1 and PR 2 merged\", done: true }", "  - { label: \"eFax values in dev Key Vault\", note: \"waiting on Sumit\" }", "  - { label: \"dev end-to-end test\" }", "---", "::", "",
+    "::graph-timeline", "---", "title: shipped", "events:", "  - { date: \"Sep 24\", label: \"real registrar on dev\" }", "  - { date: \"Sep 25\", label: \"staging open for QA\", state: now }", "  - { date: \"Sep 29\", label: \"sprint ends\", state: next }", "---", "::", "",
+    "::graph-stat", "---", "title: this week", "items:", "  - { value: \"18\", label: outbox }", "  - { value: \"8\", label: waiting }", "  - { value: \"2\", label: drafts }", "---", "::", "",
+    "::graph-waterfall", "---", "title: margin", "items:", "  - { label: Revenue, value: 48 }", "  - { label: Refunds, value: -6 }", "  - { label: Hosting, value: -4 }", "  - { label: Profit, value: 38 }", "---", "::", "",
+    "::graph-table", "---", "title: \"what the research cost\"", "headers: [Agent, Tokens, \"Tool calls\", Time]", "align: [left, right, right, right]", "rows:", "  - [\"Inks and paper\",\"115,207\",\"120\",\"16m\"]", "  - [\"Naming the patterns\",\"186,716\",\"112\",\"18m\"]", "footer: [Total, \"437,141\", \"396\", \"~50m\"]", "---", "::", "",
+    "::graph-gantt", "---", "title: launch", "progress: 0.58", "ticks: [q1, q2, q3, q4]", "items:", "  - { label: design, start: 0, end: 0.35, complete: 1 }", "  - { label: build, start: 0.2, end: 0.75, complete: 0.55 }", "  - { label: ship, start: 0.85, end: 1, complete: 0 }", "---", "::", "",
+    "pasted from the mdxcn docs:", "```", "+------------------- [ LAUNCH ] -------------------+", "|                                                  |", "| [x]  freeze tokens                               |", "| [ ]  write the postmortem  still open            |", "|                                                  |", "+--------------------------------------------------+", "```"].join("\n");
   const pane = new ReaderPane();
   const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
   pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
   onMediaChange(() => app.redraw());
-  app.push({ title: "doc", render: (ctx: any) => { const v = pane.render(ctx.t.cols - 4, ctx.t.rows - 3, true, api); return { lines: v.lines.map((l: string) => "  " + l), placements: (v.placements ?? []).map((p: any) => ({ ...p, col: p.col + 2 })) }; }, key() {} } as any);
+  // Same note twice: a narrow reader beside a wide one.
+  const narrow = new ReaderPane(); narrow.show((pane as any).msg, api);
+  app.push({ title: "doc", render: (ctx: any) => {
+    const n = narrow.render(46, ctx.t.rows - 3, true, api).lines, v = pane.render(ctx.t.cols - 54, ctx.t.rows - 3, true, api).lines;
+    return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => " " + (n[i] ?? "") + "\x1b[0m" + " ".repeat(Math.max(0, 48 - [...(n[i] ?? "").replace(/\x1b\[[\d;]*m/g, "")].length)) + "  " + (v[i] ?? "")) };
+  }, key() {} } as any);
   await snap("1-doc", 4000);
   board.close(); process.exit(0);
 }

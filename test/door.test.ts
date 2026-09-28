@@ -110,3 +110,26 @@ describe("Kitty placement ids", () => {
     expect(s.indexOf("a=d")).toBeLessThan(s.indexOf("a=p"));
   });
 });
+
+import { renderGraph, reframeAscii } from "../src/graphs";
+import { renderDoc } from "../src/doc";
+describe("mdxcn figures and callouts", () => {
+  const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  test("a ::graph-check block renders framed with its title, within the width", () => {
+    const out = renderGraph("check", 'title: launch\nitems:\n  - { label: "freeze tokens", done: true }\n  - { label: "write it up", note: "still open" }', 40).map(strip);
+    expect(out[0]).toContain("[ LAUNCH ]");
+    expect(out.some(l => l.includes("[x]  freeze tokens"))).toBe(true);
+    expect(out.every(l => [...l].length <= 40)).toBe(true);
+  });
+  test("pasted mdxcn ASCII fences are re-framed", () => {
+    const out = reframeAscii(["+---- [ LAUNCH ] ----+", "|                    |", "| [x]  ship it       |", "+--------------------+"], 60)!.map(strip);
+    expect(out[0]).toContain("[ LAUNCH ]");
+    expect(out.some(l => l.includes("[x]  ship it"))).toBe(true);
+  });
+  test("a long callout title never runs past the box", () => {
+    const doc = renderDoc("> [!note] Notes (not part of the message): follows the 2:34 PM ask, no reply yet.\n> body", { width: 40, cellW: 9, cellH: 18, graphics: false, maxImageRows: 10, unfold: false });
+    const lines = doc.lines.map(strip);
+    expect(lines.every(l => [...l].length <= 40)).toBe(true);
+    expect(lines.join(" ")).toContain("no reply yet.");
+  });
+});
