@@ -1,7 +1,8 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
-import type { SocketBoard, OutlineEvent } from "./socket";
+import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
+import { ActionRefused, agentLabel, type ActionInfo, type ActRequest } from "./surface/actions";
 import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
@@ -48,6 +49,17 @@ export interface Screen {
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
+  /** The named actions this screen and its readers take (`ep0ch-door actions`), and the readers they can name. */
+  actions?(): { actions: ActionInfo[]; readers: string[] };
+  /** Run a named action as `actor`, through the same code as its keys (`ep0ch-door act`). */
+  act?(req: ActRequest, actor: Actor): Promise<unknown>;
+}
+
+/** An agent's actor id: what it calls itself, or `ep0ch-door:<host>:agent`. Kept to plain, short ids. */
+export function agentActor(as?: string): Actor {
+  const id = (as ?? "").trim() || AGENT_ACTOR_ID;
+  if (!/^[\w.:@/-]{1,80}$/.test(id)) throw new ActionRefused(`an actor id is 1-80 letters, digits and . : @ / - _, not ${JSON.stringify(id)}`);
+  return { kind: "agent", id };
 }
 
 export class App implements Ctx {
@@ -136,6 +148,32 @@ export class App implements Ctx {
     this.flash(`an agent opened: ${m.text.split("\n")[0]!.slice(0, 60)}`);
     this.redraw();
     return m.id;
+  }
+
+  actions() {
+    const s = this.stack.at(-1);
+    if (!s?.actions) return { screen: s?.title ?? null, actions: [], readers: [], note: "this screen has no actions yet; the board and the desk do" };
+    return { screen: s.title, ...s.actions() };
+  }
+
+  /**
+   * An agent acts (`ep0ch-door act`). Never silent: the status bar names the agent and the action before
+   * it runs, and anything the action says while it lands is prefixed "an agent (<id>) · ".
+   */
+  async act(req: ActRequest): Promise<unknown> {
+    const actor = agentActor(req.as);
+    const s = this.stack.at(-1);
+    if (!s?.act) throw new ActionRefused(`the ${s?.title ?? "current"} screen has no actions yet; open the board or desk first`);
+    const who = agentLabel(actor);
+    this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
+    try {
+      const r = await s.act(req, actor);
+      this.redraw();
+      return r;
+    } catch (e) {
+      this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
+    }
   }
 
   /**

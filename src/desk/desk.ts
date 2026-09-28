@@ -4,7 +4,9 @@ import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { OutlineEvent } from "../socket";
+import type { Actor, OutlineEvent } from "../socket";
+import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { NOTE_ACTIONS } from "../surface/note";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -93,6 +95,59 @@ export class Desk implements Screen, DeskApi {
 
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
 
+  // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
+
+  actions() { return { actions: [...DESK_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
+
+  async act(req: ActRequest, actor: Actor): Promise<unknown> {
+    const args = { ...(req.args ?? {}) };
+    if (DESK_ACTIONS.has(req.action)) return DESK_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
+    const r = this.pickReader(req.reader);
+    const out = await r.pane.act(req.action, args, this, actor);
+    return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
+  }
+
+  /** Reader panes by their number on screen (the one `peek` shows): "2", "3"… */
+  private namedReaders(): { name: string; id: number; pane: ReaderPane }[] {
+    return leaves(this.root).map((id, i) => ({ name: String(i + 1), id, pane: this.panes.get(id)! }))
+      .filter((r): r is { name: string; id: number; pane: ReaderPane } => r.pane instanceof ReaderPane);
+  }
+
+  /** A reader by number, "reader" (the first), "focused", or a block id it shows. No name: the focused reader, else the first. */
+  private pickReader(sel?: string): { name: string; id: number; pane: ReaderPane } {
+    const all = this.namedReaders();
+    if (!all.length) throw new ActionRefused("the desk has no reader pane; add one (ctrl+w o r)");
+    if (!sel || sel === "focused" || sel === "reader") return (sel !== "reader" && all.find(r => r.id === this.focus)) || all[0]!;
+    const named = all.find(r => r.name === sel);
+    if (named) return named;
+    if (/^[0-9a-f-]{8,}$/.test(sel)) {
+      const showing = all.filter(r => r.pane.msg?.id.startsWith(sel));
+      const r = showing.find(x => x.pane.editing) ?? showing[0];
+      if (r) return r;
+      throw new ActionRefused(`no reader shows ${sel}; open it first (open id=${sel})`);
+    }
+    throw new ActionRefused(`no reader ${sel} on the desk; readers: ${all.map(r => r.name).join(", ")}, focused, or a block id`);
+  }
+
+  /** `open`: the note becomes the desk's current note (unpinned readers follow) and the reader gets the keys. */
+  async openIn(id: string, sel?: string): Promise<{ reader: string; id: string }> {
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    const r = this.pickReader(sel);
+    this.setCurrent(m, { reveal: true });
+    if (r.pane.msg?.id !== m.id && !r.pane.show(m, this)) throw new ActionRefused(`reader ${r.name} is holding an edit or a comment on another note`);
+    this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null;
+    this.redraw();
+    return { reader: r.name, id: m.id };
+  }
+
+  focusOn(sel: string): { focus: string } {
+    const r = this.pickReader(sel);
+    this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null;
+    this.redraw();
+    return { focus: r.name };
+  }
+
   unsaved() { return this.drafts().length > 0; }
   keepDrafts() { return this.drafts().flatMap(p => p.keepDrafts()); }
   private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
@@ -101,7 +156,7 @@ export class Desk implements Screen, DeskApi {
     const order = leaves(this.root);
     return {
       kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
-      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined, commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined }; }),
+      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined, commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined }; }),
     };
   }
 
@@ -280,3 +335,28 @@ class SearchOverlay {
     return lines;
   }
 }
+
+interface DeskOn { d: Desk; reader?: string }
+
+/** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
+export const DESK_ACTIONS = new ActionSet<{ "open": { id: string }; "focus": Record<string, never> }, DeskOn>("desk", {
+  "open": {
+    summary: "make a note the desk's current one and give its reader (reader=<pane number>) the keys", keys: "enter in the outline, / search",
+    args: { id: { type: "string", about: "the block id" } },
+    async run({ id }, { d, reader }, actor) {
+      const r = await d.openIn(id, reader);
+      d.ctx.flash(`${agentLabel(actor)} opened a note in reader ${r.reader}`);
+      return r;
+    },
+  },
+  "focus": {
+    summary: "give keys to reader=<pane number>", keys: "tab, 1-9, click",
+    args: {},
+    run(_, { d, reader }, actor) {
+      if (!reader) throw new ActionRefused("focus needs reader=<pane number>");
+      const r = d.focusOn(reader);
+      d.ctx.flash(`${agentLabel(actor)} gave the keys to reader ${r.focus}`);
+      return r;
+    },
+  },
+});

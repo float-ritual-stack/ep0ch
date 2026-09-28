@@ -388,8 +388,9 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     const pane = B().details[B().active] as ReaderPane, desk = b as unknown as DeskApi;
     await until(() => pane.msg?.id === cards.seed.id && !pane.msg?.partial, "the note");
     const reloads: (string | undefined)[] = [];
-    const load = pane.loadComments.bind(pane);
-    pane.loadComments = d => { reloads.push(pane.msg?.id); return load(d); };
+    // The reader's note surface reads the comments (src/surface/note.ts).
+    const load = pane.surface.loadComments.bind(pane.surface);
+    pane.surface.loadComments = h => { reloads.push(pane.msg?.id); return load(h); };
     pane.key({ kind: "char", ch: "e" } as Key, desk);
     await until(() => !!pane.draft, "the draft");
     pane.key({ kind: "end" } as Key, desk);
