@@ -120,6 +120,9 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     try {
       key(char("e"));
       expect(B().focus).toBe("preview");
+      key({ kind: "esc" });                                                    // cancels the edit that is opening, nothing else
+      expect(B().focus).toBe("preview");
+      expect(message()).toBe("not opened");
       key({ kind: "esc" });
       expect(B().focus).toBe("lanes");
       await Bun.sleep(450);
@@ -131,7 +134,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key({ kind: "enter" });
       const d = B().details[0] as ReaderPane;
       await whole(d);
-      key(char("e")); key({ kind: "esc" });
+      key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });           // cancel, then to the lanes
       await Bun.sleep(450);
       expect(d.draft).toBeNull();
       // And a comment's passage picker (c reads the note first too).
@@ -151,6 +154,133 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(d.draft!.dirty).toBe(true);
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(d.draft).toBeNull();
+  });
+
+  test("an agent's open in a detail never drops or unfocuses the detail the person is in (PR #11 review)", async () => {
+    await fresh();
+    key({ kind: "enter" });                                                    // detail 1
+    const d0 = B().details[0] as ReaderPane;
+    await whole(d0);
+    key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });          // detail 2, focused
+    const d1 = B().details[1] as ReaderPane;
+    await whole(d1);
+    expect(B().focus).toBe("detail1");
+    key(char("e"));
+    await until(() => !!d1.draft, "the person's draft");
+    await Bun.sleep(20);
+    // The agent's open drops detail 1 (not the person's), and the person's keys stay in their edit.
+    expect(await act("open", { id: cards.gate.id })).toMatchObject({ id: cards.gate.id });
+    expect(B().details).toContain(d1);
+    expect(B().details).not.toContain(d0);
+    expect(B().focus).toBe(`detail${B().details.indexOf(d1)}`);
+    expect(B().details.find((d: ReaderPane) => d !== d1).msg.id).toBe(cards.gate.id);
+    const text = d1.draft!.text;
+    key(char("t")); key(char("o"));                                           // board keys (outline, pop out) if they leaked
+    expect([d1.draft!.text.length, d1.draft!.text.includes("to")]).toEqual([text.length + 2, true]);
+    expect([B().treeOpen, B().floats.length]).toEqual([false, 0]);
+    // Both details held (an agent's edit in the other): the agent's open is refused, the person untouched.
+    await act("edit", {}, `detail${B().details.findIndex((d: ReaderPane) => d !== d1) + 1}`);
+    await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/both details hold/);
+    expect(B().focus).toBe(`detail${B().details.indexOf(d1)}`);
+    key(char("!"));
+    expect([d1.draft!.text.length, d1.draft!.text.includes("to!")]).toEqual([text.length + 3, true]);
+    for (const r of ["detail1", "detail2"]) await act("edit.close", { discard: true }, r);
+
+    // The person only in the property panel of detail 1: it isn't the detail dropped either.
+    await fresh();
+    key({ kind: "enter" });
+    const p0 = B().details[0] as ReaderPane;
+    await whole(p0);
+    key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });
+    const p1 = B().details[1] as ReaderPane;
+    key({ kind: "backtab" });
+    expect(B().focus).toBe("detail0");
+    key(char("i"));
+    expect(p0.surface.panel).not.toBeNull();
+    await act("open", { id: cards.gate.id });
+    expect(B().details).toContain(p0);
+    expect(B().details).not.toContain(p1);
+    expect(p0.surface.panel).not.toBeNull();
+    expect(B().focus).toBe(`detail${B().details.indexOf(p0)}`);
+    expect(B().entered.in(p0)).toBe(true);
+    key({ kind: "esc" });
+    expect(p0.surface.panel).toBeNull();
+  });
+
+  test("an agent focusing the reader the person is already in leaves them in it (PR #11 review)", async () => {
+    await fresh();
+    key({ kind: "enter" });
+    const d = B().details[0] as ReaderPane;
+    await whole(d);
+    key(char("e"));
+    await until(() => !!d.draft, "the draft");
+    await Bun.sleep(20);
+    const text = d.draft!.text;
+    await act("focus", {}, "detail1");
+    key(char("t"));
+    expect(d.draft!.text.length).toBe(text.length + 1);
+    expect(B().treeOpen).toBe(false);
+    // Focusing somewhere else and back does leave it: e enters it again.
+    await act("focus", {}, "lanes");
+    await act("focus", {}, "detail1");
+    key(char("x"));
+    expect(d.draft!.text.length).toBe(text.length + 1);
+    key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });
+    expect(d.draft).toBeNull();
+  });
+
+  test("j k PgDn End on an agent's edit aren't claimed as scrolling: nothing moves, the note isn't left at the bottom (PR #11 review)", async () => {
+    await fresh();
+    key({ kind: "enter" });
+    const d = B().details[0] as ReaderPane;
+    await whole(d);
+    key({ kind: "esc" });
+    await act("edit", {}, "detail1");
+    key({ kind: "tab" }); key({ kind: "tab" });
+    expect(B().focus).toBe("detail0");
+    const text = d.draft!.text, cursor = [d.draft!.row, d.draft!.col];
+    for (const k of [char("j"), { kind: "pgdn" } as Key, { kind: "end" } as Key]) key(k);
+    expect(scrollOf(d)).toBe(0);
+    expect(d.draft!.text).toBe(text);
+    expect([d.draft!.row, d.draft!.col]).toEqual(cursor);
+    expect(hints()).not.toContain("j k scroll");
+    expect(frame()[rect("detail0").row + rect("detail0").rows - 1]).not.toContain("j k scroll");
+    await act("edit.close", { discard: true }, "detail1");
+    b.render(B().ctx);
+    expect(scrollOf(d)).toBe(0);
+    // Reading again: End (as a held reader's scroll key) goes to the bottom of the note, no further.
+    expect(d.scrollKey({ kind: "end" }, b as any)).toBe(true);
+    const bottom = scrollOf(d);
+    expect(bottom).toBeGreaterThan(50);
+    expect(bottom).toBeLessThan(200);
+    d.scrollKey({ kind: "up" }, b as any);
+    expect(scrollOf(d)).toBe(bottom - 1);
+  });
+
+  test("a float's title keeps · NN% however long the subject (PR #11 review)", async () => {
+    const title = "Rebuild the potting bench with the cedar boards from the old fence, and sand the top before the rain comes back";
+    const card = await create(null, long(title, "done"));                    // in no lane
+    await fresh();
+    await act("open", { id: card.id }, "float");
+    const f = B().floats[0];
+    await whole(f.pane, card.id);
+    key({ kind: "pgdn" });
+    const line = frame()[f.rect.row]!.slice(f.rect.col, f.rect.col + f.rect.cols);
+    expect(line).toMatch(/ · \d+%/);
+    expect(line).toContain("Rebuild the potting bench");
+    expect(line).toContain("…");
+  });
+
+  test("a pane too short for any body row reports no scroll (PR #11 review)", async () => {
+    await fresh();
+    const p = B().preview as ReaderPane;
+    const full = p.surface.render(80, 40);
+    const head = full.lines.length - full.scroll!.room;
+    expect(head).toBeGreaterThan(2);
+    const tight = p.surface.render(80, head);
+    expect(tight.scroll).toBeUndefined();
+    expect(tight.lines.length).toBeLessThanOrEqual(head);
+    expect(p.surface.render(80, head + 1).scroll).toMatchObject({ room: 1 });
   });
 
   test("an agent's edit in the preview while the person is in the lanes doesn't take their keys", async () => {
@@ -332,8 +462,37 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       wheel(tree[1]);
       expect(D.panes.get(tree[0]).sel).not.toBe(before);
       expect(D.focus).toBe(readerId);
+      // The agent focusing this reader again changes nothing: the person is still in the edit.
+      await act("focus", {}, "focused");
+      key(char("?"));
+      expect(rd.draft!.text.includes("?")).toBe(true);
       key({ kind: "esc" }); key({ kind: "esc" });
       expect(rd.draft).toBeNull();
     } finally { app.pop(); }
+  });
+
+  test("the desk: e then esc before the note is read cancels the edit and keeps the desk (PR #11 review)", async () => {
+    const desk = new Desk();
+    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    app.push(desk);
+    const D = desk as any;
+    const get = board.get.bind(board);
+    try {
+      await act("open", { id: cards.squash.id });
+      const rd = D.panes.get(D.focus) as ReaderPane;
+      await whole(rd, cards.squash.id);
+      (board as any).get = async (...a: Parameters<SocketBoard["get"]>) => { await Bun.sleep(250); return get(...a); };
+      key(char("e"));
+      key({ kind: "esc" });
+      expect((app as any).stack.at(-1)).toBe(desk);                            // esc cancelled; it didn't close the desk
+      expect(message()).toBe("not opened");
+      await Bun.sleep(450);
+      expect(rd.draft).toBeNull();
+      key(char("j"));
+      expect(rd.draft).toBeNull();
+    } finally {
+      (board as any).get = get;
+      if ((app as any).stack.at(-1) === desk) app.pop();
+    }
   });
 });

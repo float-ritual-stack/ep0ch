@@ -224,7 +224,7 @@ export class ReaderPane implements Pane {
   comment(desk: DeskApi, mode: "select" | "threads", still?: () => boolean) { return this.surface.comment(this.host(desk), mode, still); }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
   sessionOf() { return this.surface.sessionOf(); }
-  /** j k, arrows, PgUp PgDn, space, Home End scroll the note, whatever holds the reader (see NoteSurface.scrollKey). */
+  /** j k, arrows, PgUp PgDn, space, Home End scroll the note while it is shown (not under a draft or a comment; see NoteSurface.scrollKey). */
   scrollKey(k: Key, desk: DeskApi) { return this.surface.scrollKey(k, this.host(desk)); }
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }

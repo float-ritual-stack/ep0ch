@@ -12,7 +12,7 @@ import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "
 import { NOTE_ACTIONS } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
-import { bg, C, fg, pad, paint, RESET } from "../style";
+import { bg, C, fg, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, planMove, type MovePlan } from "../move";
@@ -72,6 +72,8 @@ export class DeliveryBoard implements Screen, DeskApi {
   private focus: Region = "lanes";
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
+  /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
+  private pending: { pane: ReaderPane } | null = null;
   private rects = new Map<string, Rect>();   // region → rect, plus "float-title:N", splitter lines
   private laneRects: { lane: number; rect: Rect; spine: boolean }[] = [];
   private drag: Drag | null = null;
@@ -390,15 +392,18 @@ export class DeliveryBoard implements Screen, DeskApi {
     // An agent's open gives the keys to the reader it opened, unless the person is in an edit, a comment
     // or the property panel: that keeps them.
     const keep = !!this.personIn();
+    let shown: ReaderPane | null = null;
     if (where === "preview") {
       if (!this.selectCard(m.id, false)) this.preview.show(m, this);
       if (this.preview.msg?.id !== m.id) throw new ActionRefused("the preview is holding an edit or a comment on another note");
       if (!keep) this.focus = "preview";
+      shown = this.preview;
     } else if (where === "detail" || where === "new-detail") {
-      this.openDetail(m, where === "new-detail");
-      if (this.details[this.active]?.msg?.id !== m.id) throw new ActionRefused("both details hold edits · save or close one first");
+      if (!this.openDetail(m, where === "new-detail") || this.details[this.active]?.msg?.id !== m.id)
+        throw new ActionRefused("both details hold edits, comments or properties, or the person is in one · save or close one first");
+      shown = this.details[this.active]!;
     } else if (where === "float") {
-      const pane = new ReaderPane(); pane.show(m, this);
+      const pane = shown = new ReaderPane(); pane.show(m, this);
       const W = this.ctx.t.cols, H = this.ctx.t.rows - 2, n = this.floats.length;
       this.floats.push({ pane, rect: { col: Math.round(W * 0.22) + n * 3, row: Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) } });
       if (keep) this.focus = this.regionOf(this.personIn()!) ?? this.focus;   // the float list moved under it
@@ -407,17 +412,18 @@ export class DeliveryBoard implements Screen, DeskApi {
       const r = this.pickReader(where);
       if (!r.pane.show(m, this)) throw new ActionRefused(`${r.name} is holding an edit or a comment on another note`);
       if (r.region && !keep) this.focus = r.region;
+      shown = r.pane;
     }
     this.entered.follow(this.focusedReader());
     this.redraw();
-    const r = this.namedReaders().find(x => x.region === this.focus) ?? this.namedReaders().find(x => x.pane.msg?.id === m.id);
+    // The reader it opened in (focus may have stayed with the person's).
+    const r = this.namedReaders().find(x => x.pane === shown) ?? this.namedReaders().find(x => x.pane.msg?.id === m.id);
     return { reader: r?.name ?? where, id: m.id };
   }
 
   /** `focus`: which area keys go to — "lanes" or a reader. */
   focusOn(sel: string): { focus: string } {
-    // The person comes back to a session by moving to it: they enter it again with e or ⏎.
-    this.entered.clear();
+    const was = this.focus;
     if (sel === "lanes") this.focus = "lanes";
     else {
       const r = this.pickReader(sel);
@@ -425,6 +431,9 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.focus = r.region;
       if (r.region.startsWith("detail")) this.active = Number(r.region.slice(6));
     }
+    // The person comes back to a session by moving to it: they enter it again with e or ⏎. Focusing the
+    // reader they're already in moves nothing, so they stay in it.
+    if (this.focus !== was) this.entered.clear();
     this.redraw();
     return { focus: sel === "lanes" ? "lanes" : this.pickReader(sel).name };
   }
@@ -508,22 +517,28 @@ export class DeliveryBoard implements Screen, DeskApi {
   focusKind(kind: PaneKind) { if (kind === "reader" && this.current) this.openDetail(this.current, false); }
   redraw() { this.ctx?.redraw(); }
 
-  private openDetail(m: Msg, fresh: boolean) {
-    // A detail holding an edit is never reused, dropped or left behind by focus.
-    if (fresh || !this.details.length || this.details[this.active]?.editing) {
+  /** Show `m` in a detail; false (with a flash) when none could take it. */
+  private openDetail(m: Msg, fresh: boolean): boolean {
+    // The reader the person is in (an edit, a comment or the property panel), by identity: the detail
+    // list can shift under it, and their keys stay with it wherever it lands.
+    const keep = this.personIn();
+    // A detail holding an edit, a comment or the panel is never reused or dropped, nor the one the person is in.
+    if (fresh || !this.details.length || this.details[this.active]?.holdsKeys) {
       if (this.details.length >= 2) {
-        const drop = this.details.findIndex(d => !d.editing);
-        if (drop < 0) return this.ctx.flash("both details hold edits · save or close one first");
+        const drop = this.details.findIndex(d => !d.holdsKeys && d !== keep);
+        if (drop < 0) { this.ctx.flash("both details hold edits, comments or properties · save or close one first"); return false; }
         this.details.splice(drop, 1);
       }
       this.details.push(new ReaderPane());
       this.active = this.details.length - 1;
     }
     this.details[this.active]!.show(m, this);
-    // Focus follows the note into its detail, unless the person is in an edit, comment or panel elsewhere.
-    if (!this.personIn()) this.focus = `detail${this.active}`;
+    // Focus follows the note into its detail, unless the person is in an edit, comment or panel: it stays
+    // on that reader, wherever the list moved it.
+    this.focus = keep ? this.regionOf(keep) ?? this.focus : `detail${this.active}`;
     if (!this.treePinned) this.treeOpen = false;
     this.redraw();
+    return true;
   }
 
   /**
@@ -556,9 +571,14 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.focus = region;
     if (region.startsWith("detail")) this.active = Number(region.slice(6));
     if (pane.holdsKeys) return this.enterSession(pane);   // one is open already (an agent's): e enters it
-    const still = () => this.focusedReader() === pane;
+    // Esc, or leaving the board, while the note is read cancels it: the token is cleared and nothing opens.
+    const token = { pane: pane };
+    this.pending = token;
+    const still = () => this.pending === token && this.focusedReader() === pane;
     const opened = (open: boolean) => {
-      if (open && still()) { this.entered.enter(pane); this.ctx.flash(`${this.labelOf(pane)} · ${pane.surface.state()} · ${pane.hint()}`); }
+      const want = still();
+      if (this.pending === token) this.pending = null;
+      if (open && want) { this.entered.enter(pane); this.ctx.flash(`${this.labelOf(pane)} · ${pane.surface.state()} · ${pane.hint()}`); }
       this.redraw();
     };
     this.redraw();
@@ -1304,8 +1324,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     const on = this.focus === region, base = fg(on ? C.white : C.grey);
     const state = pane.surface.state();
     const held = pane.holdsKeys && !this.entered.in(pane);
-    const title = `${label}${state ? `${fg(C.yellow)} · ${state}${held ? fg(C.dark) + " (e enters)" : ""}${base}` : ""}${overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : ""}`;
-    this.frame(canvas, r, region, title, hint ?? (held ? "e ⏎ enter · j k scroll" : pane.hint()));
+    const tail = `${state ? `${fg(C.yellow)} · ${state}${held ? fg(C.dark) + " (e enters)" : ""}${base}` : ""}${overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : ""}`;
+    // The state and how far down always show: a long label (a float's subject) is cut to leave them room.
+    const fits = Math.max(1, r.cols - 5 - width(tail));
+    const title = `${width(label) > fits ? pad(label, fits) + base : label}${tail}`;
+    this.frame(canvas, r, region, title, hint ?? (held ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : pane.hint()));
     if (!view) return;
     this.paneInto(canvas, inner, pane, region, layer, view);
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(on ? C.lcyan : C.cyan));
@@ -1374,7 +1397,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     // Drop shadow on the right and bottom.
     for (let y = r.row + 1; y <= Math.min(H - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
     canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, W - r.col - 1))) + RESET, W);
-    const title = `${fg(C.yellow)}⧉ ${f.pane.msg ? subject(f.pane.msg).slice(0, r.cols - 12) : "float"}`;
+    const title = `${fg(C.yellow)}⧉ ${f.pane.msg ? subject(f.pane.msg) : "float"}`;
     this.drawReader(canvas, r, `float${i}`, f.pane, title, f.pane.holdsKeys ? undefined : "drag title · drag ◢ · o dock · x close", 3 + i);
     canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     this.rects.set(`float-title:${i}`, { col: r.col, row: r.row, cols: r.cols, rows: 1 });
@@ -1401,7 +1424,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       const where = `${this.labelOf(rd)} · ${rd.surface.state()}`;
       return this.entered.in(rd)
         ? pad(paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET, W)
-        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)} · |15j k|08 scroll · |15tab|08 area · |15esc|08 lanes`), W);
+        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15tab|08 area · |15esc|08 lanes`), W);
     }
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
@@ -1431,6 +1454,8 @@ export class DeliveryBoard implements Screen, DeskApi {
   private keyIn(k: Key, ctx: Ctx) {
     // Only the focused reader's session can take keys (never the preview's while the lanes have focus),
     // and only one the person is in (PIE-411).
+    // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
+    if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; this.ctx.flash("not opened"); return this.redraw(); }
     const rd = this.focusedReader();
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if (rd?.holdsKeys) {
@@ -1517,7 +1542,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (this.focus !== "lanes") { this.focus = "lanes"; return this.redraw(); }
       if (this.treeOpen && !this.treePinned) { this.treeOpen = false; return this.redraw(); }
       if (this.links && !this.linksPinned) { this.links = null; return this.redraw(); }
-      return ctx.pop();
+      this.pending = null; return ctx.pop();
     }
 
     if (this.focus === "lanes") return this.laneKey(k, c);

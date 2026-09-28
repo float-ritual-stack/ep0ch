@@ -82,6 +82,8 @@ const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.
 export class NoteSurface {
   msg: Msg | null = null;
   scroll = 0;
+  /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
+  private maxScroll = Infinity;
   private crumbs = "";
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
   notice = "";
@@ -118,6 +120,8 @@ export class NoteSurface {
    * property panel is open. Unlike `editing`, an open panel doesn't hold the note or refuse clicks.
    */
   get holdsKeys() { return this.editing || this.panel !== null; }
+  /** The note itself is shown, so j k PgDn scroll it: not while a draft, a comment session or the full property panel is drawn instead. */
+  scrolls(): boolean { return !this.draft && !this.session && !this.panel?.full; }
   /**
    * What holds the surface's keys now: the draft, the comment session or the property panel (null while
    * reading). Hosts compare it by identity to know whether the person is in this one (PIE-411).
@@ -180,7 +184,7 @@ export class NoteSurface {
     if (this.session && m?.id !== this.session.blockId) return false;
     if (this.panel?.field && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
-    this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…"; this.unread = "";
+    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.link = -1; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
@@ -261,8 +265,10 @@ export class NoteSurface {
     if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
-    const room = Math.max(1, h - head.length);
-    this.scroll = Math.max(0, Math.min(this.scroll, body.length - room));
+    // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
+    const room = Math.max(0, h - head.length);
+    this.maxScroll = Math.max(0, body.length - Math.max(1, room));
+    this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     const placements: Placement[] = [];
     for (const im of doc.images) {
       const top = im.line - this.scroll, bottom = top + im.rows;
@@ -273,7 +279,8 @@ export class NoteSurface {
       const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / im.rows) * img.height), w: img.width, h: Math.max(1, Math.round((visible / im.rows) * img.height)) } : undefined;
       placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
     }
-    return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)), placements, scroll: { top: this.scroll, room, total: body.length } };
+    const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h));
+    return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
   // ── properties ─────────────────────────────────────────────────────────────
@@ -649,7 +656,7 @@ export class NoteSurface {
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
     else if (this.session) return;
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
-    else this.scroll = Math.max(0, this.scroll + dir * 3);
+    else this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3));
     host.redraw();
   }
 
@@ -659,10 +666,13 @@ export class NoteSurface {
    * isn't in. True when the key was one of them.
    */
   scrollKey(k: Key, host: SurfaceHost): boolean {
+    // A draft or a comment session renders in place of the note, and its view follows its own cursor:
+    // there is no note to scroll, so the keys aren't claimed (and the agent's cursor isn't moved).
+    if (!this.scrolls()) return false;
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : k.kind === "home" ? -1e9 : k.kind === "end" ? 1e9 : 0;
     if (!by) return false;
-    this.scroll = Math.max(0, this.scroll + by);
+    this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + by));
     host.redraw();
     return true;
   }

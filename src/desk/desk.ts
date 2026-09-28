@@ -36,6 +36,8 @@ export class Desk implements Screen, DeskApi {
   private search: SearchOverlay | null = null;
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
+  /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
+  private pending: { pane: ReaderPane } | null = null;
 
   constructor() {
     const saved = readState<SavedDesk>("desk.json");
@@ -146,7 +148,9 @@ export class Desk implements Screen, DeskApi {
 
   focusOn(sel: string): { focus: string } {
     const r = this.pickReader(sel);
-    this.entered.clear();                  // coming back to a session by moving to it: e or ⏎ enters it again
+    // Coming back to a session by moving to it: e or ⏎ enters it again. Focusing the reader the person
+    // is already in moves nothing, so they stay in it.
+    if (r.id !== this.focus) this.entered.clear();
     this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null;
     this.redraw();
     return { focus: r.name };
@@ -184,7 +188,7 @@ export class Desk implements Screen, DeskApi {
       // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
       const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
       const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
-      canvas.box(r, fg(focused ? C.lcyan : C.blue), `${fg(focused ? C.white : C.dark)}${n} ${fg(focused ? C.lcyan : C.cyan)}${pane.title()}${held ? fg(C.dark) + " (e enters)" : ""}${more}`, focused ? fg(C.dark) + (held ? "e ⏎ enter · j k scroll" : pane.hint()) : "");
+      canvas.box(r, fg(focused ? C.lcyan : C.blue), `${fg(focused ? C.white : C.dark)}${n} ${fg(focused ? C.lcyan : C.cyan)}${pane.title()}${held ? fg(C.dark) + " (e enters)" : ""}${more}`, focused ? fg(C.dark) + (held ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : pane.hint()) : "");
       if (!view) continue;
       view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
       if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
@@ -209,7 +213,7 @@ export class Desk implements Screen, DeskApi {
       const where = `reader ${leaves(this.root).indexOf(this.focus) + 1} · ${rd.surface.state()}`;
       return this.entered.in(rd)
         ? pad(paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET, cols)
-        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)} · |15j k|08 scroll · |15Tab/1-9|08 focus · |15^W|08 window`), cols);
+        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`), cols);
     }
     const s = this.prefix === "wm"
       ? "|14^W |07hjkl |08focus · |07HJKL |08dock to edge · |07< > + - |08size · |07= |08even · |07z |08zoom · |07o |08add · |07x |08close · |07s |08swap next"
@@ -228,9 +232,14 @@ export class Desk implements Screen, DeskApi {
 
   /** The person's key starts a session in the focused reader: theirs once it opens, if they're still there. */
   private start(rd: ReaderPane, kind: SessionKind) {
-    const still = () => this.focusedReader() === rd && !this.search;
+    // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
+    const token = { pane: rd };
+    this.pending = token;
+    const still = () => this.pending === token && this.focusedReader() === rd && !this.search;
     const opened = (open: boolean) => {
-      if (open && still()) { this.entered.enter(rd); this.ctx.flash(`reader ${leaves(this.root).indexOf(this.focus) + 1} · ${rd.surface.state()} · ${rd.hint()}`); }
+      const want = still();
+      if (this.pending === token) this.pending = null;
+      if (open && want) { this.entered.enter(rd); this.ctx.flash(`reader ${leaves(this.root).indexOf(this.focus) + 1} · ${rd.surface.state()} · ${rd.hint()}`); }
       this.redraw();
     };
     const r = startSession(rd, kind, this, still);
@@ -249,6 +258,8 @@ export class Desk implements Screen, DeskApi {
       if (this.search.key(k, this) === "close") this.search = null;
       return this.redraw();
     }
+    // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
+    if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     const focused = this.focusedReader();
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if (focused?.holdsKeys) {
@@ -285,9 +296,9 @@ export class Desk implements Screen, DeskApi {
       if (k.ch === "/") { this.search = new SearchOverlay(); return this.redraw(); }
       if (k.ch === "V") return ctx.cycleVideo();
       if (/^[1-9]$/.test(k.ch)) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) { this.focus = id; this.zoom = this.zoom !== null ? id : null; } return this.redraw(); }
-      if (k.ch === "q") return ctx.pop();
+      if (k.ch === "q") { this.pending = null; return ctx.pop(); }
     }
-    if (k.kind === "esc") { if (this.zoom !== null) { this.zoom = null; return this.redraw(); } return ctx.pop(); }
+    if (k.kind === "esc") { if (this.zoom !== null) { this.zoom = null; return this.redraw(); } this.pending = null; return ctx.pop(); }
   }
 
   private command(k: Key) {
