@@ -1,0 +1,29 @@
+#cloud-config
+# float-2: the CPU box beside float-box (GPU). Runs outliner services, the ssh ep0ch.io door,
+# Herdr and coding agents. Nothing secret lives here: Tailscale is installed but joined by hand.
+users:
+  - name: evan
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - __SSH_PUBLIC_KEY__
+ssh_pwauth: false
+disable_root: true
+package_update: true
+package_upgrade: true
+packages: [git, curl, unzip, jq, sqlite3, tmux, ufw, fail2ban, build-essential]
+runcmd:
+  # Firewall: SSH only for now; the door's public port opens when ep0ch.io goes live.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw --force enable
+  - systemctl enable --now fail2ban
+  # Tailscale for the private link to float-box and the laptop; `sudo tailscale up` is a manual step.
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  # Bun for the outliner and the door, installed for evan.
+  - su - evan -c 'curl -fsSL https://bun.sh/install | bash'
+  # Let evan's user services (outliner, door) keep running after logout.
+  - loginctl enable-linger evan
+  - touch /var/lib/cloud/float-2-ready
