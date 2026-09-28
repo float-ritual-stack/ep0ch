@@ -41,6 +41,12 @@ export interface DocEnv {
    * links `[ ]` stops on. Without it they read as links do without a service (labels, short ids).
    */
   present?: (text: string) => string;
+  /**
+   * Rows the reader inserts after body line `line` (-1: above the first), drawn once that line's construct
+   * is (after a whole table, fence or callout), and not when a fold hides the line: a resource projection's
+   * region (src/projection.ts). Without it (an embed, a draft's preview) nothing is inserted.
+   */
+  after?: (line: number, width: number) => string[];
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
@@ -165,8 +171,19 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
   const mark = () => { while (source.length < out.length) source.push(from); };
+  // Inserted rows (env.after) for each body line before `to`, once: they belong to the line they follow.
+  let inserted = 0;
+  const insert = (to: number) => {
+    for (; inserted < to; inserted++) {
+      const rows = env.after?.(inserted, W) ?? [];
+      out.push(...rows);
+      for (const _ of rows) source.push(Math.max(0, inserted));
+    }
+  };
+  if (env.after) inserted = -1;
   for (let i = 0; i < src.length; i++) {
     mark();
+    insert(i);
     from = i;
     const line = src[i]!;
 
@@ -177,7 +194,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i));
       heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
-      if (folded) i = fp.end - 1;
+      if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
       continue;
     }
 
@@ -310,6 +327,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     out.push(...prose(line, W, undefined, lit(i)));
   }
   mark();
+  insert(src.length);
   const { lines, ranges } = extractLinks(out.map(stripMarks));
   return { lines, images, media: mediaRefs, links: ranges, source, heads };
 }

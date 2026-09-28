@@ -121,7 +121,12 @@ export interface LinkView { text: string; missing: boolean }
  * embed's title (`embed`), or a row that stands for a note (`row`: a live figure's row, an embedded
  * view's result). Two links to the same place are the same link whatever their role.
  */
-export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" };
+/**
+ * What a drawn link opens. `role`: an embed's title, a row that stands for a note, or a resource
+ * projection's head (src/projection.ts), whose `url` is the ticket's page and `reason` says why there is
+ * none.
+ */
+export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource"; reason?: string };
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {

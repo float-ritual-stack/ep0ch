@@ -269,6 +269,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved"],
     presence: ["who's online", "parallel version, to consolidate · WhoOnline", "parallel version, to consolidate · LastCallers"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
+    projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · not fetched yet", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered"],
     selection: ["Lentil soup", "Drag across these lines"],
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
   };
@@ -276,7 +277,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
     expect(SECTIONS.map(s => s.key)).toEqual(Object.keys(marks));
     for (let i = 0; i < SECTIONS.length; i++) {
-      ch(i === 9 ? "0" : String(i + 1));
+      if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else ch("j");   // past ten: the next one down
       const s = SECTIONS[i]!;
       await until(() => marks[s.key]!.every(m => screen().includes(m)), `section ${s.key}: ${marks[s.key]!.filter(m => !screen().includes(m)).join(" | ")}`, 8000);
       const text = screen();
@@ -324,9 +325,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 9, key: "selection" });
+    expect(r).toEqual({ section: 10, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 9");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 10");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");

@@ -12,6 +12,7 @@ import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, SHADE } from "../embeds";
+import { projectionRegion, projectionsOf, type ResourceProjection } from "../projection";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { MD_LINK, PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
 import { ComponentCatalog } from "../components";
@@ -70,9 +71,10 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
  * video), a fold point (a heading or a list item with lines under it), a row that stands for a note (a live
- * figure's row, an embedded view's result), an embed (its title), and a comment mark (in the margin).
+ * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
+ * and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
 /**
@@ -88,7 +90,8 @@ interface Element {
 const verbOf = (e: Element, open: boolean) =>
   e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
-  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media || e.link?.url ? "open" : "follow";
+  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it"
+  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.media || e.link?.url ? "open" : "follow";
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
 
@@ -296,7 +299,7 @@ export class NoteSurface {
     const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
     if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -433,6 +436,10 @@ export class NoteSurface {
     if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
     // Every link drawn (the body's, an embed's title and results) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
+    // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
+    // page's, on the subject or its preamble, above the first), its age painted now.
+    const regions = this.projectionRegions(projectionsOf(m, src), noteLines);
+    const now = Date.now(), bodyText = source.split("\n");
     const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn), {
       ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn),
       // A component's labels and values: links in them are links like the body's.
@@ -441,6 +448,14 @@ export class NoteSurface {
       literal,
       // A live figure's rows that stand for notes are links too (PIE-441).
       link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
+      ...(regions.size ? {
+        after: (line: number, width: number) => {
+          const ps = regions.get(line);
+          if (!ps) return [];
+          const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
+          return projectionRegion(ps, width, indent, now, (to, text) => linkTag(drawn.push(to) - 1) + text + LINK_END);
+        },
+      } : {}),
     });
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body.
     const { doc, controls } = this.threadPanels(m, rendered, noteLines, Math.max(1, w - 1));
@@ -941,7 +956,7 @@ export class NoteSurface {
     if (k.kind === "pgdn" || c === " ") { this.letGo(); this.scroll += 15; host.redraw(); return true; }
     if (k.kind === "pgup") { this.letGo(); this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
-    if (c === "]" || c === "[") { if (!this.step(c === "]" ? 1 : -1)) host.ctx.flash("nothing to step to: this note has no links, folds, figure rows, embeds or comments"); host.redraw(); return true; }
+    if (c === "]" || c === "[") { if (!this.step(c === "]" ? 1 : -1)) host.ctx.flash("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments"); host.redraw(); return true; }
     if (c === "z") { this.unfold = !this.unfold; host.redraw(); return true; }
     // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
     // a fold toggles, a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a
@@ -1289,6 +1304,20 @@ export class NoteSurface {
     return out;
   }
 
+  /**
+   * The projections to draw, by the body line (index into `noteLines`) each follows: the last one at or
+   * above its anchor line, or -1 (above the body) when none is (a ticket page's subject or preamble).
+   */
+  private projectionRegions(ps: readonly ResourceProjection[], noteLines: readonly number[]): Map<number, ResourceProjection[]> {
+    const out = new Map<number, ResourceProjection[]>();
+    for (const p of ps) {
+      const at = noteLines.findLastIndex(n => n <= p.anchor.line);
+      const g = out.get(at);
+      if (g) g.push(p); else out.set(at, [p]);
+    }
+    return out;
+  }
+
   /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
   private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[]): Element[] {
     const out: Element[] = [];
@@ -1311,6 +1340,7 @@ export class NoteSurface {
     const text = (line: string, from: number, to: number) => cellsOf(line).slice(from, to).join("").trim();
     const sum = head[1] ?? "";
     for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: 1, from: l.from, to: l.to, ruler: [1, 2], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
+    const heads = new Set(doc.links.filter(r => drawn[r.n]?.role === "resource").map(r => r.line));
     const byN = new Map<number, typeof doc.links>();
     for (const r of doc.links) { const g = byN.get(r.n); if (g) g.push(r); else byN.set(r.n, [r]); }
     for (const [n, rs] of byN) {
@@ -1321,6 +1351,8 @@ export class NoteSurface {
       let ruler = block(r.line);
       if (kind === "row") ruler = [top + r.line, top + r.line + 1];
       else if (kind === "embed") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE)) b++; ruler = [top + r.line, top + b]; }
+      // A resource projection's is its shaded region, up to the next projection's head.
+      else if (kind === "resource") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE) && !heads.has(b)) b++; ruler = [top + r.line, top + b]; }
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label: rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" "), link: l });
     }
     for (const x of doc.media) out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path } });
@@ -1474,6 +1506,8 @@ export class NoteSurface {
   /** Open what a link names: media in the system viewer, blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
+    // A resource projection opens its ticket's page; without one it says why (no key, not fetched yet, …).
+    if (l.role === "resource" && l.url === undefined) { host.ctx.flash(l.reason ?? "nothing to open here"); return null; }
     // A Markdown link: a web page opens in the browser; a pi-outliner:// block or page link opens here.
     if (l.url !== undefined) {
       const to = destinationOf(l.url);
@@ -1523,7 +1557,8 @@ export class NoteSurface {
         if (!c) cache.set(r, c = r === d.top - 1 || r < 0 ? [] : cellsOf((r < d.top ? d.head[r] : d.body[r - d.top]) ?? ""));
         return c;
       },
-      margin: r => (r < d.top ? 0 : 1),
+      // A shaded region's gutter (an embed's, a resource projection's) is drawn like the margin, and isn't copied.
+      margin: r => (r < d.top ? 0 : d.body[r - d.top]?.startsWith(" " + SHADE) ? 2 : 1),
     };
   }
 
@@ -1655,6 +1690,15 @@ export class NoteSurface {
     const c = ch(k), rows = this.selRows(), s = this.selection;
     if (!rows) return false;
     if (!s) {
+      // y on a resource projection (the current element) selects its region and copies it as drawn.
+      const e = c === "y" ? this.inView() : null;
+      if (e?.kind === "resource") {
+        const last = e.ruler[1] - 1;
+        this.selection = this.stamp(new Selection({ row: e.ruler[0], col: rows.margin?.(e.ruler[0]) ?? 0 }, { row: last, col: Math.max(0, rows.cells(last).length - 1) }));
+        this.copySelection(false, host);
+        host.redraw();
+        return true;
+      }
       if (c === "y" || c === "Y") { host.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
       if (c !== "v") return false;
       // The keyboard mode starts where the reading is: the first row of the body in view.

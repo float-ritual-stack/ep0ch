@@ -8,6 +8,7 @@ import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
+import { resourceChanged } from "./projection";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 
@@ -137,6 +138,9 @@ export class App implements Ctx {
   }
 
   event(e: OutlineEvent) {
+    // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
+    // those read it again. It isn't an outline change, so nothing else is asked again.
+    if (e.domain === "resource-catalog") { if (resourceChanged(e.resourceId ?? null)) this.redraw(); return; }
     if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") {
       invalidateLive();
@@ -146,6 +150,8 @@ export class App implements Ctx {
       if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId] : null);
       else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
       else outlineChanged(null, e.action === "reset");
+      // Resource events aren't in the change feed, so none were replayed: projections are read again.
+      if (!c && (e.action === "reconnected" || e.action === "reset")) resourceChanged(null);
       invalidatePropertyErrors();
     }
     if (e.change || e.action !== "reconnected") this.events++;
@@ -157,7 +163,7 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     const b = this.board;
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
-      uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
+      uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, service, state: s?.describe?.() ?? null };
   }
 

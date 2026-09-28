@@ -8,6 +8,7 @@ import { connect, type Socket } from "node:net";
 import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
+import type { ResourceProjectionRead } from "./projection";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
 /** Oldest service protocol the door reads (the actions it can't do without). */
@@ -20,7 +21,7 @@ const CLIENT_PROTOCOL = 82;
  * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
  * "Unsupported action" answer for the session.
  */
-export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets";
+export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection";
 
 /**
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
@@ -70,6 +71,8 @@ export interface Change {
  */
 export interface OutlineEvent {
   domain: string; action: string; blockId?: string; sequence: number;
+  /** The Resource a `resource-catalog` event names (a registration, a refresh). */
+  resourceId?: string;
   change?: Change;
   /** Replayed from `changes.since` after a reconnect, not live. */
   catchUp?: boolean;
@@ -277,6 +280,14 @@ export class SocketBoard implements Board {
       if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add(capability); return null; }
       throw e;
     }
+  }
+
+  /**
+   * A note's resource projections (PIE-445): the stored details of each Resource its provider lines and
+   * its own provider property name. A read only: the service never registers or fetches for it.
+   */
+  readResourceProjections(blockId: string): Promise<ResourceProjectionRead> {
+    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId });
   }
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }

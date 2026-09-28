@@ -3,7 +3,7 @@
 //   bun scripts/snap.ts [cells] → out/snap-*.png
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { Mirror } from "../src/mirror";
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
+const wide = ["projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -48,7 +48,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+const scratch = scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -182,25 +182,25 @@ if (scenario === "showcase") {
   const { seedShowcase } = await import("../src/showcase/seed");
   const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
   scratch!.installRenderers();                            // as scripts/try-it.sh --showcase installs it
-  await seedShowcase(board);
+  await seedShowcase(board, { ticketsConfig: join(scratch!.root, "config") });   // made-up tickets, as try-it installs them
   board.subscribe(e => app.event(e));
   const sc = new Showcase();
   app.push(new MainMenu()); app.push(sc);
   await Bun.sleep(800);
   for (let i = 0; i < SECTIONS.length; i++) {
-    ch(i === 9 ? "0" : String(i + 1));
+    if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else press({ kind: "down" });
     await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 4 || i === 7 ? 2500 : 1200);
   }
   ch("5"); press({ kind: "enter" }); ch("c");                                           // the board: collapse a lane to a spine
-  await snap("11-board-spine", 1000);
+  await snap("12-board-spine", 1000);
   press({ kind: "esc" });                                                               // the board's own back key
   ch("3"); press({ kind: "enter" }); ch("e"); await Bun.sleep(600); for (const c of " [[Bike") ch(c);  // edit, and complete a page
-  await snap("12-edit-complete", 1500);
+  await snap("13-edit-complete", 1500);
   press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200); press({ kind: "esc" }); ch("q");
-  press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 8 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 8 * 2 });   // click section 9
-  await snap("13-clicked-selection", 800);
+  press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 9 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 9 * 2 });   // click section 10
+  await snap("14-clicked-selection", 800);
   await app.act({ action: "section", args: { name: "service" }, as: "snap-agent" });
-  await snap("14-agent-section", 1500);
+  await snap("15-agent-section", 1500);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "spines") {
@@ -530,6 +530,33 @@ if (scenario === "elements") {
   await Bun.sleep(600);
   await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
   await snap("7-agent-focus", 400);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "projection") {
+  // PIE-445 on its own scratch service: made-up tickets from a made-up extension (src/showcase/tickets),
+  // one fetched and one only registered, under jira:: lines in a board card, and a ticket page. The preview
+  // draws each projection under its line; [ ] reaches one (the ruler tints its region); the detail shows the
+  // ticket page with its projection at the top; y copies one as drawn.
+  const { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
+  installTickets(join(scratch!.root, "config"), SHOWCASE_TICKETS);
+  await ticketSource(board);
+  const ready = await registerTicket(board, "ACME-12");
+  await registerTicket(board, "ACME-14");
+  await refreshTicket(board, scratch!.sock, ready);
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira::\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira:: --comments");
+  await mk(null, "Rollout ticket [jira::ACME-12] [type::call]\nOur own notes under the ticket: book the van for the 14th.");
+  const hub = await mk(null, "Calls board");
+  await mk(hub.id, "Calls [type::virtual-branch] [query::type=call]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-preview", 2500);
+  S.focus = "preview";
+  ch("]"); await snap("2-region-ruler", 400);
+  ch("y"); await snap("3-copied", 400);
+  press({ kind: "esc" }); press({ kind: "esc" });
+  S.focus = "lanes"; ch("j"); await snap("4-ticket-page", 1500);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {
