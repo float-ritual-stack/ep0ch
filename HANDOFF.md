@@ -54,7 +54,7 @@ It is **not** part of the outliner repo, on purpose.
     bun test && bun run check
     bun src/main.ts --ws <workspace root> --board    # or --desk, --river, or no flag for the BBS door
 
-- **Socket:** `--ws` derives it as `~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`.
+- **Socket:** `--ws` derives it as `~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`. If `OUTLINER_STATE_DIR` is set, it replaces the base directory: `$OUTLINER_STATE_DIR/<sha256(root)[0:12]>/outliner.sock`.
 - **pi-outliner outline:** on float-box it is `--ws /home/evan/test`, local and fast there.
 - **Art packs:** read from `EP0CH_PACKS` (default `/opt/float/bbs/inbox/evan`). Without them the art screens and the tests that need them are skipped.
 
