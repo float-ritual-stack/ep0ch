@@ -311,19 +311,19 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await select("Review", cards.tap.id);
     press({ kind: "char", ch: "d" });
     await until(() => message().startsWith("d again"), "the confirmation");
-    expect(message()).toBe("d again trashes “Fix the dripping tap” and the 3 notes under it · any other key keeps it");
+    expect(message()).toBe('d again trashes "Fix the dripping tap" and the 3 notes under it · any other key keeps it');
     press({ kind: "char", ch: "j" });                                     // any other key: kept
     press({ kind: "char", ch: "k" });
     press({ kind: "char", ch: "d" });
     await until(() => B().trashArm !== null && message().startsWith("d again"), "armed again");
     press({ kind: "char", ch: "d" });
     await until(() => B().trashed?.id === cards.tap.id, "the trash");
-    expect(message()).toBe("trashed “Fix the dripping tap” and 3 notes under it · u restores it");
-    expect(hints()).toContain("TRASHED “Fix the dripping tap” · u restores");
+    expect(message()).toBe('trashed "Fix the dripping tap" and 3 notes under it · u restores it');
+    expect(hints()).toContain('TRASHED "Fix the dripping tap" · u restores');
     await until(() => !laneIds("Review").includes(cards.tap.id), "gone from Review", 8000);
     press({ kind: "char", ch: "u" });
     await until(() => laneIds("Review").includes(cards.tap.id), "back in Review", 8000);
-    expect(message()).toBe("restored “Fix the dripping tap”");
+    expect(message()).toBe('restored "Fix the dripping tap"');
     expect(B().trashed).toBeNull();
     expect((await other.request("children", { parentId: cards.tap.id })).length).toBe(3);
   });
@@ -341,7 +341,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const r: any = await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id.slice(0, 8) });
     expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: "not recorded: the service's delete takes no author" });
     expect((await current(cards.bulb.id)).deletedAt).toBeDefined();
-    expect(hints()).toContain(`TRASHED “Swap the porch bulb” by an agent (${AS}) · u restores`);
+    expect(hints()).toContain(`TRASHED "Swap the porch bulb" by an agent (${AS}) · u restores`);
     expect(await act("card.restore")).toMatchObject({ restored: cards.bulb.id });
     expect((await current(cards.bulb.id)).deletedAt).toBeUndefined();
     await expect(act("card.restore", { id: cards.bulb.id })).rejects.toThrow("Block is not a direct Trash root");

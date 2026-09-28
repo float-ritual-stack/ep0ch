@@ -864,7 +864,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.trashArm = { id: card.id, at: Date.now() };
     const fresh = await this.ctx.board.get(card.id).catch(() => null);
     const kids = fresh?.childIds.length ?? 0;
-    if (this.trashArm?.id === card.id) this.ctx.flash(`d again trashes “${titleOf(card)}”${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`);
+    if (this.trashArm?.id === card.id) this.ctx.flash(`d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`);
   }
 
   /**
@@ -875,7 +875,7 @@ export class DeliveryBoard implements Screen, DeskApi {
   async trashCard(id: string, confirm: string, actor: Actor): Promise<{ trashed: string; title: string; lane: string; notesUnder: number; restore: string; recordedAs: string }> {
     const card = this.cardFor(id);
     if (!(confirm === card.id || (confirm.length >= 8 && card.id.startsWith(confirm))))
-      throw new ActionRefused(`confirm=${confirm} doesn't name ${card.id.slice(0, 8)} (“${titleOf(card)}”); pass that card's id to trash it`);
+      throw new ActionRefused(`confirm=${confirm} doesn't name ${card.id.slice(0, 8)} ("${titleOf(card)}"); pass that card's id to trash it`);
     const blocked = this.moveBlocked(card);
     if (blocked) throw new ActionRefused(blocked);
     const fresh = await this.ctx.board.get(card.id);
@@ -888,7 +888,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const by = actor.kind === "agent" ? { by: actor.id } : {};
     this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
-    asActor(this.ctx, actor).flash(`trashed “${titleOf(card)}”${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it`);
+    asActor(this.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it`);
     if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.redraw();
     return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: "not recorded: the service's delete takes no author" };
@@ -908,7 +908,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.trashed = null;
     }
     this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(actor.kind === "agent" ? { by: actor.id } : {}) };
-    asActor(this.ctx, actor).flash(`restored “${title}”`);
+    asActor(this.ctx, actor).flash(`restored "${title}"`);
     if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.redraw();
     return { restored: m.id, title };
@@ -1156,7 +1156,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     canvas.box(pr, fg(C.blue), fg(C.grey) + "backlink preview");
     const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
     const snip = items[L.sel]?.snippet;
-    if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`“${snip}”`, pin.cols) + RESET, pin.cols);
+    if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`"${snip}"`, pin.cols) + RESET, pin.cols);
     this.paneInto(canvas, { ...pin, row: pin.row + 1, rows: pin.rows - 1 }, this.linksPreview, "links", this.linksPinned ? 0 : 1);
   }
 
@@ -1209,7 +1209,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.mover) return pad(paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched"), W);
     if (this.composer) return pad(fg(C.dark) + " " + editHint(this.composer.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET, W);
     if (this.steps) return pad(paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read"), W);
-    const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED “${this.trashed.title}”${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
+    const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
       ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
       : this.focus.startsWith("float")

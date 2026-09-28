@@ -106,8 +106,13 @@ The last board per workspace is remembered.
 ## Moving cards
 
 A lane's query is usually a list of property clauses that must all hold, so a card moves by patching the
-properties the target lane names. Nothing else on the card changes. Lanes whose query needs more than a
-patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as targets.
+properties the target lane names. Nothing else on the card changes. When the query also has an OR or NOT
+group, parentheses or a `created`/`updated` range (services with PIE-398), its plain top-level clauses are
+still what a move patches, and everything else must already hold for the card: on a lane
+`type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=doing` a card in either project
+moves by patching `work-stage` alone, and any other card is refused with the term it doesn't meet. The door
+reads that grammar with a port of the outliner's parser and evaluator (`src/query.ts`, parity-tested) and
+judges the whole query on the card as the patch would leave it, so a patch can't break a group it mentions.
 
 | Keys | Action |
 |---|---|
@@ -119,9 +124,10 @@ patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as
   card has is replaced in place; a missing one is appended to its metadata. Values compare
   case-insensitively, like the outliner.
 - **Refused, with the reason and no write:**
-  - lanes whose query uses OR, NOT, parentheses or a `created`/`updated` range (services with PIE-398
-    read them): the reason names the construct, e.g. `Stuck's query uses OR; a move can't pick which side
-    to satisfy`. A card the service already lists in such a lane is "already there", not refused.
+  - a group, NOT or range the card doesn't meet (a move never picks a side of an OR, removes a property for
+    a NOT or changes when a card was created): the reason names the term and what the card has, e.g.
+    `Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden-club; a move
+    sets only the plain clauses beside it`. A card the service already lists in a lane is "already there".
   - invalid lanes: on older services `not`, `or` and `and` aren't in the query grammar, nor are `-key` or
     `key:value`; lanes with no `query::` (sort-only, limit-only) are invalid too
   - a bare word or `key` clause the card lacks: it asks for any value, and a move can't pick one
@@ -138,6 +144,42 @@ patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as
   selected in its new lane, and the flash names the patch
   (`moved to Review · stage queued -> review · track + door`), plus any other lane it still matches.
   A collapsed target lane reopens.
+
+## Writing on the board
+
+| Keys | Action |
+|---|---|
+| `n` | a new card in the focused lane |
+| `N` | a note under the selected card |
+| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `w` waiting, `!` problem |
+| `d` `d` | trash the selected card (and the notes under it); `u` restores it |
+
+- **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
+  note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice discards). The first line is the
+  title. The lane's plain clauses, plus its `[create::key=value]` default if it has one, are appended to
+  the first line as `[key::value]` tokens, unless the text already says so; a typed value that
+  contradicts the lane is refused. An OR group the defaults don't settle has to be met by the text (type
+  `[project::ep0ch-door]`) or by a `[create::project=ep0ch-door]` on the lane; the composer says so, and
+  before anything is written the door asks the service how it will read the text
+  (`properties.preview`) and checks the lane's whole query against that. A lane that can't define a card
+  (loading or invalid, two values for one key, a `created < …` range) refuses `n` with the reason.
+- **Where it goes:** the lane's `[create-parent::<block id>]`; else the parent most of the lane's cards
+  share, else most of the board's; a board spread across parents is refused with how to name one. The
+  composer shows the parent and why.
+- **Created once.** `create` carries no revision or request id, so a create whose answer was lost is never
+  retried: the door looks under the parent for exactly that text and says whether it landed. A refused or
+  unknown create keeps the composer's text (and copies it to `drafts/`). The new card reaches its lane
+  through the change feed, which asks only the lanes that could hold it; the lane selects it.
+- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
+  `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
+  as it was read: a step reworded since is refused and the list read again. A step without an id is named
+  by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
+- **Trash** asks twice: the first `d` says what goes (`d again trashes "Fix the dripping tap" and the 3
+  notes under it`), any other key keeps it. The card must still be at the revision the board showed, and
+  not open for editing or commenting. A red `TRASHED … · u restores` banner stays on the hint line until you
+  restore it or trash another. The service's `delete` takes no revision and records no author, so the
+  door checks the revision just before and says on screen who did it.
+- The same guard as moving: a card held by an open edit or comment isn't moved, stepped or trashed.
 
 ## Editing notes
 
@@ -302,6 +344,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
 | `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card) | `j k`, `H L`, `m`, drag |
+| `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
+| `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
+| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
+| `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `c`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
@@ -319,6 +365,10 @@ stdin. For example:
     bun src/main.ts act edit.save                     # a property change is reported first; act edit.save again saves
     bun src/main.ts act comment quote="the wind is strong there" body="Soft twine?"
     bun src/main.ts act card.move lane=Doing
+    bun src/main.ts act card.create lane=Doing text="Replace the doormat [project::ep0ch-door]"
+    bun src/main.ts act step.set step=2                # toggles done
+    bun src/main.ts act card.trash card=<id> confirm=<id>
+    bun src/main.ts act card.restore
 
 An action answers with JSON when it has landed (`{"saved":true,"revision":5}`), or fails with the reason
 the door would show you (a stale revision, a quote that isn't in the note, a lane whose query a move can't
@@ -393,6 +443,13 @@ Writes, only on an explicit key or an agent's `act` (then attributed `author: ag
   exact quote and its offset, and a `requestId`.
 - `annotations.reply` when you send a reply, with a `requestId`.
 - `annotations.lifecycle` when you resolve or reopen a thread.
+- `create` for a new card or a note under one: `author: user` for yours (the service takes an actor id
+  only on agent blocks), `author: agent` with `provenance.actorId` for an agent's. Never retried.
+- `checklist.update` when you set a step, with the step's evidence (and its read revision when it has no
+  id), attributed like an edit.
+- `delete` (to Trash) and `trash.restore`; the service records no author for either.
+
+Reads for those: `checklist.query`, and `properties.preview` before a create.
 
 The service has no auth or read-only mode, so these limits are the door's own discipline.
 
@@ -410,9 +467,12 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts agent     # an agent drives the board through the control socket: open, edit, save, comment, move
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
-`test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
+`test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
+by keys and through the control socket, and checks `src/query.ts` against the outliner's parser and
+evaluator. `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
 writes against a throwaway outliner service they start themselves (own state dir and workspace, Inbox
 agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read` against the
 door's evaluator, which lanes a change asks again, a dropped connection's catch-up, a service restart
