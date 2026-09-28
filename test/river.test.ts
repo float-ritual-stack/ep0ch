@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { BANNER_MS, River, RIVER_ACTIONS } from "../src/river/river";
+import { BANNER_MS, River, RIVER_ACTIONS, riverPosition } from "../src/river/river";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -376,5 +376,15 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(readFileSync(kept[0]!, "utf8")).toContain("Mine, unsaved.");
     await act("edit.close", { discard: true }, beansR);
     expect(river.unsaved()).toBe(false);
+  });
+});
+
+describe("naming a river reader by position", () => {
+  test("column and pane numbers are short; an id starting with eight digits stays a block id", () => {
+    const at = (sel: string) => { const m = riverPosition(sel); return m ? [m[1], m[2] ?? null] : null; };
+    expect(at("3")).toEqual(["3", null]);
+    expect(at("2.1")).toEqual(["2", "1"]);
+    expect(riverPosition("12345678")).toBeNull();
+    expect(riverPosition("12345678-9abc")).toBeNull();
   });
 });
