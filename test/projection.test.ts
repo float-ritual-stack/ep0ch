@@ -12,7 +12,7 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { external } from "../src/open";
-import { mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import { MainMenu } from "../src/screens";
 import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
@@ -288,13 +288,13 @@ describe("a projection in a reader", () => {
   });
 
   test("repaint: a resource event for a shown projection reads it again and draws the new details; others don't", async () => {
+    forgetProjectionAnswers();   // only this test's reader hears the events below
     let summary = "First summary";
     const id = "cccccccc-1111-4222-8333-444444444444";
     const b = stub(() => readOf([{ ...READY, resourceId: id, summary }]));
     const r = await shown(b, note(TEXT));
     expect(r.lines().map(plain).some(l => l.includes("First summary"))).toBe(true);
     const reads = b.reads;
-    Bun.gc(true);   // earlier tests' readers are gone; their answers go with them
     expect(resourceChanged("dddddddd-0000-4000-8000-000000000000")).toBe(false);   // not shown here
     r.lines(); await Bun.sleep(5);
     expect(b.reads).toBe(reads);

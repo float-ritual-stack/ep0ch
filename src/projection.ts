@@ -238,6 +238,9 @@ export function resourceChanged(resourceId: string | null): boolean {
   return shown.some(resourceStale);
 }
 
+/** Tests: stop tracking every connection's answers seen so far, so an event only reaches readers created after. */
+export function forgetProjectionAnswers(): void { caches.clear(); }
+
 /** Whether this connection reads projections: only a service that says it has them. */
 export const projectionsServed = (b: SocketBoard) => typeof b.supports === "function" && b.supports("resources.projection") === true;
 
