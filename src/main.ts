@@ -12,7 +12,8 @@ import { DeliveryBoard } from "./desk/delivery";
 import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
-import { controlClient, startControl } from "./control";
+import { clientRows, controlClient, formatClients, startControl } from "./control";
+import { skillCommand } from "./skills";
 import { Mirror } from "./mirror";
 import { Showcase } from "./showcase/showcase";
 
@@ -26,6 +27,27 @@ function writeLastCall(at: number) {
 }
 
 const args = process.argv.slice(2);
+const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
+
+  ep0ch [--ws <root> | <socket>] [--board [<hub-id>] | --desk | --river | --showcase]
+                                   open the door (the board by default)
+  ep0ch try --ws <root> [--copy --outliner <checkout>] [--hub <id>]
+  ep0ch try --showcase [--reset] --outliner <checkout>
+                                   the door on a private copy, or on the showcase outline (scripts/try-it.sh)
+  ep0ch clients [--ws <root> | <socket>]
+                                   who is connected to the service, every role (observers too)
+  ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
+                                   drive a running door; EP0CH_CONTROL names which one
+  ep0ch --skill [--all] [<name>]
+                                   the stack's skills (this door's and the installed Outliner's), or the
+                                   path of one skill's SKILL.md; --all adds contributor skills
+  ep0ch help`;
+if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
+if (args[0] === "try") {
+  const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
+  process.exit(await run.exited);
+}
 if (["peek", "snap", "open", "actions", "act"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 const deskFirst = args.includes("--desk");
 const riverFirst = args.includes("--river");
@@ -38,6 +60,12 @@ const wsSocket = wsAt >= 0 && args[wsAt + 1]
       createHash("sha256").update(resolve(args[wsAt + 1]!.replace(/^~/, homedir()))).digest("hex").slice(0, 12), "outliner.sock")
   : null;
 const board = new SocketBoard(wsSocket ?? args.find((a, i) => a.includes("/") && !["--board", "--ws"].includes(args[i - 1] ?? "")) ?? DEFAULT_SOCKET);
+if (args[0] === "clients") {
+  try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }
+  catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message}`); board.close(); process.exit(1); }
+  board.close();
+  process.exit(0);
+}
 let info;
 try { info = await board.info(); }
 catch (e) {

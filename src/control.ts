@@ -100,3 +100,26 @@ export async function controlClient(args: string[]): Promise<number> {
     c.on("error", e => { console.error(`no door running at ${path} (${e.message})`); res(1); });
   });
 }
+
+/** One connected client as `ep0ch clients` lists it: any role the service reports, known or not. */
+export interface ClientRow { role: string; clientId: string; pane: string; host: string; reading: string }
+
+export function clientRows(list: readonly any[]): ClientRow[] {
+  return list.map(c => ({
+    role: String(c?.role ?? "?"),
+    clientId: String(c?.clientId ?? "?"),
+    pane: String(c?.runtime?.paneId ?? "—"),
+    host: String(c?.runtime?.hostname ?? "—"),
+    reading: c?.currentTarget?.kind === "block" ? `block ${String(c.currentTarget.blockId).slice(0, 8)}`
+      : c?.currentTarget?.kind === "resource" ? "a resource" : "—",
+  }));
+}
+
+/** `ep0ch clients`: who is connected to the service, one line each, every role (observers too). */
+export function formatClients(rows: readonly ClientRow[]): string {
+  if (!rows.length) return "no clients connected";
+  const cols: (keyof ClientRow)[] = ["role", "pane", "host", "reading", "clientId"];
+  const w = cols.map(k => Math.max(k.length, ...rows.map(r => r[k].length)));
+  const line = (vals: string[]) => vals.map((v, i) => v.padEnd(w[i]!)).join("  ").trimEnd();
+  return [line(cols.map(String)), ...rows.map(r => line(cols.map(k => r[k])))].join("\n");
+}
