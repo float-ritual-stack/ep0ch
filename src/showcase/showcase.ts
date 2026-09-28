@@ -13,6 +13,7 @@ import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Actor, Capability, OutlineEvent } from "../socket";
 import { bg, C, fg, pad, paint, RESET } from "../style";
+import { wrap } from "../text";
 import type { Key } from "../term";
 import { ActionRefused, ActionSet, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS } from "../surface/note";
@@ -160,7 +161,7 @@ export class Showcase implements Screen {
   enter(ctx: Ctx) {
     this.ctx = ctx;
     loadShowcase(ctx.board).then(s => {
-      if (!s) this.problem = "This outline has no showcase. The showcase runs on its own seeded outline: scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>";
+      if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase --outliner <pi-herdr-outliner checkout> (add --reset to start it over).";
       else this.notes = s.notes;
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
@@ -209,7 +210,7 @@ export class Showcase implements Screen {
     if (s.aside) canvas.text(x, 3, paint(`|13${s.aside}`), w);
     let placements: Placement[] = [];
     this.stageRect = { col: x, row: 4, cols: w, rows: Math.max(1, H - 5) };
-    if (this.problem) canvas.text(x, 5, paint(`|12${this.problem}`), w);
+    if (this.problem) wrap(this.problem, w).forEach((line, i) => canvas.text(x, 5 + i, paint(`|12${line}`), w));
     else if (!this.notes) canvas.text(x, 5, paint("|08reading the showcase outline…"), w);
     else {
       const f = this.stage(this.sel)!;
