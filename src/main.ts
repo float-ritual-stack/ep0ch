@@ -13,6 +13,7 @@ import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients, startControl } from "./control";
+import { skillCommand } from "./skills";
 import { Mirror } from "./mirror";
 import { Showcase } from "./showcase/showcase";
 
@@ -37,8 +38,12 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one
+  ep0ch --skill [--all] [<name>]
+                                   the stack's skills (this door's and the installed Outliner's), or the
+                                   path of one skill's SKILL.md; --all adds contributor skills
   ep0ch help`;
 if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
 if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
