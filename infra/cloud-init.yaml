@@ -24,6 +24,8 @@ runcmd:
   - curl -fsSL https://tailscale.com/install.sh | sh
   # Bun for the outliner and the door, installed for evan.
   - su - evan -c 'curl -fsSL https://bun.sh/install | bash'
+  # Herdr from its GitHub releases (linux-aarch64 or linux-x86_64 by architecture).
+  - su - evan -c 'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/herdr "https://github.com/herdrdev/herdr/releases/latest/download/herdr-linux-$(uname -m)" && chmod +x ~/.local/bin/herdr'
   # Let evan's user services (outliner, door) keep running after logout.
   - loginctl enable-linger evan
   - touch /var/lib/cloud/float-2-ready
