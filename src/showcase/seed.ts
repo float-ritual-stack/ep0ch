@@ -8,6 +8,7 @@
 // everything that reads the seed finds it by title under the root, never by id.
 import type { Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
+import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -26,6 +27,7 @@ export const SEED = {
   shed: "Bike shed",
   figures: "Allotment figures",
   recipe: "Lentil soup",
+  tickets: "Depot supplier call about ACME-12",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -152,6 +154,41 @@ function figuresText(gardenViewId: string): string {
   ].join("\n").trimEnd();
 }
 
+/**
+ * Resource projections (PIE-445): a call that names made-up tickets. Under each `jira::` line a reader
+ * shows the ticket the line above names: a fetched one, a registered one not fetched yet (compact), two keys
+ * on one line (ambiguous) and one never registered. Its child is a ticket page, shown at its top.
+ */
+const TICKETS = [
+  SEED.tickets,
+  "What we agreed about switching the depot's supplier.",
+  "jira::",
+  "The label printer problem is ACME-14.",
+  "jira:: --compact",
+  "Either ACME-20 or ACME-21 covers the invoices; check which.",
+  "jira::",
+  "ACME-30 came up at the end.",
+  "jira::",
+].join("\n");
+const TICKET_PAGE = "Rollout ticket [jira::ACME-12]\nOur own notes under the ticket: book the van for the 14th.";
+
+/**
+ * The tickets' Source and Resources. With `ticketsConfig` (the service's XDG_CONFIG_HOME) the made-up
+ * ticket extension is installed there and ACME-12 is fetched through it; without it both are only
+ * registered. Nothing contacts a real provider.
+ */
+async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
+  const sourceId = await ticketSource(board);
+  if (!ticketsConfig) {
+    for (const [key, t] of Object.entries(SHOWCASE_TICKETS)) await board.request("resources.intern", { input: { sourceId, address: { kind: "jira", entityId: t.id, key } } });
+    return;
+  }
+  installTickets(ticketsConfig, SHOWCASE_TICKETS);
+  const ready = await registerTicket(board, "ACME-12");
+  await registerTicket(board, "ACME-14");
+  await refreshTicket(board, board.path, ready);
+}
+
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
@@ -165,7 +202,7 @@ export interface Seeded {
  * Write the showcase outline into an empty workspace. Refuses when one is already there (`findShowcase`),
  * so a half-finished run is never seeded on top of: reset the workspace instead.
  */
-export async function seedShowcase(board: SocketBoard): Promise<Seeded> {
+export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
   const notes = {} as Record<SeedName, Msg>;
@@ -207,6 +244,9 @@ export async function seedShowcase(board: SocketBoard): Promise<Seeded> {
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
   notes.recipe = await make(notes.root.id, RECIPE);
+  await seedTickets(board, opts.ticketsConfig);
+  notes.tickets = await make(notes.root.id, TICKETS);
+  await make(notes.tickets.id, TICKET_PAGE);
 
   // Comment threads on the shed: one open, one resolved with a reply.
   const quote = (text: string, q: string) => ({ quote: q, start: text.indexOf(q) });

@@ -44,7 +44,7 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in ten sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in eleven sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
@@ -56,12 +56,14 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   `roadmap.items.create`, `properties.patch`, `annotations.*`), not into SQLite. It has a board hub with a
   lane per work stage and cards in each, callouts, links and soft links (`HOME-001`), folds, a literal
   region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
-  a saved view, and one of every `::graph-*` kind, live ones included.
+  a saved view, one of every `::graph-*` kind, live ones included, and a call naming made-up tickets under
+  `jira::` lines with a ticket page under it (PIE-445: a made-up ticket extension, `src/showcase/tickets`,
+  is installed in the showcase's own config dir, and one ticket fetched through it; nothing real is contacted).
 - **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
   deletes that state and reseeds. Its service is the process `service.pid` names only when that process
   is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
   whatever process has that pid now is left alone. `--prepare` sets it up (or resets it) and exits without opening the door.
-- **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` or a click picks one; `⏎`, `→`, `Tab`
+- **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` (the first ten) or a click picks one; `⏎`, `→`, `Tab`
   or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
   section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
   nothing saved to your `desk.json`) or the real board. A parallel version still in the code (the BBS
@@ -70,7 +72,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-10|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-11|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 

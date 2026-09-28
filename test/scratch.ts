@@ -69,7 +69,7 @@ export class Scratch {
     const { SocketBoard } = await import("../src/socket");
     const { seedShowcase } = await import("../src/showcase/seed");
     const b = new SocketBoard(this.sock);
-    try { await b.info(); return await seedShowcase(b); } finally { b.close(); }
+    try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config") }); } finally { b.close(); }
   }
 
   /**

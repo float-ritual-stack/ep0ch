@@ -122,6 +122,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
+    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read, laid out in Detail's words, drawn under the jira:: line or at a ticket page's top ([ ] ⏎ click y)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
+    aside: "made-up tickets from a made-up extension (src/showcase/tickets); the door only reads what the service stored",
+    stage(n, show) {
+      const r = new ReaderPane(), th = new ThreadPane();
+      return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
+    },
+  },
+  {
     key: "selection", need: "select or copy text a reader draws", part: "the selection model: Selection, Gesture, v, y Y, select* actions", files: "src/surface/selection.ts, src/surface/note.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · selection", panes: [r] }, show, [[r, n.recipe]]); },
   },
@@ -297,7 +305,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string } }, Showcase>("showcase", {
   "section": {
-    summary: "show a section (name=<1-10> or its key: note, actions, edit, panes, spine, entity, presence, live, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
+    summary: "show a section (name=<1-11> or its key: note, actions, edit, panes, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);
