@@ -142,7 +142,13 @@ patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as
 ## Editing notes
 
 Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
-On a board lane, `e` edits the selected card in the preview. The river stays read-only.
+On a board lane, `e` edits the selected card in the preview. The river stays read-only for now.
+
+Every reader is the same **note surface** (`src/surface/note.ts`): it draws the note, follows links, holds
+the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
+keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
+opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same
+frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Esc`, twice when unsaved).
 
 | Keys | Action |
 |---|---|
@@ -198,6 +204,7 @@ The same readers comment on the note they show. On the board, Tab to the preview
   screen ask twice when a comment is unsent, and copy it to `drafts/` if you go ahead.
 - **Attribution:** comments and replies are `author: user`, like the outliner's own Detail (the service
   takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
+  An agent's comments and replies (below) are `author: agent` with the agent's actor id.
 - The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
 
 ## Reading notes
@@ -271,17 +278,58 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 `V` cycles Kitty+CRT → Kitty → cells. Under Herdr, graphics follow `[terminal] kitty_graphics` in
 `~/.config/herdr/config.toml` (older builds: `[experimental]`), because Herdr panes report `xterm-256color`.
 
-## Letting an agent see what you see
+## Letting an agent see what you see, and do what you do
 
 A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
 
-    bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, which block each reader shows
+    bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
     bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
+    bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
+    bun src/main.ts act <action> [reader=<reader>] [key=value…] [--as <actor-id>]
 
 `snap` comes from a mirror that receives every byte written to the terminal (`src/mirror.ts`, the same
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
 `open` flashes "an agent opened: …" so it's never silent.
+
+**Acting.** Almost everything you do in a reader, and on the board, is a named action with typed
+arguments (`src/surface/actions.ts`). Keys run them, and `act` runs the same code for an agent, so an
+agent's edit meets the same revision check, property warning and duplicate-safe comment sends as yours:
+
+| Action | Arguments | Keys it stands for |
+|---|---|---|
+| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
+| `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
+| `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card) | `j k`, `H L`, `m`, drag |
+| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `c`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
+| `comment` | `quote`, `body` (select, write and send in one) | |
+| `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
+| `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter`, `u` |
+
+Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
+number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means
+the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
+stdin. For example:
+
+    export EP0CH_AGENT=claude-7                       # or --as claude-7 on each call
+    bun src/main.ts act open id=<card> reader=preview
+    bun src/main.ts act edit.text text=@draft.md      # replaces the draft; opens the edit if needed
+    bun src/main.ts act edit.save                     # a property change is reported first; act edit.save again saves
+    bun src/main.ts act comment quote="the wind is strong there" body="Soft twine?"
+    bun src/main.ts act card.move lane=Doing
+
+An action answers with JSON when it has landed (`{"saved":true,"revision":5}`), or fails with the reason
+the door would show you (a stale revision, a quote that isn't in the note, a lane whose query a move can't
+satisfy); nothing is half-done.
+
+**Provenance, not permission.** An agent needs no approval, but nothing it does is silent or passed off
+as yours: the status bar says `an agent (claude-7) · …` for every action and everything it makes the door
+say, the reader it touched says what it did (`an agent (claude-7) saved this note`) until it shows
+another note, a draft or comment it typed says so in its frame, and its writes are recorded as
+`author: agent`, `actorId: <its id>` (default `ep0ch-door:<hostname>:agent`). If you had typed into a draft
+the agent replaces, your text is copied to `drafts/` first and the draft says where. The `$EDITOR`
+handoff stays yours: it would take over your terminal. `peek` shows the last agent action per reader.
 
 ## On the service platform
 
@@ -314,7 +362,7 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 puts the door in `clients.list` until it exits. When the service has them: `views.read`, `blocks.read`,
 `properties.preview` and `changes.since`.
 
-Writes, only on an explicit key:
+Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):
 
 - `update` when you save an edit, with `expectedRevision`, attributed `author: user`, `actorId: ep0ch-door:<hostname>`.
 - `properties.patch` when you move a card between lanes, with `expectedRevision`, attributed the same way.
@@ -337,6 +385,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts agent     # an agent drives the board through the control socket: open, edit, save, comment, move
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 

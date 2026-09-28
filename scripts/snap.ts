@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -335,6 +335,49 @@ if (scenario === "comment") {
   const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
   for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
+}
+if (scenario === "agent") {
+  // Writes: seeds its own board, then an agent drives it through the real control socket (the same JSON
+  // `ep0ch-door act` sends): open, edit, save, quote and comment, reply, move. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("agent writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const { startControl } = await import("../src/control");
+  const { connect } = await import("node:net");
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Allotment board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  await mk(hub.id, "Done [type::virtual-branch] [query::stage=done]");
+  const beans = await mk(null, "Stake the beans [stage::queued] [priority::high]\nCanes along the fence.\n\nTie them loosely; the wind is strong there.");
+  await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.");
+  await mk(null, "Fix the gate latch [stage::doing]\nIt swings open.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/agent-door.sock");
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    let buf = "";
+    c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
+    c.on("error", rej);
+  });
+  await snap("1-board", 2500);
+  await act("open", { id: beans.id }, "preview");
+  await snap("2-opened", 1200);
+  await act("edit.text", { text: "Stake the beans [stage::queued] [priority::high]\nCanes along the fence, two per plant.\n\nTie them loosely; the wind is strong there." });
+  await snap("3-agent-typed", 500);
+  await act("edit.save");
+  await snap("4-agent-saved", 800);
+  await act("passage.select", { quote: "the wind is strong there" });
+  await snap("5-agent-quoting", 500);
+  await act("comment.write", { body: "Soft twine, or it cuts the stems." });
+  await act("comment.send");
+  await snap("6-agent-commented", 1200);
+  await act("comment.close");
+  await act("card.move", { lane: "Doing", card: beans.id });
+  await snap("7-agent-moved", 1500);
+  const log = await new SocketBoard(board.path).request("activity.recent", { author: "agent", limit: 10 });
+  for (const e of log.entries.filter((x: any) => x.block.id === beans.id)) console.log(`  service: ${e.kind} by ${e.author}/${e.actorId}`);
+  ctl.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {
   app.push(new MainMenu()); app.push(new DeliveryBoard());
