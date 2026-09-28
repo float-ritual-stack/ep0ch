@@ -95,3 +95,18 @@ describe("document rendering", () => {
     expect(resolveMediaPath("/tmp/no\\ such\\ file.png").path).toBe("/tmp/no such file.png");
   });
 });
+
+describe("Kitty placement ids", () => {
+  test("moving an image to a new key never deletes the new placement", () => {
+    const out: string[] = [];
+    const k = new KittyLayer(s => out.push(s));
+    const img = rasterize([[{ code: 65, fg: 15, bg: 1 }]], 0, 0, 1, 1);
+    k.sync([{ key: "detail0:img", image: img, col: 0, row: 0, cols: 1, rows: 1 }]);
+    out.length = 0;
+    k.sync([{ key: "float0:img", image: img, col: 5, row: 5, cols: 1, rows: 1 }]);
+    const s = out.join("");
+    const placed = s.match(/a=p,i=(\d+),p=(\d+)/)!, deleted = s.match(/a=d,d=i,i=(\d+),p=(\d+)/)!;
+    expect(placed[2]).not.toBe(deleted[2]);
+    expect(s.indexOf("a=d")).toBeLessThan(s.indexOf("a=p"));
+  });
+});

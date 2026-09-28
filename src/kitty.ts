@@ -56,6 +56,7 @@ export class KittyLayer {
   private uploaded = new Map<string, number>();   // content hash → image id
   private placed = new Map<string, { id: number; pid: number; sig: string }>();
   private nextId = 7_000 + Math.floor(Math.random() * 1_000_000);
+  private pidSeq = 0;
   bytesSent = 0;
 
   constructor(private readonly write: (s: string) => void) {}
@@ -82,25 +83,27 @@ export class KittyLayer {
 
   /** Make the screen's placements exactly `wanted`: unchanged ones stay put, the rest move or go. */
   sync(wanted: Placement[]): void {
-    const keep = new Set<string>();
-    let out = "";
+    const next = new Map<string, { p: Placement; id: number; sig: string }>();
     for (const p of wanted) {
       const id = this.upload(p.image);
       const crop = p.crop ? `,x=${p.crop.x},y=${p.crop.y},w=${p.crop.w},h=${p.crop.h}` : "";
-      const sig = `${id}@${p.col},${p.row},${p.cols}x${p.rows},z${p.z ?? 0}${crop}`;
-      keep.add(p.key);
-      const prev = this.placed.get(p.key);
-      if (prev?.sig === sig) continue;
-      if (prev) out += APC(`a=d,d=i,i=${prev.id},p=${prev.pid},q=2`);
-      const pid = (prev?.pid ?? 0) + 1;
-      out += `\x1b7\x1b[${p.row + 1};${p.col + 1}H` +
-        APC(`a=p,i=${id},p=${pid},c=${p.cols},r=${p.rows}${crop},C=1,z=${p.z ?? 0},q=2`) + "\x1b8";
-      this.placed.set(p.key, { id, pid, sig });
+      next.set(p.key, { p, id, sig: `${id}@${p.col},${p.row},${p.cols}x${p.rows},z${p.z ?? 0}${crop}` });
     }
+    let out = "";
+    // Deletions first, and placement ids unique for the whole session, so a new placement of an
+    // image can never be replaced by, or deleted as, an old placement that shared its id.
     for (const [key, prev] of this.placed) {
-      if (keep.has(key)) continue;
+      if (next.get(key)?.sig === prev.sig) continue;
       out += APC(`a=d,d=i,i=${prev.id},p=${prev.pid},q=2`);
       this.placed.delete(key);
+    }
+    for (const [key, { p, id, sig }] of next) {
+      if (this.placed.has(key)) continue;
+      const pid = ++this.pidSeq;
+      const crop = p.crop ? `,x=${p.crop.x},y=${p.crop.y},w=${p.crop.w},h=${p.crop.h}` : "";
+      out += `\x1b7\x1b[${p.row + 1};${p.col + 1}H` +
+        APC(`a=p,i=${id},p=${pid},c=${p.cols},r=${p.rows}${crop},C=1,z=${p.z ?? 0},q=2`) + "\x1b8";
+      this.placed.set(key, { id, pid, sig });
     }
     if (out) this.write(out);
   }

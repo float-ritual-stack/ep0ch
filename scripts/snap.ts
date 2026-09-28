@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -60,6 +60,15 @@ if (scenario === "doc") {
   onMediaChange(() => app.redraw());
   app.push({ title: "doc", render: (ctx: any) => { const v = pane.render(ctx.t.cols - 4, ctx.t.rows - 3, true, api); return { lines: v.lines.map((l: string) => "  " + l), placements: (v.placements ?? []).map((p: any) => ({ ...p, col: p.col + 2 })) }; }, key() {} } as any);
   await snap("1-doc", 4000);
+  board.close(); process.exit(0);
+}
+if (scenario === "float") {
+  app.push(new MainMenu()); app.push(new DeliveryBoard(process.env.HUB));
+  await Bun.sleep(5000);
+  await app.openBlock(process.env.BLOCK!); await Bun.sleep(4000);
+  await snap("1-detail", 500);
+  console.log("focus", (app as any).stack.at(-1).focus, (app as any).stack.at(-1).title); ch("o"); await snap("2-float", 1500);
+  console.log(JSON.stringify((app as any).stack.at(-1).placed.map((x: any) => [x.layer, x.p.key, x.p.row, x.p.rows])));
   board.close(); process.exit(0);
 }
 if (scenario === "board3") {
