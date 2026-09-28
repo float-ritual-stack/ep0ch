@@ -12,7 +12,7 @@ import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { C, fg } from "../src/style";
-import { NOTE_ACTIONS } from "../src/surface/note";
+import { NOTE_ACTIONS, NoteSurface } from "../src/surface/note";
 import { THREAD_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -20,6 +20,26 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 type Rect = { col: number; row: number; cols: number; rows: number };
+
+describe("a thread inline, without a service", () => {
+  const TEXT = "Shed jobs\nOil the chain before the frost.\nThe pump lives by the door.";
+  const quote = "Oil the chain";
+  const comment = { id: "c0ffee00-1111-4222-8333-444444444444", author: "sam", body: "Use the dry lube.", quote, at: Date.now() - 60_000, open: true, start: TEXT.indexOf(quote), end: TEXT.indexOf(quote) + quote.length, replies: [] };
+  const host = () => ({ ctx: { board: { ancestors: async () => [], comments: async () => [comment] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+
+  test("in a narrow reader every control is drawn whole, on as many rows as it takes, and is an element", async () => {
+    for (const w of [18, 24, 40, 80]) {
+      const s = new NoteSurface(), h = host();
+      s.show({ id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} }, h);
+      await until(() => s.comments?.length === 1, "the comment");
+      s.setExpanded(comment.id, true);
+      const text = s.render(w, 40, h).lines.map(plain).join("\n");
+      for (const c of ["[Select]", "[Reply]", "[Resolve]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
+      const controls = s.describeElements().filter(e => e.kind === "control");
+      expect(controls.map(e => e.control)).toEqual(["select", "reply", "resolve"]);
+    }
+  });
+});
 
 describe.skipIf(!outliner)("comment threads inline, against a scratch outline", () => {
   const scratch = new Scratch();

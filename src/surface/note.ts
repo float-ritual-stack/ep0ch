@@ -1917,11 +1917,13 @@ function threadPanel(c: Comment, W: number, cur: string | null): { lines: string
   for (const l of text(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
   for (const r of c.replies) text(`${r.author} · ${ago(r.at)}: ${r.body}`, Math.max(2, inner - 2)).forEach((l, j) => lines.push(edge + "│ " + fg(C.cyan) + (j ? "  " : "└ ") + l + RESET));
+  // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
   const controls: Control[] = [];
   let row = edge + "│ ", col = 2;
-  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"]] as const).forEach(([k, label], i) => {
-    if (i) { row += fg(C.dark) + " · "; col += 3; }
+  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"]] as const).forEach(([k, label]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k);
+    if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
+    if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
     row += (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
     controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label });
     col += shown.length;
