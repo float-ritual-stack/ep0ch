@@ -4,6 +4,30 @@ One vocabulary for the door's screens, checked against the code on `feature/door
 (PIE-433). Use it to name things in code, READMEs and roadmap items, and to judge whether a
 new screen reuses the grammar or invents its own.
 
+## Before adding a feature
+
+Check here for the part that already does it. Skipping this step is how the door got two readers,
+three pane models and four searches (§4).
+
+| The feature needs to… | Use | Where |
+|---|---|---|
+| render or read a note | `NoteSurface`, hosted through `SurfaceHost` | `src/surface/note.ts` |
+| let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
+| edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
+| open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
+| show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks` | `src/surface/note.ts`, `src/socket.ts` |
+| show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
+| put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
+| know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
+
+- **Don't copy the parallel versions:** the BBS `Reader` and `colourBody` bodies (F1), the board's
+  and river's pane code (F2), the extra searches (F6), `WhoOnline` and `LastCallers` (F7).
+- **Don't re-derive meaning the service owns** (view membership, property parsing, backlinks, what
+  changed). A local fallback for an older service is parity-tested, like `src/views.ts`.
+- **If the part doesn't exist yet or doesn't fit:** extend it, or write down why not in the PR.
+  A new shared part gets a row here in the same PR.
+- Name things with the glossary's canonical words (§1).
+
 ## TL;DR
 
 - **One reader, two renderers.** Board, desk and river host `NoteSurface`. The BBS `Reader`
