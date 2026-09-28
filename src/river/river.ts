@@ -931,6 +931,8 @@ export class River implements Screen {
         const col = this.cols[h.col]!, p = col.panes[h.pane]!;
         col.pane = h.pane;
         this.seen(p);
+        // A completion candidate in the edit the person is in: chosen and inserted (PIE-416).
+        if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) return this.ctx.redraw();
         const row = h.rows[k.y - h.rect.row];
         const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
         if (link && !p.surface.editing) {
@@ -958,7 +960,8 @@ export class River implements Screen {
       const h = this.hits.find(h => inside(h.rect));
       if (!h) return;
       const p = this.cols[h.col]!.panes[h.pane]!;
-      if (p.surface.editing) return;
+      // In an edit the wheel is the surface's (it moves a completion popup's choice, or the cursor).
+      if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
       this.seen(p);
       p.sel = Math.max(0, Math.min(this.flat(p).length - 1, p.sel + (k.action === "wheel-down" ? 1 : -1)));
       p.surface.clearLink();

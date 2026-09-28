@@ -237,8 +237,8 @@ export class ReaderPane implements Pane {
 
   wheel(dir: 1 | -1, desk: DeskApi) { this.surface.wheel(dir, this.host(desk)); }
   /**
-   * A click at `x`, `y` in the pane: a link opens (where ⏎ on it would, or through `open` when the host
-   * says otherwise), a property row is picked.
+   * A click at `x`, `y` in the pane: a completion candidate is inserted, a link opens (where ⏎ on it
+   * would, or through `open` when the host says otherwise), a property row is picked.
    */
   click(x: number, y: number, desk: DeskApi, open?: (m: Msg) => void): boolean {
     const h = this.host(desk);

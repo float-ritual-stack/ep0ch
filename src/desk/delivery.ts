@@ -552,6 +552,15 @@ export class DeliveryBoard implements Screen, DeskApi {
   /** The focused reader, when the person is in its edit, comment or property panel. */
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
   /** Where a docked or floating reader is now. */
+  /** A click inside the reader the person is editing in, in its surface's cells: a completion candidate, or false. */
+  private clickIn(p: ReaderPane, k: { x: number; y: number }): boolean {
+    const region = this.regionOf(p);
+    const r = region?.startsWith("float") ? this.floats[Number(region.slice(5))]?.rect : region ? this.rects.get(region) : undefined;
+    if (!r) return false;
+    const x = k.x - r.col - 1, y = k.y - r.row - 1;
+    return x >= 0 && y >= 0 && x < r.cols - 2 && y < r.rows - 2 && p.click(x, y, this);
+  }
+
   private regionOf(p: ReaderPane): Region | null {
     if (p === this.preview) return "preview";
     const d = this.details.indexOf(p);
@@ -1482,6 +1491,7 @@ export class DeliveryBoard implements Screen, DeskApi {
         // (esc leaves it); with only the property panel open, clicks pass.
         if (k.kind !== "mouse") { rd.key(k, this); return; }
         if (rd.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down" && this.clickIn(rd, k)) return this.redraw();
           if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
           return;
         }

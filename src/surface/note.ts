@@ -727,16 +727,6 @@ export class NoteSurface {
   }
 
   /**
-   * A click at `x`, `y` in the surface's own cells (as its last render drew them). A completion candidate
-   * is chosen and inserted, as Enter does. True when the click was the surface's.
-   */
-  click(_x: number, y: number, host: SurfaceHost): boolean {
-    this.use(host);
-    const d = this.writing();
-    return !!d && !d.busy && !!completerOf(d)?.click(y);
-  }
-
-  /**
    * Reading keys only (j k, arrows, PgUp PgDn, space, Home End): scroll the note without starting or
    * touching an edit, a comment or the panel. Hosts use it for a reader holding a session the person
    * isn't in. True when the key was one of them.
@@ -765,14 +755,18 @@ export class NoteSurface {
   }
 
   /**
-   * A click in the last render (`x`, `y` in the surface's cells): a link opens where ⏎ on it would (and
-   * becomes the selected `[ ]` link when it is one of them); a property panel row is selected, and a
-   * click on its linked value follows it. False when nothing is there, or while an edit, a comment or a
-   * value being typed holds the surface.
+   * A click in the last render (`x`, `y` in the surface's cells). While an edit, a comment or a value
+   * being typed holds the surface, only a completion candidate takes it (chosen and inserted, as Enter
+   * does). Otherwise a link opens where ⏎ on it would (and becomes the selected `[ ]` link when it is one
+   * of them); a property panel row is selected, and a click on its linked value follows it. False when
+   * nothing is there.
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
-    if (this.editing) return false;
     this.use(host);
+    if (this.editing) {
+      const d = this.writing();
+      return !!d && !d.busy && !!completerOf(d)?.click(y);
+    }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
     const h = at.find(h => "link" in h || h.follow) ?? at[0];
     if (!h) return false;

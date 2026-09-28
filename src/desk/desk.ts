@@ -269,6 +269,7 @@ export class Desk implements Screen, DeskApi {
         // off an open edit (esc leaves it), but passes with only the property panel open.
         if (k.kind !== "mouse") { focused.key(k, this); return; }
         if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down" && this.clickIn(focused, k)) return this.redraw();
           if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
           return;
         }
@@ -338,6 +339,13 @@ export class Desk implements Screen, DeskApi {
     }
     this.save();
     this.redraw();
+  }
+
+  /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
+  private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
+    const hit = [...this.placed.rects].find(([id]) => this.panes.get(id) === pane)?.[1];
+    return !!hit && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1
+      && pane.click(k.x - hit.col - 1, k.y - hit.row - 1, this);
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {

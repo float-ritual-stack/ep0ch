@@ -4,7 +4,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { App } from "../src/app";
 import { CommentSession } from "../src/comment";
+import { Desk } from "../src/desk/desk";
+import { DeliveryBoard } from "../src/desk/delivery";
+import type { ReaderPane } from "../src/desk/panes";
+import { River } from "../src/river/river";
+import { MainMenu } from "../src/screens";
 import { completionTargetAtCursor, fragmentCandidates, pageAddressCompletion } from "../src/completion";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, type Actor } from "../src/socket";
@@ -300,5 +306,81 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.writers.map(w => w.kind)).toEqual(["user", "agent"]);
     expect(e.s.agent?.did).toStartWith("inserted [[");
     await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("isn't inside [[, (( or [file::");
+  });
+});
+
+describe.skipIf(!outliner)("a click on a candidate, through each host (board, desk, river)", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, key: (k: Key) => void = () => {}, hub: any, beans: any;
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const top = () => (app as any).stack.at(-1);
+  const screen = () => (top().render(app).lines as string[]).map(visible);
+  const type = (s: string) => { for (const c of s) key(char(c)); };
+  /** Type `[[se` at the end of the draft, wait for the popup, and click the line naming the page `seeds`. */
+  async function clickSeeds(d: () => Draft | null | undefined) {
+    await until(() => !!d(), "the draft");
+    const draft = d()!;
+    key(K("down")); key(K("end")); key(K("enter"));
+    type("sow [[se");
+    await until(() => !!completionOf(draft) && !completionOf(draft)!.loading && completionOf(draft)!.items.length > 0, "the popup");
+    const lines = screen();
+    const y = lines.findIndex(l => l.includes("seeds · Seed list"));
+    expect(y).toBeGreaterThan(0);
+    const x = lines[y]!.indexOf("seeds · Seed list");
+    key({ kind: "mouse", action: "down", button: 0, x, y });
+    key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the clicked candidate");
+    expect(completionOf(draft)).toBeNull();
+    expect((app as any).message ?? "").not.toContain("finish the edit first");
+    key(K("esc")); key(K("esc"));
+  }
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    hub = await create(null, "Garden board");
+    await create(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+    beans = await create(null, "Stake the beans [stage::queued]\nCanes along the fence.");
+    await create(null, "Seed list [page::seeds]\nWhat to sow this spring.");
+    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+  }, 30_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  test("the board's preview", async () => {
+    const b = new DeliveryBoard(hub.id), B = b as any;
+    app.push(b);
+    try {
+      await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
+      key(char("e"));
+      await clickSeeds(() => B.preview.draft);
+    } finally { app.pop(); }
+  });
+
+  test("the desk's reader", async () => {
+    const desk = new Desk(), D = desk as any;
+    app.push(desk);
+    try {
+      await app.act({ action: "open", args: { id: beans.id } });
+      const rd = D.panes.get(D.focus) as ReaderPane;
+      await until(() => !!rd.msg && !rd.msg.partial, "the note");
+      key(char("e"));
+      await clickSeeds(() => rd.draft);
+    } finally { app.pop(); }
+  });
+
+  test("the river's column", async () => {
+    const river = new River(), R = river as any;
+    app.push(river);
+    try {
+      await until(() => !!R.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await app.act({ action: "open", args: { id: beans.id } });
+      key(char("l"));
+      await until(() => !!R.cols[1]?.panes[0].root, "the column's note");
+      key(char("e"));
+      await clickSeeds(() => R.cols[1].panes[0].surface.draft);
+    } finally { app.pop(); }
   });
 });
