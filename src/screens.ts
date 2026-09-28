@@ -13,7 +13,12 @@ import { Desk } from "./desk/desk";
 import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
-import { ago, bbsDate, colourBody, rule, wrap } from "./text";
+import { ago, bbsDate, rule, wrap } from "./text";
+import { ComponentCatalog } from "./components";
+import { renderDoc } from "./doc";
+import type { Source } from "./props";
+import { presentLinks } from "./refs";
+import { readableSource } from "./surface/note";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -261,7 +266,25 @@ export class Reader implements Screen {
   private scroll = 0;
   private crumbs: string | null = null;
   private replies: number | null = null;
+  private src: Source | null = null;
+  private components: { for: string; catalog: ComponentCatalog } | null = null;
   constructor(private readonly list: Msg[], private index: number) {}
+  /**
+   * The message body, drawn by the note body renderer every reader uses (src/doc.ts): links read as their
+   * titles and labels, Markdown styles and component panels as Detail draws them, metadata lines hidden.
+   * Links here are text; stepping to them and opening them is the note surface's (PIE-426 brings it here).
+   */
+  private body(m: Msg, w: number, ctx: Ctx): string[] {
+    const src = (this.src ??= { board: ctx.board, redraw: () => ctx.redraw() });
+    if (this.components?.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
+    const r = readableSource(m, src);
+    const lines = renderDoc(presentLinks(r.text, false, src, m.text), {
+      width: w, cellW: ctx.t.cellW, cellH: ctx.t.cellH, graphics: false, maxImageRows: 8, unfold: false,
+      literal: r.literal, components: this.components.catalog, present: t => presentLinks(t, false, src, m.text),
+    }).lines;
+    while (lines.length && !lines[0]!.trim()) lines.shift();
+    return lines;
+  }
   private get msg() { return this.list[this.index]!; }
   enter(ctx: Ctx) { this.fetch(ctx); }
   private fetch(ctx: Ctx) {
@@ -275,14 +298,15 @@ export class Reader implements Screen {
     const status = m.props.status ?? m.props.type ?? "public message";
     const header = [
       paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${m.props["work-id"] ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
-      paint(`|09  To: |07${"ALL".padEnd(24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
+      // Addressed with a `to::` property, else to everyone, as a BBS message is.
+      paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
       paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${this.replies === null ? "…" : this.replies}`),
       paint(`|09Subj: |15${subject(m).slice(0, w - 30)}`) ,
       paint(`|09Conf: |11${pad(this.crumbs ?? "…", w - 7)}`),
       paint(`|09Stat: |13${status.toUpperCase()}`),
       rule(w),
     ];
-    const body = wrap(m.text.split("\n").slice(1).join("\n").replace(/^\n+/, ""), w - 2).map(l => " " + colourBody(l));
+    const body = this.body(m, w - 2, ctx).map(l => " " + l);
     const room = h - header.length - 2;
     this.scroll = Math.max(0, Math.min(this.scroll, body.length - room));
     const lines = [...header, ...body.slice(this.scroll, this.scroll + room)];

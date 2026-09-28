@@ -13,6 +13,7 @@ import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { ComponentCatalog, documentComponent } from "../src/components";
 
 /**
  * Processes whose environment serves `base`'s state: a scan of `proc`, and none where the host has no
@@ -126,6 +127,12 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     const first = run();
     expect(first.exitCode).toBe(0);
     expect(first.stdout.toString()).toContain("seeded the showcase");
+    // The outliner's status renderer is installed for the showcase door (PIE-444), as the door reads it.
+    const registry = join(base, "config", "pi-herdr-outliner", "document-renderers.json");
+    const prior = process.env.OUTLINER_DOCUMENT_RENDERERS;
+    process.env.OUTLINER_DOCUMENT_RENDERERS = registry;
+    try { expect(documentComponent("component:status", "Beds dug :: 2", new ComponentCatalog())).toEqual({ kind: "labelled-values", entries: [{ label: "Beds dug", value: "2" }] }); }
+    finally { if (prior === undefined) delete process.env.OUTLINER_DOCUMENT_RENDERERS; else process.env.OUTLINER_DOCUMENT_RENDERERS = prior; }
     // An edit on the showcase outline, through its own service on the same state.
     let svc = new Scratch(base);
     let board = new SocketBoard(await svc.start());
@@ -256,7 +263,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "parallel version, to consolidate · BBS Reader · src/screens.ts", "Subj: Allotment notebook"],
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "DESK_ACTIONS · src/desk/desk.ts", "the action registry · src/surface/actions.ts"],
-    edit: ["Kitchen whiteboard", "properties · 5", "parallel version, to consolidate: the board's composer"],
+    edit: ["Kitchen whiteboard", "properties · 6", "parallel version, to consolidate: the board's composer"],
     panes: ["outline", "thread", "last callers", "Kitchen sink"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved"],

@@ -113,10 +113,19 @@ if [ "$showcase" = 1 ]; then
     (cd "$here" && bun scripts/showcase.ts seed "$sock") || { echo "not seeded; scripts/try-it.sh --showcase --reset starts over" >&2; exit 1; }
     touch "$base/seeded"
   fi
+  # The outliner's status renderer, installed for this door the way a reader host installs it, so the
+  # notebook's ```component:status fence draws its panel (PIE-444). Without the manifest the reader says why.
+  renderers="$base/config/pi-herdr-outliner/document-renderers.json"
+  if [ -f "$outliner/extensions/status-summary/manifest.json" ]; then
+    mkdir -p "$base/config/pi-herdr-outliner"
+    cp "$outliner/extensions/status-summary/manifest.json" "$base/config/pi-herdr-outliner/status.json"
+    printf '{"version":1,"renderers":{"status":{"manifest":"%s","enabled":true}}}\n' "$base/config/pi-herdr-outliner/status.json" >"$renderers"
+  fi
   [ "$prepare" = 1 ] && exit 0
   echo "door → the showcase at $base (made-up notes; edits stay until --reset)"
   echo "      control socket: EP0CH_CONTROL=$base/door/door.sock"
-  cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" OUTLINER_STATE_DIR="$base/state" bun src/main.ts --ws "$sc_ws" --showcase
+  cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" OUTLINER_STATE_DIR="$base/state" \
+    OUTLINER_DOCUMENT_RENDERERS="$renderers" bun src/main.ts --ws "$sc_ws" --showcase
   exit $?
 fi
 

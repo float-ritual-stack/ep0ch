@@ -3,7 +3,8 @@
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import type { Source } from "./props";
-import { LINK_END, linkTag } from "./style";
+import { emphasis } from "./inline";
+import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
@@ -12,10 +13,12 @@ export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})
 export const EMBED = /!\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?\)\)/g;
 /** A symbolic link, `[[address]]` or `[[address|label]]`. */
 export const PAGE = /\[\[([^\]|\r\n]+)(?:\|([^\]\r\n]+))?\]\]/g;
+/** A Markdown link, `[text](destination)`, not an image (the service's pattern: src/authored-links.ts). */
+export const MD_LINK = /(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)/g;
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
-export const stripMarks = (s: string) => s.replace(/[-]/g, "");
+export { stripMarks };
 
 export const refKey = (id: string, fragment?: string, label?: string) => `${id}${fragment ? `^${fragment}` : ""}${label !== undefined ? `|${label}` : ""}`;
 const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
@@ -118,7 +121,7 @@ export interface LinkView { text: string; missing: boolean }
  * embed's title (`embed`), or a row that stands for a note (`row`: a live figure's row, an embedded
  * view's result). Two links to the same place are the same link whatever their role.
  */
-export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; role?: "embed" | "row" };
+export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" };
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
@@ -145,8 +148,11 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
   let fenced = false;
+  // Fence lines and the code between them are left as typed, links and Markdown alike.
+  const fencedAt: boolean[] = [];
   return text.split("\n").map(line => {
-    if (/^\s*```/.test(line)) { fenced = !fenced; return line; }
+    if (/^\s*```/.test(line)) { fenced = !fenced; fencedAt.push(true); return line; }
+    fencedAt.push(fenced);
     if (fenced) return line;
     return line.split(/(`[^`]*`)/).map((part, i) => {
       if (i % 2) return part;
@@ -156,6 +162,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
         return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
       };
       return part
+        // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
+        .replace(MD_LINK, (_all, text: string, url: string) => mark({ text: emphasis(text), missing: false }, { url, label: text }))
         .replace(new RegExp(`(!?)${REF.source}`, "g"), (all, bang: string, id: string, frag?: string, label?: string) => {
           if (label !== undefined && !label.trim()) return all;
           if (bang && !label && embeds) return all;
@@ -165,5 +173,5 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
         })
         .replace(PAGE, (_all, address: string, label?: string) => mark(pageView(address, label, pageOf(address, src)), { page: address.trim(), ...(label !== undefined ? { label } : {}) }));
     }).join("");
-  }).join("\n");
+  }).map((line, i) => (fencedAt[i] ? line : emphasis(line))).join("\n");
 }

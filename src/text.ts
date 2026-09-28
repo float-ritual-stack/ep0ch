@@ -1,5 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
-import { balanceTags, C, fg, RESET, stripTags, width } from "./style";
+import { balanceStyles, balanceTags, C, fg, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 
 export const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -18,7 +18,7 @@ export const bbsDate = (ms: number) => {
 function cut(s: string, w: number): [string, string] {
   const chars = [...s];
   let n = 0, i = 0;
-  for (; i < chars.length && n < w; i++) if (!/^[\u{100000}-\u{10FFFD}]$/u.test(chars[i]!)) n++;
+  for (; i < chars.length && n < w; i++) if (!/^[\u{100000}-\u{10FFFD}\uE000-\uE008]$/u.test(chars[i]!)) n++;
   return [chars.slice(0, i).join(""), chars.slice(i).join("")];
 }
 
@@ -29,8 +29,8 @@ export function wrap(text: string, w: number): string[] {
   for (const raw of text.split("\n")) {
     if (!raw.length) { out.push(""); continue; }
     let line = "";
-    // Link tags (src/style.ts) take no room.
-    const len = (s: string) => [...stripTags(s)].length;
+    // Link tags and presentation marks (src/style.ts) take no room.
+    const len = (s: string) => [...stripTags(s).replace(MARKS, "")].length;
     for (const word of raw.split(/(\s+)/)) {
       if (len(line) + len(word) > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
       else line += word;
@@ -38,15 +38,16 @@ export function wrap(text: string, w: number): string[] {
     }
     out.push(line);
   }
-  // A link cut by the wrap is closed at each line's end and re-opened on the next, so each row stands alone.
-  return balanceTags(out);
+  // A link cut by the wrap is closed at each line's end and re-opened on the next, and a bold or italic
+  // span carries on, so each row stands alone.
+  return balanceStyles(balanceTags(out));
 }
 
 /** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
 /** `literal`: the line is in a literal region (PIE-422), where `[key::value]` is text, not a property. */
 export function colourBody(line: string, literal = false): string {
-  if (/^#{1,6} /.test(line)) return fg(C.white) + line + RESET;
-  if (/^> ?/.test(line)) return fg(C.lgreen) + line + RESET;
+  if (/^#{1,6} /.test(line)) return fg(C.white) + styleMarks(line) + RESET;
+  if (/^> ?/.test(line)) return fg(C.lgreen) + styleMarks(line) + RESET;
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
   return fg(C.grey) + line
     .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
@@ -54,7 +55,9 @@ export function colourBody(line: string, literal = false): string {
     .replace(/\[([\w-]+)::([^\]]*)\]/g, (all, k: string, v: string) => literal ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
-    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey)) + RESET;
+    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))
+    // Inline Markdown (src/inline.ts): bold, italic, strikethrough, as Detail draws them.
+    .replace(/[\uE003-\uE008]+/g, m => styleMarks(m)) + RESET;
 }
 
 export const rule = (w: number, label = "") => {
