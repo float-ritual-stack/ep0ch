@@ -8,6 +8,7 @@ import type { Draft } from "../edit";
 import { C, fg, pad, RESET } from "../style";
 import { rule } from "../text";
 import { agentLabel } from "./actions";
+import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
 export interface EditFrame {
   /** What is being written, after the `»`: "editing · <note>", "comment · <note>", "reply to x · <note>". */
@@ -29,11 +30,23 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     ...(f.context ?? []),
     rule(w),
   ];
-  return [...top, ...d.render(Math.max(1, w - 2), Math.max(1, h - top.length)).map(l => " " + l)];
+  const room = Math.max(1, h - top.length);
+  const pop = completionOf(d), c = completerOf(d);
+  if (c) c.drawn = null;
+  if (!pop || !c) return [...top, ...d.render(Math.max(1, w - 2), room).map(l => " " + l)];
+  // The completion popup opens under the cursor's row; the draft gives up that many rows to keep it.
+  const ph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
+  const text = d.render(Math.max(1, w - 2), Math.max(1, room - ph)).map(l => " " + l);
+  const at = Math.min(text.length, d.cursorRow + 1), rows: (number | null)[] = [];
+  const popup = renderCompletion(pop, w, ph, rows);
+  // Where it went, so a click on a candidate can choose it (NoteSurface.click).
+  c.drawn = { row: top.length + at, items: rows.slice(0, Math.max(0, room - at)) };
+  return [...top, ...[...text.slice(0, at), ...popup, ...text.slice(at)].slice(0, room)];
 }
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · ctrl+e $EDITOR · … · esc done`. */
 export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
+  if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   return `ctrl+s ${o.save} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · esc ${d.dirty ? "twice discards" : o.close ?? "done"}`;
 }
 

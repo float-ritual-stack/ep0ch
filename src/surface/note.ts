@@ -22,6 +22,8 @@ import type { Key } from "../term";
 import { bbsDate, rule } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
 import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
+import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
+import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 
 /** What a surface needs from whatever hosts it. */
@@ -517,7 +519,7 @@ export class NoteSurface {
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const d = this.draft!;
     if (d.busy) return true;
-    const a = d.key(k);
+    const a = completionKey(d, k, this.completer(d, host));
     if (a === "save") void this.save(host);
     else if (a === "editor") this.external(host);
     else if (a === "reload") void this.reload(host);
@@ -529,6 +531,14 @@ export class NoteSurface {
     }
     host.redraw();
     return true;
+  }
+
+  /**
+   * The draft's reference completion (PIE-416), from this reader's connection. A note draft can point at
+   * its own headings (`((#`), as typed so far; a comment or reply has no note of its own.
+   */
+  completer(d: Draft, host: SurfaceHost) {
+    return completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
   }
 
   private closeDraft() {
@@ -639,6 +649,7 @@ export class NoteSurface {
       setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
       external: d => this.external(host, d),
+      complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
       actor,
@@ -700,11 +711,19 @@ export class NoteSurface {
    */
   wheel(dir: 1 | -1, host: SurfaceHost) {
     const P = this.panel, m = this.msg;
+    // Over an open completion popup the wheel moves through its candidates.
+    const pop = this.writing();
+    if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
     else if (this.session) return;
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
     else this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3));
     host.redraw();
+  }
+
+  /** The draft or comment being written here, if any. */
+  private writing(): Draft | null {
+    return this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
   }
 
   /**
@@ -736,14 +755,18 @@ export class NoteSurface {
   }
 
   /**
-   * A click in the last render (`x`, `y` in the surface's cells): a link opens where ⏎ on it would (and
-   * becomes the selected `[ ]` link when it is one of them); a property panel row is selected, and a
-   * click on its linked value follows it. False when nothing is there, or while an edit, a comment or a
-   * value being typed holds the surface.
+   * A click in the last render (`x`, `y` in the surface's cells). While an edit, a comment or a value
+   * being typed holds the surface, only a completion candidate takes it (chosen and inserted, as Enter
+   * does). Otherwise a link opens where ⏎ on it would (and becomes the selected `[ ]` link when it is one
+   * of them); a property panel row is selected, and a click on its linked value follows it. False when
+   * nothing is there.
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
-    if (this.editing) return false;
     this.use(host);
+    if (this.editing) {
+      const d = this.writing();
+      return !!d && !d.busy && !!completerOf(d)?.click(y);
+    }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
     const h = at.find(h => "link" in h || h.follow) ?? at[0];
     if (!h) return false;
@@ -991,6 +1014,7 @@ export interface NoteActionArgs {
   "props.edit": { n?: number; key?: string; value: string; revision?: number };
   "props.close": Record<string, never>;
   "props.summary": { keys?: string; toggle?: string; reset?: boolean };
+  "complete": { text?: string; insert?: number };
 }
 
 /**
@@ -1046,6 +1070,52 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
 }
 
 export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteActionArgs, On>("note", {
+  "complete": {
+    summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
+    keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
+    args: {
+      text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
+      insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
+    },
+    async run({ text, insert }, { surface, host }, actor) {
+      const board = host.ctx.board as unknown as CompletionBoard;
+      if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
+      const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      if (insert !== undefined && text !== undefined) throw new ActionRefused("insert completes at the draft's cursor; leave text out");
+      let target;
+      if (text !== undefined) {
+        const line = text.split("\n").at(-1)!;
+        target = completionTargetAtCursor(line, line.length);
+        if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, (( or [file:: (it ends ${JSON.stringify(line.slice(-20))})`);
+      } else {
+        if (!d) throw new ActionRefused("nothing is being written here; pass text=\"[[...\" or open an edit first");
+        target = completionTargetAtCursor(d.lines[d.row] ?? "", d.col);
+        if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, (( or [file::`);
+      }
+      // The draft as the target was read from it: typing during the lookups below moves the token, and a
+      // splice at the old span would land in the wrong place, so any change refuses the insert.
+      const at = d && { text: d.text, row: d.row, col: d.col };
+      const still = () => !!d && !!at && d.text === at.text && d.row === at.row && d.col === at.col;
+      const own = surface.draft ? { blockId: surface.draft.blockId, text: surface.draft.text } : undefined;
+      const prefix = await board.workIdPrefix().catch(() => null);
+      const r = await lookupCompletion(board, target, prefix, own);
+      const out = {
+        kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,
+        items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, context: it.context || undefined })),
+      };
+      if (insert === undefined) return out;
+      const item = r.items[insert - 1];
+      if (!item) throw new ActionRefused(`there is no candidate ${insert}; there are ${r.items.length}`);
+      if (!d || d.busy) throw new ActionRefused(d ? "the save is still landing" : "nothing is being written here");
+      try {
+        if (!still()) throw new Error("the draft changed while the references were looked up; ask again");
+        if (!await insertCompletion(board, d, target, item, own, still, actor)) throw new Error("the draft changed while the reference was checked; ask again");
+      } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
+      surface.noteAgent(actor, `inserted ${item.insertion.slice(0, 60)}`);
+      host.redraw();
+      return { ...out, inserted: item.insertion, dirty: d.dirty };
+    },
+  },
   "edit": {
     summary: "open the note for editing (its whole text, at the revision the service has now)", keys: "e, ctrl+e",
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },

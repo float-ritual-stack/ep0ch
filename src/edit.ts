@@ -16,6 +16,8 @@ export class Draft {
   row = 0;
   col = 0;
   private top = 0;
+  /** The screen row of the cursor in the last render (the completion popup opens under it). */
+  cursorRow = 0;
   /** The text the draft started from, to tell whether anything changed. */
   private original: string;
   /** Another writer changed the block after the draft opened (seen through an outline event). */
@@ -96,6 +98,21 @@ export class Draft {
     if (this.text !== before) this.wrote(by);
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
+  }
+
+  /**
+   * A chosen completion: `[start,end)` of the cursor's line becomes `text` and the cursor lands after it;
+   * `lines` first replaces other whole lines (a heading given a fragment anchor). One change, by `by`.
+   */
+  splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER) {
+    const before = this.text;
+    for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
+    const line = this.line;
+    this.lines[this.row] = line.slice(0, start) + text + line.slice(end);
+    this.col = start + text.length;
+    this.discardArmed = false;
+    this.note = "";
+    if (this.text !== before) this.wrote(by);
   }
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
@@ -209,6 +226,7 @@ export class Draft {
     if (cursorAt < this.top) this.top = cursorAt;
     if (cursorAt >= this.top + h) this.top = cursorAt - h + 1;
     this.top = Math.max(0, Math.min(this.top, Math.max(0, out.length - h)));
+    this.cursorRow = cursorAt - this.top;
     return out.slice(this.top, this.top + h);
   }
 }

@@ -551,6 +551,32 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
   /** The focused reader, when the person is in its edit, comment or property panel. */
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
+  /**
+   * A click inside the reader the person is editing in, in its surface's cells: a completion candidate, or
+   * false. Only where that reader is on top: a float or drawer drawn over the popup keeps the click.
+   */
+  private clickIn(p: ReaderPane, k: { x: number; y: number }): boolean {
+    const region = this.regionOf(p);
+    const r = region?.startsWith("float") ? this.floats[Number(region.slice(5))]?.rect : region ? this.rects.get(region) : undefined;
+    if (!r || this.topAt(k.x, k.y) !== region) return false;
+    const x = k.x - r.col - 1, y = k.y - r.row - 1;
+    return x >= 0 && y >= 0 && x < r.cols - 2 && y < r.rows - 2 && p.click(x, y, this);
+  }
+
+  /**
+   * What is drawn on top at a cell, in the order `mouse` hit-tests: a float, then an open drawer (its
+   * preview included), then the docked readers. "covered" for a drawer's preview, which isn't an area.
+   */
+  private topAt(x: number, y: number): Region | "covered" | null {
+    const inside = (r?: Rect) => !!r && x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows;
+    const f = [...this.floats.keys()].reverse().find(i => inside(this.floats[i]!.rect));
+    if (f !== undefined) return `float${f}` as Region;
+    if ((this.treeOpen && inside(this.rects.get("tree-preview"))) || (this.links && inside(this.rects.get("links-preview")))) return "covered";
+    if (this.treeOpen && inside(this.rects.get("tree"))) return "tree";
+    if (this.links && inside(this.rects.get("backlinks"))) return "backlinks";
+    return (["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]).find(r => inside(this.rects.get(r))) ?? null;
+  }
+
   /** Where a docked or floating reader is now. */
   private regionOf(p: ReaderPane): Region | null {
     if (p === this.preview) return "preview";
@@ -1482,6 +1508,7 @@ export class DeliveryBoard implements Screen, DeskApi {
         // (esc leaves it); with only the property panel open, clicks pass.
         if (k.kind !== "mouse") { rd.key(k, this); return; }
         if (rd.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down" && this.clickIn(rd, k)) return this.redraw();
           if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
           return;
         }

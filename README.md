@@ -233,7 +233,20 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
 | `Esc` | close; with unsaved changes it asks for a second `Esc` |
+| `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
 
+- **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
+  Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
+  aliases and Work IDs (`pages.complete`), `((` blocks by text (`blocks.query`), `((note#heading` or
+  `((note^id` their fragments, and `[file::` workspace paths (`files.complete`). The selected candidate
+  shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
+  `[[WORK-ID]]` when the title holds link delimiters), a page or alias `[[address]]`, a block
+  `((id))`, a fragment `((id^fragment))`, a folder `[file::dir/` (its entries come next) and a file
+  `[file::path]`. Choosing checks the target still answers first. A heading in the note being edited
+  gets its `^anchor` in the draft when chosen; headings without one in other notes aren't offered (that
+  would write to them). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
+  token indents. A service without a lookup says so in the popup, and typing carries on.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
   else saved since, and the door never retries it over their text: the draft stays open, is copied to
   `~/.local/state/ep0ch-door/drafts/`, and `Ctrl+R` starts over from the current revision.
@@ -467,6 +480,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `c`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
@@ -485,6 +499,8 @@ stdin. For example:
     bun src/main.ts act open id=<card> reader=preview
     bun src/main.ts act edit.text text=@draft.md      # replaces the draft; opens the edit if needed
     bun src/main.ts act edit.save                     # a property change is reported first; act edit.save again saves
+    bun src/main.ts act complete text="see [[HOME-0"  # the candidates the popup would offer
+    bun src/main.ts act complete insert=1             # the first, at the open draft's cursor
     bun src/main.ts act comment quote="the wind is strong there" body="Soft twine?"
     bun src/main.ts act card.move lane=Doing
     bun src/main.ts act card.create lane=Doing text="Replace the doormat [project::ep0ch-door]"
@@ -558,7 +574,8 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 `annotations.list`, `clients.list`, `activity.recent`, `references.resolve`, `pages.resolve`, plus
 `events.subscribe` as an `observer`, which puts the door in `clients.list` until it exits. When the service
 has them: `views.read`, `blocks.read`, `properties.preview` and `changes.since`, and `blocks.query`
-`expression` with `query.expression`.
+`expression` with `query.expression`. While a draft completes a reference: `pages.complete`, `files.complete`,
+`blocks.query` `text` and `blocks.context` (an "Unsupported action" is remembered for the session).
 
 Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):
 
