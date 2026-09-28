@@ -1,5 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
-import { C, fg, RESET, stripTags, width } from "./style";
+import { balanceTags, C, fg, RESET, stripTags, width } from "./style";
 
 export const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -36,7 +36,8 @@ export function wrap(text: string, w: number): string[] {
     }
     out.push(line);
   }
-  return out;
+  // A link cut by the wrap is closed at each line's end and re-opened on the next, so each row stands alone.
+  return balanceTags(out);
 }
 
 /** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */

@@ -43,7 +43,8 @@ const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.f
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
  */
-type Hit = { row: number; from: number; to: number } & ({ link: Link } | { prop: number; follow: boolean });
+/** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string } | { prop: number; follow: boolean });
 
 /** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
 const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
@@ -246,7 +247,7 @@ export class NoteSurface {
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
     const count = this.rows(m).length;
-    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link });
+    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key });
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
       ...(summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
@@ -321,7 +322,7 @@ export class NoteSurface {
   private summaryView(m: Msg, src: Source | null) {
     const segs = summarySegments(m.properties ?? [], this.summary(m).keys);
     const prefix = workIdPrefix(src) ?? null;
-    const links: { from: number; to: number; link: Link }[] = [];
+    const links: { from: number; to: number; link: Link; key: string }[] = [];
     let col = 0, line = "";
     segs.forEach((s, i) => {
       if (i) { line += " · "; col += 3; }
@@ -329,7 +330,7 @@ export class NoteSurface {
       s.value.split(", ").forEach((v, j) => {
         if (j) { line += ", "; col += 2; }
         const t = valueTarget(s.key, v, prefix), n = [...v].length;
-        if (t) { links.push({ from: col, to: col + n, link: t }); line += fg(C.lcyan) + v + fg(C.lgreen); }
+        if (t) { links.push({ from: col, to: col + n, link: t, key: s.key }); line += fg(C.lcyan) + v + fg(C.lgreen); }
         else line += v;
         col += n;
       });
@@ -372,7 +373,7 @@ export class NoteSurface {
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
-  async followValue(r: PropRow, host: SurfaceHost): Promise<Msg | null> {
+  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost): Promise<Msg | null> {
     const t = r.target;
     let target: Msg | null = null, why = "";
     if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
@@ -752,6 +753,14 @@ export class NoteSurface {
       this.panel.sel = h.prop - 1; this.panel.note = "";
       if (h.follow) void this.followValue(r, host);
       host.redraw();
+      return true;
+    }
+    if (h.value !== undefined) {
+      // A summary-line value: the same resolution as the panel's `o` (no fuzzy search; the panel closes).
+      const i = this.links.findIndex(x => sameLink(x, h.link));
+      if (i >= 0) this.link = i;
+      host.redraw();
+      void this.followValue({ key: h.value, target: h.link.block ? { block: h.link.block } : { page: h.link.page! } }, host);
       return true;
     }
     void this.open(h.link, host);

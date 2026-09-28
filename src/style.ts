@@ -38,15 +38,15 @@ export const width = (s: string) => [...visible(s)].length;
 export interface LinkRange { line: number; from: number; to: number; n: number }
 
 /**
- * Tagged lines to plain ones plus where each link landed, in visible columns. A link whose text wraps
- * stays open onto the next line, so every piece of it is the same target.
+ * Tagged lines to plain ones plus where each link landed, in visible columns. Every row stands alone:
+ * a link that wraps is closed at the end of one row and re-opened at the start of the next (wrap and
+ * balanceTags do that), so a tag never carries into a neighbouring table cell, a border or the next row.
  */
 export function extractLinks(lines: readonly string[]): { lines: string[]; ranges: LinkRange[] } {
   const ranges: LinkRange[] = [];
-  let open = -1;
   const out = lines.map((l, line) => {
-    if (open < 0 && !HAS_TAG.test(l)) return l;
-    let col = 0, from = 0, text = "";
+    if (!HAS_TAG.test(l)) return l;
+    let col = 0, from = 0, text = "", open = -1;
     const end = () => { if (open >= 0 && col > from) ranges.push({ line, from, to: col, n: open }); };
     for (const part of l.split(/(\x1b\[[\d;]*m)/)) {
       if (part.startsWith("\x1b[")) { text += part; continue; }
@@ -62,6 +62,47 @@ export function extractLinks(lines: readonly string[]): { lines: string[]; range
   });
   return { lines: out, ranges };
 }
+
+/**
+ * Lines cut from one tagged text, each made to stand alone: a link still open at the end of a line is
+ * closed there and re-opened at the start of the next, after whatever indent or frame the caller adds.
+ */
+export function balanceTags(lines: string[]): string[] {
+  let open = -1;
+  return lines.map(l => {
+    if (open < 0 && !HAS_TAG.test(l)) return l;
+    const head = open >= 0 ? linkTag(open) : "";
+    for (const ch of l) if (isTag(ch)) open = ch.codePointAt(0) === TAG_END ? -1 : ch.codePointAt(0)! - TAG0;
+    return head + l + (open >= 0 ? LINK_END : "");
+  });
+}
+
+/**
+ * `s` (plain text and link tags, no colour) split after `n` visible characters, by code point, so a tag
+ * (a surrogate pair) is never split. A link open at the cut is closed in the head and re-opened in the
+ * tail; a tag that opens right at the cut goes with the tail, one that closes there with the head.
+ */
+export function splitVisible(s: string, n: number): [string, string] {
+  const chars = [...s];
+  let seen = 0, open = -1, i = 0;
+  for (; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (isTag(ch)) {
+      const end = ch.codePointAt(0) === TAG_END;
+      if (seen >= n && !end) break;
+      open = end ? -1 : ch.codePointAt(0)! - TAG0;
+      continue;
+    }
+    if (seen >= n) break;
+    seen++;
+  }
+  const head = chars.slice(0, i).join(""), tail = chars.slice(i).join("");
+  if (open < 0) return [head, tail];
+  return [head + LINK_END, tail ? linkTag(open) + tail : ""];
+}
+
+/** `trim` that sees through the link tags at either end (`\u{100000}  plan` → `\u{100000}plan`). */
+export const trimTagged = (s: string) => s.trim().replace(/^([\u{100000}-\u{10FFFD}]*)\s+/u, "$1").replace(/\s+([\u{100000}-\u{10FFFD}]*)$/u, "$1");
 
 export function pad(s: string, w: number): string {
   const n = width(s);

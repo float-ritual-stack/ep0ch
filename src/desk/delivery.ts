@@ -1666,9 +1666,12 @@ export class DeliveryBoard implements Screen, DeskApi {
         if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
         if (region === "backlinks") {
           // A source clicked in the list: its preview follows, and it opens in a detail, as ⏎ opens it.
+          // Only the rows drawn are sources: not the frame, nor the spare row an odd height leaves.
           const r = this.rects.get("backlinks")!, L = this.links!;
-          const idx = L.top + Math.floor((k.y - r.row - 1) / 2);
-          if (L.items && k.y > r.row && idx >= 0 && idx < L.items.length) { L.sel = idx; this.previewLink(); this.openLink(L.items[idx]!.id); }
+          const j = Math.floor((k.y - r.row - 1) / 2), fit = Math.max(1, Math.floor((r.rows - 2) / 2));
+          const idx = L.top + j;
+          const drawn = k.y > r.row && k.y < r.row + r.rows - 1 && k.x > r.col && k.x < r.col + r.cols - 1 && j < fit;
+          if (L.items && drawn && idx < L.items.length) { L.sel = idx; this.previewLink(); this.openLink(L.items[idx]!.id); }
         }
         const rd = this.readerFor(region);
         if (region !== "tree" && region !== "backlinks" && rd) this.clickReader(rd.pane, this.rects.get(region)!, k);

@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { renderDoc, type DocEnv } from "../src/doc";
 import { Desk } from "../src/desk/desk";
 import { DeliveryBoard } from "../src/desk/delivery";
 import type { ReaderPane } from "../src/desk/panes";
@@ -44,6 +45,40 @@ describe("link tags", () => {
     expect(plain(cut).replace(/[\u{100000}-\u{10FFFD}]/gu, "")).toBe("a very …");
     const { ranges } = extractLinks([cut, "next line"]);
     expect(ranges).toEqual([{ line: 0, from: 0, to: 8, n: 0 }]);                // the … stands for the rest of it
+  });
+});
+
+describe("link ranges: each rendered row stands alone (review of PIE-415)", () => {
+  const tagged = (n: number, s: string) => linkTag(n) + s + LINK_END;
+  const env = (w: number, unfold = true): DocEnv => ({ width: w, cellW: 9, cellH: 18, graphics: false, maxImageRows: 10, unfold });
+  /** What each link's ranges cover, as drawn, piece by piece. */
+  const pieces = (d: { lines: string[]; links: { line: number; from: number; to: number; n: number }[] }) => {
+    const out: Record<number, string[]> = {};
+    for (const r of d.links) (out[r.n] ??= []).push([...plain(d.lines[r.line]!)].slice(r.from, r.to).join(""));
+    return out;
+  };
+
+  test("a link wrapped in a table cell covers only its own cell's text, and a second link on the row doesn't cut it off", () => {
+    const d = renderDoc(`| Job | Notes |\n| --- | --- |\n| ${tagged(0, "Stake the beans along the fence")} | ${tagged(1, "Garden plan")} |\n\nafter`, env(30));
+    expect(pieces(d)).toEqual({ 0: ["Stake the", "beans along", "the fence"], 1: ["Garden", "plan"] });
+  });
+
+  test("a wrapped list item or callout body leaves out the indent and the frame", () => {
+    const d = renderDoc(`- ${tagged(0, "a long link text that wraps")}\n\n> [!note] Title\n> ${tagged(1, "another long link that wraps too")}`, env(16));
+    expect(pieces(d)).toEqual({ 0: ["a long link", "text that", "wraps"], 1: ["another long", "link that", "wraps too"] });
+  });
+
+  test("a callout title cut through a link: never splits a tag, closes it on the top edge, re-opens it in the spill", () => {
+    // Cut by code units, this title's cut fell between the two halves of the link's open tag.
+    const split = renderDoc(`> [!note] Read abcd${tagged(0, "Garden plan")} tail\n> body`, env(20));
+    for (const l of split.lines) expect(l.isWellFormed()).toBe(true);
+    expect(pieces(split)).toEqual({ 0: ["G", "arden plan"] });
+    const title = `Read ${tagged(0, "Garden plan and more words here")} tail end`;
+    expect(pieces(renderDoc(`> [!note] ${title}\n> hidden`, env(20)))).toEqual({ 0: ["Garde", "n plan and more", "words here"] });
+    // Folded, the spill isn't drawn: the link ends on the top edge and the rest of the note isn't it.
+    const folded = renderDoc(`> [!note]- ${title}\n> hidden\n\nnext ${tagged(1, "x")}`, env(20, false));
+    expect(folded.links.filter(r => r.n === 0)).toEqual([{ line: 0, from: 10, to: 15, n: 0 }]);
+    expect(pieces(folded)).toEqual({ 0: ["Garde"], 1: ["x"] });
   });
 });
 
@@ -188,6 +223,47 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     click(where(frame(), "Weekend jobs", pr, 1));                          // the first is the quoted snippet, not a link
     await until(() => B().details.some((x: ReaderPane) => x.msg?.id === n.jobs.id), "the link in a detail");
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
+  }, 20_000);
+
+  test("only the backlinks rows drawn are clickable: not the frame, nor the spare row under the last source", async () => {
+    await fresh();
+    key(char("b"));
+    await until(() => !!B().links?.items?.length, "the backlinks");
+    const L = B().links, one = L.items[0];
+    L.items = Array.from({ length: 40 }, (_, i) => ({ ...one, title: `Source ${i}` }));   // more than fit
+    // An odd inner height leaves a spare row under the last pair.
+    for (let f = 0.4; f < 0.52 && (rect("backlinks").rows - 2) % 2 === 0; f += 0.01) B().lay.linksFrac = f;
+    const r = rect("backlinks"), fit = Math.floor((r.rows - 2) / 2);
+    expect((r.rows - 2) % 2).toBe(1);
+    for (const y of [r.row + r.rows - 2, r.row + r.rows - 1]) {               // the spare row, the bottom border
+      click({ x: r.col + 3, y });
+      await Bun.sleep(50);
+      expect(L.sel).toBe(0);
+      expect(B().details.length).toBe(0);
+    }
+    click({ x: r.col + 3, y: r.row + 1 + 2 * (fit - 1) });                   // the last source drawn still opens
+    expect(L.sel).toBe(fit - 1);
+    await until(() => B().details[0]?.msg?.id === one.id, "the source in a detail");
+  }, 20_000);
+
+  test("a summary-line value follows as the panel's o does: no fuzzy search, and the panel closes", async () => {
+    await fresh();
+    key(char("i"));
+    const s = B().preview.surface, bd = B().ctx.board;
+    await shows("preview", "Oil the hinges");
+    // The registry can't answer: `o` says so rather than searching (a search would find the hinges).
+    const resolvePage = bd.resolvePage;
+    bd.resolvePage = () => Promise.reject(new Error("the registry is offline"));
+    try {
+      click(where(frame(), workId, rect("preview")));                       // the summary line's value
+      await until(() => /couldn't resolve/.test(message() ?? ""), "the flash");
+      expect(message()).toBe(`couldn't resolve ${workId}: the registry is offline`);
+      await Bun.sleep(100);
+      expect(B().preview.msg.id).toBe(n.jobs.id);
+    } finally { bd.resolvePage = resolvePage; }
+    click(where(frame(), workId, rect("preview")));
+    await until(() => B().preview.msg?.id === n.hinge.id, "the Work ID to open");
+    expect(s.panel).toBeNull();
   }, 20_000);
 
   test("the desk's reader opens a clicked link in its reader", async () => {
