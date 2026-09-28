@@ -9,15 +9,19 @@
 import type { Ctx } from "../app";
 import { subject, type Msg } from "../board";
 import { CommentSession, type CommentEnv } from "../comment";
-import { renderDoc } from "../doc";
+import { renderDoc, type DocEnv } from "../doc";
+import { embedRegion } from "../embeds";
+import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
+import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix } from "../refs";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
-import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment } from "../socket";
+import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment, type PropertyRecord } from "../socket";
 import { C, fg, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { bbsDate, rule } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
 import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
+import { checkValue, propertyRows, PropertyPanel, valueView, type PropRow } from "./props-panel";
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -25,13 +29,38 @@ export interface SurfaceHost {
   redraw(): void;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg): void;
+  /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
+  summaryKeys?(m: Msg): readonly string[] | null | undefined;
 }
 
 export interface SurfaceView { lines: string[]; placements?: Placement[] }
-export type Link = { block?: string; page?: string; media?: string };
+export type Link = { block?: string; fragment?: string; label?: string; page?: string; media?: string };
 
-const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
-const linksOf = (m: Msg): Link[] => [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! }));
+/** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
+const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
+const linksOf = (m: Msg): Link[] => [...m.text.matchAll(LINK)].flatMap((x): Link[] => {
+  if (x[1]) return x[3] !== undefined && !x[3].trim() ? [] : [{ block: x[1], ...(x[2] ? { fragment: x[2] } : {}), ...(x[3] !== undefined ? { label: x[3] } : {}) }];
+  return [{ page: x[4]!.trim(), ...(x[5] !== undefined ? { label: x[5] } : {}) }];
+});
+/** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
+const linkText = (l: Link, text: string, src: Source | null) => l.block
+  ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment, l.label))).text
+  : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.media?.split("/").pop() ?? "";
+
+/**
+ * The body a reader draws: the note without its subject line and without the lines that only hold block
+ * metadata (those are in the summary and the property panel), links as they read.
+ */
+export function readableBody(m: Msg, embeds: boolean, src: Source | null): string {
+  const tokens = tokensOf(m.text, src);
+  const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
+  let fenced = false;
+  const body = m.text.split("\n").filter((_, i) => i > 0 && !hidden.has(i))
+    // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
+    .map(l => (/^\s*```/.test(l) ? ((fenced = !fenced), l) : fenced ? l : l.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, "")))
+    .join("\n").replace(/^\n+/, "");
+  return presentLinks(body, embeds, src, m.text);
+}
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
@@ -66,10 +95,26 @@ export class NoteSurface {
   unread = "";
   /** The last thing an agent did here, shown in the header until the surface shows another note. */
   agent: { id: string; did: string; at: number } | null = null;
+  /** The property panel, while open (`i`). It holds the reader's keys; editing a value also holds the note. */
+  panel: PropertyPanel | null = null;
+  /** The summary keys the host gave for the note shown (a lane's), refreshed on every render. */
+  private viewKeys: readonly string[] | null = null;
+  /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
+  src: Source | null = null;
+  private use(host: SurfaceHost | undefined): Source | null {
+    if (host) this.src = { board: host.ctx.board, redraw: () => host.redraw() };
+    return this.src;
+  }
 
-  get editing() { return this.draft !== null || this.session !== null; }
+  /** An edit, a comment, or a property value being typed: the surface stays on its note and takes every key. */
+  get editing() { return this.draft !== null || this.session !== null || !!this.panel?.field; }
+  /**
+   * The surface wants every key, the host's shortcuts included (Tab, o, …): while editing, and while the
+   * property panel is open. Unlike `editing`, an open panel doesn't hold the note or refuse clicks.
+   */
+  get holdsKeys() { return this.editing || this.panel !== null; }
   /** Typed text that isn't saved or sent: an edit, or a comment being written. */
-  unsaved() { return !!this.draft?.dirty || !!this.session?.dirty; }
+  unsaved() { return !!this.draft?.dirty || !!this.session?.dirty || (!!this.panel?.field && this.panel.field.text !== this.panel.field.row.value); }
   /** Copy unsaved text to disk (the screen is closing anyway). */
   keepDrafts(): string[] {
     const out: string[] = [];
@@ -80,6 +125,8 @@ export class NoteSurface {
 
   /** "editing · unsaved", "writing", "quoting", "comments", or null while reading. For the host's title. */
   state(): string | null {
+    if (this.panel?.field) return "editing a property";
+    if (this.panel) return "properties";
     if (this.session) return this.session.mode === "compose" ? `writing${this.session.dirty ? " · unsent" : ""}` : this.session.mode === "select" ? "quoting" : "comments";
     if (this.draft) return `editing${this.draft.dirty ? " · unsaved" : ""}`;
     return null;
@@ -87,11 +134,12 @@ export class NoteSurface {
 
   /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
   hint(extra = ""): string {
+    if (this.panel) return this.panel.hint();
     if (this.session) return this.session.hint();
     if (this.draft) return editHint(this.draft, { save: "save", reload: this.draft.conflict || this.draft.changedElsewhere ? "reload" : null });
     const l = this.links[this.link];
-    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}`
-      : `${extra}[ ] links · z folds · u up · c comment · m comments`;
+    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`
+      : `${extra}[ ] links · i properties · z folds · u up · c comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -104,6 +152,11 @@ export class NoteSurface {
     if (this.msg?.id !== m.id) return;
     const d = this.draft;
     if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
+    const f = this.panel?.field;
+    if (f && !f.saving && m.revision !== undefined && m.revision !== f.revision && !m.partial) {
+      f.changedElsewhere = true;
+      f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
+    }
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     if (!m.partial) this.unread = "";
     this.msg = m;
@@ -112,9 +165,11 @@ export class NoteSurface {
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
   show(m: Msg | null, host: SurfaceHost): boolean {
+    this.use(host);
     if (this.draft && m?.id !== this.draft.blockId) return false;
     if (this.session && m?.id !== this.session.blockId) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; }
+    if (this.panel?.field && m?.id !== this.msg?.id) return false;
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -158,22 +213,39 @@ export class NoteSurface {
     if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
     if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
-    const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
+    this.viewKeys = host?.summaryKeys?.(m) ?? null;
+    const src = this.use(host);
+    const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
+    // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
+    const summary = this.summary(m).text;
+    const count = this.rows(m).length;
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
-      pad(fg(C.brown) + meta + said, w) + RESET,
+      ...(summary ? [pad(fg(C.lgreen) + summary + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
+      pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
-      rule(w),
     ];
+    if (this.panel) {
+      const rows = this.rows(m);
+      const tokens = tokensOf(m.text, src);
+      const info = { revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
+      if (this.panel.full) return { lines: [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)] };
+      const ph = Math.min(rows.length + 2 + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
+      head.push(...this.panel.render(rows, w, ph, info));
+    }
+    head.push(rule(w));
     const t = host?.ctx.t;
-    const doc = renderDoc(m.text.split("\n").slice(1).join("\n").replace(/^\n+/, ""), {
+    const env: DocEnv = {
       width: Math.max(1, w - 1), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!host?.ctx.graphics,
       maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold,
-    });
+    };
+    // Transclusions: the target drawn the way this reader draws a note, without expanding its own embeds.
+    const inner = (target: Msg, width: number) => renderDoc(readableBody(target, false, src), { ...env, width, graphics: false }).lines;
+    const doc = renderDoc(readableBody(m, true, src), { ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner) });
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
     if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
@@ -191,7 +263,160 @@ export class NoteSurface {
       const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / im.rows) * img.height), w: img.width, h: Math.max(1, Math.round((visible / im.rows) * img.height)) } : undefined;
       placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
     }
-    return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)], placements };
+    return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)), placements };
+  }
+
+  // ── properties ─────────────────────────────────────────────────────────────
+
+  /** The summary line for `m`: its keys (the view's, yours, the environment's or the default) and text. */
+  summary(m: Msg): { keys: string[]; source: string; text: string } {
+    const { keys, source } = summaryKeys(this.viewKeys);
+    return { keys, source, text: summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ") };
+  }
+
+  /** The panel's rows for `m`: the service's tokens once it has answered, the block properties until then. */
+  rows(m: Msg, tokens: PropertyRecord[] | null = null): PropRow[] {
+    const t = tokens ? { state: "ready", tokens } : tokensOf(m.text, this.src);
+    return propertyRows(m, t?.state === "ready" ? t.tokens : null, workIdPrefix(this.src) ?? null);
+  }
+
+  /** Open (or switch to full) the property panel. */
+  openPanel(full = false) {
+    if (!this.panel) this.panel = new PropertyPanel();
+    this.panel.full = full;
+  }
+
+  closePanel(): boolean {
+    if (this.panel?.field && this.panel.field.text !== this.panel.field.row.value && !this.panel.field.saving) return false;
+    this.panel = null;
+    return true;
+  }
+
+  /** The value of row `n` (from 1), after checking it exists. */
+  row(m: Msg, n: number, rows = this.rows(m)): PropRow {
+    const r = rows[n - 1];
+    if (!r) throw new ActionRefused(`there is no property ${n}; the note has ${rows.length} (props lists them)`);
+    return r;
+  }
+
+  /**
+   * `y`: the value to the terminal's clipboard (OSC 52), as authored. Only for the person at the keys:
+   * the clipboard is theirs, so an agent gets the value in its reply instead.
+   */
+  copyValue(r: PropRow, host: SurfaceHost) {
+    host.ctx.copy?.(r.value);
+    if (this.panel) this.panel.note = `copied ${r.key}: ${printable(r.value).slice(0, 60)}`;
+  }
+
+  /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
+  async followValue(r: PropRow, host: SurfaceHost): Promise<Msg | null> {
+    const t = r.target;
+    let target: Msg | null = null, why = "";
+    if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
+    else if ("block" in t) { target = await host.ctx.board.get(t.block); if (!target) why = `nothing answers at ((${t.block.slice(0, 8)}…))`; }
+    else {
+      const p = await host.ctx.board.resolvePage(t.page).catch((e: Error) => ({ status: "failed", error: e.message } as const));
+      if ("block" in p && p.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
+      else why = "error" in p ? `couldn't resolve ${t.page}: ${p.error}` : `${t.page} · Missing target`;
+    }
+    if (!target) { if (this.panel) this.panel.note = why; host.ctx.flash(why); host.redraw(); return null; }
+    // The panel has done its job; the target opens to be read (in place or in another reader).
+    this.panel = null;
+    host.navigate(target);
+    return target;
+  }
+
+  /** `⏎`/`e` on a value: a one-line field over it, at the revision the panel read. */
+  editValue(r: PropRow): void {
+    const m = this.msg!;
+    if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
+    this.panel.field = { row: r, text: r.value, cursor: r.value.length, revision: m.revision, saving: false, note: "", changedElsewhere: false };
+  }
+
+  /**
+   * One `properties.patch` of `row`'s token in `m`, at `revision`: the revision `row`'s ordinal was read
+   * from, so the service refuses it if the note has moved on. Returns the saved note (also shown here).
+   */
+  async patchValue(m: Msg, revision: number, row: PropRow, value: string, host: SurfaceHost, actor: Actor): Promise<Msg> {
+    let ordinal = row.ordinal;
+    if (ordinal === null) {
+      // No properties.preview on this service: ask it for this key's tokens, at the same revision.
+      const t = await host.ctx.board.propertyTokens(m.id, row.key);
+      if (t.revision !== revision) throw new EditConflict(m.id, "changed since the panel read it");
+      const nth = this.rows(m).filter(r => r.key === row.key && r.n <= row.n).length - 1;
+      ordinal = t.tokens.filter(x => x.scope === "block")[nth]?.ordinal ?? null;
+      if (ordinal === null) throw new Error(`the service doesn't list ${row.key} on the note any more`);
+    }
+    const saved = await host.ctx.board.patchProperties(m.id, revision, [{ op: "replace", ordinal, value }], actor);
+    if (this.msg?.id === m.id) { this.refresh({ ...saved, childIds: this.msg.childIds }); this.links = linksOf(this.msg!); }
+    return saved;
+  }
+
+  /**
+   * Save the value being typed: one `properties.patch` of that token, refused by the service if the note
+   * changed since the panel read it (nothing is retried over someone else's change). Returns the new
+   * revision, or null with the reason in the field's note.
+   */
+  async saveValue(host: SurfaceHost, actor: Actor = USER): Promise<number | null> {
+    const f = this.panel?.field, m = this.msg;
+    if (!f || !m || f.saving) return null;
+    const why = checkValue(f.row, f.text);
+    if (why) { f.note = why; host.redraw(); return null; }
+    const value = f.text.trim();
+    if (value === f.row.value) { this.panel!.field = null; this.panel!.note = "unchanged"; host.redraw(); return m.revision ?? null; }
+    f.saving = true; f.note = "saving…"; host.redraw();
+    try {
+      const saved = await this.patchValue(m, f.revision, f.row, value, host, actor);
+      if (this.panel?.field === f) this.panel.field = null;
+      const said = `saved · revision ${saved.revision} · ${f.row.key}: ${printable(f.row.value).slice(0, 30)} → ${printable(value).slice(0, 30)}`;
+      if (this.panel) this.panel.note = said;
+      host.ctx.flash(said);
+      return saved.revision ?? null;
+    } catch (e) {
+      f.saving = false;
+      if (e instanceof EditConflict) { f.changedElsewhere = true; f.note = "changed elsewhere since the panel read it · not saved · esc, then enter edits the current value"; }
+      else f.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
+      return null;
+    } finally { host.redraw(); }
+  }
+
+  /** `s`: show or hide this key in the summary line, as your own choice (kept on this machine). */
+  toggleSummary(key: string, host: SurfaceHost): { keys: string[]; source: string } {
+    const cur = summaryKeys(null).keys;
+    const k = key.toLowerCase();
+    const next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];
+    setUserSummaryKeys(next);
+    const said = `summary shows ${next.join(", ") || "nothing"}${this.viewKeys ? " · this view's [summary-properties::] still decides here" : ""}`;
+    if (this.panel) this.panel.note = said;
+    host.ctx.flash(said);
+    return { keys: next, source: "yours" };
+  }
+
+  private panelKey(k: Key, host: SurfaceHost): boolean {
+    const P = this.panel!, m = this.msg;
+    // Scrolling always works (PIE-411): PgDn, PgUp and Space (unless it's being typed) page the note,
+    // or the property list when it fills the reader and the note isn't drawn.
+    const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
+    if (page) {
+      if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + page * 15)); P.note = ""; }
+      else this.scroll = Math.max(0, this.scroll + page * 15);
+      host.redraw();
+      return true;
+    }
+    if (!m || m.partial) { if (k.kind === "esc" || ch(k) === "i") this.panel = null; host.redraw(); return true; }
+    const rows = this.rows(m);
+    const intent = P.key(k, rows.length);
+    const r = rows[P.sel];
+    if (intent === "close") this.panel = null;
+    else if (intent === "full") P.full = !P.full;
+    else if (intent === "cancel") { P.field = null; P.note = ""; }
+    else if (intent === "save") void this.saveValue(host);
+    else if (r && intent === "copy") this.copyValue(r, host);
+    else if (r && intent === "follow") void this.followValue(r, host);
+    else if (r && intent === "summary") this.toggleSummary(r.key, host);
+    else if (r && intent === "edit") { try { this.editValue(r); } catch (e) { P.note = (e as Error).message; } }
+    host.redraw();
+    return true;
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number): string[] {
@@ -362,6 +587,8 @@ export class NoteSurface {
   // ── keys: each one is an action, the same ones an agent calls ─────────────
 
   key(k: Key, host: SurfaceHost): boolean {
+    this.use(host);
+    if (this.panel) return this.panelKey(k, host);
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
       if (this.session.key(k, this.commentEnv(host)) === "close") { this.session = null; }
@@ -369,6 +596,7 @@ export class NoteSurface {
       return true;
     }
     const c = ch(k);
+    if ((c === "i" || c === "I") && this.msg) { this.openPanel(c === "I"); host.redraw(); return true; }
     if (c === "c" && this.msg) { void this.comment(host, "select"); return true; }
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
@@ -399,6 +627,12 @@ export class NoteSurface {
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
     else if (l.page) {
+      // The service's page and Work-ID registry first (read-only: a dangling address isn't created).
+      const p = await host.ctx.board.resolvePage(l.page).catch(() => null);
+      if (p?.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
+      else if (p?.status === "missing") { host.ctx.flash(`[[${l.page}]] · Missing target`); return null; }
+    }
+    if (!target && l.page) {
       const hits = await host.ctx.board.search(l.page, 25).catch(() => [] as Msg[]);
       const p = l.page.toLowerCase();
       target = hits.find(m => m.props["work-id"]?.toLowerCase() === p || m.props.page?.toLowerCase() === p)
@@ -425,6 +659,7 @@ export class NoteSurface {
    * says why, nothing is half-done), waiting for the write to land, and saying on screen that it did it.
    */
   act(name: string, args: Record<string, unknown>, host: SurfaceHost, actor: Actor): Promise<unknown> {
+    this.use(host);
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: m => host.navigate(m) } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }
@@ -437,7 +672,13 @@ export class NoteSurface {
       editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save") } : undefined,
       commenting: this.session ? this.session.describe() : undefined,
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length })) } : null,
-      links: this.links.map((l, i) => ({ n: i + 1, ...l, selected: i === this.link })),
+      links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
+      summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
+      properties: this.panel && this.msg ? {
+        open: this.panel.full ? "full" : "inline", selected: this.panel.sel + 1, note: this.panel.note || null,
+        editing: this.panel.field ? { n: this.panel.field.row.n, key: this.panel.field.row.key, text: this.panel.field.text, revision: this.panel.field.revision, changedElsewhere: this.panel.field.changedElsewhere, note: this.panel.field.note || null } : null,
+        rows: this.rows(this.msg).map(r => describeRow(r, this.src, this.msg!.text)),
+      } : null,
       agent: this.agent,
     };
   }
@@ -447,6 +688,16 @@ export class NoteSurface {
   /** Say in the surface what an agent just did (the flash says it too, but goes away). */
   noteAgent(actor: Actor, did: string) {
     if (actor.kind === "agent") this.agent = { id: actor.id, did, at: Date.now() };
+  }
+
+  /** The whole note this reader shows, waiting a moment when only its list row has arrived. */
+  async whole(ms = 5000): Promise<Msg> {
+    const m = this.requireNote();
+    for (const end = Date.now() + ms; this.msg?.id === m.id && this.msg.partial && !this.unread && Date.now() < end;) await Bun.sleep(25);
+    const now = this.msg;
+    if (!now || now.id !== m.id) throw new ActionRefused("the reader moved to another note");
+    if (now.partial) throw new ActionRefused(this.unread ? `the note couldn't be read: ${this.unread}` : "the whole note isn't read yet; try again in a moment");
+    return now;
   }
 
   requireNote(): Msg {
@@ -526,6 +777,12 @@ export class NoteSurface {
   goUp(host: SurfaceHost) { return this.up(host); }
 }
 
+/** A panel row as `peek` and the props actions report it. */
+const describeRow = (r: PropRow, src: Source | null, text: string) => ({
+  n: r.n, key: r.key, value: r.value, scope: r.scope, ...(r.placement ? { placement: r.placement } : {}),
+  ordinal: r.ordinal, ...(r.target ? { target: r.target, reads: printable(valueView(r, src, text)) } : {}),
+});
+
 /** "yours", "an agent (x)'s", with anyone else who wrote part of it: how a save was recorded. */
 function recordedAs(by: Actor): string {
   const whose = by.kind === "agent" ? `${agentLabel(by)}'s` : "yours";
@@ -561,7 +818,34 @@ export interface NoteActionArgs {
   "threads": Record<string, never>;
   "reply": { thread: string; body: string };
   "resolve": { thread: string; open?: boolean };
+  "props": { full?: boolean };
+  "props.copy": { n?: number; key?: string };
+  "props.follow": { n?: number; key?: string };
+  "props.edit": { n?: number; key?: string; value: string; revision?: number };
+  "props.close": Record<string, never>;
+  "props.summary": { keys?: string; toggle?: string; reset?: boolean };
 }
+
+/**
+ * The note's property rows as the service reads its current text (waiting for that answer), and the one
+ * `n` or `key` names. A repeated key needs `n`.
+ */
+async function propRow(surface: NoteSurface, n: number | undefined, key: string | undefined): Promise<{ m: Msg; rows: PropRow[]; row: PropRow }> {
+  const m = await surface.whole();
+  const t = await tokensFor(m.text, surface.src);
+  const rows = surface.rows(m, t.state === "ready" ? t.tokens : null);
+  if (n !== undefined) return { m, rows, row: surface.row(m, n, rows) };
+  if (!key) throw new ActionRefused("say which property: n (from props) or key");
+  const hits = rows.filter(r => r.key === key.toLowerCase());
+  if (!hits.length) throw new ActionRefused(`the note has no ${key} property; it has ${[...new Set(rows.map(r => r.key))].join(", ") || "none"}`);
+  if (hits.length > 1) throw new ActionRefused(`the note has ${hits.length} ${key} values (${hits.map(r => `n=${r.n} ${r.value}`).join(", ")}); pass n`);
+  return { m, rows, row: hits[0]! };
+}
+
+const ROW_ARGS = {
+  n: { type: "number", optional: true, about: "which property, from 1, as props lists them" },
+  key: { type: "string", optional: true, about: "the property's key, when it appears once" },
+} as const;
 
 const findThread = (s: CommentSession, id: string): number => {
   const i = s.threads.findIndex(t => t.id === id || (id.length >= 6 && t.id.startsWith(id)));
@@ -763,6 +1047,104 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       if (s.error) throw new ActionRefused(s.error);
       surface.noteAgent(actor, open ? "reopened a comment" : "resolved a comment");
       return { lifecycle: want };
+    },
+  },
+  "props": {
+    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: "i, I (full)",
+    args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
+    async run({ full }, { surface, host }, actor) {
+      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      const m = await surface.whole();
+      // The panel holds the reader's keys: an agent reads the rows in its reply and leaves the panel be.
+      if (actor.kind === "user") surface.openPanel(!!full);
+      const t = await tokensFor(m.text, surface.src);
+      host.redraw();
+      return { id: m.id, revision: m.revision, summary: surface.summary(m), scopes: t.state === "ready" ? "service" : "block only", rows: surface.rows(m, t.state === "ready" ? t.tokens : null).map(r => describeRow(r, surface.src, m.text)) };
+    },
+  },
+  "props.copy": {
+    summary: "a property's value, returned (the person's own y copies it to their clipboard; an agent's never does)", keys: "i, tab, y",
+    args: ROW_ARGS,
+    async run({ n, key }, { surface, host }, actor) {
+      const { row } = await propRow(surface, n, key);
+      // The clipboard and the panel are the person's: an agent gets the value here, and nothing moves.
+      if (actor.kind === "user") {
+        surface.openPanel(surface.panel?.full);
+        surface.panel!.sel = row.n - 1;
+        surface.copyValue(row, host);
+      }
+      host.redraw();
+      return { key: row.key, value: row.value };
+    },
+  },
+  "props.follow": {
+    summary: "open what a block, page or Work-ID value names; where it opens is the view's call", keys: "i, tab, o",
+    args: ROW_ARGS,
+    async run({ n, key }, { surface, host }, actor) {
+      const { row } = await propRow(surface, n, key);
+      if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
+      const m = await surface.followValue(row, host);
+      if (!m) throw new ActionRefused(surface.panel?.note || `nothing answers at ${row.value}`);
+      surface.noteAgent(actor, `followed ${row.key} to ${subject(m).slice(0, 40)}`);
+      return { opened: m.id, title: subject(m) };
+    },
+  },
+  "props.edit": {
+    summary: "replace one property value: a properties.patch of that token, refused if the note changed since it was read", keys: "i, tab, enter or e, typing, enter",
+    args: {
+      ...ROW_ARGS,
+      value: { type: "string", about: "the new value (one line, no ])" },
+      revision: { type: "number", optional: true, about: "the revision you read the properties at; refused if the note is past it" },
+    },
+    async run({ n, key, value, revision }, { surface, host }, actor) {
+      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      const f = surface.panel?.field;
+      if (f && (f.saving || f.text !== f.row.value)) throw new ActionRefused(f.saving ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
+      const { m, row } = await propRow(surface, n, key);
+      if (revision !== undefined && m.revision !== revision) throw new ActionRefused(`the note is at revision ${m.revision}, not ${revision}; read the properties again (props)`);
+      if (m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked");
+      // The ordinal belongs to the text it was read from: if the reader moved on meanwhile, don't guess.
+      const now = surface.msg;
+      if (!now || now.id !== m.id || now.revision !== m.revision || now.text !== m.text)
+        throw new ActionRefused(`the note changed while its properties were read (now revision ${now?.id === m.id ? now.revision : "?"}); read them again (props)`);
+      const why = checkValue(row, value);
+      if (why) throw new ActionRefused(why);
+      const to = value.trim();
+      if (to === row.value) return { saved: false, unchanged: true, key: row.key, revision: m.revision };
+      // Straight to the service at the revision the ordinal came from; the person's panel and keys are left alone.
+      let saved: Msg;
+      try { saved = await surface.patchValue(m, m.revision, row, to, host, actor); } catch (e) {
+        throw new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its properties were read · not saved; read them again (props)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      host.ctx.flash(`saved · revision ${saved.revision} · ${row.key}: ${printable(row.value).slice(0, 30)} → ${printable(to).slice(0, 30)}`);
+      surface.noteAgent(actor, `set ${row.key} to ${to.slice(0, 40)}`);
+      host.redraw();
+      return { saved: true, key: row.key, from: row.value, to, revision: saved.revision ?? null, fromRevision: m.revision, recordedAs: mutationFor(actor) };
+    },
+  },
+  "props.close": {
+    summary: "close the property panel (a value being typed must be saved or cancelled first)", keys: "esc, i",
+    args: {},
+    run(_, { surface, host }) {
+      if (!surface.panel) return { closed: false };
+      if (!surface.closePanel()) throw new ActionRefused("a property value is being typed; enter saves it, esc cancels");
+      host.redraw();
+      return { closed: true };
+    },
+  },
+  "props.summary": {
+    summary: "choose the summary line's keys (yours, on this machine); a view's [summary-properties::] still decides for its notes", keys: "i, tab, s",
+    args: {
+      keys: { type: "string", optional: true, about: "comma-separated keys in order; empty shows no summary" },
+      toggle: { type: "string", optional: true, about: "show or hide one key" },
+      reset: { type: "boolean", optional: true, about: "forget your choice (back to OUTLINER_PROPERTY_SUMMARY_KEYS or the default)" },
+    },
+    run({ keys, toggle, reset }, { surface, host }) {
+      if ([keys, toggle, reset].filter(x => x !== undefined).length !== 1) throw new ActionRefused("pass one of keys=a,b toggle=key reset=true");
+      if (toggle) surface.toggleSummary(toggle, host);
+      else { setUserSummaryKeys(reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
+      const m = surface.msg;
+      return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
     },
   },
 });

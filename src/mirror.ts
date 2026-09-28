@@ -30,6 +30,12 @@ export class Mirror {
         const end = s.indexOf("\x1b\\", i);
         this.apc(s.slice(i + 3, end)); i = end + 2; continue;
       }
+      if (s.startsWith("\x1b]", i)) {
+        // OSC (the clipboard, a title): nothing on screen. Ends at BEL or ST.
+        const bel = s.indexOf("\x07", i), st = s.indexOf("\x1b\\", i);
+        const end = bel < 0 ? st : st < 0 ? bel : Math.min(bel, st);
+        i = end < 0 ? s.length : end + (end === st ? 2 : 1); continue;
+      }
       if (s[i] === "\x1b") {
         if (s[i + 1] === "7") { this.sx = this.x; this.sy = this.y; i += 2; continue; }
         if (s[i + 1] === "8") { this.x = this.sx; this.y = this.sy; i += 2; continue; }

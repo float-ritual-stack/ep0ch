@@ -5,8 +5,16 @@ import { media, MEDIA_LINE, type Media } from "./media";
 import { C, fg, pad, RESET, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
+import { EMBED, stripMarks } from "./refs";
 
-export interface DocEnv { width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean }
+export interface DocEnv {
+  width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
+  /**
+   * Draw the `n`th transclusion (`!((id))`, `!((id^fragment))`) of the document, `width` wide. Without it
+   * (inside an embed) the token stays text: embeds are never expanded recursively.
+   */
+  embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
+}
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[] }
 
@@ -27,6 +35,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const out: string[] = [];
   const images: DocImage[] = [];
   const mediaRefs: Doc["media"] = [];
+  let embeds = 0;
   const W = Math.max(10, env.width);
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
@@ -127,21 +136,49 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
-    // Blockquote, heading, list, paragraph.
-    if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); continue; }
-    const h = line.match(/^(#{1,6})\s+(.*)$/);
-    if (h) { out.push(fg(C.dark) + h[1] + " " + RESET + BOLD + fg(C.white) + h[2] + RESET); continue; }
-    const li = line.match(/^(\s*)([-*]|\d+[.)])\s+(.*)$/);
-    if (li) {
-      const indent = li[1]!.length, mark = /\d/.test(li[2]!) ? li[2]! : "∙";
-      const lead = " ".repeat(indent) + mark + " ";
-      wrap(li[3]!, W - lead.length).forEach((l, k) => out.push((k ? " ".repeat(lead.length) : fg(C.lcyan) + lead + RESET) + inline(l)));
-      continue;
+    // Transclusions: each `!((…))` becomes its shaded region; the text around it stays where it was.
+    // Inline code keeps its text (fences are consumed above): only what's outside backticks is split.
+    if (env.embed && line.includes("!((")) {
+      const pieces: (string | { id: string; fragment?: string })[] = [];
+      let text = "";
+      line.split(/(`[^`]*`)/).forEach((part, j) => {
+        if (j % 2) { text += part; return; }
+        const parts = part.split(new RegExp(EMBED.source, "g"));
+        for (let k = 0; k < parts.length; k += 3) {
+          text += parts[k]!;
+          if (k + 1 < parts.length) { pieces.push(text, { id: parts[k + 1]!, fragment: parts[k + 2] || undefined }); text = ""; }
+        }
+      });
+      if (pieces.length) {
+        pieces.push(text);
+        pieces.forEach((p, k) => {
+          if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
+          const t = k === 0 ? p.trimEnd() : p.trim();
+          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W));
+        });
+        continue;
+      }
     }
-    if (!line.trim()) { out.push(""); continue; }
-    for (const l of wrap(line, W)) out.push(inline(l));
+    out.push(...prose(line, W));
   }
-  return { lines: out, images, media: mediaRefs };
+  return { lines: out.map(stripMarks), images, media: mediaRefs };
+}
+
+/** Blockquote, heading, list item or paragraph. */
+function prose(line: string, W: number): string[] {
+  const out: string[] = [];
+  if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
+  const h = line.match(/^(#{1,6})\s+(.*)$/);
+  if (h) return [fg(C.dark) + h[1] + " " + RESET + BOLD + fg(C.white) + h[2] + RESET];
+  const li = line.match(/^(\s*)([-*]|\d+[.)])\s+(.*)$/);
+  if (li) {
+    const indent = li[1]!.length, mark = /\d/.test(li[2]!) ? li[2]! : "∙";
+    const lead = " ".repeat(indent) + mark + " ";
+    wrap(li[3]!, W - lead.length).forEach((l, k) => out.push((k ? " ".repeat(lead.length) : fg(C.lcyan) + lead + RESET) + inline(l)));
+    return out;
+  }
+  if (!line.trim()) return [""];
+  return wrap(line, W).map(inline);
 }
 
 function chunk(s: string, w: number): string[] {

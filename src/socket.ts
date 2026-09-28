@@ -28,7 +28,7 @@ export type Capability = "blocks.read" | "properties.preview" | "views.read" | "
 interface WireBlock {
   id: string; parentId?: string | null; text?: string; title?: string; preview?: string; revision?: number;
   author?: string; actorId?: string;
-  createdAt?: string; updatedAt?: string; deletedAt?: string; effectiveDeletedRootId?: string;
+  createdAt?: string; updatedAt?: string; deletedAt?: string | null; effectiveDeletedRootId?: string | null;
   properties?: { key: string; value: string }[];
 }
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
@@ -104,9 +104,29 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
+  ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
 });
 
 const unsupportedAction = (e: unknown) => /unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e));
+
+/**
+ * Every property token in a text as the service's save-time parser reads it (PIE-401 `properties.preview`):
+ * key, value, scope (block / line / inline), where it sits, and the `ordinal` `properties.patch` addresses.
+ * Ordinals count every token (hashtags too) and hold only for exactly that text.
+ */
+export interface PropertyRecord {
+  key: string; value: string; raw: string; start: number; end: number; line: number; column: number;
+  placement: "metadata-line" | "trailing-metadata" | "inline"; syntax: "bracket" | "bare" | "hashtag";
+  ordinal: number; scope: "block" | "line" | "inline";
+}
+/** How the service reads one `((id^fragment|label))` (`references.resolve`). */
+export interface ReferenceResolution {
+  blockId: string; fragmentId?: string; label?: string;
+  status: "resolved" | "deleted" | "missing" | "stale" | "duplicate";
+  title?: string;
+}
+/** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
+export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
 
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
@@ -284,6 +304,43 @@ export class SocketBoard implements Board {
     } catch { return null; }
   }
 
+  /**
+   * A block, or null when the service says there is no such block. Any other failure (a timeout, a
+   * dropped connection) throws, so a reader can tell "missing" from "couldn't ask". Trashed blocks come
+   * back with `deleted`.
+   */
+  async read(id: string): Promise<Msg | null> {
+    try {
+      const ctx = await this.request<{ selected: WireBlock | null; children: WireBlock[] }>("blocks.context", { blockId: id });
+      return ctx.selected ? toMsg(ctx.selected, ctx.children.map(c => c.id)) : null;
+    } catch (e) {
+      if (e instanceof Refused && /not found/i.test(e.message)) return null;
+      throw e;
+    }
+  }
+
+  /** How the service reads every `((…))` in `text`: status, title, label, fragment (the Detail's own resolver). */
+  async resolveReferences(text: string): Promise<ReferenceResolution[]> {
+    return (await this.request<{ references: ReferenceResolution[] }>("references.resolve", { text })).references;
+  }
+
+  /** The workspace's configured Work-ID prefix (`PIE`), or null when none is configured. */
+  async workIdPrefix(): Promise<string | null> {
+    return (await this.request<{ workIdPrefix?: string }>("references.resolve", { text: "" })).workIdPrefix ?? null;
+  }
+
+  /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */
+  async resolvePage(address: string): Promise<PageResolution> {
+    const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
+    return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
+  }
+
+  /** Every property token in `text`, as the service parses it (PIE-401). Null on services without `properties.preview`. */
+  async propertyRecords(text: string): Promise<PropertyRecord[] | null> {
+    const r = await this.optional<{ tokens: PropertyRecord[] }>("properties.preview", "properties.preview", { text });
+    return r && r.tokens;
+  }
+
   /** Breadcrumb, root first. */
   async ancestors(id: string): Promise<Msg[]> {
     const ctx = await this.request<{ ancestors: WireBlock[] }>("blocks.context", { blockId: id });
@@ -375,6 +432,15 @@ export class SocketBoard implements Board {
     const r = await this.optional<{ blocks: WireBlock[] }>("blocks.read", "blocks.read", { ids, fields });
     if (r) return r.blocks.map(b => toMsg(b));
     return (await Promise.all(ids.map(id => this.get(id)))).filter((m): m is Msg => !!m);
+  }
+
+  /**
+   * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
+   * Trash. Null when this service can't.
+   */
+  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] } | null> {
+    const r = await this.optional<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", "blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+    return r && { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
   }
 
   /**
