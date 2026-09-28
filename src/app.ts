@@ -54,6 +54,8 @@ export interface Screen {
   unsaved?(): boolean;
   /** The screen is being closed with unsaved drafts: copy them to disk, return where they went. */
   keepDrafts?(): string[];
+  /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
+  holdsKeys?(): boolean;
   /** What this screen shows, for agents (`ep0ch-door peek`). */
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */

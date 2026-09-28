@@ -171,9 +171,16 @@ if (scenario === "rendering") {
   const reader = () => [...(desk as any).panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === seeded.notes.notebook.id);
   for (let i = 0; i < 40 && reader()?.surface.describe().elements?.current?.label !== "the allotment society"; i++) { ch("]"); await Bun.sleep(40); }
   await snap("1-reader", 1200);
-  const { Reader } = await import("../src/screens");
-  app.push(new Reader([seeded.notes.notebook], 0));
+  // PIE-426: the BBS message reader is the same surface under its BBS header: its first link current
+  // (the ruler under its block), then its property panel.
+  const { MessageReader } = await import("../src/screens");
+  const bbs = new MessageReader([seeded.notes.notebook], 0);
+  app.push(bbs);
   await snap("2-bbs", 1200);
+  for (let i = 0; i < 40 && bbs.surface.describe().elements?.current?.label !== "the allotment society"; i++) { ch("]"); await Bun.sleep(40); }
+  await snap("3-bbs-link", 600);
+  press({ kind: "esc" }); ch("i");
+  await snap("4-bbs-panel", 600);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "showcase") {

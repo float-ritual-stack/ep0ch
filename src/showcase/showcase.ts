@@ -20,7 +20,7 @@ import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
 import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
-import { LastCallers, Reader, WhoOnline } from "../screens";
+import { LastCallers, MessageReader, WhoOnline } from "../screens";
 import { leaf, pair, type LNode } from "../desk/layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { loadShowcase, SEED, type SeedName } from "./seed";
@@ -57,10 +57,11 @@ function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | un
 
 export const SECTIONS: Section[] = [
   {
-    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
+    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
     stage(n, show) {
       const r = new ReaderPane();
-      const bbs = new ScreenPane(`${PARALLEL} · BBS Reader · src/screens.ts`, m => (m ? new Reader([m], 0) : null), true);
+      // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
+      const bbs = new ScreenPane("the same NoteSurface in the BBS message reader · src/screens.ts", m => (m ? new MessageReader([m], 0) : null), true);
       return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },

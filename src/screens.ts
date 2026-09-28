@@ -14,11 +14,9 @@ import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
 import { ago, bbsDate, rule, wrap } from "./text";
-import { ComponentCatalog } from "./components";
-import { renderDoc } from "./doc";
-import type { Source } from "./props";
-import { presentLinks } from "./refs";
-import { readableSource } from "./surface/note";
+import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
+import { ActionRefused, ActionSet, asActor, type ActRequest } from "./surface/actions";
+import { USER, type Actor, type OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -254,86 +252,232 @@ export class MessageList implements Screen {
     const list = this.items ?? [];
     if (isBack(k)) return ctx.pop();
     if (!list.length) return;
-    if (k.kind === "enter") return ctx.push(new Reader(list, this.sel));
+    if (k.kind === "enter") return ctx.push(new MessageReader(list, this.sel));
     if (k.kind === "char" && k.ch.toLowerCase() === "t") return ctx.push(new MessageList(`thread: ${subject(list[this.sel]!).slice(0, 30)}`, () => ctx.board.children(list[this.sel]!.id), "", false));
     this.sel = nav(k, list.length, this.sel, ctx.t.rows - 10);
     ctx.redraw();
   }
 }
 
-export class Reader implements Screen {
+/** What a message reader's own actions (MESSAGE_ACTIONS) run on. */
+interface MessageOn { r: MessageReader; ctx: Ctx }
+
+/**
+ * The BBS message reader (PIE-426): the BBS message header (Date, To, From, Subj, Conf, Stat) over the
+ * shared note surface (src/surface/note.ts), hosted through SurfaceHost as the board, the desk and the
+ * river host it. The surface draws, folds, edits and comments on the message, steps through its links
+ * and other elements (`[ ]`, ⏎, a click), selects and copies, and takes agents' note actions; the
+ * reader adds the BBS keys (next, previous, thread) and opens a followed link as the next reader on the
+ * screen stack, the way `U` always opened the message above.
+ */
+export class MessageReader implements Screen {
   title = "reading";
-  private scroll = 0;
-  private crumbs: string | null = null;
-  private replies: number | null = null;
-  private src: Source | null = null;
-  private components: { for: string; catalog: ComponentCatalog } | null = null;
+  readonly surface = new NoteSurface();
+  private replies: { for: string; n: number | null } | null = null;
+  private shown = false;
+  private ctx: Ctx | null = null;
   constructor(private readonly list: Msg[], private index: number) {}
-  /**
-   * The message body, drawn by the note body renderer every reader uses (src/doc.ts): links read as their
-   * titles and labels, Markdown styles and component panels as Detail draws them, metadata lines hidden.
-   * Links here are text; stepping to them and opening them is the note surface's (PIE-426 brings it here).
-   */
-  private body(m: Msg, w: number, ctx: Ctx): string[] {
-    const src = (this.src ??= { board: ctx.board, redraw: () => ctx.redraw() });
-    if (this.components?.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
-    const r = readableSource(m, src);
-    const lines = renderDoc(presentLinks(r.text, false, src, m.text), {
-      width: w, cellW: ctx.t.cellW, cellH: ctx.t.cellH, graphics: false, maxImageRows: 8, unfold: false,
-      literal: r.literal, components: this.components.catalog, present: t => presentLinks(t, false, src, m.text),
-    }).lines;
-    while (lines.length && !lines[0]!.trim()) lines.shift();
-    return lines;
-  }
+
   private get msg() { return this.list[this.index]!; }
-  enter(ctx: Ctx) { this.fetch(ctx); }
-  private fetch(ctx: Ctx) {
-    const id = this.msg.id;
-    this.crumbs = null; this.replies = null;
-    ctx.board.ancestors(id).then(a => { if (this.msg.id === id) { this.crumbs = a.map(subject).join(" › ") || "(top level)"; ctx.redraw(); } }, () => {});
-    ctx.board.get(id).then(m => { if (m && this.msg.id === id) { this.replies = m.childIds.length; ctx.redraw(); } }, () => {});
+  /** What the person is in here, for a refusal: "an edit", "a comment", "the property panel". */
+  personIn(): string { const s = this.surface; return s.draft ? "an edit" : s.session ? "a comment" : "the property panel"; }
+
+  /** The surface's host: this screen, its header, and where a followed link opens (the next reader on the stack). */
+  host(ctx: Ctx): SurfaceHost {
+    return {
+      ctx,
+      redraw: () => ctx.redraw(),
+      navigate: (m, how) => {
+        // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
+        // what it followed is named, not opened over them.
+        if (how?.agent && this.surface.holdsKeys) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
+        ctx.push(new MessageReader([m], 0));
+      },
+      header: (m, w, info) => this.header(m, w, info),
+    };
   }
-  render(ctx: Ctx): Frame {
-    const w = ctx.t.cols, h = ctx.t.rows - 1, m = this.msg;
+
+  /** The BBS message header, from the note the surface shows (the whole one once a list row is read). */
+  private header(m: Msg, w: number, info: HeaderInfo): string[] {
     const status = m.props.status ?? m.props.type ?? "public message";
-    const header = [
+    const replies = this.replies?.for === m.id ? this.replies.n : null;
+    const c = info.comments;
+    const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
+    const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
+    return [
       paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${m.props["work-id"] ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
       paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
-      paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${this.replies === null ? "…" : this.replies}`),
-      paint(`|09Subj: |15${subject(m).slice(0, w - 30)}`) ,
-      paint(`|09Conf: |11${pad(this.crumbs ?? "…", w - 7)}`),
-      paint(`|09Stat: |13${status.toUpperCase()}`),
-      rule(w),
-    ];
-    const body = this.body(m, w - 2, ctx).map(l => " " + l);
-    const room = h - header.length - 2;
-    this.scroll = Math.max(0, Math.min(this.scroll, body.length - room));
-    const lines = [...header, ...body.slice(this.scroll, this.scroll + room)];
-    while (lines.length < h - 1) lines.push("");
-    const more = body.length > room ? ` · ${Math.round(((this.scroll + room) / body.length) * 100)}%` : "";
-    lines.push(paint(`|08  |15N|08ext |15P|08rev |15T|08hread |15U|08p · ↑↓ scroll${more} · |15Q|08 back`));
-    return { lines };
+      paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${replies === null ? "…" : replies}`),
+      paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
+      paint(`|09Conf: |11${pad(info.crumbs, Math.max(1, w - 6))}`),
+      paint(`|09Stat: |13${status.toUpperCase()}${props}${comments}`),
+    ].map(l => pad(l, w));
   }
+
+  // The screen's own ctx is kept from enter, render and key: never an agent's (asActor), which only lasts for its action.
+  enter(ctx: Ctx) { this.ctx = ctx; this.open(ctx); }
+
+  /** Show the message at `index` in the surface; false while an edit, a comment or a value being typed holds it. */
+  private open(ctx: Ctx): boolean {
+    this.shown = true;
+    if (!this.surface.show(this.msg, this.host(ctx))) return false;
+    const id = this.msg.id;
+    this.replies = { for: id, n: null };
+    this.countReplies(id, ctx);
+    return true;
+  }
+
+  /** The reply count: the message's children, less its comments and their replies (stored as children too). */
+  private countReplies(id: string, ctx: Ctx) {
+    ctx.board.children(id).then(kids => {
+      if (this.replies?.for !== id) return;
+      this.replies.n = kids.filter(k => k.props.type !== "annotation" && k.props.type !== "annotation-reply").length;
+      ctx.redraw();
+    }, () => {});
+  }
+
+  /** Next (+1) or previous (-1) message in the list this reader was opened from. */
+  step(dir: 1 | -1, ctx: Ctx): { index: number; of: number; id: string } {
+    const to = this.index + dir;
+    if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
+    const was = this.index;
+    this.index = to;
+    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ctrl+s saves · esc closes`); }
+    return { index: to + 1, of: this.list.length, id: this.msg.id };
+  }
+
+  /** An agent moved the reader: said in the status bar and, until the person moves on, in the reader. */
+  moved<T extends { index: number; of: number }>(out: T, ctx: Ctx, actor: Actor): T {
+    if (actor.kind === "agent") { ctx.flash(`moved to message ${out.index} of ${out.of}`); this.surface.noteAgent(actor, `moved here (message ${out.index} of ${out.of})`); }
+    return out;
+  }
+
+  /** `T`: the message's replies, as a message list. */
+  thread(ctx: Ctx) {
+    const m = this.surface.msg ?? this.msg;
+    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, () => ctx.board.children(m.id), "", false));
+  }
+
+  render(ctx: Ctx): Frame {
+    if (!this.shown) this.open(ctx);
+    this.ctx = ctx;
+    const w = ctx.t.cols, h = ctx.t.rows - 1;
+    const v = this.surface.render(w, Math.max(1, h - 1), this.host(ctx));
+    const lines = v.lines.slice(0, h - 1);
+    while (lines.length < h - 1) lines.push("");
+    lines.push(this.hint(v.scroll, w));
+    return { lines, placements: v.placements };
+  }
+
+  /**
+   * The surface's hint, with the BBS keys where a host's own go (before the reading keys; an element, a
+   * selection, an edit or the panel say their own keys instead), then how far down and the way back.
+   */
+  private hint(scroll: { top: number; room: number; total: number } | undefined, w: number): string {
+    const s = this.surface;
+    const more = scroll && scroll.total > scroll.room ? ` · ${Math.round(((scroll.top + scroll.room) / scroll.total) * 100)}%` : "";
+    return pad(fg(C.dark) + "  " + s.hint("n next · p prev · t thread · ") + (s.holdsKeys ? "" : `${more} · q back`) + RESET, w);
+  }
+
   key(k: Key, ctx: Ctx) {
-    if (isBack(k)) return ctx.pop();
-    const c = k.kind === "char" ? k.ch.toLowerCase() : "";
-    if (c === "n" || k.kind === "enter" || k.kind === "right") { if (this.index < this.list.length - 1) { this.index++; this.scroll = 0; this.fetch(ctx); } else ctx.flash("end of messages"); }
-    else if (c === "p" || k.kind === "left") { if (this.index > 0) { this.index--; this.scroll = 0; this.fetch(ctx); } }
-    else if (c === "t") return ctx.push(new MessageList(`thread: ${subject(this.msg).slice(0, 30)}`, () => ctx.board.children(this.msg.id), "", false));
-    else if (c === "u") {
-      const parent = this.msg.parentId;
-      if (!parent) { ctx.flash("already at the top of the conference"); return; }
-      ctx.board.get(parent).then(p => { if (p) ctx.push(new Reader([p], 0)); }, () => {});
-      return;
-    }
-    else if (k.kind === "up" || c === "k") this.scroll = Math.max(0, this.scroll - 1);
-    else if (k.kind === "down" || c === "j" || c === " ") this.scroll += c === " " ? ctx.t.rows - 10 : 1;
-    else if (k.kind === "pgdn") this.scroll += ctx.t.rows - 10;
-    else if (k.kind === "pgup") this.scroll = Math.max(0, this.scroll - (ctx.t.rows - 10));
+    this.ctx = ctx;
+    const host = this.host(ctx);
+    if (k.kind === "mouse") return this.mouse(k, ctx, host);
+    // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
+    if (this.surface.holdsKeys) { this.surface.key(k, host); return; }
+    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
+    if (c === "q" || c === "Q") return ctx.pop();
+    if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
+    // What the surface doesn't take: the BBS keys. ⏎ is "next" unless an element is current (the surface's).
+    const run = (name: "message.next" | "message.previous" | "message.thread") => {
+      Promise.resolve().then(() => MESSAGE_ACTIONS.run(name, {}, { r: this, ctx }, USER)).catch((e: Error) => ctx.flash(e.message)).finally(() => ctx.redraw());
+    };
+    if (k.kind === "esc") return ctx.pop();
+    if (c === "n" || c === "N" || k.kind === "enter" || k.kind === "right") return run("message.next");
+    if (c === "p" || c === "P" || k.kind === "left") return run("message.previous");
+    if (c === "t" || c === "T") return run("message.thread");
+    if (c === "u" || c === "U") { ctx.flash("already at the top of the conference"); return; }
+    if (k.kind === "home" || k.kind === "end") { this.surface.scrollKey(k, host); return; }
     ctx.redraw();
   }
+
+  /** The mouse over the reader: the surface's press, drag, release (a click or a selection) and wheel. The hint row isn't the surface's. */
+  private mouse(k: Extract<Key, { kind: "mouse" }>, ctx: Ctx, host: SurfaceHost) {
+    const inside = k.y < ctx.t.rows - 2;
+    if (k.action === "wheel-up" || k.action === "wheel-down") { if (inside) this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host); return; }
+    if (k.action === "down") { if (inside) this.surface.press(k.x, k.y, host); return; }
+    if (k.action === "drag") { this.surface.drag(k.x, k.y, host); return; }
+    if (k.action === "up") { this.surface.release(k.x, k.y, host); ctx.redraw(); }
+  }
+
+  onEvent(e: OutlineEvent, ctx: Ctx) {
+    const m = this.surface.msg, host = this.host(ctx);
+    this.surface.onEvent(host);
+    if (e.action === "reconnected") this.surface.retry(host);
+    if (!m) return;
+    const stale = e.action === "reset" || (e.blockId === m.id && !(e.change?.revision !== undefined && m.revision === e.change.revision && !m.partial));
+    if (stale) ctx.board.get(m.id).then(x => { if (x) { this.surface.refresh(x); ctx.redraw(); } }, () => {});
+    // A reply written or removed under this message changes its count.
+    if (this.replies?.for === m.id && (e.action === "reset" || (e.change && ["create", "move", "delete", "restore", "purge"].includes(e.change.kind)))) this.countReplies(m.id, ctx);
+  }
+
+  unsaved() { return this.surface.unsaved(); }
+  keepDrafts() { return this.surface.keepDrafts(); }
+  holdsKeys() { return this.surface.holdsKeys; }
+
+  describe() {
+    return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };
+  }
+
+  /** `open <id>`: the note in a new message reader above this one, unless the person is in an edit, a comment or the panel here. */
+  openBlock(m: Msg) {
+    if (this.surface.holdsKeys) throw new ActionRefused(`the person is in ${this.personIn()} here; try again once they close it`);
+    this.ctx?.push(new MessageReader([m], 0));
+  }
+
+  actions() { return { actions: [...MESSAGE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: [READER] }; }
+
+  async act(req: ActRequest, actor: Actor): Promise<unknown> {
+    const ctx = this.ctx;
+    if (!ctx) throw new ActionRefused("the message reader isn't shown yet");
+    const args = { ...(req.args ?? {}) };
+    const sel = req.reader;
+    if (sel && sel !== READER && sel !== "focused" && !(/^[0-9a-f-]{8,}$/.test(sel) && this.surface.msg?.id.startsWith(sel)))
+      throw new ActionRefused(`the message reader has one reader, "${READER}"${this.surface.msg ? `, showing ${this.surface.msg.id}` : ""}; not ${sel}`);
+    if (MESSAGE_ACTIONS.has(req.action)) return MESSAGE_ACTIONS.runUntyped(req.action, args, { r: this, ctx: asActor(ctx, actor) }, actor);
+    if (!NOTE_ACTIONS.has(req.action)) throw new ActionRefused(`no action ${req.action} in the message reader; \`actions\` lists them`);
+    const out = await this.surface.act(req.action, args, this.host(ctx), actor);
+    return { reader: READER, ...(out && typeof out === "object" ? out : { result: out }) };
+  }
 }
+
+/** The message reader's one reader, as `actions` and `act reader=` name it. */
+const READER = "message";
+
+/** The message reader's own keys, as actions: next, previous, thread. The note's actions are NOTE_ACTIONS. */
+export const MESSAGE_ACTIONS = new ActionSet<{ "message.next": Record<string, never>; "message.previous": Record<string, never>; "message.thread": Record<string, never> }, MessageOn>("message", {
+  "message.next": {
+    summary: "read the next message in the list the reader was opened from", keys: "n, ⏎ (with no element current), →",
+    args: {},
+    run(_, { r, ctx }, actor) { return r.moved(r.step(1, ctx), ctx, actor); },
+  },
+  "message.previous": {
+    summary: "read the previous message in the list", keys: "p, ←",
+    args: {},
+    run(_, { r, ctx }, actor) { return r.moved(r.step(-1, ctx), ctx, actor); },
+  },
+  "message.thread": {
+    summary: "list the message's replies (its children) as messages", keys: "t",
+    args: {},
+    run(_, { r, ctx }, actor) {
+      if (actor.kind === "agent" && r.surface.holdsKeys) throw new ActionRefused(`the person is in ${r.personIn()} here; try again once they close it`);
+      r.thread(ctx);
+      return { opened: "thread" };
+    },
+  },
+});
 
 export class Conferences implements Screen {
   title = "join conference";
@@ -446,7 +590,7 @@ export class LastCallers implements Screen {
   key(k: Key, ctx: Ctx) {
     const rows = this.rows ?? [];
     if (isBack(k)) return ctx.pop();
-    if (k.kind === "enter" && rows.length) return ctx.push(new Reader(rows.map(r => r.block), this.sel));
+    if (k.kind === "enter" && rows.length) return ctx.push(new MessageReader(rows.map(r => r.block), this.sel));
     this.sel = nav(k, rows.length, this.sel, ctx.t.rows - 10);
     ctx.redraw();
   }
@@ -592,8 +736,8 @@ export class Help implements Screen {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
         ...ITEMS.map(i => paint(`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`)),
-        "", paint("|08   Kanban, Quay, Desk and Showcase write: edits, comments, card moves, trash and restore go to the outline,"),
-        paint("|08   recorded as you, or as the agent that did them. The other screens only read."),
+        "", paint("|08   Kanban, Quay, Desk, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
+        paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
     };
