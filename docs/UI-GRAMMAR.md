@@ -19,6 +19,7 @@ three pane models and four searches (§4).
 | show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks` | `src/surface/note.ts`, `src/socket.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
+| select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
 
 - **Don't copy the parallel versions:** the BBS `Reader` and `colourBody` bodies (F1), the board's
@@ -61,6 +62,7 @@ three pane models and four searches (§4).
 | `act` | `src/surface/actions.ts` |
 | `pp` | `src/surface/props-panel.ts` |
 | `cmp` | `src/surface/completer.ts` |
+| `sel` | `src/surface/selection.ts` |
 
 `del:1799` means line 1799 of `src/desk/delivery.ts` at the time of writing.
 
@@ -120,6 +122,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | comment session | Passage picker, comment, threads | `CommentSession` | passage comments |
 | completion | `[[`, `((`, `[file::` popup | `cmp`; wired at `note:592` | completion |
 | fold | Folded heading or list item (reader state) | `note:835` | Folding |
+| selection | Text selected in a reader (reading state; only `y`, `Y` or the copy control copy it) | `Selection` `sel:52` | text selection |
 | embed | `!((id))` transclusion region | `src/embeds.ts` | generated embed |
 
 ### Entity navigation

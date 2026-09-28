@@ -32,6 +32,8 @@ export class Desk implements Screen, DeskApi {
   private nextId = 1;
   private prefix: "" | "wm" | "add" = "";
   private drag: Divider | null = null;
+  /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
+  private pressed: { pane: ReaderPane; col: number; row: number } | null = null;
   private placed: Placed = { rects: new Map(), dividers: [] };
   private search: SearchOverlay | null = null;
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
@@ -349,17 +351,30 @@ export class Desk implements Screen, DeskApi {
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
-    if (k.action === "up") { if (this.drag) { this.drag = null; this.save(); } return; }
+    const p = this.pressed;
+    if (k.action === "up") {
+      if (this.drag) { this.drag = null; this.save(); }
+      if (p) { this.pressed = null; p.pane.release(k.x - p.col, k.y - p.row, this); this.redraw(); }
+      return;
+    }
     if (k.action === "drag" && this.drag) { dragTo(this.drag, k.x, k.y); return this.redraw(); }
+    if (k.action === "drag" && p) return p.pane.drag(k.x - p.col, k.y - p.row, this);
     const hit = [...this.placed.rects].find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
     if (k.action === "down") {
       const d = this.zoom === null ? dividerAt(this.placed.dividers, k.x, k.y) : null;
       if (d) { this.drag = d; return; }
       if (!hit) return;
+      // A click elsewhere lets go of a reader's selected text.
+      for (const [id, pane] of this.panes) if (id !== hit[0] && pane instanceof ReaderPane) pane.surface.selection = null;
       this.focus = hit[0];
       const r = hit[1];
       // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
-      if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) this.panes.get(hit[0])?.click?.(k.x - r.col - 1, k.y - r.row - 1, this);
+      if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) {
+        const pane = this.panes.get(hit[0]);
+        // A reader decides on release: a click, or a drag that selected text (PIE-419).
+        if (pane instanceof ReaderPane) { this.pressed = { pane, col: r.col + 1, row: r.row + 1 }; pane.press(k.x - r.col - 1, k.y - r.row - 1, this); }
+        else pane?.click?.(k.x - r.col - 1, k.y - r.row - 1, this);
+      }
       return this.redraw();
     }
     if (hit && (k.action === "wheel-up" || k.action === "wheel-down")) this.panes.get(hit[0])?.wheel?.(k.action === "wheel-up" ? -1 : 1, this);

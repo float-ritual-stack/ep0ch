@@ -15,6 +15,7 @@ import type { CommentSession } from "../comment";
 import type { Actor, IndexBlock, OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS, NoteSurface, type Link, type SurfaceHost } from "../surface/note";
+import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
 import { bg, C, extractLinks, fg, pad, paint, RESET } from "../style";
@@ -42,6 +43,8 @@ interface PaneS {
   agents: { of: Draft | CommentSession | null; ids: Set<string> };
   /** When the property notice or agent line now showing was first drawn. */
   shown?: { key: string; at: number };
+  /** Every row the pane drew last (not just those in view), for selecting text (PIE-419). */
+  drawn?: { lines: string[]; w: number };
 }
 interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean }
 type Cover = "full" | "peek" | "spine";
@@ -146,6 +149,14 @@ export class River implements Screen {
    * focus, is entered with e or ⏎. Until then h l, tab and the rest keep navigating.
    */
   private entered: { p: PaneS; of: Draft | CommentSession } | null = null;
+  /**
+   * Text the person selected in a pane (PIE-419), in the pane's drawn rows: the same selection model as
+   * a reader's (src/surface/selection.ts). Only y copies it; selecting never does.
+   */
+  private sel: { p: PaneS; s: Selection } | null = null;
+  private gesture = new Gesture();
+  /** Where the mouse went down: the row and link it was on then (a release there is a click on them). */
+  private down: { p: PaneS; rect: Rect; row?: HitRow; link?: Link; same: boolean; dragging: boolean } | null = null;
 
   enter(ctx: Ctx) {
     this.ctx = ctx;
@@ -309,12 +320,12 @@ export class River implements Screen {
     const rows = this.flat(p);
     const lines: string[] = [], hit: Hit["rows"] = [];
     p.top = Math.max(0, Math.min(p.top, p.sel - Math.floor(r.rows / 2)));
-    rows.slice(p.top, p.top + r.rows).forEach((row, i) => {
-      const n = p.top + i;
+    const all = rows.map((row, n) => {
       const t = `${"  ".repeat(row.depth)}${glyph(row.m)} ${subject(row.m)}`;
-      lines.push(n === p.sel ? (active ? SEL : bg(C.dark) + fg(C.white)) + pad(t, r.cols) + RESET : fg(C.grey) + pad(t, r.cols) + RESET);
-      hit.push({ card: n, replies: false });
+      return n === p.sel ? (active ? SEL : bg(C.dark) + fg(C.white)) + pad(t, r.cols) + RESET : fg(C.grey) + pad(t, r.cols) + RESET;
     });
+    this.keepRows(p, all, r.cols);
+    all.slice(p.top, p.top + r.rows).forEach((l, i) => { lines.push(this.paintSel(p, l, p.top + i)); hit.push({ card: p.top + i, replies: false }); });
     if (!p.items) lines.push(fg(C.dark) + "…" + RESET);
     return { lines, rows: hit };
   }
@@ -365,12 +376,85 @@ export class River implements Screen {
       if (last >= p.top + r.rows) p.top = last - r.rows + 1;
     }
     p.top = Math.max(0, Math.min(p.top, Math.max(0, all.length - r.rows)));
+    this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
-    return { lines: view.map(l => l.text), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
+    return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
+  }
+
+  /** A press and release on the same cell of a pane: what a click there always did. */
+  private clickPane(d: NonNullable<River["down"]>) {
+    const p = d.p;
+    if (this.sel?.p === p) this.sel = null;                 // a click lets go of the selection
+    if (d.link) {
+      this.gesture.forget();
+      // A link in the column's note: it opens beside, as [ ] then ⏎ on it would.
+      try { void this.ready(p).open(d.link, this.hostFor(p)); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+      if (this.entered && this.entered.p !== this.paneS) this.entered = null;
+      this.save();
+      return;
+    }
+    const row = d.row;
+    if (!row || row.card < 0) return;
+    const m = this.flat(p)[row.card]?.m;
+    if (m && row.replies) return this.toggle(p, m);
+    if (m && d.same) { this.open(m, false); this.entered = null; }
+  }
+
+  // ── selecting text (PIE-419) ───────────────────────────────────────────────
+
+  /** A pane's drawn rows; a selection made at another width no longer points at the same text. */
+  private keepRows(p: PaneS, lines: string[], w: number) {
+    p.drawn = { lines, w };
+    if (this.sel?.p === p && this.sel.s.w !== w) this.sel = null;
+  }
+
+  private paintSel(p: PaneS, line: string, row: number): string {
+    const span = this.sel?.p === p ? this.sel.s.span(row) : null;
+    return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
+  }
+
+  /** The pane cell under the pointer, clamped to the pane (the river keeps its own scroll while selecting). */
+  private posIn(d: { p: PaneS; rect: Rect }, x: number, y: number): Pos {
+    const r = d.rect;
+    return { row: d.p.top + Math.max(0, Math.min(r.rows - 1, y - r.row)), col: Math.max(0, Math.min(r.cols - 1, x - r.col)) };
+  }
+
+  /** v, y, Y, and while there's a selection esc and the keyboard mode's keys. True when the key was the selection's. */
+  private selectKey(k: Key, p: PaneS | undefined): boolean {
+    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const sel = this.sel;
+    if (!sel) {
+      if (c === "y" || c === "Y") { this.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
+      if (c !== "v" || !p?.drawn) return false;
+      const at = { row: p.top, col: 0 };
+      this.sel = { p, s: new Selection({ ...at }, { ...at }, true, p.drawn.w) };
+      this.ctx.redraw();
+      return true;
+    }
+    const rows = rowsOf(sel.p.drawn?.lines ?? []);
+    if (c === "y") {
+      const text = sel.s.text(rows);
+      if (!text.trim()) this.ctx.flash("nothing to copy: only blanks are selected");
+      else { this.ctx.copy?.(text); this.ctx.flash(`copied ${[...text].length} chars`); }
+      return true;
+    }
+    if (c === "Y") { this.ctx.flash("a river column draws a digest of the note, so its source isn't mapped here · y copies what's drawn; a reader's Y copies the source"); return true; }
+    if (!sel.s.keys) {
+      if (c === "v") { sel.s.keys = true; this.ctx.redraw(); return true; }
+      if (k.kind === "esc") { this.sel = null; this.ctx.redraw(); return true; }
+      return false;
+    }
+    const r = modeKey(k, sel.s, rows, 10);
+    if (r === null) return false;
+    if (r === "done") this.sel = null;
+    this.ctx.redraw();
+    return true;
   }
 
   private hints(W: number): string {
     const sp = this.paneS;
+    const s = this.sel;
+    if (!this.mode && s) return pad(` ${fg(C.grey)}${selectionHint(s.s, [...s.s.text(rowsOf(s.p.drawn?.lines ?? []))].length).replace(" · Y source", "")}${RESET}`, W);
     if (!this.mode && sp && sp.surface.editing && !sp.surface.panel && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
     if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
@@ -483,6 +567,7 @@ export class River implements Screen {
     if (col.panes.length > 1) { col.panes.splice(pi, 1); if (pi <= col.pane) col.pane = Math.max(0, col.pane - 1); }
     else if (this.cols.length > 1) { this.cols.splice(ci, 1); if (this.focus >= ci) this.focus = Math.max(0, this.focus - 1); }
     else return "it's the last column";
+    if (this.sel?.p === p) this.sel = null;                 // its selected text went with it
     this.save();
     return null;
   }
@@ -815,6 +900,7 @@ export class River implements Screen {
     // An edit, a passage being picked, a comment being written, the thread list, that the person is in:
     // every key is the surface's.
     if (p && held && this.isEntered(p)) { p.surface.key(k, this.hostFor(p)); return; }
+    if (!held && this.selectKey(k, p)) return;
     // One they aren't in (an agent's, or theirs after moving focus away and back): e or ⏎ enters it; the
     // other keys keep navigating the river, so an agent's session never takes the person's keys.
     if (p && held && (c === "e" || k.kind === "enter")) {
@@ -899,10 +985,25 @@ export class River implements Screen {
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const inside = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
+    if (k.action === "drag") {
+      const d = this.down;
+      if (!d || !this.gesture.drag(k.x, k.y) || !d.p.drawn) return;
+      // A drag off the pressed cell selects (PIE-419); from a link or a card it selects too, never opens.
+      if (!d.dragging) { d.dragging = true; const a = this.posIn(d, this.gesture.pressed!.x, this.gesture.pressed!.y); this.sel = { p: d.p, s: new Selection(a, { ...a }, false, d.p.drawn.w) }; }
+      if (this.sel?.p === d.p) this.sel.s.head = this.posIn(d, k.x, k.y);
+      return this.ctx.redraw();
+    }
+    if (k.action === "up") {
+      const d = this.down, r = this.gesture.release(k.x, k.y);
+      this.down = null;
+      if (d && r.click) this.clickPane(d);
+      return this.ctx.redraw();
+    }
     if (k.action === "down") {
       const h = this.hits.find(h => inside(h.rect));
       const cr = this.colRects.find(c => inside(c.rect));
       if (cr) this.focus = cr.col;
+      this.down = null;
       if (h) {
         const col = this.cols[h.col]!, p = col.panes[h.pane]!;
         col.pane = h.pane;
@@ -911,23 +1012,26 @@ export class River implements Screen {
         if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) return this.ctx.redraw();
         const row = h.rows[k.y - h.rect.row];
         const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
-        if (link && !p.surface.editing) {
-          // A link in the column's note: it opens beside, as [ ] then ⏎ on it would.
-          try { void this.ready(p).open(link.link, this.hostFor(p)); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
-          if (this.entered && this.entered.p !== this.paneS) this.entered = null;
-          this.save();
-          return this.ctx.redraw();
-        }
-        if (row && row.card >= 0) {
-          const same = p.sel === row.card;
+        const same = !!row && row.card >= 0 && p.sel === row.card;
+        if (row && row.card >= 0 && !(link && !p.surface.editing)) {
           p.sel = row.card;
           // The clicked card is what ⏎ opens now, not a link selected in the note before.
           if (!p.surface.editing) p.surface.clearLink();
-          const m = this.flat(p)[row.card]?.m;
-          if (m && row.replies) return this.toggle(p, m);
-          if (m && same) { this.open(m, false); this.entered = null; return; }
+        }
+        // What the click does (open a link or the card, show replies) waits for the release: a drag selects instead.
+        this.down = { p, rect: h.rect, row, link: link && !p.surface.editing ? link.link : undefined, same, dragging: false };
+        // On a card's row a second click opens it, as it always did; double and triple clicks select in the note's text.
+        if (row && row.card >= 0) this.gesture.forget();
+        const n = this.gesture.press(k.x, k.y);
+        const rows = p.drawn && rowsOf(p.drawn.lines);
+        if (n > 1 && rows && !p.surface.editing) {
+          const at = this.posIn(this.down, k.x, k.y);
+          this.sel = { p, s: n === 2 ? wordAt(rows, at) : lineAt(rows, at.row) };
+          this.sel.s.w = p.drawn!.w;
         }
       }
+      // A press anywhere else lets go of the selection (a click in its own pane does, on release).
+      if (this.sel && this.sel.p !== this.down?.p) this.sel = null;
       if (this.entered && this.entered.p !== this.paneS) this.entered = null;
       this.save();
       return this.ctx.redraw();
@@ -947,6 +1051,7 @@ export class River implements Screen {
 }
 
 interface RiverOn { r: River; reader?: string }
+
 
 /** What the river adds to a column's note actions: which note is a column, which has the keys, and the threads. */
 export const RIVER_ACTIONS = new ActionSet<{

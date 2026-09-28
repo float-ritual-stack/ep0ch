@@ -34,7 +34,9 @@ type Drag =
   | { kind: "lanes-split" } | { kind: "tree-edge" } | { kind: "links-edge" }
   | { kind: "lane-edge"; a: number; b: number } | { kind: "reader-edge"; a: number; b: number }
   | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float }
-  | { kind: "card"; from: number; card: Msg; over: number | null; open: boolean };
+  | { kind: "card"; from: number; card: Msg; over: number | null; open: boolean }
+  /** The mouse went down in a reader (PIE-419): a drag selects its text, the release is the click. */
+  | { kind: "select"; pane: ReaderPane; col: number; row: number; open?: (m: Msg) => void };
 interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right"; laneWeights: Record<string, number>; readerWeights: number[] }
 interface Saved extends Layout {
   treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string>;
@@ -673,7 +675,9 @@ export class DeliveryBoard implements Screen, DeskApi {
     const x = k.x - r.col - 1, y = k.y - r.row - 1 - skip;
     if (x < 0 || y < 0 || x >= r.cols - 2 || y >= r.rows - 2 - skip) return;
     const drawer = pane === this.treePreview || pane === this.linksPreview;
-    pane.click(x, y, this, drawer ? m => { this.current = m; this.openDetail(m, false); } : undefined);
+    // Decided on release: a click (a link opens, a heading folds…), or a drag that selected text.
+    this.drag = { kind: "select", pane, col: r.col + 1, row: r.row + 1 + skip, open: drawer ? m => { this.current = m; this.openDetail(m, false); } : undefined };
+    pane.press(x, y, this);
   }
 
   /** The backlink source `id` in a detail (the list's click, like ⏎), read whole first. */
@@ -1778,10 +1782,21 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
+    if (k.action !== "down") return this.pointer(k);
+    this.pointer(k);
+    // A click anywhere but in a reader's own text lets go of what's selected there.
+    const keep = this.drag?.kind === "select" ? this.drag.pane : null;
+    let cleared = false;
+    for (const r of this.readers()) if (r !== keep && r.surface.selection) { r.surface.selection = null; cleared = true; }
+    if (cleared) this.redraw();
+  }
+
+  private pointer(k: Extract<Key, { kind: "mouse" }>) {
     const inside = (r?: Rect) => !!r && k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
     if (k.action === "up") {
       const d = this.drag;
       this.drag = null;
+      if (d?.kind === "select") { d.pane.release(k.x - d.col, k.y - d.row, this, d.open); return this.redraw(); }
       if (d?.kind === "card") {
         // Released over another lane: move it there. Released where it started: a click (a second click opens it).
         if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.moveTo(d.over); }
@@ -1915,6 +1930,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     }
     else if (d.kind === "float-move") { d.f.rect.col = x - d.dx; d.f.rect.row = y - d.dy; }
     else if (d.kind === "float-size") { d.f.rect.cols = Math.max(20, x - d.f.rect.col + 1); d.f.rect.rows = Math.max(5, y - d.f.rect.row + 1); }
+    else if (d.kind === "select") d.pane.drag(x - d.col, y - d.row, this);
     else if (d.kind === "card") d.over = this.laneRects.find(l => x >= l.rect.col && x < l.rect.col + l.rect.cols && y >= l.rect.row && y < l.rect.row + l.rect.rows)?.lane ?? null;
     this.redraw();
   }

@@ -251,6 +251,16 @@ export class ReaderPane implements Pane {
     const h = this.host(desk);
     return this.surface.click(x, y, open ? { ...h, navigate: open } : h);
   }
+  /**
+   * The mouse in the pane (PIE-419): press, drag, release. A release on the pressed cell is the click
+   * above (with `open` as there); a drag selects text instead, and never copies it.
+   */
+  press(x: number, y: number, desk: DeskApi) { this.surface.press(x, y, this.host(desk)); }
+  drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
+  release(x: number, y: number, desk: DeskApi, open?: (m: Msg) => void): boolean {
+    const h = this.host(desk);
+    return this.surface.release(x, y, open ? { ...h, navigate: open } : h);
+  }
 }
 
 // ── which reader session the person is in (PIE-411) ──────────────────────────
