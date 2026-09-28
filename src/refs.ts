@@ -113,7 +113,12 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
 
 export interface LinkView { text: string; missing: boolean }
 /** What a link points at: a block (and fragment), or a page or Work ID; `label` as the note wrote it. */
-export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string };
+/**
+ * Where a link goes. `role`: what the reader drew it as, when it isn't a link in the text (PIE-441): an
+ * embed's title (`embed`), or a row that stands for a note (`row`: a live figure's row, an embedded
+ * view's result). Two links to the same place are the same link whatever their role.
+ */
+export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; role?: "embed" | "row" };
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {

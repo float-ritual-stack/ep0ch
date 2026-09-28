@@ -95,7 +95,7 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 | Pane | What it shows |
 |---|---|
 | outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless held (`p hold`, `p` again follows); `[ ]` pick a link, `⏎` follow (or click it), `u` parent, `( ) f F` fold |
+| reader | the current block; follows the selection unless held (`p hold`, `p` again follows); `[ ]` step through its elements, `⏎` act on one (or click it), `alt+⏎` a link in a new reader, `u` parent, `( ) f F` fold |
 | thread | the current block's children as replies, and its comment threads with quoted passages |
 | last callers · live | `activity.recent`, refreshed on outline events |
 | who's online | `clients.list`, with what each client is reading |
@@ -378,8 +378,9 @@ printed; they are in the **property panel**, one key away.
   `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
   target reads `label · Missing target`; a trashed one `title · Trash`; a missing fragment says so.
   Code keeps its text, and edit mode, comments and storage keep the raw syntax.
-- **Clicking a link opens it**, where `[ ]` then ⏎ on it would (in place in a board reader or float,
-  the desk's reader, a column beside in the river), and it becomes the selected link: `((…))`, `[[page]]`,
+- **Clicking a link opens it**, where `[ ]` then ⏎ on it would (in place in a board detail or float, in a
+  detail from the board's preview, the desk's reader, a column beside in the river), and it becomes the
+  current element: `((…))`, `[[page]]`,
   `[[Work ID]]`, an embed's title and an embedded view's results, and in the summary line and the
   property panel a value that names a block, a page or a Work ID (a click on a panel row selects it).
   Clicks find links where they are drawn, so scrolling and wrapping move them with the text. A missing
@@ -414,13 +415,42 @@ unfolded.
 |---|---|
 | `(` / `)` | select the previous / next heading or list item that folds (`▾`, yellow); the hint names it |
 | `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
-| `esc`, scrolling, `[ ]`, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail) |
+| `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
 | click | a heading (anywhere on its line but a link, which opens), or a list item's `▾`/`▸`, folds or unfolds it; the frame and its scroll thumb don't |
 | `z` | unfold callouts that start folded (`[!x]-`); unchanged |
 
 Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
 `all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
+
+### Moving through a reader
+
+`[` and `]` step through everything a reader draws, in reading order (PIE-441): links (in the text, the
+summary line, an image or a video), headings and list items that fold, the rows of a live figure or an
+embedded view that stand for a note, embeds (their title), and comment marks (`▐` in the margin beside the
+lines a comment quotes; yellow while it's open). `( )` still jumps between folds only. The reader's footer
+names the current one (`[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new`), and the block it's in gets
+the reading ruler: a calm amber tint across the reader.
+
+| Keys | Action |
+|---|---|
+| `[` / `]` | the previous / next element (from the view when none is current, or it's scrolled away) |
+| `⏎` | a link follows it (in place in a detail; from the board's preview into a detail, as `⏎` on a card); a fold folds or unfolds; a row or an embed opens its note; a comment mark opens its thread |
+| `alt+⏎` | a link, row or embed opens in a new reader: a new detail on the board, a new reader beside on the desk, a new column in the river |
+| click | the same as `⏎` on what's clicked, and it becomes the current element; a drag still selects text |
+| `esc`, scrolling, `u` | let go of the current element, so `⏎` means what it did before (the preview opens a detail); then `esc` takes away a focus mark |
+| `tab` | unchanged: it switches areas |
+
+An agent sees the same list with `elements` and acts on one with `element.open n=…` (a link, row or embed
+opens where the person's would; a fold toggles; a comment mark opens the thread list as its session). The
+`[ ]` position is the person's: `element.select` is theirs only, and an agent's `element.open` leaves it
+where it was. Instead an agent sets a **focus mark** with `focus.set` (`block=`, `line=`/`to=`, or
+`quote=`/`near=`, the same passage shape as a comment): the marked lines get the ruler's tint, the header
+says `◆ focus · an agent (<id>) marked …`, and the reader scrolls to it if it isn't in view. The person's
+position, selection and keys don't move. `focus.clear` takes it away. The mark lives in this door's reader;
+sharing it through the service, so other clients see it too, is PIE-423's service part. A river column
+draws its own digest of the note, so there `[ ]` steps its links, and `⏎` or `alt+⏎` opens the selected one
+beside or in a new column.
 
 ### Selecting and copying text
 
@@ -588,6 +618,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
 | `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
+| `elements`, `element.select`, `element.open` | `n` (from `elements`); `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `Enter`, `alt+Enter`, a click |
+| `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |

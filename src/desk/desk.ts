@@ -6,7 +6,7 @@ import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Actor, OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
-import { NOTE_ACTIONS } from "../surface/note";
+import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -88,7 +88,21 @@ export class Desk implements Screen, DeskApi {
 
   enter(ctx: Ctx) { this.ctx = ctx; for (const p of this.panes.values()) { p.init?.(this); p.select?.(this.current, this); } }
 
-  setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } = {}) {
+  setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
+    // alt+⏎ on a link (PIE-441): a new reader beside this one holds it; the others keep their notes. An
+    // agent's doesn't take the person's focus.
+    if (m && opts.fresh && opts.from instanceof ReaderPane) {
+      const at = [...this.panes].find(([, p]) => p === opts.from)?.[0];
+      if (at !== undefined) {
+        const id = this.add("reader");
+        this.root = split(this.root, at, id, this.placed.rects.get(at) ?? { col: 0, row: 0, cols: 80, rows: 24 });
+        this.zoom = null;
+        (this.panes.get(id) as ReaderPane).hold(m, this);
+        if (!opts.agent) this.focus = id;
+        this.save();
+        return this.redraw();
+      }
+    }
     this.current = m;
     for (const p of this.panes.values()) {
       p.select?.(m, this);
@@ -249,6 +263,9 @@ export class Desk implements Screen, DeskApi {
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
 
   /** The person's key starts a session in the focused reader: theirs once it opens, if they're still there. */
+  /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
+  startSession(rd: ReaderPane, kind: SessionKind) { this.start(rd, kind); }
+
   private start(rd: ReaderPane, kind: SessionKind) {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     const token = { pane: rd };

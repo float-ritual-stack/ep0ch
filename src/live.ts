@@ -112,7 +112,11 @@ const field = (m: Msg, key: string): string =>
 
 export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string }
 
-/** Turn a live block's props into the static props the drawing code already understands. */
+/**
+ * Turn a live block's props into the static props the drawing code already understands. A row that stands
+ * for one result (a check item, an event, a table row) carries its note's id (`block`, `blocks`), so the
+ * reader can open it (PIE-441).
+ */
 export function resolveLive(kind: string, p: Props): Resolved | null {
   // stat/kpi: each item can carry its own source.
   if ((kind === "stat" || kind === "kpi") && Array.isArray(p.items) && p.items.some((i: Props) => i?.query || i?.view)) {
@@ -140,7 +144,7 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
   const done = filterOf(p.done), now = filterOf(p.now);
   switch (kind) {
     case "check":
-      return { status, waiting: false, props: { ...p, items: items.map(m => ({ label: subject(m), done: done ? matches(m, done) : false, note: p.note ? field(m, p.note) || undefined : undefined })) } };
+      return { status, waiting: false, props: { ...p, items: items.map(m => ({ label: subject(m), done: done ? matches(m, done) : false, note: p.note ? field(m, p.note) || undefined : undefined, block: m.id })) } };
     case "rank": {
       const key = String(p.group ?? "status");
       const counts = new Map<string, number>();
@@ -149,10 +153,10 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     }
     case "table": {
       const cols: string[] = p.columns ?? ["title", "updated"];
-      return { status, waiting: false, props: { ...p, headers: p.headers ?? cols, rows: items.map(m => cols.map(c => field(m, c))) } };
+      return { status, waiting: false, props: { ...p, headers: p.headers ?? cols, rows: items.map(m => cols.map(c => field(m, c))), blocks: items.map(m => m.id) } };
     }
     case "timeline":
-      return { status, waiting: false, props: { ...p, events: items.map(m => ({ date: p.date ? field(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: subject(m), state: now && matches(m, now) ? "now" : undefined })) } };
+      return { status, waiting: false, props: { ...p, events: items.map(m => ({ date: p.date ? field(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: subject(m), state: now && matches(m, now) ? "now" : undefined, block: m.id })) } };
     case "meter":
       return { status, waiting: false, props: { ...p, value: items.length ? items.filter(m => (done ? matches(m, done) : true)).length / items.length : 0, caption: p.caption ?? `${items.filter(m => (done ? matches(m, done) : true)).length} of ${items.length}` } };
     default:

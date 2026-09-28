@@ -148,7 +148,8 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     delete process.env.OUTLINER_PROPERTY_SUMMARY_KEYS;
   }, 20_000);
 
-  test("the board's preview: each link kind opens its target where ⏎ on it would (in the preview)", async () => {
+  // PIE-441: a link in the preview opens in a detail, as ⏎ on a card does (it used to replace the preview).
+  test("the board's preview: each link kind opens its target where ⏎ on it would (in a detail); the preview stays", async () => {
     const kinds: [string, string, number][] = [
       ["((block))", "Stake the beans", 0],
       ["[[page]]", "Garden plan", 0],
@@ -160,7 +161,9 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     for (const [i, [kind, text, nth]] of kinds.entries()) {
       await fresh();
       click(where(frame(), text, rect("preview"), nth));
-      await until(() => B().preview.msg?.id === targets[i].id, `${kind} to open`).catch(e => { throw new Error(`${kind}: ${e.message}`); });
+      await until(() => B().details[0]?.msg?.id === targets[i].id, `${kind} to open`).catch(e => { throw new Error(`${kind}: ${e.message}`); });
+      expect(B().preview.msg.id).toBe(n.jobs.id);
+      expect(B().focus).toBe("detail0");
     }
   }, 20_000);
 
@@ -204,7 +207,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     expect(s.panel.sel).toBe(s.rows(s.msg).findIndex((r: any) => r.key === "stage"));
     expect(B().preview.msg.id).toBe(n.jobs.id);
     click(where(frame(), "Oil the hinges", rect("preview")));
-    await until(() => B().preview.msg?.id === n.hinge.id, "the Work ID value to open");
+    await until(() => B().details[0]?.msg?.id === n.hinge.id, "the Work ID value to open (in a detail, PIE-441)");
     expect(s.panel).toBeNull();
   }, 20_000);
 
@@ -262,7 +265,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
       expect(B().preview.msg.id).toBe(n.jobs.id);
     } finally { bd.resolvePage = resolvePage; }
     click(where(frame(), workId, rect("preview")));
-    await until(() => B().preview.msg?.id === n.hinge.id, "the Work ID to open");
+    await until(() => B().details[0]?.msg?.id === n.hinge.id, "the Work ID to open (in a detail, PIE-441)");
     expect(s.panel).toBeNull();
   }, 20_000);
 

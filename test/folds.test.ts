@@ -165,7 +165,7 @@ describe("a reader's folds, without a service", () => {
     // Everything fits now: the view is at the top, with the folded heading in it.
     expect(after.top).toBe(0);
     expect(after.total).toBeLessThanOrEqual(after.room);
-    expect(s.render(60, 20, h).lines.map(plain)).toContain(" ▸ ## Top · 60 lines folded");
+    expect(s.render(60, 20, h).lines.map(l => plain(l).trimEnd())).toContain(" ▸ ## Top · 60 lines folded");   // the ruler pads its row
   });
 
   test("folds survive a refresh and an edit elsewhere, drop when their heading is reworded, and reset on another note", () => {

@@ -23,6 +23,13 @@ export interface SelectRows {
 export const SELECT_BG = "\x1b[48;2;46;72;132m";
 /** An agent's selection: tinted in the agents' colour, and never the person's. */
 export const AGENT_BG = "\x1b[48;2;78;40;88m";
+/**
+ * The reading ruler (PIE-441, the door side of PIE-423's focus mark): a calm warm tint under the block the
+ * reader's current element is in, or that an agent marked. Unlike the selection's blue, the agents'
+ * purple, an embed's navy and comment mode's cyan, it's a dim amber, so white, cyan and grey text all
+ * stay readable on it.
+ */
+export const RULER_BG = "\x1b[48;2;58;50;26m";
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;
