@@ -1279,6 +1279,80 @@ export interface VisibleBlockCollection {
   completeness: BlockCollectionCompleteness;
 }
 
+/** Fields a projected block read can return; `id` is always included. */
+export const BLOCK_READ_FIELDS = [
+  "id",
+  "parent",
+  "title",
+  "properties",
+  "revision",
+  "timestamps",
+  "author",
+  "hasChildren",
+  "text",
+] as const;
+export type BlockReadField = (typeof BLOCK_READ_FIELDS)[number];
+/** Omitted `fields` return everything except full text. */
+export const DEFAULT_BLOCK_READ_FIELDS: readonly BlockReadField[] = BLOCK_READ_FIELDS.filter(
+  (field) => field !== "text",
+);
+
+/** A block reduced to the requested fields. Absent keys were not requested. */
+export interface ProjectedBlock {
+  id: string;
+  /** `parent` */
+  parentId?: string | null;
+  position?: number;
+  /** `title`: first content line without property tokens, as Tree and CLI label it. */
+  title?: string;
+  /** `properties`: block-scoped properties. */
+  properties?: BlockProperty[];
+  revision?: number;
+  /** `timestamps` */
+  createdAt?: string;
+  updatedAt?: string;
+  /** `author`, with any recorded actor/session/task provenance. */
+  author?: BlockAuthor;
+  actorId?: string;
+  sessionId?: string;
+  taskId?: string;
+  /** `hasChildren`: at least one child outside Trash. */
+  hasChildren?: boolean;
+  text?: string;
+}
+
+export interface ProjectedVisibleBlock extends ProjectedBlock {
+  depth: number;
+  /** Query metadata like `depth`: which property records matched, when the query scope attaches them. */
+  propertyMatches?: PropertyMatchContext[];
+  /**
+   * Trash metadata, present only on trashed matches (queries with `includeDeleted`),
+   * as on full `blocks.query` results. `effectiveDeletedRootId` is the Trash root, the
+   * value `blocks.read` reports as `deletedRootId`; `deletedAt` and
+   * `deletedDescendantCount` mark that root itself.
+   */
+  deletedAt?: string;
+  effectiveDeletedRootId?: string;
+  deletedDescendantCount?: number;
+}
+
+export interface ProjectedBlockCollection {
+  blocks: ProjectedVisibleBlock[];
+  completeness: BlockCollectionCompleteness;
+  fields: BlockReadField[];
+}
+
+export type UnavailableBlockRead =
+  | { id: string; status: "missing" }
+  | { id: string; status: "trashed"; deletedRootId: string };
+
+/** `blocks.read`: found blocks in request order; each other id is reported separately. */
+export interface BlockReadCollection {
+  blocks: ProjectedBlock[];
+  unavailable: UnavailableBlockRead[];
+  fields: BlockReadField[];
+}
+
 export interface TreeIndexBlock extends Omit<VisibleBlock, "text" | "displayText" | "propertyMatches"> {
   preview: string;
   previewReferences: TreePreviewReference[];
@@ -1473,7 +1547,8 @@ export type OutlinerRequest =
   | { id: string; action: "inbox.retry"; sourceId: string; instructions?: string }
   | { id: string; action: "inbox.undo"; resultId: string }
   | { id: string; action: "ping" }
-  | { id: string; action: "blocks.query"; query: BlockSearchQuery }
+  | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
+  | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   | { id: string; action: "blocks.authored-links"; ownerBlockId: string }
   | { id: string; action: "get"; blockId: string }
   | { id: string; action: "children"; parentId: string | null }
