@@ -1,11 +1,37 @@
 # ep0ch-door
 
-A BBS door into a pi-herdr-outliner outline: it reads everything, edits notes in place, and comments on them. It talks
-straight to the outliner service's Unix socket (protocol 80 or newer) and is not part of the outliner.
+A BBS door into a pi-herdr-outliner outline: it reads everything, edits notes in place, moves cards between
+board lanes, and comments on them. It talks straight to the outliner service's Unix socket (protocol 80 or
+newer, using newer features when the service advertises them) and is not part of the outliner.
 
 The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art packs:
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
+
+## Try it
+
+    scripts/try-it.sh --ws /home/evan/test
+
+opens the board of that workspace's running service. Edits, moves and comments there are real.
+
+    scripts/try-it.sh --ws /home/evan/test --copy --outliner <pi-herdr-outliner checkout>
+
+makes a private copy of the workspace's database (`sqlite3 .backup`, read-only on the original), serves it
+from its own service built from that checkout, and opens the board on it. Use it to try the door on a
+service with features the running one doesn't have yet (`views.read`, the change feed). Writes stay in
+the copy, and the copy is deleted when the door exits. `--hub <block-id>` picks the board.
+
+A journey to try, whichever service it is:
+
+1. The board opens on the workspace's board; `h l` lanes, `j k` cards; the preview follows the card.
+2. `e` edits the card in the preview. Type after a `[key::value]` on the subject line, `Ctrl+S`: the door
+   says which properties the save would change and writes nothing; `Ctrl+S` again saves. `Esc` closes.
+3. `m` picks a lane to move the card to, showing the property patch (or why a lane can't take it); `Enter`.
+4. `Tab` to the preview, `c`, pick a passage (`j k h l`), `Enter`, write, `Ctrl+S`; `m` lists the threads.
+5. With another client (Detail, the CLI), edit the note while it's open with `e`: the draft says
+   "changed elsewhere" and a save is refused, never overwriting. Change a card's stage elsewhere: its lanes
+   update by themselves.
+6. Restart the service: the status bar says `offline`, then `reconnected · caught up N changes`.
 
 ## Run
 
@@ -58,11 +84,13 @@ The last board per workspace is remembered.
 `--ws ~/float-hub` finds that workspace's socket the way the outliner does
 (`~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`).
 
-- **Lanes** are read the way Tree and `pie view` read saved views (`src/views.ts`, ported from the outliner's
-  `saved-view-read.ts`): the query is parsed into property filters, views without a sort use the service's
-  branch-local rank order (`rankViewId`), roots are kept once, the authored limit (default 200) applies, and
-  a lane says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty.
-  Checked identical against the outliner's own evaluator: all 8 branches on float-hub and all 34 on the pi-outliner outline.
+- **Lanes** are saved views, read by the service with `views.read` when it has it (see "On the service
+  platform"). Against an older service the door reads them the way Tree and `pie view` did (`src/views.ts`,
+  ported from the outliner's `saved-view-read.ts`): the query is parsed into property filters, views without
+  a sort use the service's branch-local rank order (`rankViewId`), roots are kept once, the authored limit
+  (default 200) applies. Either way a lane says `of N+` when truncated or `invalid` / `failed` with the
+  reason instead of looking empty. The two agree on all 34 saved views of the pi-outliner outline
+  (`scripts/parity.ts` on a copy), and on all 8 of float-hub's before `views.read` existed.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
 - **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
@@ -77,8 +105,9 @@ The last board per workspace is remembered.
 
 ## Moving cards
 
-A lane's query is a list of property clauses that must all hold, so a card moves by patching the
-properties the target lane names. Nothing else on the card changes.
+A lane's query is usually a list of property clauses that must all hold, so a card moves by patching the
+properties the target lane names. Nothing else on the card changes. Lanes whose query needs more than a
+patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as targets.
 
 | Keys | Action |
 |---|---|
@@ -90,8 +119,11 @@ properties the target lane names. Nothing else on the card changes.
   card has is replaced in place; a missing one is appended to its metadata. Values compare
   case-insensitively, like the outliner.
 - **Refused, with the reason and no write:**
-  - invalid lanes: `not`, `or` and `and` aren't in the query grammar, nor are `-key` or `key:value`;
-    lanes with no `query::` (sort-only, limit-only) are invalid too
+  - lanes whose query uses OR, NOT, parentheses or a `created`/`updated` range (services with PIE-398
+    read them): the reason names the construct, e.g. `Stuck's query uses OR; a move can't pick which side
+    to satisfy`. A card the service already lists in such a lane is "already there", not refused.
+  - invalid lanes: on older services `not`, `or` and `and` aren't in the query grammar, nor are `-key` or
+    `key:value`; lanes with no `query::` (sort-only, limit-only) are invalid too
   - a bare word or `key` clause the card lacks: it asks for any value, and a move can't pick one
   - two values for one key (`stage=a stage=b`)
   - a card with two values for the key being changed: the door won't guess which one moves
@@ -102,7 +134,8 @@ properties the target lane names. Nothing else on the card changes.
   isn't moved: the lanes reload and the card stays where it was.
 - **Open edits.** A card open as a draft isn't moved; save or close the edit first. Moving never
   replaces text under an edit, and a draft whose card another client moved is refused on save.
-- After a move the lanes reload, the card is selected in its new lane, and the flash names the patch
+- After a move the source and target lanes reload (every lane, without a change feed), the card is
+  selected in its new lane, and the flash names the patch
   (`moved to Review · stage queued -> review · track + door`), plus any other lane it still matches.
   A collapsed target lane reopens.
 
@@ -250,11 +283,36 @@ A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door u
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
 `open` flashes "an agent opened: …" so it's never silent.
 
+## On the service platform
+
+The service owns what things mean; the door asks it. Each newer service feature is used when the service
+has it and has a fallback when it doesn't, so one door works against old and new services alike.
+
+- **Capabilities.** `ping.capabilities` (PIE-402) is trusted when the service sends it. Without it the door
+  tries each newer action once and remembers an "Unsupported action" answer for the session. `peek` shows
+  what the door uses (`service.uses`).
+- **Saved views** (lanes, and `view:` in live figures) come from `views.read` (PIE-397); `src/views.ts` is
+  the fallback. `scripts/parity.ts` compares the two over every saved view, printing counts only.
+- **Lists without full text.** Lanes, board discovery and Who's Online read titles, properties and revision
+  only (`views.read`'s compact rows, `blocks.query` `fields`, `blocks.read`; PIE-400). A reader fetches the
+  whole note before showing, editing or commenting on it. The river still reads full notes: its cards show
+  their bodies.
+- **Change feed** (PIE-399). Each change refreshes only what it touches: readers showing that note (not the
+  door's own save), the threads it belongs to, and the lanes the note was in or could now be in. The door
+  uses a lane's plain clauses only to rule lanes out; membership always comes from the service, and a lane
+  whose query uses OR is always asked. Drafts are only ever marked "changed elsewhere". Without a feed the
+  board reloads every lane shortly after any change, as before.
+- **Reconnecting.** When the service restarts the status bar says `offline`; the door reconnects with
+  backoff and replays what it missed from `changes.since`. No feed, a feed reset, or more than a page missed
+  reloads everything instead. The door also lets go of its idle request connection when the event connection
+  drops, so it doesn't hold up the service's shutdown.
+
 ## What the door sends
 
 Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `references.backlinks`,
 `annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
-puts the door in `clients.list` until it exits.
+puts the door in `clients.list` until it exits. When the service has them: `views.read`, `blocks.read`,
+`properties.preview` and `changes.since`.
 
 Writes, only on an explicit key:
 
@@ -279,10 +337,15 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
+    EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
 `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
 writes against a throwaway outliner service they start themselves (own state dir and workspace, Inbox
-agents off). `test/move.test.ts` also checks the door's query parser against the outliner's
+agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read` against the
+door's evaluator, which lanes a change asks again, a dropped connection's catch-up, a service restart
+(graceful, with the door connected) and a feed reset. Run it with `EP0CH_OUTLINER` pointing at an older
+and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks the door's query parser against the outliner's
 `block-query.ts`, and every lane after the moves against the outliner's own `saved-view-read.ts`. Point
 `EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
 skip. The `edit`, `move` and `comment` snapshots write too, so they refuse to run unless
@@ -292,6 +355,10 @@ skip. The `edit`, `move` and `comment` snapshots write too, so they refuse to ru
 Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
+
+- Live figures' ad-hoc `query:` still uses the clause grammar (no OR/NOT/dates); `view:` gets the full
+  grammar through `views.read`.
+- A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
 - The editor counts one cell per character, so wide (CJK, some emoji) characters misplace the cursor.

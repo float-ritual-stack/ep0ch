@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -29,7 +29,13 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-const board = new SocketBoard();
+// `journey` runs its own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>), so it can restart it.
+const scratch = scenario === "journey" ? await (async () => {
+  const { outliner, Scratch } = await import("../test/scratch");
+  if (!outliner) { console.error("journey starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout"); process.exit(2); }
+  return new Scratch();
+})() : null;
+const board = new SocketBoard(scratch ? await scratch.start() : undefined);
 const info = await board.info();
 const app = new App(fakeTerm as any, board, Date.now() - 6 * 3600_000, () => {});
 app.host = info.host; app.workspace = info.workspace;
@@ -127,6 +133,79 @@ if (scenario === "board2") {
   press({ kind: "down" });
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
+}
+if (scenario === "journey") {
+  // The integrated door, one pass: board → preview → edit with a property warning → move → comment →
+  // another client edits → the service restarts. Its own scratch service and fictional notes only.
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Garden board");
+  for (const l of ["Queued [type::virtual-branch] [query::stage=queued]", "Doing [type::virtual-branch] [query::stage=doing]",
+    "Done [type::virtual-branch] [query::stage=done]", "Stuck [type::virtual-branch] [query::stage=blocked OR stage=waiting]"]) await mk(hub.id, l);
+  const shed = await mk(null, "Paint the shed [stage::queued] [priority::high]\nTwo coats, green. Sand the door first.\n\n- [ ] buy sandpaper\n- [ ] pick a dry weekend");
+  await mk(null, "Water the ferns [stage::queued] [priority::low]\nTwice a week, from the rain barrel.");
+  const gate = await mk(null, "Oil the gate [stage::doing]\nIt squeaks when the wind turns.");
+  await mk(null, "Sort the seed box [stage::done]\nDone last week.");
+  await mk(null, "Mend the hose [stage::blocked]\nWaiting on a new washer.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(400); };
+  const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
+  const other = new SocketBoard(board.path);
+  const said = () => console.log(`  status: ${(app as any).message || "(none)"} · refreshes ${JSON.stringify(S.refreshes)}`);
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-board", 2500);
+  console.log(`  service: ${[...(board.capabilities ?? ["(no capability list)"])].join(", ")} · lanes by ${S.lanes.map((l: any) => l.read?.by).join(",")}`);
+  // The preview follows the selected card: Queued, Paint the shed.
+  S.lane = S.lanes.findIndex((l: any) => l.name === "Queued"); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === shed.id); S.follow(); app.redraw();
+  await snap("2-preview", 1000);
+  // Edit it: typing after the property on the subject line would make it text; the service says so first.
+  ch("e"); await Bun.sleep(500);
+  for (const c of " (retry)") ch(c);
+  ctrl("s");
+  await snap("3-property-warning", 1200); said();
+  for (let i = 0; i < 8; i++) press({ kind: "backspace" });
+  press({ kind: "down" }); press({ kind: "end" }); for (const c of " Oil-based paint.") ch(c);
+  ctrl("s");
+  await snap("4-saved", 1500); said();
+  // Move it with the picker: Queued -> Doing. The Stuck lane (OR) is refused with its reason.
+  press({ kind: "esc" }); await Bun.sleep(200);
+  ch("m"); await Bun.sleep(200);
+  for (let i = 0; i < 10 && S.mover && S.mover.sel !== S.lanes.findIndex((l: any) => l.name === "Doing"); i++) ch(S.mover.sel < S.lanes.findIndex((l: any) => l.name === "Doing") ? "j" : "k");
+  await snap("5-move-picker", 500);
+  press({ kind: "enter" }); await settle();
+  await snap("6-moved", 600); said();
+  // Comment on a passage from the preview.
+  for (let i = 0; i < 6 && S.focus !== "preview"; i++) press({ kind: "tab" });
+  ch("c"); await Bun.sleep(600);
+  ch("j"); await Bun.sleep(100);
+  await snap("7-quoting", 500);
+  press({ kind: "enter" }); for (const c of "Which green? The shed or the gate green?") ch(c);
+  ctrl("s");
+  await snap("8-commented", 1500); said();
+  press({ kind: "esc" }); await Bun.sleep(300);
+  // Another client edits the note while it's open for editing: the draft is marked, never replaced.
+  ch("e"); await Bun.sleep(500);
+  for (const c of " Mine.") ch(c);
+  const now = (await other.request("blocks.context", { blockId: shed.id })).selected;
+  await other.request("update", { blockId: shed.id, text: now.text.replace("Sand the door first.", "Sand the door first, then prime."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await snap("9-changed-elsewhere", 1500); said();
+  press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200);
+  press({ kind: "esc" });                                                   // back to the lanes
+  // Another client moves a different card: only the lanes it touches are asked again.
+  const before = S.asked.length;
+  const g = (await other.request("blocks.context", { blockId: gate.id })).selected;
+  await other.request("update", { blockId: gate.id, text: g.text.replace("[stage::doing]", "[stage::done]"), expectedRevision: g.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await snap("10-other-moved", 1800);
+  console.log(`  lanes asked again after the other client's move: ${[...new Set(S.asked.slice(before))].join(", ") || "(none)"}`);
+  // The service restarts. The door says it's offline, reconnects and catches up.
+  other.close();
+  await scratch!.stop();
+  await snap("11-offline", 800);
+  await scratch!.start();
+  await snap("12-reconnected", 2500); said();
+  const final = await new SocketBoard(board.path).request("blocks.context", { blockId: shed.id });
+  console.log(`  service: shed at revision ${final.selected.revision}, ${final.selected.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}`);
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "edit") {
   // Writes: seeds its own board, edits a card, and races a second writer. Scratch outlines only.

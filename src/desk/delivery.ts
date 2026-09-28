@@ -415,6 +415,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       return this.ctx.flash(`already in ${target.name} · nothing to change`);
     }
     this.moving = card.id; this.status = `moving to ${target.name}...`; this.redraw();
+    let landed = false;
     try {
       const m = await applyMove(this.ctx.board, card, plan.changes);
       const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters)).map(l => l.name);
@@ -424,13 +425,17 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (this.lane === from) this.lane = to;           // follow the card unless the user already went elsewhere
       target.want = card.id;
       if (this.collapsed.delete(target.name)) this.save();   // a card moved into a spine should still be seen
+      landed = true;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}` };
       this.ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
     } finally {
       this.moving = null; this.status = "";
-      this.loadLanes();                                  // either way, show the lanes as the service has them now
+      // Either way, show the lanes as the service has them now. After a move that landed, with a change
+      // feed, the source and target are enough: the move's own change record refreshes any other lane.
+      const feed = this.ctx.board.supports("changes.since") === true;
+      this.loadLanes(landed && feed ? [this.lanes[from]!, target].filter(Boolean) : this.lanes);
     }
   }
 
