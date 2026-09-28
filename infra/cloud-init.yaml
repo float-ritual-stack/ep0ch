@@ -22,8 +22,11 @@ runcmd:
   - systemctl enable --now fail2ban
   # Tailscale for the private link to float-box and the laptop; `sudo tailscale up` is a manual step.
   - curl -fsSL https://tailscale.com/install.sh | sh
-  # Bun for the outliner and the door, installed for evan.
-  - su - evan -c 'curl -fsSL https://bun.sh/install | bash'
+  # Bun for the outliner and the door, installed for evan. Pinned: under Bun 1.4.x the outliner's
+  # socket tests hit unhandled EPIPE (protocol, navigation-cutover, linked-navigation); 1.3.14 passes.
+  - su - evan -c 'curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"'
+  # PATH before the interactive guard, so ssh commands, agents and tests find bun and herdr.
+  - su - evan -c 'sed -i "1i export PATH=\"\$HOME/.bun/bin:\$HOME/.local/bin:\$PATH\"" ~/.bashrc'
   # Herdr from its GitHub releases (linux-aarch64 or linux-x86_64 by architecture).
   - su - evan -c 'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/herdr "https://github.com/herdrdev/herdr/releases/latest/download/herdr-linux-$(uname -m)" && chmod +x ~/.local/bin/herdr'
   # Let evan's user services (outliner, door) keep running after logout.
