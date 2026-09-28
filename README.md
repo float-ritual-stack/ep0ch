@@ -387,6 +387,30 @@ unfolded.
 Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
 `all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
 
+### Selecting and copying text
+
+The door keeps the terminal's mouse reporting on, so the terminal can't select; every reader does it
+itself (PIE-419): the board's preview, details, floats and drawer previews, the desk's readers, and river
+columns. Selecting never copies: only `y`, `Y` or the `[y copy]` control on the header's rule do, and the
+status bar says `copied N chars`. The clipboard is written with OSC 52, so it works over SSH and
+through a multiplexer that passes OSC 52 on.
+
+| Keys | Action |
+|---|---|
+| drag | select from where the button went down; past the top or bottom edge the note scrolls a row at a time. A drag that starts on a link, a heading or a figure selects; it doesn't follow or fold |
+| click | what it always did (follow a link, fold, pick a panel row), decided when the button comes up on the same cell; anywhere else it lets go of the selection |
+| double / triple click | a word / the drawn row, without its indent (a click on a link or a fold marker acts instead) |
+| `v` | the keyboard mode, from the first row in view (or taking over a mouse selection); `h j k l`, arrows, `PgUp PgDn`, `Home End` move its end; `v` or `esc` leaves |
+| `y` | copy what's drawn: links as their titles, rows as they're drawn |
+| `Y` | copy the source: exactly the selected words when they read the same in the note's text, else the whole source lines the selection covers (a link's `((…))`, `**bold**`) |
+| `esc` | let go of the selection |
+
+With text selected, `C` starts the comment's passage on it. An agent selects with `select` (`text=`, as
+drawn, or `line=`/`to=`, 1 is the subject) and gets the text from `select.copy` (`source=true` for the
+markup): its selection is its own, drawn in its own tint, and never replaces the person's or touches
+their clipboard. A river column draws a digest of the note, so there `Y` says it can't map the source;
+`y` copies what's drawn.
+
 ### The property panel
 
 `i` in any reader (Detail's Props inspector), and on the board from the lanes too (the preview takes
@@ -534,6 +558,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
 | `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
 | `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
+| `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
 number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means

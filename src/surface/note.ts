@@ -25,6 +25,7 @@ import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./e
 import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
+import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, SELECT_BG, Selection, selectionHint, wordAt, type Pos, type SelectRows } from "./selection";
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -46,7 +47,8 @@ const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.f
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
  */
 /** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string } | { prop: number; follow: boolean });
+/** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" });
 
 /** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
 const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
@@ -129,7 +131,16 @@ export class NoteSurface {
   private foldsOf: string | null = null;
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[] } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[] } | null = null;
+  /**
+   * The person's selected text (PIE-419), in content rows: the header's rows, then the body's, so it
+   * stays on its text as the note scrolls. Only `y`, `Y` or the copy control copy it; selecting never does.
+   */
+  selection: Selection | null = null;
+  /** What an agent selected here: drawn in its own tint, never the person's, never on their clipboard. */
+  agentSelection: { id: string; sel: Selection } | null = null;
+  private gesture = new Gesture();
+  private dragging = false;
   /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
   draft: Draft | null = null;
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
@@ -191,6 +202,8 @@ export class NoteSurface {
     if (this.panel) return this.panel.hint();
     if (this.session) return this.session.hint();
     if (this.draft) return editHint(this.draft, { save: "save", reload: this.draft.conflict || this.draft.changedElsewhere ? "reload" : null });
+    const rows = this.selection && this.selRows();
+    if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
     const l = this.links[this.link];
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
@@ -226,7 +239,7 @@ export class NoteSurface {
     if (this.draft && m?.id !== this.draft.blockId) return false;
     if (this.session && m?.id !== this.session.blockId) return false;
     if (this.panel?.field && m?.id !== this.msg?.id) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSel = null; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.link = -1; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -339,7 +352,8 @@ export class NoteSurface {
     this.revealFold = false;
     if (sel && room > 0) { if (sel.row < this.scroll) this.scroll = sel.row; else if (sel.row >= this.scroll + room) this.scroll = sel.row - room + 1; }
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body };
+    this.selectionControl(w);
     const placements: Placement[] = [];
     for (const im of doc.images) {
       const top = im.line - this.scroll, bottom = top + im.rows;
@@ -356,7 +370,7 @@ export class NoteSurface {
       const link = drawn[r.n];
       if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: head.length + row, from: r.from + 1, to: Math.min(w, r.to + 1), link });
     }
-    const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h));
+    const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => this.paintSelection(l, i < head.length ? i : i + this.scroll));
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
@@ -707,10 +721,16 @@ export class NoteSurface {
     };
   }
 
-  /** `c`: pick a passage of the note as the service has it now; `m`: the thread list. `still` as for `edit`. */
-  async comment(host: SurfaceHost, mode: "select" | "threads", still?: () => boolean): Promise<void> {
+  /**
+   * `C`: pick a passage of the note as the service has it now; `m`: the thread list. `still` as for `edit`.
+   * `mine`: the person's own keys, so the text they selected is where the passage starts (an agent's
+   * comment never takes the person's selection).
+   */
+  async comment(host: SurfaceHost, mode: "select" | "threads", still?: () => boolean, mine = true): Promise<void> {
     const m = this.msg;
     if (!m || this.editing) return;
+    // Text selected in the reader is where the passage picker starts: the same text, as a quote.
+    const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
     const fresh = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { host.ctx.flash("can't comment: the outline didn't say which revision this note is at"); return; }
@@ -719,6 +739,8 @@ export class NoteSurface {
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
+    const p = this.session.passage;
+    if (p && picked && fresh.text === m.text && picked.to > picked.from) { p.from = picked.from; p.to = picked.to; this.selection = null; }
     host.redraw();
   }
 
@@ -740,6 +762,8 @@ export class NoteSurface {
       return true;
     }
     const c = ch(k);
+    // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
+    if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;
     if ((c === "i" || c === "I") && this.msg) { this.openPanel(c === "I"); host.redraw(); return true; }
     if (c === "C" && this.msg) { void this.comment(host, "select"); return true; }
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
@@ -955,7 +979,10 @@ export class NoteSurface {
       return !!d && !d.busy && !!completerOf(d)?.click(y);
     }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    const h = at.find(h => "link" in h || h.follow) ?? at[0];
+    const h = at.find(h => "copy" in h || "link" in h || ("follow" in h && h.follow)) ?? at[0];
+    if (h && "copy" in h) { this.copySelection(h.copy === "source", host); host.redraw(); return true; }
+    // A click anywhere else lets go of the selection, and does what it always did.
+    if (this.selection) { this.selection = null; host.redraw(); }
     if (!h) return this.clickFold(x, y, host);
     if ("prop" in h) {
       const m = this.msg, r = m && this.panel ? this.rows(m)[h.prop - 1] : undefined;
@@ -1019,6 +1046,273 @@ export class NoteSurface {
     return p;
   }
 
+  // ── selecting text (PIE-419) ───────────────────────────────────────────────
+
+  /** The last render's rows, by content row: the header's (its rule isn't text), then the body's (margin left out). */
+  private selRows(): SelectRows | null {
+    const d = this.drawn;
+    if (!d) return null;
+    const cache = new Map<number, string[]>();
+    return {
+      count: d.top + d.body.length,
+      cells: r => {
+        let c = cache.get(r);
+        if (!c) cache.set(r, c = r === d.top - 1 || r < 0 ? [] : cellsOf((r < d.top ? d.head[r] : d.body[r - d.top]) ?? ""));
+        return c;
+      },
+      margin: r => (r < d.top ? 0 : 1),
+    };
+  }
+
+  /**
+   * The content cell under `x`, `y` of the last render, or null outside it. `edge` (a drag): past the
+   * body's bottom or top the note scrolls a row and the selection follows it to the edge.
+   */
+  private posAt(x: number, y: number, edge = false): Pos | null {
+    const d = this.drawn;
+    if (!d) return null;
+    const col = Math.max(0, Math.min(d.w - 1, x));
+    if (!edge && (x < 0 || x >= d.w || y < 0 || y >= d.top + d.room)) return null;
+    const body = (row: number) => ({ row: d.top + this.scroll + row, col });
+    if (y >= d.top + d.room) {
+      if (this.scroll < this.maxScroll) this.scroll++;
+      return d.room > 0 ? body(d.room - 1) : null;
+    }
+    if (y < d.top && edge && this.scroll > 0 && this.selection && this.selection.anchor.row >= d.top) {
+      this.scroll--;
+      return body(0);
+    }
+    if (y < d.top) return { row: Math.max(0, y), col };
+    return body(y - d.top);
+  }
+
+  private stamp(s: Selection): Selection { s.w = this.drawn?.w ?? 0; s.top = this.drawn?.top ?? 0; return s; }
+
+  renderedWidth() { return this.drawn?.w ?? 0; }
+  renderedTop() { return this.drawn?.top ?? 0; }
+
+  clearSelections() { this.selection = null; this.agentSelection = null; this.gesture.cancel(); this.dragging = false; }
+
+  /**
+   * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
+   * selected), except a second or third press on the same cell: it selects the word, then the row.
+   */
+  press(x: number, y: number, host: SurfaceHost): void {
+    this.use(host);
+    this.dragging = false;
+    const n = this.gesture.press(x, y);
+    if (n < 2 || this.editing) return;
+    const rows = this.selRows(), p = this.posAt(x, y);
+    if (!rows || !p || !rows.cells(p.row).length) return;
+    this.selection = this.stamp(n === 2 ? wordAt(rows, p) : lineAt(rows, p.row));
+    host.redraw();
+  }
+
+  /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
+  drag(x: number, y: number, host: SurfaceHost): void {
+    const g = this.gesture.pressed;
+    if (!g || !this.gesture.drag(x, y) || this.editing || !this.drawn) return;
+    if (!this.dragging) {
+      // After a double or triple click, the drag extends from the word or row it selected.
+      const from = g.n > 1 && this.selection ? this.selection.start : this.posAt(g.x, g.y);
+      if (!from) { this.gesture.cancel(); return; }
+      this.dragging = true;
+      this.selection = this.stamp(new Selection({ ...from }, { ...from }));
+    }
+    const at = this.posAt(x, y, true);
+    if (at && this.selection) this.selection.head = at;
+    host.redraw();
+  }
+
+  /**
+   * The button came up. On the cell it went down on, with no drag, it's a click (`click`: a link, a fold, a
+   * panel row, the copy control; anywhere else it lets go of the selection). A drag keeps what it
+   * selected, and never copies it. True when the release did something.
+   */
+  release(x: number, y: number, host: SurfaceHost): boolean {
+    const r = this.gesture.release(x, y);
+    this.dragging = false;
+    if (r.click) {
+      // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
+      const acted = this.click(x, y, host);
+      if (acted) this.gesture.forget();
+      return acted;
+    }
+    host.redraw();
+    return r.moved || r.n > 1;
+  }
+
+  /** The selection's line in the header: how much is selected, and the copy control. */
+  private selectionControl(w: number) {
+    const d = this.drawn!;
+    // Another width rewraps the body: the selection would point at other text, so it goes. A header that
+    // grew or shrank (a notice, an agent's line, the inline panel: all drawn just above the rule) moves
+    // the rule and the body; a selection's ends there move with them, and ends on the title, summary,
+    // byline or crumbs stay. So an agent's action never takes the person's selection away.
+    const keep = (s: Selection | undefined): boolean => {
+      if (!s) return true;
+      if (s.w !== w) return false;
+      const by = d.top - s.top;
+      if (by) {
+        const move = (p: Pos): Pos => (p.row >= s.top - 1 ? { ...p, row: p.row + by } : p);
+        s.anchor = move(s.anchor); s.head = move(s.head); s.top = d.top;
+      }
+      return true;
+    };
+    if (!keep(this.selection ?? undefined)) this.selection = null;
+    if (!keep(this.agentSelection?.sel)) this.agentSelection = null;
+    const s = this.selection, rows = s && this.selRows();
+    if (!s || !rows || d.top < 1) return;
+    const n = [...s.text(rows)].length, copy = "[y copy]", source = "[Y source]";
+    const lead = `── ${n} chars `;
+    const at = d.top - 1, wide = lead.length + copy.length + 1 + source.length <= w, fits = lead.length + copy.length <= w;
+    const from = fits ? lead.length : 0;
+    if (copy.length > w) return;
+    this.hits.push({ row: at, from, to: from + copy.length, copy: "visible" });
+    if (wide) this.hits.push({ row: at, from: from + copy.length + 1, to: from + copy.length + 1 + source.length, copy: "source" });
+    const shown = (fits ? fg(C.blue) + "── " + fg(C.white) + `${n} chars ` : "") + fg(C.lcyan) + copy + (wide ? " " + source : "");
+    d.head[at] = pad(shown + fg(C.blue) + "─".repeat(Math.max(0, w - width(shown))), w) + RESET;
+  }
+
+  /** Row `row`'s drawn line with the selections on it painted: an agent's, then the person's over it. */
+  private paintSelection(line: string, row: number): string {
+    // The body's margin cell is never copied, so it isn't tinted either.
+    const m = this.drawn && row >= this.drawn.top ? 1 : 0;
+    const a = this.agentSelection?.sel.span(row), p = this.selection?.span(row);
+    if (a) line = paintRange(line, Math.max(m, a[0]), a[1], AGENT_BG);
+    if (p) line = paintRange(line, Math.max(m, p[0]), p[1], SELECT_BG);
+    return line;
+  }
+
+  /**
+   * `v`, `y`, `Y`, and while there's a selection esc (and in the keyboard mode its movement keys). True
+   * when the key was the selection's; the reader's other keys keep their meaning.
+   */
+  private selectKey(k: Key, host: SurfaceHost): boolean {
+    const c = ch(k), rows = this.selRows(), s = this.selection;
+    if (!rows) return false;
+    if (!s) {
+      if (c === "y" || c === "Y") { host.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
+      if (c !== "v") return false;
+      // The keyboard mode starts where the reading is: the first row of the body in view.
+      const d = this.drawn!, row = d.room > 0 && d.body.length ? d.top + this.scroll : 0;
+      const at = { row, col: rows.margin?.(row) ?? 0 };
+      this.selection = this.stamp(new Selection({ ...at }, { ...at }, true));
+      this.link = -1; this.foldSel = null;
+      host.redraw();
+      return true;
+    }
+    if (c === "y" || c === "Y") { this.copySelection(c === "Y", host); host.redraw(); return true; }
+    if (!s.keys) {
+      if (c === "v") { s.keys = true; host.redraw(); return true; }
+      if (k.kind === "esc") { this.selection = null; host.redraw(); return true; }
+      return false;
+    }
+    const d = this.drawn!;
+    const r = modeKey(k, s, rows, Math.max(1, d.room - 1));
+    if (r === null) return false;
+    if (r === "done") this.selection = null;
+    else {
+      // Keep the moving end in view.
+      const b = s.head.row - d.top;
+      if (b >= 0 && d.room > 0) { if (b < this.scroll) this.scroll = b; else if (b >= this.scroll + d.room) this.scroll = b - d.room + 1; }
+    }
+    host.redraw();
+    return true;
+  }
+
+  /**
+   * The note's own text behind a selection: exactly the selected words when they read the same in the
+   * source (no link or formatting inside), else the whole source lines it covers. Offsets are into the
+   * note's text, as the comment passage picker takes them. Null when only the header's details are selected.
+   */
+  sourceOf(s: Selection): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
+    const d = this.drawn, m = this.msg, rows = this.selRows();
+    if (!d || !m || !rows) return null;
+    const lines: number[] = [];
+    for (let r = s.start.row; r <= s.end.row; r++) {
+      if (r === 0) lines.push(0);                               // the subject line
+      else if (r >= d.top) { const b = d.doc.source[r - d.top], l = b === undefined ? undefined : d.lines[b]; if (l !== undefined) lines.push(l); }
+    }
+    if (!lines.length) return null;
+    const lo = Math.min(...lines), hi = Math.max(...lines), all = m.text.split("\n");
+    const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
+    const span = all.slice(lo, hi + 1).join("\n");
+    const seen = s.text(rows);
+    // A wrapped paragraph reads with a space where the reader broke it.
+    for (const t of [seen, seen.replace(/\n/g, " ")]) {
+      const at = t.trim() ? span.indexOf(t) : -1;
+      if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
+    }
+    const lead = span.length - span.trimStart().length;
+    return { text: span, exact: false, from: start + lead, to: start + span.trimEnd().length, lines: [lo, hi] };
+  }
+
+  /** `y` (what's drawn) or `Y` (its source) to the person's clipboard, said in the status bar. */
+  copySelection(source: boolean, host: SurfaceHost): { text: string; chars: number; exact?: boolean; lines?: [number, number] } | null {
+    const s = this.selection, rows = this.selRows();
+    if (!s || !rows) return null;
+    let text = s.text(rows), said = "";
+    let src: ReturnType<NoteSurface["sourceOf"]> = null;
+    if (source) {
+      src = this.sourceOf(s);
+      if (!src) { host.ctx.flash("no source to copy: only the header's details are selected · y copies them"); return null; }
+      text = src.text;
+      said = src.exact ? " of source" : ` of source · whole line${src.lines[0] === src.lines[1] ? ` ${src.lines[0] + 1}` : `s ${src.lines[0] + 1}–${src.lines[1] + 1}`}`;
+    }
+    if (!text.trim()) { host.ctx.flash("nothing to copy: only blanks are selected"); return null; }
+    const chars = [...text].length;
+    host.ctx.copy?.(text);
+    host.ctx.flash(`copied ${chars} chars${said}`);
+    return { text, chars, ...(src ? { exact: src.exact, lines: [src.lines[0] + 1, src.lines[1] + 1] as [number, number] } : {}) };
+  }
+
+  /**
+   * A selection made by name, for `select`: `text` (as it's drawn, blanks and row breaks alike; `n` picks
+   * the nth time it's drawn) or note lines `line` to `to` (1 is the subject). The whole drawn note, not
+   * just the rows in view.
+   */
+  selectBy({ text, line, to, n }: { text?: string; line?: number; to?: number; n?: number }): Selection {
+    const d = this.drawn, rows = this.selRows();
+    if (!d || !rows || !this.msg) throw new ActionRefused("this reader doesn't show the note's text now (it's editing, commenting, reading the note, or the full property panel is open)");
+    if ((text === undefined) === (line === undefined)) throw new ActionRefused("say what to select: text= (as the note reads) or line= (with to= for a range; 1 is the subject)");
+    if (text !== undefined) {
+      if (!text.trim()) throw new ActionRefused("text is empty");
+      // The drawn rows as one text, remembering where each row starts.
+      const starts: number[] = [];
+      let flat = "";
+      for (let r = 0; r < rows.count; r++) {
+        starts.push(flat.length);
+        flat += rows.cells(r).slice(rows.margin?.(r) ?? 0).join("").trimEnd() + "\n";
+      }
+      const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
+      const hits = [...flat.matchAll(re)];
+      const hit = hits[(n ?? 1) - 1];
+      if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${text.length > 40 ? text.slice(0, 39) + "…" : text}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
+      const at = (off: number): Pos => {
+        const row = starts.findLastIndex(s => s <= off);
+        return { row, col: (rows.margin?.(row) ?? 0) + off - starts[row]! };
+      };
+      return new Selection(at(hit.index!), at(hit.index! + hit[0].length - 1));
+    }
+    const lo = line! - 1, hi = (to ?? line!) - 1;
+    if (lo < 0 || hi < lo) throw new ActionRefused("line is from 1 (the subject), and to isn't before it");
+    const hitRows: number[] = [];
+    if (lo === 0) hitRows.push(0);
+    d.doc.source.forEach((b, i) => { const l = d.lines[b]; if (l !== undefined && l >= lo && l <= hi) hitRows.push(d.top + i); });
+    if (!hitRows.length) throw new ActionRefused(`nothing of lines ${line}${to ? `–${to}` : ""} is drawn (past the end, only properties, or folded)`);
+    const first = hitRows[0]!, last = hitRows.at(-1)!;
+    return new Selection({ row: first, col: rows.margin?.(first) ?? 0 }, lineAt(rows, last).end);
+  }
+
+  /** What a selection holds, for `peek` and the select actions. */
+  describeSelection(s: Selection | null | undefined) {
+    const rows = this.selRows();
+    if (!s || !rows) return null;
+    const text = s.text(rows), src = this.sourceOf(s);
+    return { chars: [...text].length, text, keys: s.keys, ...(src ? { source: src.text, sourceExact: src.exact, lines: [src.lines[0] + 1, src.lines[1] + 1] } : {}) };
+  }
+
   // ── actions ────────────────────────────────────────────────────────────────
 
   /**
@@ -1051,6 +1345,8 @@ export class NoteSurface {
         editing: this.panel.field ? { n: this.panel.field.row.n, key: this.panel.field.row.key, text: this.panel.field.text, revision: this.panel.field.revision, changedElsewhere: this.panel.field.changedElsewhere, note: this.panel.field.note || null } : null,
         rows: this.rows(this.msg).map(r => describeRow(r, this.src, this.msg!.text)),
       } : null,
+      selection: this.describeSelection(this.selection),
+      agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       agent: this.agent,
     };
   }
@@ -1124,7 +1420,7 @@ export class NoteSurface {
     if (this.draft) throw new ActionRefused("this reader is editing; save or close the edit first (edit.save, edit.close)");
     if (!this.session) {
       this.requireNote();
-      await this.comment(host, mode);
+      await this.comment(host, mode, undefined, false);
       if (!this.session) throw new ActionRefused("the note couldn't be opened for commenting (its revision is unknown)");
       return this.session;
     }
@@ -1210,6 +1506,9 @@ export interface NoteActionArgs {
   "fold": FoldArgs & { all?: boolean };
   "unfold": FoldArgs & { all?: boolean };
   "fold.toggle": FoldArgs;
+  "select": { text?: string; line?: number; to?: number; n?: number };
+  "select.copy": { source?: boolean };
+  "select.clear": Record<string, never>;
 }
 interface FoldArgs { text?: string; line?: number; n?: number }
 
@@ -1673,6 +1972,58 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
       host.redraw();
       return foldResult(surface, p);
+    },
+  },
+  "select": {
+    summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: "drag, double/triple click, v then h j k l",
+    args: {
+      text: { type: "string", optional: true, about: "the words as they're drawn (blanks and row breaks match any blank)" },
+      line: { type: "number", optional: true, about: "the first note line to select (1 is the subject)" },
+      to: { type: "number", optional: true, about: "with line: the last note line" },
+      n: { type: "number", optional: true, about: "with text: which time it's drawn, from 1" },
+    },
+    async run(args, { surface, host }, actor) {
+      await surface.whole();
+      const s = surface.selectBy(args);
+      s.w = surface.renderedWidth(); s.top = surface.renderedTop();
+      if (actor.kind === "agent") surface.agentSelection = { id: actor.id, sel: s };
+      else surface.selection = s;
+      const out = surface.describeSelection(s)!;
+      surface.noteAgent(actor, `selected ${out.chars} chars`);
+      host.redraw();
+      return out;
+    },
+  },
+  "select.copy": {
+    summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, the [y copy] control",
+    args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
+    run({ source }, { surface, host }, actor) {
+      if (actor.kind === "user") {
+        if (!surface.selection) throw new ActionRefused("nothing is selected");
+        const r = surface.copySelection(!!source, host);
+        if (!r) throw new ActionRefused(source ? "no source to copy: only the header's details are selected" : "only blanks are selected");
+        host.redraw();
+        return { copied: r.chars, text: r.text, clipboard: true };
+      }
+      const mine = surface.agentSelection?.id === actor.id ? surface.agentSelection.sel : null;
+      if (!mine) throw new ActionRefused("you've selected nothing in this reader; select first (the person's own selection is theirs)");
+      const d = surface.describeSelection(mine);
+      if (!d) throw new ActionRefused("this reader doesn't show the note's text now");
+      if (source && d.source === undefined) throw new ActionRefused("no source to copy: only the header's details are selected");
+      const text = source ? d.source! : d.text;
+      host.ctx.flash(`copied ${[...text].length} chars${source ? " of source" : ""} for itself · your clipboard is untouched`);
+      surface.noteAgent(actor, `copied ${[...text].length} chars`);
+      return { copied: [...text].length, text, clipboard: false };
+    },
+  },
+  "select.clear": {
+    summary: "let go of the selection (an agent's own; the person's is theirs to clear)", keys: "esc, a click",
+    args: {},
+    run(_, { surface, host }, actor) {
+      const had = actor.kind === "agent" ? surface.agentSelection?.id === actor.id : !!surface.selection;
+      if (actor.kind === "agent") { if (had) surface.agentSelection = null; } else surface.selection = null;
+      host.redraw();
+      return { cleared: had };
     },
   },
 });

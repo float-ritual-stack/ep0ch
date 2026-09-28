@@ -3,6 +3,7 @@ import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, type ActionInfo, type ActRequest } from "./surface/actions";
+import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
@@ -114,7 +115,7 @@ export class App implements Ctx {
     return false;
   }
   flash(msg: string) { this.message = msg; this.messageUntil = Date.now() + 4000; this.redraw(); }
-  copy(text: string) { this.term.write(`\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`); }
+  copy(text: string) { this.term.write(osc52(text)); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
     this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";

@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
+const wide = ["select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
+// `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -324,6 +324,43 @@ if (scenario === "complete") {
   press({ kind: "enter" }); type("[file::notes/");
   await snap("6-files", 800);
   press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "select") {
+  // PIE-419 on its own scratch service (a fictional planting note): a drag selects (the copy control
+  // appears), the keyboard mode, an agent's selection in its own tint beside the person's, and the same
+  // in cells video.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  const beans = await mk(null, "Stake the beans\nCanes along the fence.");
+  const plan = await mk(null, `Plan the allotment [stage::queued]\nSow peas early, see ((${beans.id})) for the canes.\n\n## Water\nThe hose runs along the fence past the shed; **water the seedlings** every morning.\n\n- dig the bed\n- buy canes\n\n> [!note] Frost\n> Nothing out before mid May.`);
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const at = (region: string, words: string) => {
+    const r = S.rects.get(region), rows = emu.text();
+    const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
+    if (y < 0) throw new Error(`no "${words}" in ${region}`);
+    return { x: [...rows[y]!].join("").indexOf(words, r.col), y };
+  };
+  const mouse = (action: "down" | "drag" | "up", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+  app.push(new MainMenu()); app.push(B);
+  await app.act({ action: "open", reader: "detail", args: { id: plan.id }, as: "snap-agent" });
+  await snap("1-open", 2000);
+  const a = at("detail0", "Sow peas"), z = at("detail0", "past the shed");
+  mouse("down", a.x, a.y); mouse("drag", a.x + 1, a.y); mouse("drag", z.x + 12, z.y); mouse("up", z.x + 12, z.y);
+  await snap("2-dragged", 300);
+  ch("y"); await snap("3-copied", 300);
+  press({ kind: "esc" });
+  ch("v"); ch("j"); ch("l"); ch("l"); ch("l");
+  await snap("4-keyboard-mode", 300);
+  press({ kind: "esc" });
+  const w = at("detail0", "dig the bed");
+  mouse("down", w.x, w.y); mouse("drag", w.x + 3, w.y); mouse("up", w.x + 3, w.y);
+  await app.act({ action: "select", reader: "detail", args: { text: "Nothing out before mid May" }, as: "snap-agent" });
+  await snap("5-agent-and-person", 400);
+  ch("V"); ch("V");
+  await snap("6-cells", 400);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "fold") {
