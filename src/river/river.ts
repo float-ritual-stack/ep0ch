@@ -837,10 +837,13 @@ export class River implements Screen {
       ctx.flash(`in ${this.whose(p)} · ${p.surface.hint()}`);
       return ctx.redraw();
     }
-    // Reading: the surface's own keys act on the column's note (e c m ctrl+e [ ] u, ⏎ on a selected link).
+    // The property panel the person opened with `i` holds their keys until Esc closes it (agents never
+    // open it on the person's reader, so this can't hand the person's keys to an agent).
+    if (p && !held && p.surface.panel) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
+    // Reading: the surface's own keys act on the column's note (e c m i ctrl+e [ ] u, ⏎ on a selected link).
     const linked = !!p && !held && this.linked(p);
     const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";
-    if (p && !held && (c === "e" || c === "c" || c === "m" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && k.kind === "enter"))) {
+    if (p && !held && (c === "e" || c === "c" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && k.kind === "enter"))) {
       if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);

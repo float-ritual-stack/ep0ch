@@ -100,6 +100,20 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(screen()).not.toContain("editing ·");
   });
 
+  test("i opens the property panel in a river column; it holds the person's keys until Esc", async () => {
+    focusOnReader(beansR);
+    const at = R().focus;
+    key(char("i"));
+    await until(() => !!surfaceOf(at + 1).panel, "the panel");
+    key(char("h"));                                              // a panel key, not a column move
+    expect(R().focus).toBe(at);
+    key({ kind: "esc" });
+    expect(surfaceOf(at + 1).panel).toBeNull();
+    key(char("h"));
+    expect(R().focus).toBe(at - 1);
+    key(char("l"));
+  });
+
   test("c: pick a passage in the column, write, ctrl+s sends the comment", async () => {
     key(char("c"));
     await until(() => surfaceOf(2).session?.mode === "select", "the passage picker");
