@@ -153,6 +153,18 @@ export class Desk implements Screen, DeskApi, PaneHost {
   readerPanes(): { name: string; pane: ReaderPane }[] { return this.namedReaders().map(({ name, pane }) => ({ name, pane })); }
 
   /**
+   * A reader beside `pane` that follows the current note, for a screen whose own reader stays put (the
+   * brief, a pinned page): the one already there, or one split off to its right. The person's focus
+   * stays on `pane`; an agent's split never takes it.
+   */
+  readerBeside(pane: ReaderPane, actor: Actor) {
+    if (this.readerPanes().some(r => r.pane !== pane && !r.pane.holding)) return;
+    const me = () => this.readerPanes().find(r => r.pane === pane)!.name;
+    this.splitPane(me(), "reader", "row", actor);
+    if (actor.kind !== "agent") this.focusOn(me());
+  }
+
+  /**
    * The person's keys belong to the desk right now: its search is open, a ^W command is pending, or they
    * are in (or opening) a reader's edit, comment or property panel. A screen built on the desk leaves
    * its own keys to the desk then.

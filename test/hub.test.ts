@@ -16,24 +16,24 @@ const item = (id: string, props: Record<string, string>, createdAt = 0): Msg =>
 
 describe("what an outbox item waits on", () => {
   test("sent is local time, 12-hour or 24-hour; without it, when the item was written", () => {
-    expect(sentAt(item("a", { sent: "2026-09-25 4:23 PM" }))).toBe(new Date(2026, 8, 25, 16, 23).getTime());
-    expect(sentAt(item("b", { sent: "2026-09-25 12:05 AM" }))).toBe(new Date(2026, 8, 25, 0, 5).getTime());
-    expect(sentAt(item("c", { sent: "2026-09-25 09:30" }))).toBe(new Date(2026, 8, 25, 9, 30).getTime());
-    expect(sentAt(item("d", { sent: "2026-09-25" }))).toBe(new Date(2026, 8, 25).getTime());
+    expect(sentAt(item("a", { sent: "2026-01-05 4:23 PM" }))).toBe(new Date(2026, 0, 5, 16, 23).getTime());
+    expect(sentAt(item("b", { sent: "2026-01-05 12:05 AM" }))).toBe(new Date(2026, 0, 5, 0, 5).getTime());
+    expect(sentAt(item("c", { sent: "2026-01-05 09:30" }))).toBe(new Date(2026, 0, 5, 9, 30).getTime());
+    expect(sentAt(item("d", { sent: "2026-01-05" }))).toBe(new Date(2026, 0, 5).getTime());
     expect(sentAt(item("e", { sent: "last week" }, 42))).toBe(42);
   });
   test("waiting-on's name before the colon is who; the rest is what. Without one: to, and the title", () => {
-    expect(waitingOn(item("a", { "waiting-on": "Felipe: does QA have staging CMS logins?" }))).toEqual({ who: "Felipe", what: "does QA have staging CMS logins?" });
-    expect(waitingOn(item("b", { to: "Jay, Oleg" }))).toEqual({ who: "Jay, Oleg", what: "b" });
+    expect(waitingOn(item("a", { "waiting-on": "Ada: which shelf do the jars go on?" }))).toEqual({ who: "Ada", what: "which shelf do the jars go on?" });
+    expect(waitingOn(item("b", { to: "Brook, Cyd" }))).toEqual({ who: "Brook, Cyd", what: "b" });
     expect(waitingOn(item("c", {}))).toEqual({ who: "someone", what: "c" });
   });
   test("grouped by who (any case), oldest first in a group, the longest wait first", () => {
     const g = groupWaiting([
-      item("tej-new", { "waiting-on": "Tej: b", sent: "2026-09-27 9:00 AM" }),
-      item("milind", { "waiting-on": "Milind: a", sent: "2026-09-28 6:35 PM" }),
-      item("tej-old", { "waiting-on": "tej: c", sent: "2026-09-20 9:00 AM" }),
+      item("cyd-new", { "waiting-on": "Cyd: b", sent: "2026-01-07 9:00 AM" }),
+      item("brook", { "waiting-on": "Brook: a", sent: "2026-01-08 6:35 PM" }),
+      item("cyd-old", { "waiting-on": "cyd: c", sent: "2026-01-02 9:00 AM" }),
     ]);
-    expect(g.map(x => [x.who, x.items.map(m => m.id)])).toEqual([["tej", ["tej-old", "tej-new"]], ["Milind", ["milind"]]]);
+    expect(g.map(x => [x.who, x.items.map(m => m.id)])).toEqual([["cyd", ["cyd-old", "cyd-new"]], ["Brook", ["brook"]]]);
   });
 });
 
@@ -41,10 +41,11 @@ describe.skipIf(!outliner)("the float-hub views", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
   let key: (k: Key) => void = () => {};
-  const ch = (c: string) => key({ kind: "char", ch: c });
+  const press = (k: Key) => key(k);
+  const ch = (c: string) => press({ kind: "char", ch: c });
   const top = () => (app as any).stack.at(-1);
   const screen = () => top().render(app).lines.map(plain).join("\n");
-  let outbox: Msg;
+  let outbox: Msg, ada: Msg, brook: Msg;
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
@@ -66,24 +67,48 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     for (const l of lines) expect(l.trimEnd().length).toBeLessThanOrEqual(80);
   });
 
-  test("with nothing waiting it says so; an item filed elsewhere shows up, grouped, and the reader shows it", async () => {
+  test("with nothing waiting it says so, and an agent's pick is refused", async () => {
     ch("O");
     expect(top()).toBeInstanceOf(Waiting);
     await until(() => (top() as Waiting).list.items !== null, "the waiting items asked for");
     expect(screen()).toContain("Nobody owes you an answer.");
-    await board.createBlock(outbox.id, "Done already [type::outbox-item] [outbox::done] [to::Ann]");
-    const felipe = await board.createBlock(outbox.id, "Reply to Felipe [type::outbox-item] [outbox::waiting] [ticket::PC-985] [sent::2026-09-25 5:36 PM] [waiting-on::Felipe: does QA have staging CMS logins?]");
-    await board.createBlock(outbox.id, "Ask Milind [type::outbox-item] [outbox::waiting] [ticket::PC-762] [sent::2026-09-28 6:35 PM] [waiting-on::Milind: where the note prints]\nThe body of the ask.");
-    await until(() => (top() as Waiting).list.items?.length === 2, "two waiting items, read again after the change", 5000);
+    await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/nothing is waiting/);
+  });
+
+  test("an item filed elsewhere shows up, grouped; the reader shows the one picked", async () => {
+    await board.createBlock(outbox.id, "Done already [type::outbox-item] [outbox::done] [to::Dot]");
+    ada = await board.createBlock(outbox.id, "Ask Ada about the jars [type::outbox-item] [outbox::waiting] [ticket::JAM-1] [sent::2026-01-05 5:36 PM] [waiting-on::Ada: which shelf do the jars go on?]");
+    brook = await board.createBlock(outbox.id, "Ask Brook about the tins [type::outbox-item] [outbox::waiting] [ticket::TIN-2] [sent::2026-01-08 6:35 PM] [waiting-on::Brook: how many bread tins]\nThe body of the ask.");
+    await until(() => (top() as Waiting).list.items?.length === 2, "two waiting items, read again after the change");
     const s = screen();
     expect(s).toContain("outbox · 2 waiting on 2 people");
     expect(s).not.toContain("Done already");
-    expect(s.indexOf("Felipe · 1 waiting")).toBeLessThan(s.indexOf("Milind · 1 waiting"));
-    expect(s).toMatch(/PC-985 +does QA have staging/);
-    await until(() => top().current?.id === felipe.id, "the longest wait selected and read");
+    expect(s.indexOf("Ada · 1 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
+    expect(s).toMatch(/JAM-1 +which shelf/);
+    await until(() => top().current?.id === ada.id, "the longest wait picked and read");
     ch("j");
-    await until(() => screen().includes("The body of the ask."), "the reader follows the selection");
-    expect((app.describe() as any).state.waiting.map((g: any) => g.who)).toEqual(["Felipe", "Milind"]);
+    await until(() => screen().includes("The body of the ask."), "j picks the next; the reader follows");
+    ch("j");                                                                       // the last item: j stays
+    expect(top().current?.id).toBe(brook.id);
+    expect((app.describe() as any).state).toMatchObject({ kind: "waiting", picked: 2, waiting: [{ who: "Ada" }, { who: "Brook" }] });
+  });
+
+  test("agents pick by act, said on screen; never while the person is typing; bad picks are refused", async () => {
+    expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["waiting.pick", "waiting.reload", "pane.split"]));
+    expect(await app.act({ action: "waiting.pick", args: { id: ada.id }, as: "test-agent" })).toMatchObject({ n: 1, of: 2, id: ada.id, who: "Ada" });
+    expect((app as any).message).toContain("an agent (test-agent) showed what Ada owes (1 of 2)");
+    expect(top().current?.id).toBe(ada.id);
+    await expect(app.act({ action: "waiting.pick", args: { n: 3 }, as: "test-agent" })).rejects.toThrow(/pick 1 to 2/);
+    await expect(app.act({ action: "waiting.pick", args: { id: "nope" }, as: "test-agent" })).rejects.toThrow(/no waiting item nope/);
+    await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n or id/);
+    // The person edits the note in the reader: an agent's pick would move it out from under them.
+    ch("2");
+    ch("e");
+    await until(() => !!top().readerPanes()[0]?.pane.draft, "the person's edit");
+    await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing here/);
+    press({ kind: "esc" });
+    await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
+    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ waiting: 2 });
     ch("q");
   });
 
@@ -92,12 +117,12 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(top()).toBeInstanceOf(PinnedPage);
     await until(() => (top() as PinnedPage).asked, "the page asked for");
     expect(screen()).toContain("No [[claude-now]] page on this outline yet.");
-    const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the fax template.");
-    await until(() => screen().includes("Start here: the fax template."), "the page, once it exists", 5000);
+    const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
+    await until(() => screen().includes("Start here: the jam jars."), "the page, once it exists");
     expect(screen()).toContain("Claude · now · pinned [[claude-now]]");
     const fresh = (await board.get(page.id))!;
-    await board.update(page.id, fresh.text.replace("the fax template", "the SFMC question"), fresh.revision!);
-    await until(() => screen().includes("Start here: the SFMC question."), "the edit, live");
+    await board.update(page.id, fresh.text.replace("the jam jars", "the bread tins"), fresh.revision!);
+    await until(() => screen().includes("Start here: the bread tins."), "the edit, live");
     ch("q");
   });
 });

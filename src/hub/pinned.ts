@@ -6,7 +6,7 @@
 // Built on the desk (a preset, as the brief is). This file only adds which note is pinned.
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
-import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent } from "../socket";
+import { AGENT_ACTOR_ID, USER, type OutlineEvent } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import type { OpenHow, SurfaceHost } from "../surface/note";
 import { Desk } from "../desk/desk";
@@ -79,15 +79,8 @@ export class PinnedPage extends Desk {
 
   /** A note opened from the pinned page goes to a reader beside it (the one there, or a new one). */
   override setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
-    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.beside(opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER);
+    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.readerBeside(this.reader, opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER);
     super.setCurrent(m, opts);
-  }
-
-  private beside(actor: Actor) {
-    if (this.readerPanes().some(r => r.pane !== this.reader && !r.pane.holding)) return;
-    const me = () => this.readerPanes().find(r => r.pane === this.reader)!.name;
-    this.splitPane(me(), "reader", "row", actor);
-    if (actor.kind !== "agent") this.focusOn(me());
   }
 
   override onEvent(e: OutlineEvent) {
