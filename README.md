@@ -10,6 +10,9 @@ slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
+Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
+[AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
+verification and the review checklist.
 
 ## Try it
 
