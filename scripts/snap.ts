@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -297,6 +297,67 @@ if (scenario === "edit") {
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
   console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  other.close(); board.close(); process.exit(0);
+}
+if (scenario === "props") {
+  // Writes: seeds a board with a roadmap-like card, then the summary line, the property panel (inline,
+  // full, copy, edit, a refused edit, follow) and every kind of transclusion. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("props writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Scratch roadmap board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::type=roadmap-item work-stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
+  const plan = await mk(null, "Garden plan [page::garden]\nBeans along the fence, squash by the compost.\n\n## Beds ^beds\nTwo raised beds, one for herbs.");
+  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, author: "agent" });
+  const chores = await mk(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::priority]");
+  await mk(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
+  await mk(null, "Turn the compost [type::chore] [stage::queued] [priority::low]");
+  const batch = await mk(null, "Spring work batch [type::work-batch] [project::garden]");
+  const card = await mk(null, [
+    "GDN-12 — Build the compost bin",
+    "[type::roadmap-item] [priority::high] [work-stage::queued] [project::garden]",
+    `[arc::spring-beds] [track::soil] [track::tools] [work-batch::${batch.id}]`,
+    `[related-to::${plan.id}] [work-id::GDN-12]`,
+    "",
+    "## Outcome",
+    `A three-bay bin beside the beds in ((${plan.id})), sized for [[garden]]'s kitchen scraps. See ((${plan.id}^beds|the beds)) and [[GDN-99]].`,
+    "owner:: the allotment group",
+    "",
+    "## Embedded",
+    `!((${plan.id}))`,
+    `!((${plan.id}^beds))`,
+    `!((${chores.id}))`,
+    `!((${plan.id}^compost))`,
+    `!((${shed.id}))`,
+    "!((0badc0de-0000-4000-8000-000000000000))",
+  ].join("\n"));
+  await mk(null, "GDN-13 — Rain barrel [type::roadmap-item] [priority::low] [work-stage::doing] [track::water]\nCatch the shed roof.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  await Bun.sleep(2000);
+  ch("l");                                                            // the Queued lane: the compost card
+  await snap("1-summary", 1500);
+  press({ kind: "tab" }); ch("i");
+  await snap("2-panel", 1200);
+  for (let i = 0; i < 8; i++) press({ kind: "tab" });                // related-to: a block value, shown by its title
+  ch("I"); await snap("3-full", 800);
+  ch("I"); for (let i = 0; i < 7; i++) press({ kind: "backtab" });   // priority
+  press({ kind: "enter" }); for (let i = 0; i < 4; i++) press({ kind: "backspace" }); for (const c of "medium") ch(c);
+  await snap("4-editing", 500);
+  press({ kind: "enter" }); await snap("5-saved", 1500);
+  // A second writer changes the note while a value is being typed: the save is refused, nothing is overwritten.
+  press({ kind: "enter" }); for (const c of "-2") ch(c);
+  const other = new SocketBoard();
+  const now = (await other.request("blocks.context", { blockId: card.id })).selected;
+  await other.update(card.id, now.text.replace("three-bay", "four-bay"), now.revision);
+  await Bun.sleep(1200);
+  press({ kind: "enter" }); await snap("6-refused", 1500);
+  press({ kind: "esc" }); press({ kind: "esc" });
+  press({ kind: "enter" });                                           // the card in a detail, tall enough for its embeds
+  await snap("7-embeds", 2500);
+  ch("i"); for (let i = 0; i < 8; i++) press({ kind: "tab" });
+  ch("o"); await snap("8-followed", 1500);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "move") {
