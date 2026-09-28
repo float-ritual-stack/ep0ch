@@ -1,0 +1,34 @@
+#cloud-config
+# float-2: the CPU box beside float-box (GPU). Runs outliner services, the ssh ep0ch.io door,
+# Herdr and coding agents. Nothing secret lives here: Tailscale is installed but joined by hand.
+users:
+  - name: evan
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - __SSH_PUBLIC_KEY__
+ssh_pwauth: false
+disable_root: true
+package_update: true
+package_upgrade: true
+packages: [git, curl, unzip, jq, sqlite3, tmux, ufw, fail2ban, build-essential]
+runcmd:
+  # Firewall: SSH only for now; the door's public port opens when ep0ch.io goes live.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw --force enable
+  - systemctl enable --now fail2ban
+  # Tailscale for the private link to float-box and the laptop; `sudo tailscale up` is a manual step.
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  # Bun for the outliner and the door, installed for evan. (Was pinned to 1.3.14 until the outliner
+  # handled Bun 1.4 socket errors; fixed in pi-herdr-outliner #240 / PIE-454, 2026-09-28.)
+  - su - evan -c 'curl -fsSL https://bun.sh/install | bash'
+  # PATH before the interactive guard, so ssh commands, agents and tests find bun and herdr.
+  - su - evan -c 'sed -i "1i export PATH=\"\$HOME/.bun/bin:\$HOME/.local/bin:\$PATH\"" ~/.bashrc'
+  # Herdr from its GitHub releases (linux-aarch64 or linux-x86_64 by architecture).
+  - su - evan -c 'mkdir -p ~/.local/bin && curl -fsSL -o ~/.local/bin/herdr "https://github.com/herdrdev/herdr/releases/latest/download/herdr-linux-$(uname -m)" && chmod +x ~/.local/bin/herdr'
+  # Let evan's user services (outliner, door) keep running after logout.
+  - loginctl enable-linger evan
+  - touch /var/lib/cloud/float-2-ready
