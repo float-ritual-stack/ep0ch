@@ -94,6 +94,7 @@ content it needs; the review checklist's "The map" item covers both.
 | Command | What it does |
 |---|---|
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
+| `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the installed Outliner plugin's, found through Herdr), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
