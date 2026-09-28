@@ -29,6 +29,7 @@ import {
 import { composedTreeNavigation } from "../src/composed-surface";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
 import { detailBacklinkRegions } from "../src/detail-pi-preview";
+import { resolveAnnotationReferences } from "../src/detail-annotations";
 import { detailPropertyInspectorRegions } from "../src/property-inspector";
 import { buildDetailAnsiPreview, renderDetailLines } from "../src/detail-renderer";
 import type { ReferencedFile } from "../src/files";
@@ -1027,6 +1028,57 @@ describe("detail controller projection and deferred refresh", () => {
     annotations.resolve({ threads: [thread], changed: true });
     await annotations.promise;
     expect(frames).toContain(1);
+  });
+
+  test("resolves block-reference titles in comment and reply text with one request", async () => {
+    const referenced = "30000000-0000-4000-8000-000000000003";
+    const other = "30000000-0000-4000-8000-000000000004";
+    const harness = createHarness(makeBlock());
+    const resolveText = harness.effects.resolveReferences;
+    const resolved: string[] = [];
+    harness.effects.resolveReferences = async text => {
+      if (!text.includes(referenced)) return resolveText(text);
+      resolved.push(text);
+      return {text, references: [
+        {blockId: referenced, status: "resolved", title: "Referenced title"},
+        {blockId: other, status: "missing"},
+      ]};
+    };
+    harness.effects.reconcileAnnotations = async input => {
+      const thread = annotationRecord({
+        representation: input.newRepresentation,
+        anchor: { kind: "text-quote" as const, start: 0, end: 3, exact: "Raw", prefix: "", suffix: " block text" },
+      });
+      const body = `See ((${referenced}))`;
+      return { threads: [{ ...thread, body, replies: [
+        { ...thread, body: "Plain [[Page]] reply" },
+        { ...thread, body: `Also ((${referenced})) and ((${other}))` },
+      ] }], changed: false };
+    };
+    await harness.controller.initialize();
+    await Bun.sleep(0);
+    // Every comment's references travel together, once each.
+    expect(resolved).toEqual([`((${referenced}))\n((${other}))`]);
+    expect([...harness.controller.state.annotationReferences ?? []]).toEqual([
+      [`See ((${referenced}))`, "See ((Referenced title))"],
+      [`Also ((${referenced})) and ((${other}))`, `Also ((Referenced title)) and ((${other}))`],
+    ]);
+  });
+
+  test("a stalled or malformed comment reference resolve degrades to linked block IDs", async () => {
+    const referenced = "30000000-0000-4000-8000-000000000003";
+    const thread = { body: `See ((${referenced}))`, replies: [{ body: `Again ((${referenced}))` }] } as AnnotationThread;
+    let calls = 0;
+    const stalled = resolveAnnotationReferences([thread], () => { calls += 1; return new Promise(() => {}); }, 20);
+    const started = performance.now();
+    expect(await stalled).toEqual(new Map());
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(calls).toBe(1);
+    expect(await resolveAnnotationReferences([thread], async () => ({ references: [] }), 20)).toEqual(new Map());
+    expect(await resolveAnnotationReferences([thread], async () => { throw new Error("offline"); }, 20)).toEqual(new Map());
+    expect(await resolveAnnotationReferences([{ body: "No references", replies: [] } as unknown as AnnotationThread],
+      () => { calls += 1; return new Promise(() => {}); }, 20)).toEqual(new Map());
+    expect(calls).toBe(1);
   });
 
   test("removes old annotation ranges before painting a changed block revision", async () => {

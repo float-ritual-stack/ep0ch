@@ -13,7 +13,8 @@ import { parsePropertyRecords } from "./properties";
 import {documentFolds, revealFoldedLine, type DocumentFold} from './document-folds';
 import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";
-import type {RenderedLink} from './rendered-links';
+import {measureRenderedLinks, withInternalLinks, type RenderedLink} from './rendered-links';
+import {LinkAwareMarkdown} from './link-aware-markdown';
 import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, type DetailAnnotationGroup, type AnnotationReaderState } from "./detail-annotations";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import {
@@ -38,7 +39,7 @@ import {
 } from "./detail-callouts";
 import type { DetailCalloutTheme } from "./detail-callout-theme";
 import { detailEmbedIds } from "./detail-embeds";
-import { linkOutlinerDocument, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
+import { linkOutlinerDocument, linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
 import {
   detailBlockTarget,
   detailResourceDescription,
@@ -418,7 +419,7 @@ export function renderDetailReadPreview(
     disclosureOverrides: new Map(),
   };
   const annotationState: AnnotationReaderState | undefined = input.annotations
-    ? {...input.annotations, previewRegions, resolvedSelectedText:input.resolvedText} : undefined;
+    ? {...input.annotations, previewRegions, resolvedSelectedText:input.resolvedText, workIdPrefix:input.workIdPrefix} : undefined;
   const groups = annotationState ? detailAnnotationGroups(annotationState) : [];
   reconcilePreviewRegions(previewRegions, [...folds, ...callouts, ...checklists, ...detailAnnotationRegions(groups)]);
   if (revealSourceLine !== undefined) revealFoldedLine(previewRegions, [...folds, ...callouts], renderedLineForAuthoredLine(revealSourceLine));
@@ -448,7 +449,7 @@ export function renderDetailReadPreview(
     return [`[File: ${label}](${outlinerLinkUri(target.kind, target.value, target)})`];
   });
   const metadataRows = metadataLinks.length ? new Markdown(metadataLinks.join(" · "), 0, 0, markdownTheme).render(Math.max(1, width)) : [];
-  const comments = annotationState ? new DetailAnnotationPreview(annotationState, markdown, markdownTheme) : null;
+  const comments = annotationState ? new DetailAnnotationPreview(annotationState, markdown, markdownTheme, linksEnabled) : null;
   comments?.setGroups(groups);
   const arrangement = comments?.renderArrangement(width);
   const threadRows = new Map<string,number>();
@@ -509,12 +510,58 @@ function highlightActiveBacklink(text: string): string {
 }
 
 
+// Escape only `]`: pi-tui reads `\\[…\\]` as LaTeX, and an unmatched `]` already
+// keeps `[label](uri)` from forming a link.
 function escapeGeneratedMarkdown(value: string): string {
   return sanitizeMarkdownDocument(value)
     .replace(/\r?\n/g, " ")
     .replaceAll("\\", "\\\\")
-    .replace(/([`*_[\]<>~])/g, "\\$1");
+    .replace(/([`*_\]<>~])/g, "\\$1");
 }
+
+// Inside `[label](uri)` an unmatched `[` would restart the label, and pi-tui
+// does not read `\\[` as LaTeX there, so labels also escape `[`.
+function escapeGeneratedLinkLabel(value: string): string {
+  return escapeGeneratedMarkdown(value).replaceAll("[", "\\[");
+}
+
+/**
+ * A comment is authored note text: references link and inline formatting
+ * renders. Only block structure that would break its box (headings, fences,
+ * tables, rules and HTML blocks) is shown as plain text.
+ */
+export function annotationCommentMarkdown(
+  body: string,
+  resolvedBody: string | undefined,
+  workIdPrefix: string | null,
+  linksEnabled: boolean,
+): string[] {
+  const raw = sanitizeMarkdownDocument(body);
+  const resolved = resolvedBody === undefined ? raw : sanitizeMarkdownDocument(resolvedBody);
+  // Link first: neutralizing afterwards cannot desynchronize raw and resolved offsets.
+  return linkOutlinerMarkdown(resolved, raw, workIdPrefix, linksEnabled)
+    .split(/\r?\n/)
+    .map(neutralizeCommentBlockSyntax);
+}
+
+const TABLE_DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+
+function neutralizeCommentBlockSyntax(line: string): string {
+  const fence = /^( {0,3})(`{3,}|~{3,})/.exec(line);
+  if (fence) return `${fence[1]}${fence[2]!.replace(/./g, "\\$&")}${line.slice(fence[0].length)}`;
+  if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(line)) return line.replace("#", "\\#");
+  // Setext underlines and thematic breaks.
+  if (/^ {0,3}(?:=+|-+|(?:[-*_][ \t]*){3,})[ \t]*$/.test(line)) return line.replace(/[-=*_]/, "\\$&");
+  if (line.includes("|") && TABLE_DELIMITER_ROW.test(line)) return line.replaceAll("|", "\\|");
+  // `[1]: https://…` would be read as a reference definition and vanish.
+  const definition = /^ {0,3}\[(?:[^\\[\]]|\\.)+(?=\]:)/.exec(line);
+  if (definition) return `${definition[0]}\\${line.slice(definition[0].length)}`;
+  // An autolink is not an HTML block; escaping its `<` would link `https://…>`.
+  if (COMMENT_AUTOLINK.test(line)) return line;
+  return line.replace(/^( {0,3})</, "$1\\<");
+}
+
+const COMMENT_AUTOLINK = /^ {0,3}<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)>/;
 
 function backlinkGroupLabel(group: BacklinkReferenceGroup): string {
   if (group.kind === "property") return `${group.propertyKey} property ×${group.count}`;
@@ -610,8 +657,8 @@ export function renderBacklinksDocument(state: Readonly<DetailState>): string {
     lines.push("_No backlinks match the current filter._");
   } else {
     for (const [index, source] of sources.entries()) {
-      const title = escapeGeneratedMarkdown(source.title);
-      const context = escapeGeneratedMarkdown(source.parentContext);
+      const title = escapeGeneratedLinkLabel(source.title);
+      const context = escapeGeneratedLinkLabel(source.parentContext);
       const trash = source.deletedRootId ? " · Trash" : "";
       const count = source.occurrenceCount === 1
         ? "1 reference"
@@ -706,6 +753,14 @@ function annotationBorder(text: string): string {
   return `${ANNOTATION_BORDER_STYLE}${text}${RESET_STYLE}`;
 }
 
+interface CommentLinking {
+  references: ReadonlyMap<string, string> | undefined;
+  workIdPrefix: string | null;
+  linksEnabled: boolean;
+  /** Mark each link occurrence so a wrapped link measures as one keyboard stop. */
+  trackLinks?: boolean;
+}
+
 function annotationPanelLines(
   thread: AnnotationThread,
   index: number,
@@ -714,7 +769,10 @@ function annotationPanelLines(
   placement: DetailAnnotationGroup["placement"],
   selected: boolean,
   scope: string,
+  comments: CommentLinking = {references: undefined, workIdPrefix: null, linksEnabled: false},
 ): string[] {
+  const commentLines = (body: string) => annotationCommentMarkdown(body, comments.references?.get(body),
+    comments.workIdPrefix, comments.linksEnabled);
   const panelWidth = Math.max(1, width);
   const title =
     ` ${selected ? "▶ " : ""}Comment ${index + 1} · ${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle} `;
@@ -731,7 +789,7 @@ function annotationPanelLines(
     `${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle}`,
     scope,
     "",
-    ...thread.body.split(/\r?\n/).map(escapeGeneratedMarkdown),
+    ...commentLines(thread.body),
   ];
   if (placement === "unpositioned" || thread.resolvedTarget?.anchor.kind === "list-item" ||
     thread.currentResolution.passageResolution?.fragments.some(fragment => fragment.sources.some(source => source.resolvedTarget?.anchor.kind === "list-item"))) {
@@ -742,15 +800,11 @@ function annotationPanelLines(
     body.push("", `[Open thread](${outlinerLinkUri("block", thread.block.id)})`);
   }
   for (const reply of thread.replies) {
-    body.push(
-      "",
-      `**${escapeGeneratedMarkdown(reply.source)}:** ${
-        escapeGeneratedMarkdown(reply.body)
-      }`,
-    );
+    const [first = "", ...rest] = commentLines(reply.body);
+    body.push("", `**${escapeGeneratedMarkdown(reply.source)}:** ${first}`, ...rest);
   }
-  const rendered = new Markdown(body.join("\n"), 0, 0, theme)
-    .render(Math.max(1, panelWidth - 2));
+  const rendered = (comments.trackLinks ? new LinkAwareMarkdown(body.join("\n"), theme)
+    : new Markdown(body.join("\n"), 0, 0, theme)).render(Math.max(1, panelWidth - 2));
   return [
     annotationBorder(top),
     ...rendered.map((line) => `${annotationBorder("│")} ${line}`),
@@ -766,13 +820,20 @@ class DetailAnnotationPreview implements Component {
     private readonly state: Readonly<AnnotationReaderState>,
     private readonly markdown: SourceSpannedMarkdown,
     private readonly theme: MarkdownTheme,
+    private readonly linksEnabled = false,
   ) {}
+
+  private commentLinking(trackLinks: boolean): CommentLinking {
+    return {references: this.state.annotationReferences, workIdPrefix: this.state.workIdPrefix ?? null,
+      linksEnabled: this.linksEnabled, trackLinks};
+  }
 
   setGroups(groups: readonly DetailAnnotationGroup[]): void {
     this.groups = groups;
   }
 
-  renderArrangement(width: number): AnnotationPreviewArrangement {
+  /** `trackLinks` adds zero-width link-occurrence markers for measurement only; never paint those lines. */
+  renderArrangement(width: number, trackLinks = false): AnnotationPreviewArrangement {
     const outerWidth = Math.max(1, Math.floor(width));
     if (this.groups.length === 0) {
       const lines = this.markdown.render(outerWidth);
@@ -826,7 +887,8 @@ class DetailAnnotationPreview implements Component {
         existing.push({
           regionId: `annotation-thread:${thread.block.id}`, groupId: group.regionId,
           lines: annotationPanelLines(thread, this.groups.flatMap(group => group.threads).indexOf(thread),
-            contentWidth, this.theme, group.placement, selectedAnnotationThread(this.state)?.block.id === thread.block.id, annotationScopeLabel(thread, this.state)),
+            contentWidth, this.theme, group.placement, selectedAnnotationThread(this.state)?.block.id === thread.block.id, annotationScopeLabel(thread, this.state),
+            this.commentLinking(trackLinks)),
         });
       }
       insertions.set(insertionRow, existing);
@@ -907,7 +969,8 @@ class DetailAnnotationPreview implements Component {
       for (const thread of group.threads) {
         panelRows.set(`annotation-thread:${thread.block.id}`, lines.length);
         const panel = annotationPanelLines(thread, this.groups.flatMap(group => group.threads).indexOf(thread), outerWidth,
-          this.theme, group.placement, selectedAnnotationThread(this.state)?.block.id === thread.block.id, annotationScopeLabel(thread, this.state));
+          this.theme, group.placement, selectedAnnotationThread(this.state)?.block.id === thread.block.id, annotationScopeLabel(thread, this.state),
+          this.commentLinking(trackLinks));
         lines.push(...panel);
         markdownRows.push(...panel.map(() => null));
       }
@@ -1165,7 +1228,7 @@ export class DetailPiPreviewLayout extends VStack {
       options.calloutTheme,
       true,
     );
-    const annotationPreview = new DetailAnnotationPreview(state, markdown, markdownTheme);
+    const annotationPreview = new DetailAnnotationPreview(state, markdown, markdownTheme, linksEnabled);
     const inspectorMarkdown = new Markdown("", 0, 0, {
       ...markdownTheme,
       linkUrl: () => "",
@@ -1797,7 +1860,8 @@ export class DetailPiPreviewLayout extends VStack {
     this.bodyRegions=[];
     if (this.state.propertyInspector.presentation === "dedicated") return;
     const contentWidth=this.scrollView.getContentWidth(width);
-    const annotated=this.annotationPreview.renderArrangement(contentWidth);
+    // Measure comment panels with OSC 8 geometry, as the document's own links are.
+    const annotated=withInternalLinks(()=>this.annotationPreview.renderArrangement(contentWidth,true));
     const calloutRows=new Map<string,number>();
     for(const link of this.markdown.renderedLinks){
       if(link.uri.startsWith("pi-outliner-detail:")){
@@ -1820,6 +1884,26 @@ export class DetailPiPreviewLayout extends VStack {
       const spans=this.bodyLinks.get(id)??[];
       spans.push({...link,row:annotated.mapMarkdownRow(link.row),column:link.column+contentWidth-annotated.contentWidth});
       this.bodyLinks.set(id,spans);
+    }
+    // Links in comment text follow the same focus and activation path as note links.
+    const threadStarts=[...annotated.panelRows].filter(([id])=>id.startsWith("annotation-thread:")).sort((a,b)=>a[1]-b[1]);
+    // A wrapped link keeps its occurrence marker, so its rows form one stop whose id is width-independent.
+    const ordinals=new Map<string,number>();
+    const occurrences=new Map<string,string>();
+    for(const link of measureRenderedLinks(annotated.lines)){
+      if(annotated.markdownRowAt(link.row)!==null || !/^(pi-outliner:|https?:)/.test(link.uri))continue;
+      const {occurrenceId,...span}=link;
+      const occurrence=occurrenceId===undefined?undefined:`${occurrenceId}:${link.uri}`;
+      const existing=occurrence===undefined?undefined:occurrences.get(occurrence);
+      if(existing){this.bodyLinks.get(existing)!.push(span);continue;}
+      const thread=threadStarts.filter(([,row])=>row<=link.row).at(-1)?.[0]??"comments";
+      const key=`${thread}:${link.uri}`;
+      const ordinal=ordinals.get(key)??0;
+      ordinals.set(key,ordinal+1);
+      const id=`body-link:comment:${key}#${ordinal}`;
+      if(occurrence!==undefined)occurrences.set(occurrence,id);
+      this.bodyRegions.push({id,kind:"body-link",sourceSpan:null,parentId:null,childIds:[],focusable:true,disclosure:null,activation:{type:"link.open",uri:link.uri}});
+      this.bodyLinks.set(id,[span]);
     }
     const inspector=this.state.context.selected && !(this.options.splitActive?.()??false)?this.inspectorLines(contentWidth):[];
     const arrangement=arrangeInlinePreview(annotated.lines,inspector);
