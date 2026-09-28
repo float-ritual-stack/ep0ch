@@ -8,6 +8,7 @@ import { find, loadArt } from "../packs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CommentSession, type CommentEnv } from "../comment";
 import { Draft } from "../edit";
 import { EditConflict, type Activity, type Comment } from "../socket";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
@@ -173,6 +174,9 @@ export class TreePane implements Pane {
 
 // ── reader ───────────────────────────────────────────────────────────────────
 
+/** Comment and reply blocks: stored as children of the note they're about. */
+const isAnnotation = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
+
 const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
 /** `-stage=queued +stage=doing`, or "" when the property set is the same. */
 export function propertyChange(before: Record<string, string>, after: Record<string, string>): string {
@@ -197,12 +201,31 @@ export class ReaderPane implements Pane {
   private link = -1;
   /** An open edit of `msg`. While it exists every key goes to it and the reader stays on its note. */
   draft: Draft | null = null;
-  get editing() { return this.draft !== null; }
-  title() { return this.draft ? `reader · editing${this.draft.dirty ? " · unsaved" : ""}` : this.pinned ? "reader · pinned" : "reader"; }
+  /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
+  session: CommentSession | null = null;
+  /** The note's comment threads, for the count in the header and the marks while picking a passage. */
+  comments: Comment[] | null = null;
+  private commentsFor = "";
+  private commentTimer: Timer | null = null;
+  get editing() { return this.draft !== null || this.session !== null; }
+  /** Typed text that isn't saved or sent: an edit, or a comment being written. */
+  unsaved() { return !!this.draft?.dirty || !!this.session?.dirty; }
+  /** Copy unsaved text to disk (the screen is closing anyway). */
+  keepDrafts(): string[] {
+    const out: string[] = [];
+    if (this.draft?.dirty) out.push(this.draft.copyOut());
+    if (this.session?.composer?.dirty) out.push(this.session.composer.copyOut(`${this.session.blockId.slice(0, 8)}-comment`));
+    return out;
+  }
+  title() {
+    if (this.session) return `reader · ${this.session.mode === "compose" ? `writing${this.session.dirty ? " · unsent" : ""}` : this.session.mode === "select" ? "quoting" : "comments"}`;
+    return this.draft ? `reader · editing${this.draft.dirty ? " · unsaved" : ""}` : this.pinned ? "reader · pinned" : "reader";
+  }
   hint() {
+    if (this.session) return this.session.hint();
     if (this.draft) return "ctrl+s save · ctrl+e $EDITOR · ctrl+r reload · esc done";
     const l = this.links[this.link];
-    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up";
+    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up · c comment · m comments";
   }
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
@@ -221,10 +244,13 @@ export class ReaderPane implements Pane {
 
   show(m: Msg | null, desk: DeskApi) {
     if (this.draft && m?.id !== this.draft.blockId) return;   // an edit keeps the reader on its note
+    if (this.session && m?.id !== this.session.blockId) return;   // so does commenting
     if (m?.id !== this.msg?.id) this.notice = "";
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
     this.links = m ? linksOf(m) : [];
+    if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return;
+    void this.loadComments(desk);
     desk.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
       this.crumbs = a.map(subject).join(" › ") || "top level"; desk.redraw();
@@ -235,10 +261,13 @@ export class ReaderPane implements Pane {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return this.renderDraft(this.draft, m, w, h);
+    if (this.session) return { lines: this.session.render(w, h, subject(m)) };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
+    const open = this.comments?.filter(c => c.open).length ?? 0;
+    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
-      fg(C.brown) + pad(meta, w) + RESET,
+      pad(fg(C.brown) + meta + said, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       rule(w),
@@ -284,10 +313,10 @@ export class ReaderPane implements Pane {
   /** Open a draft on the block as the service has it now, not as this reader last drew it. */
   async edit(desk: DeskApi, external = false): Promise<void> {
     const m = this.msg;
-    if (!m || this.draft) return;
+    if (!m || this.editing) return;
     const fresh = await desk.ctx.board.get(m.id);
     if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
-    if (this.msg?.id !== m.id || this.draft) return;
+    if (this.msg?.id !== m.id || this.editing) return;
     this.msg = fresh;
     this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
     desk.redraw();
@@ -359,9 +388,8 @@ export class ReaderPane implements Pane {
     desk.redraw();
   }
 
-  /** Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back as the draft. */
-  private external(desk: DeskApi) {
-    const d = this.draft;
+  /** Ctrl+E: the draft (or a comment being written) goes to $VISUAL/$EDITOR in a temp file and comes back. */
+  private external(desk: DeskApi, d: Draft | null = this.draft) {
     if (!d) return;
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-edit-"));
     const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
@@ -384,9 +412,62 @@ export class ReaderPane implements Pane {
     desk.redraw();
   }
 
+  // ── comments ────────────────────────────────────────────────────────────────
+
+  async loadComments(desk: DeskApi): Promise<void> {
+    const id = this.msg?.id;
+    if (!id) return;
+    try {
+      const c = await desk.ctx.board.comments(id);
+      if (this.msg?.id !== id) return;
+      this.comments = c; this.commentsFor = id;
+      if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c;
+      desk.redraw();
+    } catch { /* comments are extra; the note still reads */ }
+  }
+
+  /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
+  onEvent(desk: DeskApi) {
+    if (!this.msg) return;
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = setTimeout(() => void this.loadComments(desk), 700);
+  }
+
+  private commentEnv(desk: DeskApi): CommentEnv {
+    return {
+      board: desk.ctx.board,
+      fetch: id => desk.ctx.board.get(id),
+      setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
+      reloadComments: async () => { await this.loadComments(desk); return this.comments ?? []; },
+      external: d => this.external(desk, d),
+      flash: m => desk.ctx.flash(m),
+      redraw: () => desk.redraw(),
+    };
+  }
+
+  /** `c`: pick a passage of the note as the service has it now; `m`: the thread list. */
+  async comment(desk: DeskApi, mode: "select" | "threads"): Promise<void> {
+    const m = this.msg;
+    if (!m || this.editing) return;
+    const fresh = mode === "select" ? await desk.ctx.board.get(m.id) : m;
+    if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't comment: the outline didn't say which revision this note is at"); return; }
+    if (this.msg?.id !== m.id || this.editing) return;
+    this.msg = fresh;
+    if (this.commentsFor !== m.id) await this.loadComments(desk);
+    this.session = new CommentSession(fresh, this.comments ?? [], mode);
+    desk.redraw();
+  }
+
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft) return this.draftKey(k, desk);
+    if (this.session) {
+      if (this.session.key(k, this.commentEnv(desk)) === "close") this.session = null;
+      desk.redraw();
+      return true;
+    }
     const c = ch(k);
+    if (c === "c" && this.msg) { void this.comment(desk, "select"); return true; }
+    if (c === "m" && this.msg) { void this.comment(desk, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(desk); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(desk, true); return true; }
     if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 1); desk.redraw(); return true; }
@@ -437,14 +518,23 @@ export class ThreadPane implements Pane {
   private top = 0;
   private kidLine: number[] = [];
   title() { return this.kids ? `thread · ${this.kids.length} repl${this.kids.length === 1 ? "y" : "ies"} · ${this.comments?.length ?? "…"} comment${this.comments?.length === 1 ? "" : "s"}` : "thread"; }
-  hint() { return "⏎ open reply · u up"; }
+  hint() { return "⏎ open reply · u up · comment from a reader: c, m"; }
 
   select(m: Msg | null, desk: DeskApi) {
     this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.top = 0;
     if (!m) return;
-    desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k; desk.redraw(); } }, () => { this.kids = []; });
-    desk.ctx.board.comments(m.id).then(c => { if (this.msg?.id === m.id) { this.comments = c; desk.redraw(); } }, () => { this.comments = []; });
+    // Comment and reply blocks live under the note too; they show below as comments, not as replies.
+    desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k.filter(x => !isAnnotation(x)); desk.redraw(); } }, () => { this.kids = []; });
+    this.loadComments(desk);
   }
+
+  private loadComments(desk: DeskApi) {
+    const m = this.msg;
+    if (m) desk.ctx.board.comments(m.id).then(c => { if (this.msg?.id === m.id) { this.comments = c; desk.redraw(); } }, () => { this.comments ??= []; });
+  }
+
+  private timer: Timer | null = null;
+  onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.loadComments(desk), 700); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.msg) return { lines: [dim("no message selected")] };
@@ -463,10 +553,10 @@ export class ThreadPane implements Pane {
     const open = this.comments?.filter(c => c.open).length ?? 0;
     lines.push(fg(C.lcyan) + `COMMENTS ${this.comments ? `${open} open · ${this.comments.length - open} resolved` : "…"}` + RESET);
     for (const c of this.comments ?? []) {
-      lines.push(`${fg(c.open ? C.yellow : C.dark)}${c.open ? "●" : "○"} ${fg(C.white)}${c.author}${fg(C.dark)} · ${ago(c.at)}${RESET}`);
-      if (c.quote) lines.push(fg(C.green) + pad(`  “${c.quote}”`, w) + RESET);
+      lines.push(`${fg(c.open ? C.yellow : C.dark)}${c.open ? "■" : "·"} ${fg(C.white)}${c.author}${fg(C.dark)} · ${ago(c.at)}${c.open ? "" : " · resolved"}${RESET}`);
+      if (c.quote) lines.push(fg(C.green) + pad(`  ▐ "${c.quote}"`, w) + RESET);
       for (const l of wrap(c.body, w - 2).slice(0, 4)) lines.push("  " + fg(C.grey) + l + RESET);
-      for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  ↳ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
+      for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  └ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
     }
     const selLine = this.kidLine[this.sel] ?? 0;
     this.top = follow(selLine, this.top, h - 1);

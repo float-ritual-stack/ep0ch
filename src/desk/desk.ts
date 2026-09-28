@@ -90,14 +90,14 @@ export class Desk implements Screen, DeskApi {
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
 
   unsaved() { return this.drafts().length > 0; }
-  keepDrafts() { return this.drafts().map(p => p.draft!.copyOut()); }
-  private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !!p.draft?.dirty); }
+  keepDrafts() { return this.drafts().flatMap(p => p.keepDrafts()); }
+  private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
 
   describe() {
     const order = leaves(this.root);
     return {
       kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
-      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined }; }),
+      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined, commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined }; }),
     };
   }
 
