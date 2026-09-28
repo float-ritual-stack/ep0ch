@@ -1,6 +1,7 @@
 import {isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
+import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
 import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import type {QueryExpression, SavedViewReadOptions, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
@@ -568,6 +569,7 @@ export class OutlinerStore {
   readonly resources: ResourceCatalog;
   readonly annotations: AnnotationRepository;
   readonly workingSelections: WorkingSelectionRepository;
+  readonly changes: ChangeFeed;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -578,11 +580,12 @@ export class OutlinerStore {
       this.database = database = new Database(path, { create: true });
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
       this.migrate();
+      this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         ...resourceOptions,
-      });
+      }, (sequence) => this.changes.recordSequenceOnly(sequence, "resource-catalog"));
       this.annotations = new AnnotationRepository(this.database, this.resources, {
         create: (text, parentId, author, provenance) =>
           this.create(text, parentId, author, provenance),
@@ -592,7 +595,7 @@ export class OutlinerStore {
           this.insertCanonicalBlock(id, text, parentId, author, createdAt),
         replaceCanonicalText: (blockId, text) =>
           this.replaceCanonicalBlockText(blockId, text),
-        markMutation: () => this.bumpSequence(),
+        markMutation: (change) => this.bumpSequence(change),
         requireActive: (blockId) => this.requireActive(blockId),
         get: (blockId) => this.get(blockId),
         listAnnotations: () => (
@@ -695,7 +698,7 @@ export class OutlinerStore {
           createdAt,
         );
       this.replaceProperties(id, parsePropertyRecords(text));
-      this.bumpSequence();
+      this.bumpSequence({ kind: "create", blockId: id });
     })();
 
     return this.require(id);
@@ -722,7 +725,7 @@ export class OutlinerStore {
         ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, NULL)
       `).run(id, parentId, position, text, author, createdAt, createdAt);
       this.replaceProperties(id, parsePropertyRecords(text));
-      this.bumpSequence();
+      this.bumpSequence({ kind: "create", blockId: id });
     })();
     return this.require(id);
   }
@@ -1008,7 +1011,7 @@ export class OutlinerStore {
         now,
       );
       this.replaceProperties(id, parsePropertyRecords(text));
-      this.bumpSequence();
+      this.bumpSequence({ kind: "create", blockId: id });
       const block = this.getFromCurrentRead(id);
       if (!block) throw new Error(`Roadmap item was not created: ${id}`);
       return {
@@ -1497,7 +1500,7 @@ export class OutlinerStore {
         kind,
         editedAt,
       );
-      this.bumpSequence();
+      this.bumpSequence({ kind: "edit", blockId: id });
     })();
     return this.require(id);
   }
@@ -1728,7 +1731,7 @@ export class OutlinerStore {
       const now = new Date().toISOString();
       siblings.forEach((sibling, index) => updatePosition.run(index, now, sibling.id));
       this.normalizePositions(block.parentId);
-      this.bumpSequence();
+      this.bumpSequence({ kind: "move", blockId: id, previousParentId: block.parentId });
     })();
     return this.require(id);
   }
@@ -1744,7 +1747,7 @@ export class OutlinerStore {
       this.database.query("UPDATE blocks SET deleted_at = ?, updated_at = ? WHERE id = ?")
         .run(deletedAt, deletedAt, id);
       this.recomputeEffectiveDeletion();
-      this.bumpSequence();
+      this.bumpSequence({ kind: "delete", blockId: id });
     })();
     return this.require(id);
   }
@@ -1781,7 +1784,7 @@ export class OutlinerStore {
           this.syncDeclaredPageAddresses(blockId, restored.properties);
         }
       }
-      this.bumpSequence();
+      this.bumpSequence({ kind: "restore", blockId: id });
     })();
     return this.require(id);
   }
@@ -1851,7 +1854,7 @@ export class OutlinerStore {
       ).run(...subtree);
       this.database.query(`DELETE FROM blocks WHERE id IN (${placeholders})`).run(...subtree);
       this.recomputeEffectiveDeletion();
-      this.bumpSequence();
+      this.bumpSequence({ kind: "purge", blockId: id });
     })();
   }
 
@@ -1937,7 +1940,7 @@ export class OutlinerStore {
         upsert.run(viewId, blockId, nextRank);
         nextRank += 1;
       }
-      this.bumpSequence();
+      this.bumpSequence({ kind: "reorder", blockId: viewId });
       return this.virtualOccurrenceRanksFromCurrentRead().filter((entry) => entry.viewId === viewId);
     })();
   }
@@ -2131,7 +2134,7 @@ export class OutlinerStore {
 
       this.writeBlockText(blockId, nextText, expectedRevision);
       this.replaceProperties(blockId, parsePropertyRecords(nextText));
-      this.bumpSequence();
+      this.bumpSequence({ kind: "edit", blockId });
       const renamed: PageAddressRecord = {
         address: nextAddress.displayAddress,
         normalizedAddress: nextAddress.normalizedAddress,
@@ -2165,7 +2168,7 @@ export class OutlinerStore {
         normalized.displayAddress,
         "alias",
       );
-      this.bumpSequence();
+      this.bumpSequence({ kind: "edit", blockId });
       return alias;
     })();
   }
@@ -2207,7 +2210,7 @@ export class OutlinerStore {
         this.replaceProperties(blockId, parsePropertyRecords(nextText));
         updated = this.getFromCurrentRead(blockId)!;
       }
-      this.bumpSequence();
+      this.bumpSequence({ kind: "edit", blockId });
       return { removed, block: updated };
     })();
   }
@@ -2242,7 +2245,7 @@ export class OutlinerStore {
         "INSERT INTO work_id_allocator (singleton, prefix, next_number) VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET prefix = excluded.prefix, next_number = excluded.next_number",
       ).run(normalizedPrefix, nextNumber);
       this.reconcileWorkIdAddresses();
-      this.bumpSequence();
+      this.bumpSequence({ kind: "other" });
       return this.workIdAllocatorStatusFromCurrentRead();
     })();
   }
@@ -2285,7 +2288,7 @@ export class OutlinerStore {
       const properties = parsePropertyRecords(nextText);
       this.writeBlockText(blockId, nextText, expectedRevision);
       this.replaceProperties(blockId, properties);
-      this.bumpSequence();
+      this.bumpSequence({ kind: "edit", blockId });
       return {
         workId,
         block: this.getFromCurrentRead(blockId)!,
@@ -3389,7 +3392,7 @@ export class OutlinerStore {
           "INSERT INTO metadata (key, value) VALUES ('property_parser_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .run(String(PROPERTY_PARSER_VERSION));
-      if (existingBlocks.length > 0) this.bumpSequence();
+      if (existingBlocks.length > 0) this.bumpSequenceWithoutHistory();
     })();
   }
 
@@ -4123,7 +4126,31 @@ export class OutlinerStore {
     })();
   }
 
-  private bumpSequence(): void {
+  /**
+   * Advances the sequence and records what changed in the same transaction, so
+   * the change feed cannot miss a committed content change.
+   */
+  private bumpSequence(change: SequenceChange): void {
+    this.database.transaction(() => {
+      this.advanceSequence();
+      this.changes.recordSequence(
+        this.sequence,
+        change,
+        change.blockId ? this.getFromCurrentRead(change.blockId) : null,
+      );
+    })();
+  }
+
+  /**
+   * A startup rebuild that changes derived data for every block has no single
+   * change to describe; history before it is unavailable instead.
+   */
+  private bumpSequenceWithoutHistory(): void {
+    this.advanceSequence();
+    raiseChangeFeedFloor(this.database, this.sequence);
+  }
+
+  private advanceSequence(): void {
     this.database.query("UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'sequence'").run();
   }
 }

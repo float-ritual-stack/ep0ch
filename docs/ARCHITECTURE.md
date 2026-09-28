@@ -530,7 +530,8 @@ project-documentation mutations.
 
 ### Other tables
 
-- `metadata` — service sequence, parser version, and legacy navigation cursor.
+- `metadata` — service sequence, parser version, legacy navigation cursor, and the change-feed floor and clean-shutdown sequence.
+- `change_feed` — bounded, append-only content-change history keyed by service sequence, written in the transaction that advances it (see [Change feed](#change-feed)). Hidden rows mark non-content sequence advances. It has no foreign keys, so purged blocks keep their entries.
 - `selection` — legacy workspace selection used by CLI/agent context and as an optional one-time seed for a new Tree; never live pane authority.
 - `navigation_history` — legacy workspace-selection history for compatibility clients; Tree and Detail panes maintain independent in-process histories.
 - `virtual_occurrence_ranks` — durable `(virtual-branch ID, canonical block ID) -> branch-local rank`; both foreign keys cascade on deletion.
@@ -609,7 +610,7 @@ Do not leave older editors running across this upgrade.
 - symbolic addresses: `pages.resolve`, `pages.follow`, `pages.complete`, `pages.rename`, `pages.alias`, `pages.remove`
 - Work IDs: `work-ids.status`, `work-ids.configure`, `work-ids.allocate`
 - legacy workspace selection/history: `selection.get`, `selection.set`, `navigation.state`, `navigation.back`, `navigation.forward`
-- reactive clients: `events.subscribe`, `clients.list`, `clients.update`
+- reactive clients: `events.subscribe`, `changes.since`, `clients.list`, `clients.update`
 - exact-client behavior: `ui.command.send`; document-changing commands respect destination operation protection, while pure focus preserves Current
 - targeted ephemeral attention: `attention.get`, `attention.mark`, `attention.advance`, `attention.clear`, and `attention.acknowledge`
 - typed workflows: `workflows.start`, `workflows.get`, `workflows.list`, `workflows.structure`, `workflows.plan`, `workflows.transition`, `workflows.cancel`, `workflows.promotion.preview`, and `workflows.promotion.commit`
@@ -754,6 +755,86 @@ The app registers `pi-outliner://`, accepts exact block, fuzzy goto, symbolic pa
 The default bridge targets `evan@float-box:/home/evan/test`, which resolves over Tailscale MagicDNS without exposing a public service. Warp activates it with Command-click; Ghostty uses Shift-Command-click to bypass mouse capture. This bridge is an immediate per-device workaround, not a replacement for the requested opt-in plain-click Herdr plugin-handler mode tracked upstream.
 
 Every response carries the service sequence. Every mutation increments it and emits an event.
+
+### Change feed
+
+The store records a change in the same SQLite transaction that advances the
+service sequence, so a committed content change always has a `change_feed` row.
+The service publishes each recorded change as one live event (`content`, or
+`view` for branch-local rank changes) carrying that `change` record, so a live
+subscriber and a catching-up client see identical data. A request that touches
+several blocks (an `annotations.batch`, an Inbox transaction) produces one change
+and one event per block.
+
+```ts
+interface OutlinerChange {
+  sequence: number;        // service sequence after the change
+  changeId: number;        // feed position; unique when changes share a sequence
+  action: string;          // request action, "inbox.changed", or "background"
+  kind: "create" | "edit" | "move" | "delete" | "restore" | "purge"
+      | "annotate" | "draft" | "reorder" | "other";
+  blockId?: string;        // primary block (the view for "reorder")
+  parentId?: string | null;         // after the change; absent without a readable block
+  previousParentId?: string | null; // "move" only
+  revision?: number;       // block revision after the change
+  deleted?: boolean;       // in Trash after the change
+  actor?: { author; actorId?; sessionId?; taskId? }; // declared by the request
+  recordedAt: string;
+}
+```
+
+Existing event fields are unchanged; `change` is additive. `actor` is the
+provenance a request declared (`mutation`, or `author`/`provenance`); a created
+block reports its stored provenance. Requests without provenance (`move`,
+`delete`, Trash operations) have no actor. Actors are self-declared, not
+authenticated. The primary block is not the only block a change may touch: a
+move reorders siblings and a delete carries its subtree. Annotation requests
+report `annotate` for each created or edited block and draft saves `draft`;
+other changes report what the store did to the block. `other` has no single
+block (Work-ID configuration); treat it as "reload the affected projection".
+Writes outside a request (the Inbox worker, in-process jobs) are published as
+events with action `inbox.changed` or `background`. A content event without a
+`change` reports a request that committed nothing.
+
+`changes.since { sequence, limit? }` returns changes with a greater sequence.
+Services that serve it, and that attach `change` records to content events,
+advertise the `changes.since` capability. The CLI requires it; Tree checks it on
+reconnect and falls back to a full reload when it is absent or the request
+fails:
+
+- `{ kind: "changes", changes, nextSequence, completeness, sequence }` ordered by
+  sequence, then `changeId`. `limit` defaults to 200 and must be 1–1000. A page
+  never splits one sequence, so it may exceed `limit` to finish the last one.
+  While `completeness` is `truncated`, request again from `nextSequence`, the
+  last whole sequence the page covers. A complete page's `nextSequence` is the
+  current sequence, even when hidden activity returned no changes, so a polling
+  client's cursor keeps up. `sequence` is the current service sequence.
+- `{ kind: "reset", reason, oldestSequence, sequence }` when the answer would be
+  incomplete: `history-unavailable` (the cursor is older than retained history)
+  or `sequence-ahead` (the cursor is newer than this workspace). Reload the
+  complete projection and resume from its sequence.
+
+Resume without gaps by subscribing first, then reading `changes.since` from the
+sequence of the last snapshot or event applied, and ignoring live events at or
+below the cursor you have applied.
+
+The service retains the newest 10,000 feed rows. The floor (`oldestSequence`) is
+the oldest cursor it can answer completely; pruning advances it. Sequence
+advances that change no outline content (Resource catalog bookkeeping) write a
+hidden row that is never returned, so every committed sequence has a row. History
+therefore survives clean restarts, crashes and writes by another process running
+this code. `changes.since` verifies that coverage: a sequence with no row (written
+by an older build or raw SQL) moves the floor past it, so older cursors get a
+reset rather than a silent gap. A startup property-index rebuild, which changes
+derived data for every block, also moves the floor. An existing workspace starts
+its feed at the sequence it had when upgraded.
+
+Tree uses the feed to avoid redundant `tree.index` reloads: a change at or below
+the sequence of the index it already holds is skipped (its own edits' echoes and
+the tail of a queued burst), and a reconnect asks `changes.since` and keeps its
+index when nothing changed. When the sequence advanced with no visible change
+(Resource catalog activity), the reconnect refreshes authored links instead. Other changes still reload the index, because text
+and property edits can change filters and virtual-branch membership.
 
 ### Complete versus bounded collections
 

@@ -412,6 +412,25 @@ switch (command) {
     };
     break;
   }
+  case "changes": {
+    const { values } = parseArgs({
+      args: rest,
+      options: { since: { type: "string" }, limit: { type: "string" } },
+      strict: true,
+    });
+    const sequence =
+      values.since !== undefined && /^\d+$/.test(values.since) ? Number(values.since) : Number.NaN;
+    if (!Number.isSafeInteger(sequence)) {
+      throw new Error("changes requires --since <sequence>, a non-negative integer");
+    }
+    await client.requireCompatibleService(["changes.since"]);
+    request = {
+      action: "changes.since",
+      sequence,
+      ...(values.limit === undefined ? {} : { limit: parseLimit(values.limit, 200) }),
+    };
+    break;
+  }
   case "selection":
     request = { action: "selection.get" };
     break;

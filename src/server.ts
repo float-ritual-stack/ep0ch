@@ -1,4 +1,5 @@
 import { queryRequestProblem } from "./block-query";
+import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import { proposeEditMerge } from "./edit-merge-model";
@@ -73,6 +74,9 @@ import {
   type OutlinerClientRuntime,
   type OutlinerEvent,
   type OutlinerEventEnvelope,
+  type OutlinerChange,
+  type OutlinerChangeKind,
+  type MutationProvenance,
   type OutlinerNavigationDispatch,
   type InternResourceReceipt,
   type OutlinerNavigationIntent,
@@ -120,6 +124,40 @@ function annotationReconcileChanged(value: unknown): boolean {
   return value.changed;
 }
 
+/**
+ * Request-level meanings that replace the store's per-block kind: an annotation
+ * request's source edit and created blocks are all `annotate`, a draft save is
+ * `draft`, and a bookmark toggle stays `other`.
+ */
+function requestChangeKind(action: unknown): OutlinerChangeKind | undefined {
+  if (typeof action !== "string") return undefined;
+  if (action.startsWith("annotations.")) return "annotate";
+  if (action === "capture.draft.save" || action === "capture.draft.clear") return "draft";
+  if (action === "bookmarks.toggle" || action === "bookmarks.remove") return "other";
+  return undefined;
+}
+
+/** Provenance the request declared for its mutation; self-reported by the client. */
+function declaredActor(request: OutlinerRequest): MutationProvenance | undefined {
+  const mutation = "mutation" in request ? request.mutation : undefined;
+  if (mutation && typeof mutation === "object") {
+    return {
+      author: mutation.author,
+      ...(mutation.actorId ? { actorId: mutation.actorId } : {}),
+      ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}),
+      ...(mutation.taskId ? { taskId: mutation.taskId } : {}),
+    };
+  }
+  const author = "author" in request ? request.author : undefined;
+  const provenance = "provenance" in request ? request.provenance : undefined;
+  if (!author && !provenance) return undefined;
+  return {
+    author: author ?? "user",
+    ...(provenance?.actorId ? { actorId: provenance.actorId } : {}),
+    ...(provenance?.sessionId ? { sessionId: provenance.sessionId } : {}),
+    ...(provenance?.taskId ? { taskId: provenance.taskId } : {}),
+  };
+}
 
 export class OutlinerServer {
   private inbox: InboxWorker | undefined;
@@ -162,6 +200,7 @@ export class OutlinerServer {
       if (await this.socketIsActive()) throw new Error(`Outliner service is already running at ${this.socketPath}`);
       unlinkSync(this.socketPath);
     }
+    this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     const server = createServer((socket) => this.accept(socket));
     this.server = server;
     const started = Promise.withResolvers<void>();
@@ -183,6 +222,7 @@ export class OutlinerServer {
     await this.inbox?.stop();
     const server = this.server;
     if (!server) return;
+    this.store.changes.onBackgroundChanges = undefined;
     for (const subscriber of this.subscribers.keys()) subscriber.destroy();
     this.subscribers.clear();
     this.captureOwner = null;
@@ -208,9 +248,9 @@ export class OutlinerServer {
   }
 
   private inboxChanged(result?: InboxResult): void {
+    // The worker's writes were recorded as background changes; publish them before its status.
+    this.store.changes.flushBackground();
     if (result?.state === "applied" || result?.state === "undone") {
-      // One transaction can touch several blocks; clients refresh their content projection.
-      this.broadcast({ id: crypto.randomUUID(), domain: "content", action: "inbox.changed", sequence: this.store.sequence });
       for (const blockId of new Set([result.sourceId, ...result.outputIds])) this.refreshAttentionForBlock(blockId);
     }
     this.broadcast({ id: crypto.randomUUID(), domain: "inbox", action: "inbox.status", sequence: this.store.sequence });
@@ -1456,6 +1496,9 @@ export class OutlinerServer {
         case "events.subscribe":
           result = { subscribed: true, client: subscribedClient ?? request.client };
           break;
+        case "changes.since":
+          result = this.store.changes.since(request.sequence, request.limit);
+          break;
         case "clients.list":
           if (
             request.role !== undefined &&
@@ -2182,7 +2225,12 @@ export class OutlinerServer {
     }
   }
 
-  private eventFor(request: OutlinerRequest, response: Extract<OutlinerResponse, { ok: true }>, previousSequence: number): OutlinerEvent | null {
+  /** Builds the broadcast for a successful request; `publishChanges` expands content events per recorded change. */
+  private eventFor(
+    request: OutlinerRequest,
+    response: Extract<OutlinerResponse, { ok: true }>,
+    previousSequence: number,
+  ): OutlinerEvent | null {
     let domain: OutlinerEvent["domain"];
     let blockId: string | undefined;
     let resourceId: string | undefined;
@@ -2295,8 +2343,11 @@ export class OutlinerServer {
         break;
       }
       case "create":
-      case "edit-recovery.commit":
       case "edit-recovery.separate":
+        domain = "content";
+        blockId = (response.result as Block).id;
+        break;
+      case "edit-recovery.commit":
         domain = "content";
         blockId = (response.result as Block).id;
         break;
@@ -2415,15 +2466,18 @@ export class OutlinerServer {
         blockId = request.blockId;
         break;
       case "update":
-      case "move":
-      case "delete":
-      case "trash.restore":
-      case "trash.purge":
       case "properties.patch":
       case "pages.rename":
       case "pages.alias":
       case "pages.remove":
       case "work-ids.allocate":
+        domain = "content";
+        blockId = request.blockId;
+        break;
+      case "move":
+      case "delete":
+      case "trash.restore":
+      case "trash.purge":
         domain = "content";
         blockId = request.blockId;
         break;
@@ -2504,6 +2558,30 @@ export class OutlinerServer {
     };
   }
 
+  /**
+   * Publishes committed feed changes as live events, one per change, so the
+   * feed covers exactly what subscribers receive. `base` is the request's own
+   * event, whose fields (domain aside) the change events keep.
+   */
+  private publishChanges(base: OutlinerEvent | undefined, changes: readonly OutlinerChange[]): OutlinerEvent[] {
+    const events: OutlinerEvent[] = changes.map(change => ({
+      ...(base ?? {}),
+      id: crypto.randomUUID(),
+      // Branch-local ranks keep their `view` domain for existing subscribers.
+      domain: change.kind === "reorder" ? "view" : "content",
+      action: base?.action ?? change.action,
+      sequence: change.sequence,
+      change,
+      blockId: change.blockId ?? base?.blockId,
+    }));
+    for (const event of events) this.broadcast(event);
+    for (const event of events) {
+      if (event.domain === "content" && event.blockId) this.refreshAttentionForBlock(event.blockId);
+    }
+    if (events.some(event => event.domain === "content")) this.inbox?.wake();
+    return events;
+  }
+
   private broadcast(event: OutlinerEvent): void {
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
@@ -2540,13 +2618,21 @@ export class OutlinerServer {
   private async respond(socket: Socket, line: string): Promise<void> {
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
+    let attribution: ChangeAttribution | undefined;
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
       const subscribedClient = request.action === "events.subscribe"
         ? this.registerSubscriber(socket, request.client)
         : undefined;
-      response = await this.handleAsync(request, subscribedClient);
+      const current = request;
+      attribution = this.store.changes.attribution({
+        action: String(current.action),
+        actor: declaredActor(current),
+        kind: requestChangeKind(current.action),
+        collect: true,
+      });
+      response = await this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
     } catch (error) {
       const problem = queryRequestProblem(error);
       response = {
@@ -2557,14 +2643,36 @@ export class OutlinerServer {
         sequence: this.store.sequence,
       };
     }
+    // Changes are already durable in the feed; a failure below only costs the live event.
+    const changes = attribution ? this.store.changes.committed(attribution) : [];
     socket.write(`${JSON.stringify(response)}\n`);
-    if (!request || !response.ok) return;
-    const event = this.eventFor(request, response, previousSequence);
-    if (event) this.broadcast(event);
-    if (event?.domain === "content" && event.blockId) {
-      this.refreshAttentionForBlock(event.blockId);
+    try {
+      this.publish(request, response, previousSequence, changes);
+    } catch (error) {
+      // The changes are durable in the feed; subscribers recover them with changes.since.
+      process.stderr.write(`outliner: live event publication failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-    if (event?.domain === "content") this.inbox?.wake();
+  }
+
+  private publish(
+    request: OutlinerRequest | undefined,
+    response: OutlinerResponse,
+    previousSequence: number,
+    changes: readonly OutlinerChange[],
+  ): void {
+    const base = request && response.ok ? this.eventFor(request, response, previousSequence) ?? undefined : undefined;
+    if (changes.length > 0) {
+      // A failed request can still have committed earlier transactions.
+      this.publishChanges(base?.domain === "content" || base?.domain === "view" ? base : request && {
+        id: "", domain: "content", action: String(request.action), sequence: response.sequence,
+      }, changes);
+      if (base && base.domain !== "content" && base.domain !== "view") this.broadcast(base);
+      return;
+    }
+    if (!base) return;
+    this.broadcast(base);
+    if (base.domain === "content" && base.blockId) this.refreshAttentionForBlock(base.blockId);
+    if (base.domain === "content") this.inbox?.wake();
   }
 
   private accept(socket: Socket): void {
