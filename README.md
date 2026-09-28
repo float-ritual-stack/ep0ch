@@ -66,8 +66,8 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` (the first ten) or a click picks one; `⏎`, `→`, `Tab`
   or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
   section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
-  nothing saved to your `desk.json`) or the real board. A parallel version still in the code (the BBS
-  `Reader`, `WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
+  nothing saved to your `desk.json`) or the real board. A parallel version still in the code
+  (`WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
   consolidate"; ones that can't be framed alone are named on the section's third line.
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
@@ -416,9 +416,17 @@ none open.
 
 ## Reading notes
 
-Every reader (board, desk) shows a note the way the outliner's Detail does: the title, a one-line
-**summary** of chosen properties, then the body. The block's `[key::value]` metadata lines aren't
-printed; they are in the **property panel**, one key away.
+Every reader (board, desk, river, the BBS message reader) shows a note the way the outliner's Detail does:
+the title, a one-line **summary** of chosen properties, then the body. The block's `[key::value]` metadata
+lines aren't printed; they are in the **property panel**, one key away.
+
+The **BBS message reader** (`N`, `R` and `J` on the main menu, `⏎` in a message list or Last callers) is
+the same note surface under the BBS header (`Date`, `To` from `to::` or `ALL`, `From`, `Reply` its
+replies, `Subj`, `Conf` its crumbs, `Stat` with the property count and open comments). Everything in this
+section and the next ones works there, by keys, mouse and `act`. It keeps its own keys where the surface
+has none: `n` `→` next, `p` `←` previous, `t` the replies as a list, `q` back; `⏎` is next unless an
+element is current, and `esc` lets go of the element or selection first, then goes back. A followed link
+(or `u`/`U` up) opens as the next message reader on the screen stack, so `q` comes back.
 
 - **Summary line.** Keys come from, in order: the saved view the note is shown from (a board lane's
   `[summary-properties::priority,track]`), your own choice (`s` in the panel, or `act props.summary`,
@@ -627,7 +635,7 @@ from `children`. The layout is saved to `river.json`.
 |---|---|
 | New scan | blocks updated since your last logoff (`~/.local/state/ep0ch-door/lastcall.json`) |
 | Join conference | top-level blocks |
-| Message reader | a block: author, date, breadcrumb, properties, body; `T` its children, `U` its parent |
+| Message reader | a block on the note surface (links, properties, folds, comments, edit, selection), under a BBS header: author, date, `to::`, breadcrumb; `T` its children, `U` its parent |
 | Who's online | `clients.list`: every Tree, Detail, agent, and this door |
 | Last callers | `activity.recent` across user, agent and system edits |
 | File areas | the WOE zips, with each pack's `FILE_ID.DIZ` as its description |
@@ -696,8 +704,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
 | `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
 
-Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
-number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means
+Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board, by pane
+number on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
+and `message.thread`); `reader=focused`, or a block id (the reader showing it) work too, and no reader means
 the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
 stdin. For example:
 

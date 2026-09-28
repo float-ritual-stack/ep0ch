@@ -15,7 +15,7 @@ import { renderDoc, type DocEnv } from "../src/doc";
 import { emphasis } from "../src/inline";
 import { destinationOf, external, externalOpenCommand } from "../src/open";
 import { presentLinks } from "../src/refs";
-import { Reader } from "../src/screens";
+import { MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -267,7 +267,7 @@ describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const term = { cols: 100, rows: 40, cellW: 9, cellH: 16, kitty: false };
   const draw = async (m: Msg) => {
-    const r = new Reader([m], 0);
+    const r = new MessageReader([m], 0);
     const ctx = { t: term, board, redraw() {}, flash() {} } as any;
     r.render(ctx);
     await Bun.sleep(300);                                   // the references are resolved by the service

@@ -11,7 +11,7 @@ three pane models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
-| render or read a note | `NoteSurface`, hosted through `SurfaceHost`; the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts` | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts` |
+| render or read a note | `NoteSurface`, hosted through `SurfaceHost` (a view with its own header gives its rows through `SurfaceHost.header`, as the BBS message reader does, PIE-426); the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts` | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts` |
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the layout tree (PIE-412), n-ary splits by weight with spines (`fixed`), minimums, drawers that slide over or pin (`over`), floats, borders that follow the pointer; the desk and the board are on it, the river's strip next (PIE-412 slice 2). Every operation is a `pane.*` action (split, close, resize, zoom, float, pin) | `src/desk/layout.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts` |
@@ -24,8 +24,9 @@ three pane models and four searches (§4).
 | select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
 
-- **Don't copy the parallel versions:** the BBS `Reader` and `colourBody` bodies (F1), the river's
-  pane code (F2), the extra searches (F6), `WhoOnline` and `LastCallers` (F7).
+- **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
+  the river's cards (F1), the river's pane code (F2), the extra searches (F6), `WhoOnline` and
+  `LastCallers` (F7).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, backlinks, what
   changed). A local fallback for an older service is parity-tested, like `src/views.ts`.
 - **If the part doesn't exist yet or doesn't fit:** extend it, or write down why not in the PR.
@@ -38,15 +39,16 @@ three pane models and four searches (§4).
 
 ## TL;DR
 
-- **One reader, two renderers.** Board, desk and river host `NoteSurface`. The BBS `Reader`
-  (`scr:256`) is a separate, older reader: its body is `renderDoc`'s (PIE-444), but it has no link
-  navigation, props, folds, comments, edit or agent actions.
+- **One reader.** Board, desk, river and the BBS message reader (`MessageReader` `scr:273`, PIE-426)
+  host `NoteSurface`; the BBS one keeps its header through `SurfaceHost.header`. `colourBody` still draws
+  the desk's search preview and the river's cards (lists, not readers).
 - **Pane operations exist twice.** The desk and the board share one layout tree (PIE-412): the
   board's lanes, readers, drawers and floats are panes in it. The river still has its strip of columns.
   Keys differ between them (`x`, `o`, `s`, `p`), and zoom exists only on the desk.
 - **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `pane.*`
   actions (split, close, resize, zoom, float, pin) are shared by the desk and the board. The river has
-  its own column actions, and BBS screens have none at all.
+  its own column actions. The BBS message reader has the note actions and its own `message.*`; the
+  other BBS screens have none.
 - **Words collide.** "Reader", "pin", "preview", "detail", "region" and "spine" each mean two
   things, and the door's "detail" is the outliner's *Current*, not its *Detail*.
 - **Entity navigation is scattered.** Backlinks exist only on the board. Children appear in
@@ -116,9 +118,9 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 
 | Canonical | Meaning | Code | Tree/Detail |
 |---|---|---|---|
-| reader | Any pane hosting a note surface | `ReaderPane` `pan:184` | Detail |
+| reader | Any pane or screen hosting a note surface | `ReaderPane` `pan:184`, `MessageReader` `scr:273` | Detail |
 | note surface | Draws, folds, edits, comments on a note | `NoteSurface` `note:107` | Detail body |
-| surface host | What a view gives it: ctx, redraw, navigate | `SurfaceHost` `note:30` | none |
+| surface host | What a view gives it: ctx, redraw, navigate, and maybe its own header rows | `SurfaceHost` `note:43` | none |
 | preview | The reader that follows the selection | board `preview` | **Preview** |
 | detail | A reader opened on purpose (`⏎`), keeps its note | `openDetail` `del:521` | **Current** |
 | header | Title, crumbs, summary line, notices | `render` `note:268` | menu row + title |
@@ -141,8 +143,8 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 
 | Canonical | Meaning | Code | Tree/Detail |
 |---|---|---|---|
-| children | Blocks under a note | `ThreadPane` `pan:299`, river `space`, BBS `T` | Tree children |
-| up | The parent | `u` `note:766`, BBS `U` | ancestors menu |
+| children | Blocks under a note | `ThreadPane` `pan:299`, river `space`, BBS `T` (`message.thread`) | Tree children |
+| up | The parent | `u` `note:766` (the BBS `U` too) | ancestors menu |
 | outlinks | Links in the note (`[ ]` steps to them with the note's other elements, `⏎` follows) | `link.select`, `elements` `note` | **Outlinks** |
 | backlinks | Notes that link here, grouped by kind with Detail's defaults (PIE-442) | board drawer `drawLinks`, `src/backlinks.ts` | **Backlinks** |
 | resources | `[file::]`, `img::`, media | completion, `src/media.ts` | **Resources** |
@@ -165,7 +167,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 
 | Word | Meaning A | Meaning B | Use instead |
 |---|---|---|---|
-| Reader | BBS screen `Reader` `scr:256` | `ReaderPane` `pan:184` | "reader" = B only |
+| Reader | BBS screen `Reader` (now `MessageReader` `scr:273`, a surface host: resolved by PIE-426) | `ReaderPane` `pan:184` | "reader" = any surface host |
 | pin | Desk reader stops following `pan:234` | River column resists squeeze `riv:879` | **pin** = a drawer joins the layout (`T`, `B`, or its `[ ] pin`); the desk reader **holds** (`p hold`); a river column **docks** |
 | preview | Board reader following the card | Desk `/` search's right half `dsk:404` | A only |
 | detail | Door: a reader you opened (*Current*) | Outliner: the Detail pane | owner decides |
@@ -189,9 +191,9 @@ shell                                     App (app:72)
 ├── [x] unsaved guard                     app:108 (asks twice, copies drafts)
 ├── [x] agent entry: peek snap open act   control.ts, app:151-194
 └── view                                  a Screen
-    ├── [~] header                        note:268 for readers; BBS own
+    ├── [x] header                        note surface; BBS rows via SurfaceHost.header
     ├── [~] primary content               lanes | layout tree | strip | list
-    ├── [~] detail = reader(s)            NoteSurface in 3 of 4 views
+    ├── [x] detail = reader(s)            NoteSurface in every view
     └── [~] hint row
 pane operations
     ├── [~] focus (Tab, number, click)    every view, 3 implementations
@@ -234,7 +236,7 @@ Refinements to the proposed tree:
 
 Codes: **S** = shared code. **R** `file:line` = re-implemented differently. **—** = missing.
 Then `kma` = keys, mouse, agent action; `·` marks one that is absent.
-BBS = News, Conference and the BBS `Reader` together.
+BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 ### Shell
 
@@ -244,18 +246,18 @@ BBS = News, Conference and the BBS `Reader` together.
 | back | R `del:1591` k·· | R `scr:28` k·· | R `dsk:300` k·· | R `riv:887` k·· |
 | status bar, flash | S | S | S | S |
 | hint row | R `del:1450` | R `scr:242` | R `dsk:210` | R `riv:397` |
-| peek state | S `del:479` | — (text only) | S `dsk:163` | S `riv:615` |
-| `open <id>` | S `del:330` ··a | — `app:163` | S `dsk:100` ··a | S `riv:613` ··a |
-| `act` | S `del:336` | — `app:183` | S `dsk:106` | S `riv:662` |
+| peek state | S `del:479` | S message reader `scr:430` | S `dsk:163` | S `riv:615` |
+| `open <id>` | S `del:330` ··a | S message reader: the next reader ··a | S `dsk:100` ··a | S `riv:613` ··a |
+| `act` | S `del:336` | S message reader `scr:442` (note + `message.*`) | S `dsk:106` | S `riv:662` |
 
 ### View
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
 | content | lanes `del:1225` kma | list `scr:203` k·· | tiles `dsk:173` km· | strip `riv:270` kma |
-| reader | S `ReaderPane` | R `scr:256` k·· | S `ReaderPane` | S surface (edit only) |
-| header | S `note:268` | R `scr:273` | S | R cards `riv:362` |
-| body render | S `renderDoc` | R `colourBody` `scr:282` | S | R `colourBody` `riv:363` |
+| reader | S `ReaderPane` | S `MessageReader` hosts the surface kma | S `ReaderPane` | S surface (edit only) |
+| header | S `note:268` | S surface, BBS rows via `SurfaceHost.header` `scr:301` | S | R cards `riv:362` |
+| body render | S `renderDoc` | S `renderDoc` (the surface's) | S | R `colourBody` `riv:363` |
 
 ### Pane operations
 
@@ -278,11 +280,11 @@ BBS = News, Conference and the BBS `Reader` together.
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
-| children | — (`N` writes one) | R `T` `scr:250` k·· | R `pan:299` km· | R `space` kma |
-| up | S `u` k·a | R `U` `scr:297` k·· | S `u` k·a | S `u` k·a |
-| outlinks | S `[ ]` ⏎ click kma | — | S kma | S kma |
+| children | — (`N` writes one) | R `T` `scr:400`, `message.thread` k·a | R `pan:299` km· | R `space` kma |
+| up | S `u` k·a | S `u` (`U` too) k·a | S `u` k·a | S `u` k·a |
+| outlinks | S `[ ]` ⏎ click kma | S kma | S kma | S kma |
 | backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | — | — |
-| resources | S images, `[file::` | — | S | — |
+| resources | S images, `[file::` | S (projections, images) | S | — |
 | search | R `g` boards only | R `scr:338` dead | R `/` `dsk:371` k·· | R `/` `riv:66` k·· |
 | history | — | — | — | — |
 
@@ -290,11 +292,11 @@ BBS = News, Conference and the BBS `Reader` together.
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
-| properties | S `i I` kma | R `Stat:` line only | S kma | S `i` k·a |
-| edit | S `e` kma | — | S kma | S kma |
-| comments | S `C m` kma | — | S kma | S kma |
-| completion | S (not in composer) | — | S | S |
-| folds | S kma | — | S kma | — (cards) |
+| properties | S `i I` kma | S `i I` kma (count on `Stat:`) | S kma | S `i` k·a |
+| edit | S `e` kma | S kma | S kma | S kma |
+| comments | S `C m` kma | S kma | S kma | S kma |
+| completion | S (not in composer) | S | S | S |
+| folds | S kma | S kma | S kma | — (cards) |
 | presence | — | R `scr:355` k·· | R `pan:411` k·· | — |
 | activity | — | R `scr:392` k·· | R `pan:375` km· | — |
 | stats | — | R `scr:535` k·· | — | — |
@@ -307,12 +309,18 @@ BBS = News, Conference and the BBS `Reader` together.
 ### F1. Two readers, two body renderers
 
 - `NoteSurface` renders with `renderDoc` (`note:320`). The desk search preview (`dsk:404`) and river
-  cards (`riv:362`) use `wrap` + `colourBody`. The BBS `Reader`'s body is drawn by `renderDoc` since
-  PIE-444 (links, Markdown and components as every reader draws them), but its links are text there.
-- The BBS reader has its own header (`scr:273`) and its own `N P T U` keys, and it can't edit,
-  comment, fold, open props or be driven by an agent.
-- **Resolves:** PIE-426 (BBS on the note surface). River cards stay a list, but PIE-431 decides
-  whether a full river column reads through the surface too (it already edits through it).
+  cards (`riv:362`) use `wrap` + `colourBody`.
+- **Resolved for the BBS by PIE-426.** The BBS message reader (`MessageReader` `scr:273`) hosts
+  `NoteSurface` through `SurfaceHost`, like the board, desk and river: links you step to and open, the
+  property panel, folds, comments, edit, selection and copy, the ruler, resource projections, and `act`.
+  Its header stays the BBS one (`Date`, `To` from `to::`, `From`, `Reply`, `Subj`, `Conf`, `Stat`),
+  given to the surface through `SurfaceHost.header`, which takes the place of the surface's title, byline
+  and crumbs (the summary line follows it). Its old body code is gone. Its own keys are actions
+  (`message.next`, `message.previous`, `message.thread`); where they meet the surface's, the surface
+  goes first (key audit below, under F4). A followed link opens as the next message reader on the screen
+  stack; an agent's never opens over an edit, comment or panel the person is in.
+- River cards stay a list, but PIE-431 decides whether a full river column reads through the surface
+  too (it already edits through it).
 
 ### F2. Pane operations are re-implemented per view
 
@@ -335,24 +343,24 @@ BBS = News, Conference and the BBS `Reader` together.
 - Board: `pane.*` since PIE-412 (close, resize, float, pin; split and zoom refuse with the reason). No lane
   collapse action. Readers collapse and expand by action since PIE-440 (`reader.collapse`,
   `reader.expand`). River: no filter, `#` or jump actions (`riv:976`).
-- BBS screens have no `act`, `openBlock` or `describe` (`app:163`, `app:183`).
-- **Resolves:** PIE-434 should make "every pane operation is an action" part of core. PIE-426
-  brings BBS readers in.
+- The BBS message reader has `act`, `openBlock` and `describe` since PIE-426 (the note actions and
+  `message.*`); the other BBS screens have none (`app:163`, `app:183`).
+- **Resolves:** PIE-434 should make "every pane operation is an action" part of core.
 
 ### F4. The same key means different things
 
 | Key | Board | Desk | River | BBS |
 |---|---|---|---|---|
-| `c` | collapse a lane or a reader | — (says `C` comments) | — (says so) | — |
-| `C` | comment (was: reopen all lanes; now `alt+c`) | comment | comment | — |
+| `c` | collapse a lane or a reader | — (says `C` comments) | — (says so) | — (says so) |
+| `C` | comment (was: reopen all lanes; now `alt+c`) | comment | comment | comment |
 | `s` | steps | `^W s` swap | split | — |
-| `m` | move card / threads in a reader | threads | threads | — |
+| `m` | move card / threads in a reader | threads | threads | threads |
 | `x` | close detail or float | `^W x` close | close pane | — |
 | `o` | pop out float | `^W o` add pane | — | — |
-| `t` | outline drawer | `^W o t` add outline | — | `T` thread |
-| `p` | — | hold reader | dock column | `P` previous |
-| `f` | fold | fold | filter | — |
-| `alt+⏎` | second detail | — | duplicate column | — |
+| `t` | outline drawer | `^W o t` add outline | — | thread (`t` `T`) |
+| `p` | — | hold reader | dock column | previous (`p` `P`) |
+| `f` | fold | fold | filter | fold |
+| `alt+⏎` | second detail | — | duplicate column | the next reader, as ⏎ |
 | `q` | — | menu | "quote isn't here" | back |
 
 - Pane operations should get one key layer (the desk's `^W` is the most complete). Reader keys
@@ -365,6 +373,17 @@ BBS = News, Conference and the BBS `Reader` together.
   stage is the board's outline drawer from any focus, so stage is `w` (the steps overlay's `w`
   "waiting" can't be open at the same time). A filter being typed holds every key, `t b g` included.
 - `c` collapses wherever something collapses, and `C` comments in every reader (PIE-440).
+- **The BBS message reader (PIE-426)** meets the surface's keys this way. An edit, a comment or the
+  property panel takes every key (`q`, `n`, `esc` included) until it closes. Otherwise the surface goes
+  first and the BBS keys take what it leaves:
+  - no clash: `n` `N` `→` next, `p` `P` `←` previous, `t` `T` thread, `q` `Q` back (the surface binds none
+    of them while reading); `j k ↑↓ PgUp PgDn space` scroll as they always did, now the surface's;
+  - `⏎` acts on the current element when there is one in view (a link opens as the next reader, a fold
+    toggles, a comment mark expands its thread); with none it is next, as before. `esc` lets go of the
+    element, the selection or a focus mark first; then it is back;
+  - `U` is the surface's `u` (up), one code path; at the top it still says so;
+  - new to the BBS reader, no old meaning: `[ ] ( ) f F z i I C c m e ctrl+e v y Y`, clicks, drags and the
+    wheel; `V` (video) stays the menu's.
 
 ### F5. Entity navigation is scattered
 
@@ -423,7 +442,7 @@ BBS = News, Conference and the BBS `Reader` together.
 | PIE-414 | bundles of readers: needs readers addressed the same way on every view |
 | PIE-417 | terminal panes: a new pane kind, not a `suspend` (`app:125`) |
 | PIE-418 | daemon: shell state (layout, drafts, presence) outlives a terminal |
-| PIE-426 | F1, F3: BBS reader on the note surface, with actions |
+| PIE-426 | F1, F3: BBS reader on the note surface, with actions (done) |
 | PIE-427 | F6, F8: switcher in the status bar; per-connection caches |
 | PIE-428 | F2: zoom as a pane operation everywhere |
 | PIE-429 | scratch note: a reader pinned to the shell, not a view |

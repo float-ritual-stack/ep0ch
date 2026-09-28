@@ -52,6 +52,22 @@ export interface SurfaceHost {
    * is in (⏎ or a click on a comment mark). Without it the surface opens it itself.
    */
   startSession?(kind: "threads"): void;
+  /**
+   * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
+   * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
+   * focus mark and the property panel still follow it, and clicks and `[ ]` count its rows.
+   */
+  header?(m: Msg, w: number, info: HeaderInfo): string[];
+}
+
+/** What a host's header can say that only the surface knows: where the note sits, its comments and properties. */
+export interface HeaderInfo {
+  /** The note's ancestors, "…" while they're read, "top level" for a root. */
+  crumbs: string;
+  /** Comment threads on the note, once read (null until then). */
+  comments: { open: number; total: number } | null;
+  /** How many properties the panel (`i`) lists. */
+  properties: number;
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
@@ -381,7 +397,7 @@ export class NoteSurface {
     // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
     if (this.session?.finished) this.session = null;
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
-    if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
+    if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
@@ -392,11 +408,18 @@ export class NoteSurface {
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
     const count = this.rows(m).length;
+    // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
+    // summary line comes after it, so its row is counted rather than assumed.
+    const own = host?.header?.(m, w, this.headerInfo(m, count));
+    const summaryRow = own ? own.length : 1;
+    const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
     const head = [
-      fg(C.white) + pad(subject(m), w) + RESET,
-      ...(summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
-      pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
-      fg(C.cyan) + pad(this.crumbs, w) + RESET,
+      ...(own ? [...own, ...summaryRows] : [
+        fg(C.white) + pad(subject(m), w) + RESET,
+        ...summaryRows,
+        pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
+        fg(C.cyan) + pad(this.crumbs, w) + RESET,
+      ]),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
@@ -473,7 +496,7 @@ export class NoteSurface {
     // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
     const marks = this.commentMarks(m, doc, noteLines);
     for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
-    this.elems = this.elementsOf(doc, drawn, marks, controls, summary ? summaryLinks : [], points, top, head);
+    this.elems = this.elementsOf(doc, drawn, marks, controls, summary ? summaryLinks : [], points, top, head, summaryRow);
     if (this.cur && !this.elems.some(e => e.key === this.cur)) this.letGo();
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - top);
@@ -508,7 +531,7 @@ export class NoteSurface {
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
-    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`1:${l.from}`) });
+    if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + 1}`) ?? "");
     for (const r of doc.links) {
@@ -536,6 +559,12 @@ export class NoteSurface {
       return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
+  }
+
+  /** What a host's header is told (SurfaceHost.header). */
+  private headerInfo(m: Msg, properties: number): HeaderInfo {
+    const c = this.comments && this.commentsFor === m.id ? this.comments : null;
+    return { crumbs: this.crumbs, comments: c ? { open: c.filter(x => x.open).length, total: c.length } : null, properties };
   }
 
   // ── properties ─────────────────────────────────────────────────────────────
@@ -1319,7 +1348,7 @@ export class NoteSurface {
   }
 
   /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
-  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[]): Element[] {
+  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[], summaryRow = 1): Element[] {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
@@ -1338,8 +1367,8 @@ export class NoteSurface {
       return [top + a, top + b];
     };
     const text = (line: string, from: number, to: number) => cellsOf(line).slice(from, to).join("").trim();
-    const sum = head[1] ?? "";
-    for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: 1, from: l.from, to: l.to, ruler: [1, 2], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
+    const sum = head[summaryRow] ?? "";
+    for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: summaryRow, from: l.from, to: l.to, ruler: [summaryRow, summaryRow + 1], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
     const heads = new Set(doc.links.filter(r => drawn[r.n]?.role === "resource").map(r => r.line));
     const byN = new Map<number, typeof doc.links>();
     for (const r of doc.links) { const g = byN.get(r.n); if (g) g.push(r); else byN.set(r.n, [r]); }

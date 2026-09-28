@@ -48,7 +48,7 @@ test("the README's showcase says what SECTIONS registers: how many, the act rang
 test("the help screen says which screens write to the outline, not that the door is read-only", () => {
   const text = new Help().render({ t: { cols: 140 } } as any).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
   expect(text).not.toContain("Read-only");
-  expect(text).toContain("Kanban, Quay, Desk and Showcase write");
+  expect(text).toContain("Kanban, Quay, Desk, Showcase and the message reader write");
   expect(text).toContain("recorded as you, or as the agent that did them");
 });
 
@@ -261,7 +261,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
-    note: ["Allotment notebook", "parallel version, to consolidate · BBS Reader · src/screens.ts", "Subj: Allotment notebook"],
+    note: ["Allotment notebook", "the same NoteSurface in the BBS message reader · src/screens.ts", "Subj: Allotment notebook"],
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "DESK_ACTIONS · src/desk/desk.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6", "parallel version, to consolidate: the board's composer"],
     panes: ["outline", "thread", "last callers", "Kitchen sink"],
@@ -286,6 +286,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       expect(S().focus).toBe("index");
     }
   }, 60_000);
+
+  test("the note section shows one reader (PIE-426): the BBS message reader is the same surface, not a parallel version", async () => {
+    ch("1");
+    await until(() => marks.note!.every(m => screen().includes(m)), "the note section");
+    const stage = screen();
+    expect(stage).not.toContain("parallel version");
+    expect(stage).not.toContain("BBS Reader");
+  });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
     press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 7 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 7 * 2 });
