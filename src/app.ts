@@ -62,12 +62,15 @@ export class App implements Ctx {
   workspace = "";
   video: Video;
   events = 0;
+  /** The event connection to the service is down; the door is reconnecting. */
+  offline = false;
 
   constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void) {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
     setLiveSource(board, () => this.redraw());
+    board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
   }
@@ -110,15 +113,18 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) {
     if (e.domain !== "content") return;
-    invalidateLive();
-    this.events++;
+    if (e.change?.kind !== "draft") invalidateLive();
+    if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();
   }
 
   describe() {
     const s = this.stack.at(-1);
-    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, state: s?.describe?.() ?? null };
+    const b = this.board;
+    const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
+      uses: (["views.read", "blocks.read", "changes.since", "properties.preview"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
+    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, service, state: s?.describe?.() ?? null };
   }
 
   async openBlock(id: string): Promise<string> {
@@ -168,7 +174,7 @@ export class App implements Ctx {
     const mins = Math.floor((Date.now() - this.started) / 60000);
     const clock = new Date().toTimeString().slice(0, 5);
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
-    const right = `${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - [...right.replace(/\x1b\[[\d;]*m/g, "")].length);
     // A message outranks the location: in a narrow pane it replaces it rather than being cut off.

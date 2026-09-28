@@ -9,13 +9,30 @@ import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
+/** Oldest service protocol the door reads (the actions it can't do without). */
 const PROTOCOL = 80;
+/** The client protocol the door speaks: 82 introduced capability negotiation, which it understands. */
+const CLIENT_PROTOCOL = 82;
 
+/**
+ * Additive service features the door uses when they're there, named as the service advertises them in
+ * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
+ * "Unsupported action" answer for the session.
+ */
+export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since";
+
+/**
+ * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
+ * or blocks.query `fields`), or compact (`preview`, from views.read `format: "tree"`).
+ */
 interface WireBlock {
-  id: string; parentId: string | null; text: string; revision?: number; author: string; actorId?: string;
-  createdAt: string; updatedAt: string; deletedAt?: string; effectiveDeletedRootId?: string;
+  id: string; parentId?: string | null; text?: string; title?: string; preview?: string; revision?: number;
+  author?: string; actorId?: string;
+  createdAt?: string; updatedAt?: string; deletedAt?: string; effectiveDeletedRootId?: string;
   properties?: { key: string; value: string }[];
 }
+/** Everything a list row needs, without the note's full text. */
+export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 
 export interface Activity { cursor: number; block: Msg; author: string; actor: string; kind: string; at: number }
 export interface Comment {
@@ -33,20 +50,58 @@ export interface IndexBlock {
   createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
 }
 export interface Backlink { id: string; title: string; context: string; updatedAt: number; kinds: string; snippet: string }
-export interface OutlineEvent { domain: string; action: string; blockId?: string; sequence: number }
+/** The service's record of one committed change (PIE-399), on content events and from `changes.since`. */
+export interface Change {
+  sequence: number; changeId: number; action: string;
+  kind: "create" | "edit" | "move" | "delete" | "restore" | "purge" | "annotate" | "draft" | "reorder" | "other";
+  blockId?: string; parentId?: string | null; previousParentId?: string | null;
+  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string }; recordedAt: string;
+}
+/**
+ * An outline event. Besides the service's own, the door makes two after a reconnect:
+ * `reset` (reload everything: the service has no feed, or its history doesn't reach back far enough)
+ * and `reconnected` (caught up; `caughtUp` changes were replayed as ordinary events first).
+ */
+export interface OutlineEvent {
+  domain: string; action: string; blockId?: string; sequence: number;
+  change?: Change;
+  /** Replayed from `changes.since` after a reconnect, not live. */
+  catchUp?: boolean;
+  reason?: string;
+  caughtUp?: number;
+}
+/** views.read's answer (PIE-397), blocks as list rows. */
+export interface SavedViewRead {
+  status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
+  viewId: string; revision?: number; sequence: number;
+  configuredLimit?: number; effectiveLimit?: number; offset?: number; total?: number; nextOffset?: number;
+  blocks: Msg[];
+  completeness: { kind: string } | null;
+  errors: string[];
+  problems?: { code: string; message: string; property?: string; position?: number }[];
+}
+export type ChangePage =
+  | { kind: "changes"; changes: Change[]; nextSequence: number; completeness: { kind: string }; sequence: number }
+  | { kind: "reset"; reason: string; oldestSequence: number; sequence: number };
+
+/** The first line of a compact tree preview (it joins a property-less note's lines with ` ↵ `). */
+const previewTitle = (p: string) => p.split(" \u21b5 ")[0]!.trim();
 
 const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   id: b.id,
-  text: b.text,
-  parentId: b.parentId,
+  text: b.text ?? b.title ?? (b.preview !== undefined ? previewTitle(b.preview) : ""),
+  parentId: b.parentId ?? null,
   childIds,
-  createdAt: Date.parse(b.createdAt),
-  updatedAt: Date.parse(b.updatedAt),
+  createdAt: b.createdAt ? Date.parse(b.createdAt) : 0,
+  updatedAt: b.updatedAt ? Date.parse(b.updatedAt) : 0,
   author: b.actorId ?? b.author ?? null,
   props: Object.fromEntries((b.properties ?? []).map(p => [p.key, p.value])),
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
+  ...(b.text === undefined ? { partial: true } : {}),
 });
+
+const unsupportedAction = (e: unknown) => /unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e));
 
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
@@ -99,6 +154,12 @@ export class SocketBoard implements Board {
   private seq = 0;
   private events: Socket | null = null;
   readonly clientId = `ep0ch-door-${crypto.randomUUID().slice(0, 8)}`;
+  /** What `ping.capabilities` advertised, or null when the service doesn't advertise (older than PIE-402). */
+  capabilities: Set<string> | null = null;
+  /** Actions this service answered "Unsupported action" to, this session. */
+  private unsupported = new Set<string>();
+  /** Every request's action, newest last: which paths the door actually took (tests read it). */
+  readonly sent: string[] = [];
 
   constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = 15_000) {}
 
@@ -112,7 +173,7 @@ export class SocketBoard implements Board {
       r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed"));
     });
     s.on("data", d => lines.feed(d));
-    const fail = (e: Error) => { for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(e); } this.waiting.clear(); this.sock = null; };
+    const fail = (e: Error) => { for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(e); } this.waiting.clear(); if (this.sock === s) this.sock = null; };
     s.on("error", fail);
     s.on("close", () => fail(new Error("outline socket closed")));
     this.sock = s;
@@ -121,6 +182,8 @@ export class SocketBoard implements Board {
 
   request<T = any>(action: string, params: Record<string, unknown> = {}): Promise<T> {
     const id = `d${++this.seq}`;
+    if (this.sent.length > 5000) this.sent.splice(0, 2500);
+    this.sent.push(action);
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, this.timeoutMs);
       this.waiting.set(id, { resolve, reject, timer });
@@ -128,13 +191,41 @@ export class SocketBoard implements Board {
     });
   }
 
+  /**
+   * Whether the service has `name`: true or false when it said so (its capability list, or an
+   * "Unsupported action" answer this session), undefined when the only way to know is to try.
+   */
+  supports(name: Capability): boolean | undefined {
+    if (this.capabilities) return this.capabilities.has(name);
+    return this.unsupported.has(name) ? false : undefined;
+  }
+
+  /**
+   * A request that newer services answer and older ones refuse with "Unsupported action". Null when
+   * this service doesn't have it; that answer is remembered, so the door asks once per session.
+   */
+  async optional<T>(capability: Capability, action: string, params: Record<string, unknown> = {}): Promise<T | null> {
+    if (this.supports(capability) === false) return null;
+    try {
+      return await this.request<T>(action, params);
+    } catch (e) {
+      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add(capability); return null; }
+      throw e;
+    }
+  }
+
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; location: { hostname: string; workspaceRoot: string } }>("ping");
-    // Newer services add actions; the door only uses long-standing ones, so older is the only hard stop.
+    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string } }>("ping");
+    // Newer services add actions; the door only needs long-standing ones, so older is the hard stop.
     if (r.protocolVersion < PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door needs ${PROTOCOL} or newer`);
-    return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null };
+    if (r.minClientProtocol !== undefined && r.minClientProtocol > CLIENT_PROTOCOL)
+      throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${CLIENT_PROTOCOL}`);
+    // A capability list is the service's word; without one, each feature is tried once (see optional()).
+    this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
+    this.unsupported.clear();
+    return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null };
   }
 
   async roots(): Promise<Msg[]> {
@@ -214,11 +305,45 @@ export class SocketBoard implements Board {
     return r.blocks.map(b => toMsg(b));
   }
 
-  /** Run a saved virtual-branch query (`type=roadmap-item work-stage=doing`) as filters. */
-  async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc"): Promise<Msg[]> {
+  /**
+   * Blocks matching property clauses (`type=roadmap-item work-stage=doing`). `list` asks for rows
+   * without full text (PIE-400 `fields`); a service that doesn't know `fields` sends whole blocks, which
+   * read the same.
+   */
+  async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
-    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } } });
+    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });
     return r.blocks.map(b => toMsg(b));
+  }
+
+  /** `fields` for a list-shaped read, unless this service has said it doesn't project. */
+  listFields(list = true): { fields?: readonly string[] } {
+    return list && this.supports("blocks.read") !== false ? { fields: LIST_FIELDS } : {};
+  }
+
+  /**
+   * Several blocks at once, as list rows (PIE-400 `blocks.read`), in the order asked. Missing and
+   * trashed ids are left out. Older services: one `blocks.context` per id.
+   */
+  async readMany(ids: string[], fields: readonly string[] = LIST_FIELDS): Promise<Msg[]> {
+    if (!ids.length) return [];
+    const r = await this.optional<{ blocks: WireBlock[] }>("blocks.read", "blocks.read", { ids, fields });
+    if (r) return r.blocks.map(b => toMsg(b));
+    return (await Promise.all(ids.map(id => this.get(id)))).filter((m): m is Msg => !!m);
+  }
+
+  /**
+   * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
+   * Null when this service can't; the door then evaluates the view itself (src/views.ts).
+   */
+  async readSavedView(viewId: string): Promise<SavedViewRead | null> {
+    const r = await this.optional<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", "views.read", { viewId, format: "tree" });
+    return r && { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /** What changed after `sequence` (PIE-399), or an explicit reset. Null when this service has no feed. */
+  changesSince(sequence: number, limit = 500): Promise<ChangePage | null> {
+    return this.optional<ChangePage>("changes.since", "changes.since", { sequence, limit });
   }
 
   /** Blocks that point at this one, excluding itself. */
@@ -300,20 +425,13 @@ export class SocketBoard implements Board {
     return { conflict: worded || (now?.revision !== undefined && now.revision !== expected), now };
   }
 
-  private previewUnsupported = false;
   /**
    * The properties the service would store for `text` (PIE-401 `properties.preview`), without saving.
    * Null when this service is older and doesn't offer it; the answer is remembered for the session.
    */
   async previewProperties(text: string): Promise<Record<string, string> | null> {
-    if (this.previewUnsupported) return null;
-    try {
-      const r = await this.request<{ properties: { key: string; value: string }[] }>("properties.preview", { text });
-      return Object.fromEntries(r.properties.map(p => [p.key, p.value]));
-    } catch (e) {
-      if (/unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e))) { this.previewUnsupported = true; return null; }
-      throw e;
-    }
+    const r = await this.optional<{ properties: { key: string; value: string }[] }>("properties.preview", "properties.preview", { text });
+    return r && Object.fromEntries(r.properties.map(p => [p.key, p.value]));
   }
 
   /**
@@ -345,19 +463,118 @@ export class SocketBoard implements Board {
     }
   }
 
-  /** Register as an observer and stream events. The door then shows up in Who's Online, like any caller. */
+  // ── events ─────────────────────────────────────────────────────────────────
+
+  /** The newest service sequence the door has seen events up to; a reconnect catches up from here. */
+  lastSequence = 0;
+  private lastChangeId = 0;
+  private sub: { onEvent: (e: OutlineEvent) => void; attempt: number; retry: Timer | null; lost: boolean } | null = null;
+  private closing = false;
+  /** First reconnect delay; it doubles per failed try, up to 5 s. */
+  reconnectMs = 250;
+  /** Told when the event connection drops and when it's back (with what the catch-up did). */
+  onConnection: (state: "lost" | "restored", detail: string) => void = () => {};
+
+  /**
+   * Register as an observer and stream events; the door then shows up in Who's Online, like any caller.
+   * If the connection drops (the service restarted), it reconnects with backoff and catches up: with a
+   * change feed, the missed changes are replayed as events; otherwise, or when the feed's history
+   * doesn't reach back, a `reset` event tells screens to reload everything.
+   */
   subscribe(onEvent: (e: OutlineEvent) => void): void {
-    if (process.env.EP0CH_OBSERVE === "0" || this.events) return;
+    if (process.env.EP0CH_OBSERVE === "0" || this.sub) return;
+    this.closing = false;
+    this.sub = { onEvent, attempt: 0, retry: null, lost: false };
+    this.openEvents(false);
+  }
+
+  private openEvents(reconnect: boolean) {
+    const sub = this.sub;
+    if (!sub || this.closing) return;
     const s = connect(this.path);
-    const lines = new Line(r => { if (r.event) onEvent(r.event); });
+    let subscribed = false;
+    // Live events that arrive while the catch-up is still reading wait for it, so order holds.
+    let held: OutlineEvent[] | null = reconnect ? [] : null;
+    const lines = new Line(r => {
+      if (r.id === "sub") {
+        if (!r.ok) return;
+        subscribed = true; sub.attempt = 0;
+        if (!reconnect) { this.lastSequence = Math.max(this.lastSequence, Number(r.sequence) || 0); return; }
+        void this.catchUp(Number(r.sequence) || 0).then(({ replayed, reset }) => {
+          if (this.sub !== sub) return;                   // closed while catching up
+          sub.lost = false;
+          const rest = held ?? []; held = null;
+          for (const e of rest) this.deliver(e);
+          this.onConnection("restored", reset ? `reloaded everything (${reset})` : `caught up ${replayed} change${replayed === 1 ? "" : "s"}`);
+        });
+        return;
+      }
+      if (!r.event) return;
+      if (held) held.push(r.event); else this.deliver(r.event);
+    });
     s.on("data", d => lines.feed(d));
     s.on("error", () => {});
-    s.on("close", () => { this.events = null; });
+    s.on("close", () => {
+      if (this.events === s) this.events = null;
+      if (this.closing || this.sub !== sub) return;
+      // A service shutting down drops its subscribers, then waits for every other connection to end.
+      // Let go of the idle request connection too, so a restart isn't held up by the door; the next
+      // request opens a new one.
+      if (!this.waiting.size && this.sock) { this.sock.end(); this.sock = null; }
+      if (subscribed || !sub.lost) { sub.lost = true; this.onConnection("lost", "outline connection lost · reconnecting"); }
+      const wait = Math.min(5000, this.reconnectMs * 2 ** sub.attempt++);
+      sub.retry = setTimeout(() => this.openEvents(true), wait);
+    });
     s.on("connect", () => s.write(JSON.stringify({
       id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId },
     }) + "\n"));
     this.events = s;
   }
 
-  close(): void { this.sock?.end(); this.events?.end(); this.sock = null; this.events = null; }
+  /** One event to the screens, once: a change the catch-up already replayed isn't delivered again. */
+  private deliver(e: OutlineEvent) {
+    if (e.change) {
+      if (e.change.changeId <= this.lastChangeId) return;
+      this.lastChangeId = e.change.changeId;
+    }
+    if (e.sequence > this.lastSequence) this.lastSequence = e.sequence;
+    this.sub?.onEvent(e);
+  }
+
+  /**
+   * After a reconnect: ask again what the service can do (it may have been upgraded), then replay what
+   * was missed. More than a page of changes, no feed, or a feed reset all mean "reload everything".
+   */
+  private async catchUp(subscribedAt: number): Promise<{ replayed: number; reset: string | null }> {
+    // `subscribedAt` is the service's sequence when the new subscription started: after a reset, events
+    // from there on are what the reloaded screens haven't seen.
+    const reset = (reason: string, sequence = subscribedAt || this.lastSequence) => {
+      // Resume from the service's own position: after "sequence-ahead" (a different or restored
+      // database) the door's cursor and change ids mean nothing there.
+      this.lastSequence = sequence; this.lastChangeId = 0;
+      this.sub?.onEvent({ domain: "content", action: "reset", sequence: this.lastSequence, reason });
+      return { replayed: 0, reset: reason };
+    };
+    try {
+      await this.info();
+      const page = await this.changesSince(this.lastSequence);
+      if (!page) return reset("this service has no change feed");
+      if (page.kind === "reset") return reset(`the feed's history ${page.reason === "sequence-ahead" ? "is behind the door" : "doesn't reach back"}`, page.sequence);
+      if (page.completeness.kind !== "complete") return reset("too much changed while away", page.sequence);
+      for (const c of page.changes)
+        this.deliver({ domain: "content", action: c.action, blockId: c.blockId, sequence: c.sequence, change: c, catchUp: true });
+      this.lastSequence = Math.max(this.lastSequence, page.sequence);
+      this.sub?.onEvent({ domain: "content", action: "reconnected", sequence: this.lastSequence, caughtUp: page.changes.length });
+      return { replayed: page.changes.length, reset: null };
+    } catch (e) {
+      return reset(`catch-up failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  close(): void {
+    this.closing = true;
+    if (this.sub?.retry) clearTimeout(this.sub.retry);
+    this.sub = null;
+    this.sock?.end(); this.events?.end(); this.sock = null; this.events = null;
+  }
 }

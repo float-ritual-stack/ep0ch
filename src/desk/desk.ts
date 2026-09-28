@@ -84,7 +84,10 @@ export class Desk implements Screen, DeskApi {
     for (const p of this.panes.values()) p.onEvent?.(this);
     const id = e.blockId;
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane);
-    if (id && readers.some(r => r.msg?.id === id)) this.ctx.board.get(id).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+    // After a reconnect that couldn't catch up, every reader re-reads its note (a draft is only marked).
+    const stale = e.action === "reset" ? readers.map(r => r.msg?.id).filter((x): x is string => !!x)
+      : id && readers.some(r => r.msg?.id === id && !(e.change?.revision !== undefined && r.msg.revision === e.change.revision && !r.msg.partial)) ? [id] : [];
+    for (const x of new Set(stale)) this.ctx.board.get(x).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
   }
 
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }

@@ -234,20 +234,30 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await select("Queued", cards.stale.id);
     const before = await current(cards.stale.id);
     const reasons: Record<string, string> = {};
+    // A service with the OR / NOT grammar (PIE-398) reads those lanes; the door still won't move into
+    // them by patching, and says which construct stops it. Older services call the lanes invalid.
+    const grammar = B().lanes[laneIndex("Either")].read.status === "ready";
     for (const name of ["Either", "Not done", "Owned", "Two stages", "Newest", "First five"]) {
       await select("Queued", cards.stale.id);
       pick(name);
       await settled();
       reasons[name] = flashes.at(-1)!;
-      expect(selected()).toEqual({ lane: "Queued", id: cards.stale.id });
+      // Not done lists every card that isn't done, so there the card is "already" in it and gets selected.
+      expect(selected()).toEqual({ lane: grammar && name === "Not done" ? "Not done" : "Queued", id: cards.stale.id });
     }
     expect(reasons).toEqual({
-      "Either": "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator or is not supported",
-      "Not done": "can't move to Not done: Not done is invalid: Invalid virtual branch query: Boolean operator not is not supported",
+      ...(grammar ? {
+        "Either": "can't move to Either: Either's query uses OR; a move can't pick which side to satisfy",
+        "Not done": "already in Not done · nothing to change",
+      } : {
+        "Either": "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator or is not supported",
+        "Not done": "can't move to Not done: Not done is invalid: Invalid virtual branch query: Boolean operator not is not supported",
+      }),
       "Owned": "can't move to Owned: Owned asks for any owner:: value; a move can't choose one",
       "Two stages": "can't move to Two stages: Two stages asks for work-stage to be a and b at once; a move sets one value",
-      "Newest": "can't move to Newest: Newest is invalid: Virtual branch query cannot be empty",
-      "First five": "can't move to First five: First five is invalid: Virtual branch query cannot be empty",
+      // The reason is whoever evaluated the view: the service (views.read) or the door's own port.
+      ...Object.fromEntries(["Newest", "First five"].map(n => [n, `can't move to ${n}: ${n} is invalid: ${B().lanes[laneIndex(n)].read.by === "service"
+        ? "Virtual branch query property must appear exactly once; found 0" : "Virtual branch query cannot be empty"}`])),
     });
     const after = await current(cards.stale.id);
     expect(after.revision).toBe(before.revision);

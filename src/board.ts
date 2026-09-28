@@ -13,6 +13,11 @@ export interface Msg {
   revision?: number;
   /** Block-scope properties in order, repeats kept (`props` keeps only the last of a key). */
   properties?: { key: string; value: string }[];
+  /**
+   * A list row: title, properties and revision without the note's full text (`text` is just the title).
+   * Readers fetch the whole note before showing, editing or commenting on it.
+   */
+  partial?: boolean;
 }
 
 export interface Caller {
@@ -24,7 +29,7 @@ export interface Caller {
   target?: string | null;  // block id the caller is looking at
 }
 
-export interface BoardInfo { host: string; workspace: string; protocol: number; blocks: number | null }
+export interface BoardInfo { host: string; workspace: string; protocol: number; blocks: number | null; capabilities?: string[] | null }
 
 export interface Board {
   info(): Promise<BoardInfo>;

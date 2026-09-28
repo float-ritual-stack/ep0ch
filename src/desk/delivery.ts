@@ -7,7 +7,7 @@ import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
-import type { Backlink, OutlineEvent } from "../socket";
+import type { Backlink, Change, OutlineEvent } from "../socket";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -72,6 +72,12 @@ export class DeliveryBoard implements Screen, DeskApi {
   /** The card a move is patching right now; a second move waits for it. */
   private moving: string | null = null;
   private lastMove: { card: string; to: string; result: string } | null = null;
+  /** Lanes waiting to be asked again, gathered from change records and read together. */
+  private dirtyLanes = new Set<Lane>();
+  /** How the board has refreshed, for `peek` and tests: whole-board reloads vs lanes asked again. */
+  private refreshes = { full: 0, lanes: 0, readers: 0, skipped: 0 };
+  /** Names of the lanes asked again, oldest first (tests and `peek`). */
+  private asked: string[] = [];
 
   constructor(private readonly hubId?: string) {
     const s = readState<Partial<Saved>>("delivery.json");
@@ -107,12 +113,12 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   /** Every block with two or more virtual-branch children is a board. */
   private async findBoards(): Promise<{ hub: Msg; lanes: number }[]> {
-    const branches = await this.ctx.board.query("type=virtual-branch", 500);
+    const branches = await this.ctx.board.query("type=virtual-branch", 500, "updated", "desc", true);
     const count = new Map<string, number>();
     for (const b of branches) if (b.parentId && b.props.query) count.set(b.parentId, (count.get(b.parentId) ?? 0) + 1);
     const ids = [...count].filter(([, n]) => n >= 2).map(([id]) => id);
-    const hubs = await Promise.all(ids.map(id => this.ctx.board.get(id)));
-    return hubs.flatMap((h, i) => (h ? [{ hub: h, lanes: count.get(ids[i]!)! }] : [])).sort((a, b) => b.hub.updatedAt - a.hub.updatedAt);
+    const hubs = await this.ctx.board.readMany(ids);
+    return hubs.map(hub => ({ hub, lanes: count.get(hub.id)! })).sort((a, b) => b.hub.updatedAt - a.hub.updatedAt);
   }
 
   private async useHub(hub: Msg) {
@@ -132,8 +138,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.ctx.redraw();
   }
 
-  private loadLanes() {
-    for (const l of this.lanes) readView(this.ctx.board, l.def).then(read => {
+  private loadLanes(which: Lane[] = this.lanes) {
+    if (which === this.lanes) this.refreshes.full++; else this.refreshes.lanes += which.length;
+    this.asked.push(...which.map(l => l.name));
+    if (this.asked.length > 200) this.asked.splice(0, 100);
+    for (const l of which) readView(this.ctx.board, l.def).then(read => {
       const items = read.items;
       l.read = read;
       const keep = l.want ?? l.items?.[l.sel]?.id;
@@ -150,6 +159,19 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   onEvent(e: OutlineEvent) {
+    if (e.action === "reset") return this.reloadAll();
+    if (e.action === "reconnected") {
+      // Caught up; lanes that failed while the service was away are asked again.
+      const failed = this.lanes.filter(l => l.read?.status === "failed" || !l.read);
+      if (failed.length) this.loadLanes(failed);
+      return;
+    }
+    if (!e.change) return this.legacyEvent(e);
+    this.changed(e.change);
+  }
+
+  /** A service without a change feed: the board reloads every lane shortly after any change. */
+  private legacyEvent(e: OutlineEvent) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => this.loadLanes(), 1200);
     for (const r of this.readers()) r.onEvent(this);   // comment counts and threads
@@ -157,6 +179,97 @@ export class DeliveryBoard implements Screen, DeskApi {
     const id = e.blockId;
     if (id && this.readers().some(r => r.msg?.id === id))
       this.ctx.board.get(id).then(m => { if (m) { for (const r of this.readers()) r.refresh(m); this.redraw(); } }, () => {});
+  }
+
+  /** Everything again: after a reconnect the door couldn't catch up on. Drafts are kept, only marked. */
+  private reloadAll() {
+    if (this.reload) clearTimeout(this.reload);
+    if (this.hub) void this.relane();
+    for (const r of this.readers()) {
+      const m = r.msg;
+      if (!m) continue;
+      this.ctx.board.get(m.id).then(n => { if (n) { r.refresh(n); this.redraw(); } }, () => {});
+      void r.loadComments(this);
+    }
+  }
+
+  /** The hub's lanes may have been added, removed or renamed: read its children again, keeping selections. */
+  private async relane() {
+    const hub = this.hub;
+    if (!hub) return;
+    const kids = await this.ctx.board.children(hub.id).catch(() => null);
+    if (!kids || this.hub !== hub) return;
+    const defs = kids.filter(k => (k.props.type ?? "").toLowerCase() === "virtual-branch" && !HIDDEN.has(subject(k).toLowerCase()));
+    const byId = new Map(this.lanes.map(l => [l.def.id, l]));
+    const same = defs.length === this.lanes.length && defs.every(d => byId.has(d.id));
+    if (!same) {
+      const focused = this.lanes[this.lane]?.def.id;
+      const staged = defs.some(k => PREFERRED.slice(0, 4).includes(subject(k).toLowerCase()));
+      const rank = (n: string) => { const i = PREFERRED.indexOf(n.toLowerCase()); return i < 0 ? 99 : i; };
+      if (staged) defs.sort((a, b) => rank(subject(a)) - rank(subject(b)));
+      this.lanes = defs.map(d => byId.get(d.id) ?? { name: subject(d), def: d, items: null, sel: 0, top: 0 });
+      this.lane = clamp(Math.max(0, this.lanes.findIndex(l => l.def.id === focused)), 0, Math.max(0, this.lanes.length - 1));
+    }
+    for (const l of this.lanes) { const d = defs.find(x => x.id === l.def.id); if (d) { l.def = d; l.name = subject(d); } }
+    this.loadLanes();
+    this.redraw();
+  }
+
+  /**
+   * One committed change (PIE-399): refresh only what it can affect.
+   *   - a reader showing the block re-reads it, unless it already has that revision (the door's own save);
+   *     a reader with a draft is only marked "changed elsewhere", never replaced;
+   *   - a comment or reply re-reads the threads of the note it belongs to, nowhere else;
+   *   - a lane is asked again when the block is in it, or could now be: its properties satisfy the
+   *     lane's clauses (read with blocks.read), or the lane's query is more than clauses (OR, NOT,
+   *     dates) and the door can't tell. Membership itself always comes from the service;
+   *   - a moved, trashed or restored block can take a subtree with it, and `other` has no one block:
+   *     every lane.
+   */
+  private changed(c: Change) {
+    const id = c.blockId;
+    for (const r of this.readers()) {
+      const m = r.msg;
+      if (!m) continue;
+      if (id && m.id === id) {
+        if (c.revision !== undefined && m.revision === c.revision && !m.partial) { this.refreshes.skipped++; continue; }
+        this.refreshes.readers++;
+        this.ctx.board.get(id).then(n => { if (n) { r.refresh(n); this.redraw(); } }, () => {});
+      }
+      const thread = (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
+      if (c.kind === "annotate" && (m.id === c.parentId || thread)) r.onEvent(this);
+      else if (id && m.id === id && c.kind === "edit") r.onEvent(this);   // an edit can move or drop a quoted passage
+    }
+    if (!this.hub || c.kind === "annotate" || c.kind === "draft") return;
+    if (c.parentId === this.hub.id || c.previousParentId === this.hub.id) return void this.relane();
+    if (!id || c.kind === "other" || c.kind === "move" || c.kind === "delete" || c.kind === "restore" || c.kind === "purge") return this.markLanes(this.lanes);
+    const own = this.lanes.filter(l => l.def.id === id);
+    if (own.length) return this.markLanes(own);                       // a lane's definition or its ranks changed
+    const members = this.lanes.filter(l => l.items?.some(m => m.id === id));
+    this.ctx.board.readMany([id], ["properties", "revision"]).then(([m]) => {
+      const may = m ? this.lanes.filter(l => !members.includes(l) && this.couldHold(l, m)) : [];
+      this.markLanes([...members, ...may]);
+    }, () => this.markLanes(this.lanes));
+  }
+
+  /** Could `m` belong in lane `l` now? Loose on purpose: a yes only means "ask the service". */
+  private couldHold(l: Lane, m: Msg): boolean {
+    const read = l.read;
+    if (!read || read.status !== "ready") return false;             // an invalid lane stays invalid until its definition changes
+    // OR, NOT, dates: the service decides, but a plain AND still needs its plain clauses.
+    if (read.unpatchable) return !read.required || matchesFilters(m.properties ?? [], read.required);
+    return !read.filters.length || matchesFilters(m.properties ?? [], read.filters);
+  }
+
+  private markLanes(lanes: Lane[]) {
+    if (!lanes.length) { this.refreshes.skipped++; return; }
+    for (const l of lanes) this.dirtyLanes.add(l);
+    if (this.reload) clearTimeout(this.reload);
+    this.reload = setTimeout(() => {
+      const which = this.lanes.filter(l => this.dirtyLanes.has(l));
+      this.dirtyLanes.clear();
+      if (which.length) this.loadLanes(which.length === this.lanes.length ? this.lanes : which);
+    }, 150);
   }
 
   unsaved() { return this.readers().some(r => r.unsaved()); }
@@ -170,7 +283,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
     return {
       kind: "board", hub: brief(this.hub), focus: this.focus,
-      lanes: this.lanes.map((l, i) => ({ name: l.name, count: l.items?.length ?? null, status: l.read?.status, truncated: l.read?.truncated, collapsed: this.collapsed.has(l.name), focused: i === this.lane, selected: brief(l.items?.[l.sel]) })),
+      lanes: this.lanes.map((l, i) => ({ name: l.name, count: l.items?.length ?? null, status: l.read?.status, by: l.read?.by, truncated: l.read?.truncated, collapsed: this.collapsed.has(l.name), focused: i === this.lane, selected: brief(l.items?.[l.sel]) })),
       preview: brief(this.preview.msg),
       details: this.details.map((d, i) => ({ ...brief(d.msg), opensHere: i === this.active })),
       floats: this.floats.map(f => ({ ...brief(f.pane.msg), rect: f.rect })),
@@ -178,6 +291,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
       images: this.placed.length,
       moving: this.moving, lastMove: this.lastMove,
+      refreshes: { ...this.refreshes },
+      views: this.lanes[0]?.read?.by ?? null,
       mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
       commenting: this.readers().filter(r => r.session).map(r => r.session!.describe()),

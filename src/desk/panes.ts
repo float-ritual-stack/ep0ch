@@ -238,6 +238,7 @@ export class ReaderPane implements Pane {
     if (this.msg?.id !== m.id) return;
     const d = this.draft;
     if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
+    if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     this.msg = m;
     if (!d) this.links = linksOf(m);
   }
@@ -250,6 +251,10 @@ export class ReaderPane implements Pane {
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return;
+    // Lists carry title, properties and revision only; the reader fetches the whole note.
+    if (m.partial) desk.ctx.board.get(m.id).then(full => {
+      if (full && this.msg?.id === full.id && this.msg.partial) { this.msg = full; this.links = linksOf(full); desk.redraw(); }
+    }, () => {});
     void this.loadComments(desk);
     desk.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
@@ -262,6 +267,7 @@ export class ReaderPane implements Pane {
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return this.renderDraft(this.draft, m, w, h);
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
+    if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, dim("reading the note…")] };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
@@ -449,7 +455,7 @@ export class ReaderPane implements Pane {
   async comment(desk: DeskApi, mode: "select" | "threads"): Promise<void> {
     const m = this.msg;
     if (!m || this.editing) return;
-    const fresh = mode === "select" ? await desk.ctx.board.get(m.id) : m;
+    const fresh = mode === "select" || m.partial ? await desk.ctx.board.get(m.id) : m;
     if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't comment: the outline didn't say which revision this note is at"); return; }
     if (this.msg?.id !== m.id || this.editing) return;
     this.msg = fresh;
@@ -632,10 +638,10 @@ export class WhoPane implements Pane {
   private load(desk: DeskApi) {
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
-      for (const x of c) if (x.target && !this.names.has(x.target)) {
-        this.names.set(x.target, "…");
-        desk.ctx.board.get(x.target).then(m => { if (m) { this.names.set(x.target!, subject(m)); desk.redraw(); } }, () => {});
-      }
+      // Titles only, in one read where the service can (blocks.read).
+      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.names.has(t)))];
+      for (const id of ids) this.names.set(id, "…");
+      desk.ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.names.set(m.id, subject(m)); desk.redraw(); }, () => {});
     }, () => {});
   }
   render(w: number, _h: number, _f: boolean, desk: DeskApi): PaneView {

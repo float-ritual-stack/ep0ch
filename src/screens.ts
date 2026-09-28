@@ -360,7 +360,10 @@ export class WhoOnline implements Screen {
   private load(ctx: Ctx) {
     ctx.board.callers().then(c => {
       this.callers = c; ctx.redraw();
-      for (const x of c) if (x.target && !this.subjects.has(x.target)) ctx.board.get(x.target).then(m => { if (m) { this.subjects.set(x.target!, subject(m)); ctx.redraw(); } }, () => {});
+      // Titles only, in one read where the service can (blocks.read).
+      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.subjects.has(t)))];
+      for (const id of ids) this.subjects.set(id, "…");
+      ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.subjects.set(m.id, subject(m)); ctx.redraw(); }, () => {});
     }, e => ctx.flash(String(e.message)));
   }
   onEvent(_: unknown, ctx: Ctx) { this.load(ctx); }

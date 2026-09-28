@@ -4,10 +4,12 @@
 //   - clauses the card already satisfies are left alone (only differing values are patched),
 //   - a value clause replaces the card's one block-scope token for that key, or appends one,
 //   - everything a patch can't satisfy is refused before any write, with the reason.
-// The query grammar has no negation, OR or free-text clauses: `not`, `or` and `and` are rejected
-// by the parser, so such a lane is `invalid` and refused with the parser's own message. A bare word
-// is a presence clause (`urgent` means "has an urgent:: property"), refused when the card lacks it,
-// because a patch would have to invent the value.
+// Older services have no negation, OR or date ranges in the grammar: `not`, `or` and `and` are
+// rejected by the parser, so such a lane is `invalid` and refused with the parser's own message.
+// Newer ones (PIE-398) accept OR, NOT, parentheses and created/updated ranges; a lane using any of
+// them reads fine but is refused as a move target, with which construct and why (views.ts
+// queryShape). A bare word is a presence clause (`urgent` means "has an urgent:: property"),
+// refused when the card lacks it, because a patch would have to invent the value.
 import type { Msg } from "./board";
 import { EditConflict, type PropertyPatch, type SocketBoard } from "./socket";
 import { matchesFilters, type PropertyFilter, type ViewRead } from "./views";
@@ -27,6 +29,10 @@ export function planMove(card: Msg, lane: LaneLike): MovePlan {
   const read = lane.read;
   if (!read) return { kind: "refused", reason: `${lane.name} is still loading` };
   if (read.status !== "ready") return { kind: "refused", reason: `${lane.name} is ${read.status}: ${read.errors[0] ?? "no reason given"}` };
+  if (read.unpatchable) {
+    if (read.items.some(m => m.id === card.id)) return { kind: "already" };   // the service already lists it there
+    return { kind: "refused", reason: `${lane.name}'s query ${read.unpatchable}` };
+  }
   if (!read.filters.length) return { kind: "refused", reason: `${lane.name} has no query clauses to satisfy` };
   const props = propsOf(card);
   if (matchesFilters(props, read.filters)) return { kind: "already" };
