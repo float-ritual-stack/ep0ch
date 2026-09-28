@@ -79,6 +79,26 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
 content it needs; the review checklist's "The map" item covers both.
 
+## The daily brief
+
+The morning note (PIE-435): what happened yesterday, what today needs. It is one outline note per day with
+`[type::daily-brief]` and `[brief-date::YYYY-MM-DD]`. An agent drafts its prose each morning
+([skills/daily-brief/SKILL.md](skills/daily-brief/SKILL.md), or `ep0ch --skill daily-brief`); its figures and
+embeds are live.
+
+- **Reaching it:** `T` (today) on the main menu, on its key line like the showcase, or `ep0ch --brief`.
+  `EP0CH_LANDING=brief` opens it over the main menu right after the logon; the default is still the menu.
+- **The screen** is a desk with one reader at full width: the shared note surface, so links, live figures,
+  folds, comments, selection, `[ ]` and the ruler work as in any reader. Its header (the surface's `header`
+  hook, as the message reader's) leads with the day and "n of m briefs". `,` and `.` step to the previous and next day's brief (by `brief-date`, then by update).
+  A link, a figure row or `u` opens in a reader beside it, so the brief stays; your keys stay on the brief.
+  `^W` and the other desk keys work too; nothing is saved to your `desk.json`.
+- **No briefs:** it says so and names the skill.
+- **Agents:** `brief.step by=-1|1`, `brief.newest`, `brief.date date=YYYY-MM-DD` (refused while you're
+  typing in the brief), plus the desk's and the reader's actions. `open <id>` on a brief steps to it;
+  any other note opens beside it.
+- The showcase outline has two made-up briefs, so `scripts/try-it.sh --showcase` then `T` shows one.
+
 ## Run
 
     bun install
@@ -87,7 +107,7 @@ content it needs; the review checklist's "The map" item covers both.
     ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
     ep0ch /path/to/outliner.sock
     ep0ch --ws /path/to/workspace   # the socket of that workspace's service
-    ep0ch --showcase | --desk | --river | --board [<hub-id>]
+    ep0ch --showcase | --desk | --river | --brief | --board [<hub-id>]
 
 `ep0ch help` lists everything. Besides opening the door:
 
@@ -105,6 +125,7 @@ content it needs; the review checklist's "The map" item covers both.
 | `EP0CH_SOCKET` | socket path (same as the argument) |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
+| `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon (default: the main menu) |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 
 ## The desk
@@ -677,6 +698,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | Action | Arguments | Keys it stands for |
 |---|---|---|
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
+| `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
 | `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |

@@ -196,6 +196,8 @@ export class ReaderPane implements Pane {
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
+  /** Held on its note (p, or alt+⏎): it doesn't follow the current note. */
+  get holding() { return this.held; }
   get draft() { return this.surface.draft; }
   get session() { return this.surface.session; }
   get comments() { return this.surface.comments; }

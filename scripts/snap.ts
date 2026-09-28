@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
+const wide = ["brief", "projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+// `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -208,6 +208,31 @@ if (scenario === "showcase") {
   await snap("14-clicked-selection", 800);
   await app.act({ action: "section", args: { name: "service" }, as: "snap-agent" });
   await snap("15-agent-section", 1500);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "brief") {
+  // PIE-435: the daily brief on the showcase outline (two fictional mornings): the newest by the menu's T,
+  // the day before by `,`, back by `.`, a click on a live figure's row (it opens beside the brief), and
+  // a link followed by [ ] and ⏎.
+  const { seedShowcase } = await import("../src/showcase/seed");
+  scratch!.installRenderers();
+  await seedShowcase(board);
+  board.subscribe(e => app.event(e));
+  app.push(new MainMenu());
+  ch("T");
+  await snap("1-newest", 2500);
+  ch(",");
+  await snap("2-day-before", 1500);
+  ch(".");
+  await Bun.sleep(1500);
+  const at = emu.text().findIndex(l => l.includes("Net the brassicas"));
+  const x = emu.text()[at]!.indexOf("Net the brassicas") + 2;
+  press({ kind: "mouse", action: "down", button: 0, x, y: at }); press({ kind: "mouse", action: "up", button: 0, x, y: at });
+  await snap("3-figure-row-beside", 2000);
+  const brief = (app as any).stack.at(-1);
+  for (let i = 0; i < 40 && brief.reader.surface.describe().elements?.current?.label !== "the front wheel"; i++) { ch("]"); await Bun.sleep(20); }
+  press({ kind: "enter" });
+  await snap("4-link-beside", 2000);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "spines") {

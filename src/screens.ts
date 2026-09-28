@@ -13,6 +13,7 @@ import { Desk } from "./desk/desk";
 import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
+import { Brief } from "./brief/brief";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { ActionRefused, ActionSet, asActor, type ActRequest } from "./surface/actions";
@@ -77,7 +78,8 @@ export class Logon implements Screen {
   title = "logon";
   private shown = 0;
   private readonly script: string[];
-  constructor(ctx: Ctx) {
+  /** `then`: a screen opened over the main menu after the logon (EP0CH_LANDING=brief: the daily brief). */
+  constructor(ctx: Ctx, private readonly then?: () => Screen) {
     this.script = [
       `ATDT ${ctx.host}`,
       "",
@@ -110,6 +112,7 @@ export class Logon implements Screen {
       const total = this.script.join("\n").length + 40;
       if (this.shown < total) { this.shown = total; ctx.redraw(); return; }
       ctx.replace(new MainMenu());
+      if (this.then) ctx.push(this.then());
     }
   }
 }
@@ -133,6 +136,8 @@ const ITEMS: MenuItem[] = [
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
   // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
   { key: "X", label: "Showcase", open: () => new Showcase() },
+  // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
+  { key: "T", label: "Today", open: () => new Brief() },
 ];
 
 export class MainMenu implements Screen {
@@ -736,7 +741,7 @@ export class Help implements Screen {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
         ...ITEMS.map(i => paint(`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`)),
-        "", paint("|08   Kanban, Quay, Desk, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
+        "", paint("|08   Kanban, Quay, Desk, Today, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
@@ -748,7 +753,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 
 export class Goodbye implements Screen {
