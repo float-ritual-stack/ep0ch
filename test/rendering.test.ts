@@ -13,7 +13,7 @@ import type { Msg } from "../src/board";
 import { ComponentCatalog, documentComponent } from "../src/components";
 import { renderDoc, type DocEnv } from "../src/doc";
 import { emphasis } from "../src/inline";
-import { external, externalOpenCommand } from "../src/open";
+import { destinationOf, external, externalOpenCommand } from "../src/open";
 import { presentLinks } from "../src/refs";
 import { Reader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -298,5 +298,13 @@ describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
   test("a message without to:: is to ALL", async () => {
     const msg = await create(null, "Open day\nEveryone welcome.");
     expect((await draw((await board.get(msg.id))!)).map(plain).join("\n")).toMatch(/To: ALL\s+Refer#/);
+  });
+});
+
+describe("link schemes", () => {
+  test("http(s) schemes match in any case, as CommonMark and Detail treat them", () => {
+    expect(destinationOf("HTTPS://example.org/allotment")).toEqual({ web: "https://example.org/allotment" });
+    expect(destinationOf("Http://example.org")).toEqual({ web: "http://example.org/" });
+    expect(destinationOf("ftp://example.org")).toMatchObject({ refused: expect.any(String) });
   });
 });
