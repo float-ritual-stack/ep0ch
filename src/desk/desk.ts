@@ -108,6 +108,9 @@ export class Desk implements Screen, DeskApi, PaneHost {
     this.redraw();
   }
 
+  /** The reader the person has focused (PIE-453). */
+  holdsFocus(pane: ReaderPane) { return this.panes.get(this.focus) === pane; }
+
   focusKind(kind: PaneKind) {
     const id = leaves(this.root).find(i => this.panes.get(i)?.kind === kind);
     if (id !== undefined) { this.focus = id; this.redraw(); }
@@ -126,7 +129,12 @@ export class Desk implements Screen, DeskApi, PaneHost {
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
   }
 
-  openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
+  openBlock(m: Msg) {
+    // The reader it focuses keeps the open in its history (PIE-453).
+    const r = this.namedReaders()[0]?.pane;
+    if (r) r.surface.track(() => this.setCurrent(m, { reveal: true })); else this.setCurrent(m, { reveal: true });
+    this.focusKind("reader");
+  }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
 
@@ -178,8 +186,11 @@ export class Desk implements Screen, DeskApi, PaneHost {
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const r = this.pickReader(sel);
-    this.setCurrent(m, { reveal: true });
-    if (r.pane.msg?.id !== m.id && !r.pane.show(m, this)) throw new ActionRefused(`reader ${r.name} is holding an edit or a comment on another note`);
+    // An open into a reader is part of its history (PIE-453): back returns to what it showed.
+    r.pane.surface.track(() => {
+      this.setCurrent(m, { reveal: true });
+      if (r.pane.msg?.id !== m.id && !r.pane.show(m, this)) throw new ActionRefused(`reader ${r.name} is holding an edit or a comment on another note`);
+    });
     // The reader gets the keys, unless the person is in an edit, a comment or the panel: that keeps them.
     if (!this.personIn()) { this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null; }
     this.redraw();

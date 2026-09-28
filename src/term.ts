@@ -6,6 +6,11 @@ export type Key =
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
   | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
+  /**
+   * alt+← and alt+→ (CSI 1;3 D/C, CSI 1;9 D/C, or ESC before the arrow); `back` and `forward` are the mouse's
+   * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
+   */
+  | { kind: "alt-left" | "alt-right" | "back" | "forward" }
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
@@ -98,8 +103,10 @@ export class Term {
       m = p.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
       if (m) {
         const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
-        const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
         this.pending = p.slice(m[0].length);
+        // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
+        if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); continue; }
+        const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
         this.keyHandler({ kind: "mouse", action, button: b & 3, x, y });
         continue;
       }
@@ -115,6 +122,7 @@ export class Term {
         [/^\x1b\[C|^\x1bOC/, { kind: "right" }], [/^\x1b\[D|^\x1bOD/, { kind: "left" }],
         [/^\x1b\[Z/, { kind: "backtab" }], [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
         [/^\x1b\[3~/, { kind: "delete" }], [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
+        [/^\x1b\[1;[39]D|^\x1b\x1b\[D/, { kind: "alt-left" }], [/^\x1b\[1;[39]C|^\x1b\x1b\[C/, { kind: "alt-right" }],
       ];
       let hit = false;
       for (const [re, key] of keys) {

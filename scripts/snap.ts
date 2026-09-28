@@ -562,6 +562,10 @@ if (scenario === "elements") {
   await Bun.sleep(600);
   await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
   await snap("7-agent-focus", 400);
+  // PIE-453: the detail follows its first link in place, then alt+← comes back with [ ] on it.
+  S.focus = "detail0"; S.active = 0;
+  ch("]"); ch("]"); press({ kind: "enter" }); await snap("8-followed", 800);
+  press({ kind: "alt-left" }); await snap("9-back", 800);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "projection") {
