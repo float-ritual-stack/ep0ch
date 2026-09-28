@@ -111,6 +111,6 @@ Work on one branch per ticket and open a **draft PR**. Don't merge to main. In t
 
 - **Questions:** comment on your draft PR or open an issue on the repo. The laptop Claude and Evan read those.
 - **Herdr:** when the laptop is reachable you can also message its session through Herdr, if a machine profile for it exists.
-- **Budget:** Evan's Claude quota is shared across machines.
-  - No wide subagent fan-outs.
-  - Don't re-read what this handoff already says.
+- **Budget:** not a constraint right now (Evan, 2026-09-27: half the week left, a reset on Tuesday, and a spare reset before then).
+  - Use subagents where they genuinely help, for example parallel tickets or independent verification.
+  - Spend effort on verification, not on rationing.
