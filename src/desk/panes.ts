@@ -311,6 +311,17 @@ export class ReaderPane implements Pane {
     const d = this.draft;
     if (!d) return;
     if (!d.dirty) { this.draft = null; desk.ctx.flash("nothing changed"); desk.redraw(); return; }
+    // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
+    if (d.propertyWarned !== d.text) {
+      const next = await desk.ctx.board.previewProperties(d.text).catch(() => null);
+      const change = next ? propertyChange(d.baseProps, next) : "";
+      if (change && this.draft === d) {
+        d.propertyWarned = d.text;
+        d.note = `this save changes properties: ${change} · ctrl+s again saves`;
+        desk.redraw();
+        return;
+      }
+    }
     d.saving = true; d.note = "saving…"; desk.redraw();
     try {
       const m = await desk.ctx.board.update(d.blockId, d.text, d.base);

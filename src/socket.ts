@@ -220,6 +220,22 @@ export class SocketBoard implements Board {
     }
   }
 
+  private previewUnsupported = false;
+  /**
+   * The properties the service would store for `text` (PIE-401 `properties.preview`), without saving.
+   * Null when this service is older and doesn't offer it; the answer is remembered for the session.
+   */
+  async previewProperties(text: string): Promise<Record<string, string> | null> {
+    if (this.previewUnsupported) return null;
+    try {
+      const r = await this.request<{ properties: { key: string; value: string }[] }>("properties.preview", { text });
+      return Object.fromEntries(r.properties.map(p => [p.key, p.value]));
+    } catch (e) {
+      if (/unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e))) { this.previewUnsupported = true; return null; }
+      throw e;
+    }
+  }
+
   /** Register as an observer and stream events. The door then shows up in Who's Online, like any caller. */
   subscribe(onEvent: (e: OutlineEvent) => void): void {
     if (process.env.EP0CH_OBSERVE === "0" || this.events) return;

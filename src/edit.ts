@@ -24,6 +24,8 @@ export class Draft {
   /** Where the draft was copied when the service refused it. */
   savedCopy: string | null = null;
   saving = false;
+  /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
+  propertyWarned: string | null = null;
   private discardArmed = false;
   note = "";
 

@@ -94,6 +94,10 @@ On a board lane, `e` edits the selected card in the preview. The river stays rea
 - **While a draft is open** the reader stays on its note, takes every key (board and window shortcuts
   included), and marks "changed elsewhere" when an outline event says the note moved on, instead of
   replacing what you typed. `Ctrl+C` asks twice when an edit is unsaved.
+- **Properties:** the service decides which `[key::value]` tokens are properties (one followed by more
+  text on its line is plain text). When the service offers `properties.preview` (pi-herdr-outliner
+  PIE-401), the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
+  again saves. Older services save at once, and the reader then says which properties changed.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).

@@ -148,6 +148,14 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const { pane, d } = await openReader(b.id);
     type(pane, " (retry)", d);
     pane.key(ctrl("s"), d);
+    if (await board.previewProperties("probe [a::b]") !== null) {
+      // A service with properties.preview (PIE-401) lets the door warn before writing anything.
+      await until(() => pane.draft?.propertyWarned !== null, "the warning");
+      expect(pane.editing).toBe(true);
+      expect(pane.draft!.note).toBe("this save changes properties: -stage=queued · ctrl+s again saves");
+      expect((await current(b.id)).revision).toBe(b.revision);
+      pane.key(ctrl("s"), d);                                // same text again: go ahead
+    }
     await until(() => !pane.editing, "the save");
     expect((await current(b.id)).properties).toEqual([]);
     expect(flashes.at(-1)).toBe(`saved · revision ${b.revision + 1} · properties changed: -stage=queued`);
@@ -157,20 +165,20 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {
     const b = await create("Race [stage::queued]\nbody");
     const { pane, d } = await openReader(b.id);
-    type(pane, " mine", d);
+    pane.key({ kind: "down" }, d); pane.key({ kind: "end" }, d); type(pane, " mine", d);
     // Someone else saves first.
     await other.request("update", { blockId: b.id, text: "Race [stage::queued]\ntheirs", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
     // The content event makes readers refresh; an open draft must not be replaced.
     pane.refresh((await board.get(b.id))!);
     expect(pane.draft!.changedElsewhere).toBe(true);
-    expect(pane.draft!.text).toBe("Race [stage::queued] mine\nbody");
+    expect(pane.draft!.text).toBe("Race [stage::queued]\nbody mine");
 
     pane.key(ctrl("s"), d);
     await until(() => pane.draft?.conflict !== null, "the refusal");
     expect(pane.editing).toBe(true);
-    expect(pane.draft!.text).toBe("Race [stage::queued] mine\nbody");
+    expect(pane.draft!.text).toBe("Race [stage::queued]\nbody mine");
     expect((await current(b.id)).text).toBe("Race [stage::queued]\ntheirs");
-    expect(readFileSync(pane.draft!.savedCopy!, "utf8")).toBe("Race [stage::queued] mine\nbody\n");
+    expect(readFileSync(pane.draft!.savedCopy!, "utf8")).toBe("Race [stage::queued]\nbody mine\n");
 
     // Saving again from the same stale base is refused again, never forced through.
     pane.key(ctrl("s"), d);
