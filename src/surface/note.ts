@@ -74,12 +74,15 @@ export function propertyChange(before: Record<string, string>, after: Record<str
   return out.join(" ");
 }
 
+/** Agent actions that open an edit or a comment session on the note. */
+const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
+
 export class NoteSurface {
   msg: Msg | null = null;
   scroll = 0;
   private crumbs = "";
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
-  private notice = "";
+  notice = "";
   private links: Link[] = [];
   private unfold = false;
   private link = -1;
@@ -452,7 +455,12 @@ export class NoteSurface {
     if (a === "save") void this.save(host);
     else if (a === "editor") this.external(host);
     else if (a === "reload") void this.reload(host);
-    else if (a === "close") this.closeDraft();
+    else if (a === "close") {
+      // Esc, esc discards typed text; an agent's part of it is never lost that way: it's copied out first.
+      const at = keepAgents(d, () => d.copyOut());
+      this.closeDraft();
+      if (at) host.ctx.flash(`closed · the unsaved text an agent wrote is at ${at}`);
+    }
     host.redraw();
     return true;
   }
@@ -591,7 +599,13 @@ export class NoteSurface {
     if (this.panel) return this.panelKey(k, host);
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
-      if (this.session.key(k, this.commentEnv(host)) === "close") { this.session = null; }
+      const s = this.session, composer = s.composer;
+      if (s.key(k, this.commentEnv(host)) === "close") { this.session = null; }
+      // A comment an agent was writing, closed by esc, esc: copied out first, like an edit.
+      if (k.kind === "esc" && composer && s.composer !== composer) {
+        const at = keepAgents(composer, () => composer.copyOut(`${s.blockId.slice(0, 8)}-comment`));
+        if (at) host.ctx.flash(`closed · the unsent text an agent wrote is at ${at}`);
+      }
       host.redraw();
       return true;
     }
@@ -660,6 +674,10 @@ export class NoteSurface {
    */
   act(name: string, args: Record<string, unknown>, host: SurfaceHost, actor: Actor): Promise<unknown> {
     this.use(host);
+    // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
+    // comment under it, where the panel would take the keys meant for the agent's session.
+    if (actor.kind === "agent" && this.panel && !this.draft && !this.session && STARTS_SESSION.has(name))
+      return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: m => host.navigate(m) } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }
@@ -773,6 +791,7 @@ export class NoteSurface {
   env(host: SurfaceHost, actor: Actor) { return this.commentEnv(host, actor); }
   closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost) { return this.follow(i, host); }
+  clearLink() { this.link = -1; }
   selectLink(i: number) { if (!this.links[i]) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`); this.link = i; }
   goUp(host: SurfaceHost) { return this.up(host); }
 }
@@ -787,6 +806,11 @@ const describeRow = (r: PropRow, src: Source | null, text: string) => ({
 function recordedAs(by: Actor): string {
   const whose = by.kind === "agent" ? `${agentLabel(by)}'s` : "yours";
   return by.with?.length ? `${whose}, naming ${recordedActorId(by)}` : whose;
+}
+
+/** Unsaved text an agent had a hand in, copied to disk before a key discards it: where it went, or null. */
+function keepAgents(d: Draft, copy: () => string): string | null {
+  return d.dirty && d.writers.some(w => w.kind === "agent") ? copy() : null;
 }
 
 /** Copy a draft out before `actor` replaces it, when someone else changed it last. Who that was, and where. */

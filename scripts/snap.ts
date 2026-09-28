@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props"].includes(scenario);
+const wide = ["desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey` runs its own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>), so it can restart it.
-const scratch = scenario === "journey" || scenario === "kanban" ? await (async () => {
+// `journey`, `kanban` and `river-write` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -64,6 +64,7 @@ const snap = async (name: string, wait = 600) => {
   await Bun.sleep(wait);
   app.redraw();
   writeFileSync(`out/snap-${tag}-${name}.png`, emu.snapshot(fakeTerm.info));
+  writeFileSync(`out/snap-${tag}-${name}.txt`, emu.text().join("\n") + "\n");
   console.log(`${name}: ${bytes} bytes written so far, ${emu.placements.size} placement(s), ${emu.images.size} image(s)`);
 };
 const press = (k: Key) => keyFn(k);
@@ -551,6 +552,69 @@ if (scenario === "river") {
   press({ kind: "enter" });
   await snap("6-jumped", 3000);
   board.close(); process.exit(0);
+}
+if (scenario === "river-write") {
+  // The river's columns host the note surface: edit, quote and comment from a column by keys, then an
+  // agent does the same through the control socket, and another client edits under an open draft.
+  // Its own scratch service and fictional notes only.
+  const { startControl } = await import("../src/control");
+  const { connect } = await import("node:net");
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const plot = await mk(null, "Allotment plot 14 [type::hub]\nThe plot by the water tap.");
+  const beans = await mk(plot.id, "Stake the beans [stage::queued]\nCanes along the fence.\n\nTie them loosely; the wind is strong there.");
+  await mk(plot.id, "Plant the squash [stage::queued]\nBy the compost heap.");
+  await mk(plot.id, "Fix the gate latch [stage::doing]\nIt swings open.");
+  await mk(beans.id, "Canes bought\nTwenty, from the market.");
+  board.subscribe(e => app.event(e));
+  const R = new River(), S = R as any;
+  app.push(new MainMenu()); app.push(R);
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/river-door.sock");
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    let buf = "";
+    c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
+    c.on("error", rej);
+  });
+  const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
+  await snap("1-library", 2500);
+  await act("open", { id: plot.id });
+  const opened = await act("open", { id: beans.id }, "2");
+  const beansR = opened.result.reader;
+  await snap("2-columns", 1500);
+  // The agent's opens left the person in the Library; they walk over to the beans column.
+  ch("l"); ch("l");
+  ch("e"); await Bun.sleep(500);
+  press({ kind: "down" }); press({ kind: "end" }); for (const c of " Two per plant.") ch(c);
+  await snap("3-editing", 400);
+  ctrl("s");
+  await snap("4-saved", 1500);
+  ch("c"); await Bun.sleep(600);
+  ch("j"); ch("j"); ch("l"); for (let i = 0; i < 4; i++) ch("H");
+  await snap("5-quoting", 400);
+  press({ kind: "enter" }); for (const c of "Soft twine, or it cuts the stems.") ch(c);
+  await snap("6-writing", 400);
+  ctrl("s");
+  await snap("7-sent", 1500);
+  press({ kind: "esc" });
+  // An agent drives the same column by its reader id.
+  await act("comment", { quote: "Canes along the fence", body: "Hazel, not bamboo." }, beansR);
+  await snap("8-agent-commented", 1200);
+  await act("comment.close", {}, beansR);
+  // Another client edits the note while the column holds a draft: marked, not replaced.
+  await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, beansR);
+  const other = new SocketBoard(board.path);
+  const now = (await other.request("blocks.context", { blockId: beans.id })).selected;
+  await other.request("update", { blockId: beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await snap("9-changed-elsewhere", 1500);
+  // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
+  ch("h"); ch("h");
+  await snap("10-draft-kept-wide", 600);
+  console.log(`  unsaved: ${R.unsaved()} · columns: ${JSON.stringify(S.describe().columns.map((c: any) => [c.n, c.cover]))}`);
+  const kept = R.keepDrafts();
+  console.log(`  kept: ${kept.join(", ")}`);
+  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
+  for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
+  other.close(); ctl.close(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "desk") {
   app.push(new MainMenu()); app.push(new Desk());

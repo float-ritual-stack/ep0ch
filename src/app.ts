@@ -169,7 +169,7 @@ export class App implements Ctx {
 
   actions() {
     const s = this.stack.at(-1);
-    if (!s?.actions) return { screen: s?.title ?? null, actions: [], readers: [], note: "this screen has no actions yet; the board and the desk do" };
+    if (!s?.actions) return { screen: s?.title ?? null, actions: [], readers: [], note: "this screen has no actions yet; the board, the desk and the river do" };
     return { screen: s.title, ...s.actions() };
   }
 
@@ -180,7 +180,7 @@ export class App implements Ctx {
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
-    if (!s?.act) throw new ActionRefused(`the ${s?.title ?? "current"} screen has no actions yet; open the board or desk first`);
+    if (!s?.act) throw new ActionRefused(`the ${s?.title ?? "current"} screen has no actions yet; open the board, the desk or the river first`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {
