@@ -1178,7 +1178,7 @@ export class DeliveryBoard implements Screen, DeskApi {
    * Set step `index` of the card's checklist (as `checklist.query` numbers them) to `status`, checked by
    * the step's evidence: if the step changed since it was read, nothing is written and the steps are read
    * again. A step without an id is named by where it starts at the read revision, and the service gives
-   * it one (the note's text gains `^task-…`).
+   * it one (the note's text gains `^t-…`).
    */
   async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor, shown?: { item: ChecklistStep; revision: number }): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string }> {
     const card = this.cardFor(cardId);

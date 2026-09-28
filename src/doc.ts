@@ -57,7 +57,12 @@ const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
 /** The fewest columns a list item's text keeps when its indentation would take the whole width. */
 const MIN_ITEM_TEXT = 8;
-const TASK_ID = / \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g;
+/**
+ * A block anchor at the end of a line (`^books`, `^t-8a6d7f`, the older `^task-<uuid>`), hidden when a note is
+ * drawn, as Detail hides it. The id pattern is the service's (FRAGMENT_ID_SOURCE in pi-herdr-outliner's
+ * src/fragments.ts); the anchor stays in the source, so folds and links still find it.
+ */
+const TASK_ID = /(^|[ \t])\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/gm;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /**

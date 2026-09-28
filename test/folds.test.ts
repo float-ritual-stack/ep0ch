@@ -521,3 +521,15 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     } finally { app.pop(); }
   });
 });
+
+describe("block anchors", () => {
+  test("a trailing ^anchor is hidden when drawn, in every form the service writes, and folds keep their keys", () => {
+    const env = { width: 60, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
+    const body = "- [ ] buy canes ^t-8a6d7f\n- [x] clear the books ^books\n- [ ] sow peas ^task-c1a0d412-fa9f-461c-80c4-eb95ddf68a2a\n- [ ] 2 ^ 3 stays";
+    const drawn = renderDoc(body, env).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    expect(drawn).not.toMatch(/\^t-8a6d7f|\^books|\^task-/);
+    expect(drawn).toContain("buy canes");
+    expect(drawn).toContain("2 ^ 3 stays");
+    expect(foldPoints("- step ^t-8a6d7f\n  - child")[0]!.key).toBe(foldPoints("- step\n  - child")[0]!.key);
+  });
+});

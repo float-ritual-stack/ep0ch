@@ -469,8 +469,8 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "char", ch: " " });
     await until(() => !B().steps.busy && B().steps.read.items[0].status === "done", "the step to change");
     const t1 = (await current(cards.shelf.id)).text;
-    expect(t1).toMatch(/- \[x\] find the spirit level \^task-[\w-]+\n- \[ \] loosen the brackets\n- \[x\] clear the books \^books/);
-    expect(message()).toMatch(/^checked off: find the spirit level · Level the shelf · the step now has an id \(\^task-/);
+    expect(t1).toMatch(/- \[x\] find the spirit level \^t-[0-9a-f]+\n- \[ \] loosen the brackets\n- \[x\] clear the books \^books/);
+    expect(message()).toMatch(/^checked off: find the spirit level · Level the shelf · the step now has an id \(\^t-/);
     expect(await lastBy(cards.shelf.id, "user")).toEqual(["user", expect.stringMatching(/^ep0ch-door:/), "text"]);
     press({ kind: "esc" });
     expect(B().steps).toBeNull();
@@ -511,7 +511,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     B().steps.read = stale;
     expect(await act("step.set", { card: cards.pantry.id, step: "1" })).toMatchObject({ step: 1, status: "done", changed: true });
     const text = (await current(cards.pantry.id)).text;
-    expect(text).toMatch(/- \[x\] find the list \^task-[\w-]+\n- \[ \] buy rice\n- \[ \] buy beans/);
+    expect(text).toMatch(/- \[x\] find the list \^t-[0-9a-f]+\n- \[ \] buy rice\n- \[ \] buy beans/);
     press({ kind: "esc" });
   });
 
