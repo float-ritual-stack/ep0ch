@@ -50,9 +50,8 @@ names it). Each command prints JSON.
 4. **Git logs of the active repos:** the repos the changed items name (their deliveries, `project::`).
    `git -C <repo> log --since=yesterday --oneline --all` and merged PRs (`gh pr list --state merged
    --search "merged:>=YYYY-MM-DD"`). Link the PR, not the commit.
-5. **What the person touched:** `activity.recent` (mostly their own edits). There is no CLI command for it
-   yet; ask the service socket for it, or read the door's Activity pane (`ep0ch peek` on a desk with an
-   activity pane). If you can't reach it, say so under Sources.
+5. **What the person touched:** `outliner activity --since <yesterday ISO> --author user` (their own
+   edits; `--author agent` for agents'). If you can't reach it, say so under Sources.
 6. **The briefing and batch notes:** the overnight briefing note, the open batch notes (the blocks the
    changed items' `work-batch` names), and the current commitment on the roadmap hub. Read them; don't copy them.
 
@@ -116,7 +115,7 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
 1. Draft the whole note in a file, sections in order, every figure in place, "nothing yet" under
    `## Since this morning`.
 2. Create it beside the previous brief:
-   `outliner create --parent <parent id> --author agent --text "$(cat brief.md)"`.
+   `outliner create --parent <parent id> --author agent --actor <id> --text "$(cat brief.md)"`.
    Read it back (`outliner read <id> --fields id,title,properties,revision,text`) and check the three
    properties came through as block properties.
 3. Check it in a door of your own (`ep0ch try --ws <root> --copy --outliner <checkout>`, then `T`): every
@@ -129,7 +128,8 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
   `outliner note section <brief id> "## Since this morning" --file update.md --author agent --actor <id> --expected <revision>`.
   It replaces what Detail folds under that heading and prints the `previous` text. Read the note first;
   a refused revision means someone edited it: read again, merge, retry. Never overwrite the person's edits.
-- Don't use `outliner update` on a brief: it rewrites the whole note and records the write as the user.
+- Prefer `note section` over `outliner update` on a brief: `update` rewrites the whole note, so it can
+  undo the person's edits elsewhere in it. If you must, pass `--author agent --actor <id> --expected <revision>`.
 - The headline has no heading, so it isn't rewritten after the morning; later news goes under
   `## Since this morning`.
 - Bump `feed-sequence` only when you re-read the feed: `outliner work set` is for roadmap items, so edit
@@ -137,7 +137,6 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
 
 ## Known gaps
 
-- No CLI command for `activity.recent`; `outliner create` takes `--author agent` but no `--actor`.
 - The change feed keeps a short window. Record the checkpoint every time; fall back as step 2 says.
 - The service sorts `blocks.query` by created or updated only; the door orders briefs by `brief-date`.
 - The door lands on the brief after logon only with `EP0CH_LANDING=brief`; the default is the main menu.
