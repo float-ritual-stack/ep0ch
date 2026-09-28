@@ -74,6 +74,9 @@ export function propertyChange(before: Record<string, string>, after: Record<str
   return out.join(" ");
 }
 
+/** Agent actions that open an edit or a comment session on the note. */
+const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
+
 export class NoteSurface {
   msg: Msg | null = null;
   scroll = 0;
@@ -671,6 +674,10 @@ export class NoteSurface {
    */
   act(name: string, args: Record<string, unknown>, host: SurfaceHost, actor: Actor): Promise<unknown> {
     this.use(host);
+    // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
+    // comment under it, where the panel would take the keys meant for the agent's session.
+    if (actor.kind === "agent" && this.panel && !this.draft && !this.session && STARTS_SESSION.has(name))
+      return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: m => host.navigate(m) } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }

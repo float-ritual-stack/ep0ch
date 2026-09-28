@@ -390,7 +390,7 @@ export class River implements Screen {
 
   private hints(W: number): string {
     const sp = this.paneS;
-    if (!this.mode && sp && sp.surface.editing && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
+    if (!this.mode && sp && sp.surface.editing && !sp.surface.panel && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
     if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
@@ -735,8 +735,9 @@ export class River implements Screen {
 
   focusOn(sel: string): { focus: string; at: string } {
     const t = this.pick(sel);
+    const moved = this.focus !== t.ci || this.cols[t.ci]!.pane !== t.pi;
     this.focus = t.ci; this.cols[t.ci]!.pane = t.pi;
-    this.entered = null;                     // the person comes back to an edit by moving: they enter it again
+    if (moved) this.entered = null;          // the person comes back to an edit by moving: they enter it again
     this.save(); this.ctx.redraw();
     return { focus: t.name, at: t.at };
   }
@@ -826,6 +827,9 @@ export class River implements Screen {
     const col = this.col, p = this.paneS;
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     this.seen(p);
+    // The property panel (and a value field in it) is only ever opened by the person's `i`, so it holds
+    // their keys first; Esc closes the field, then the panel.
+    if (p && p.surface.panel) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
     const held = !!p?.surface.editing;
     // An edit, a passage being picked, a comment being written, the thread list, that the person is in:
     // every key is the surface's.
@@ -837,9 +841,6 @@ export class River implements Screen {
       ctx.flash(`in ${this.whose(p)} · ${p.surface.hint()}`);
       return ctx.redraw();
     }
-    // The property panel the person opened with `i` holds their keys until Esc closes it (agents never
-    // open it on the person's reader, so this can't hand the person's keys to an agent).
-    if (p && !held && p.surface.panel) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
     // Reading: the surface's own keys act on the column's note (e c m i ctrl+e [ ] u, ⏎ on a selected link).
     const linked = !!p && !held && this.linked(p);
     const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";

@@ -100,18 +100,43 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(screen()).not.toContain("editing ·");
   });
 
-  test("i opens the property panel in a river column; it holds the person's keys until Esc", async () => {
+  test("i opens the property panel in a river column; it holds the person's keys, a value field takes typing, Esc steps out", async () => {
     focusOnReader(beansR);
-    const at = R().focus;
+    const at = R().focus, S = () => surfaceOf(at + 1);
     key(char("i"));
-    await until(() => !!surfaceOf(at + 1).panel, "the panel");
+    await until(() => !!S().panel, "the panel");
     key(char("h"));                                              // a panel key, not a column move
     expect(R().focus).toBe(at);
-    key({ kind: "esc" });
-    expect(surfaceOf(at + 1).panel).toBeNull();
+    // an agent doesn't start an edit under the person's open panel
+    await expect(act("edit.text", { text: "agent text" }, beansR)).rejects.toThrow(/property panel open/);
+    expect(S().draft).toBeNull();
+    key({ kind: "enter" });                                      // edit the selected value
+    await until(() => !!S().panel?.field, "the value field");
+    const before = S().panel.field.text;
+    type("zz");
+    expect(S().panel.field.text).toBe(before + "zz");           // typing reaches the field, not the river
+    expect(R().focus).toBe(at);
+    key({ kind: "esc" });                                        // closes the field, not the river
+    expect(S().panel?.field ?? null).toBeNull();
+    key({ kind: "esc" });                                        // closes the panel
+    expect(S().panel).toBeNull();
+    expect((app.describe() as any).screen).toBe(river.title);    // still in the river
     key(char("h"));
     expect(R().focus).toBe(at - 1);
     key(char("l"));
+  });
+
+  test("an agent's focus on the pane the person is typing in leaves them in their edit", async () => {
+    focusOnReader(beansR);
+    const at = R().focus, S = () => surfaceOf(at + 1);
+    key(char("e"));
+    await until(() => !!S().draft, "the draft");
+    await act("focus", {}, beansR);
+    key({ kind: "end" }); type("Q");                             // still the person's edit: typed, not a river key
+    expect(S().draft.text).toContain("Q");
+    expect(R().focus).toBe(at);
+    key({ kind: "esc" }); key({ kind: "esc" });                  // discard (copied out) and close
+    await until(() => !S().draft, "closed");
   });
 
   test("c: pick a passage in the column, write, ctrl+s sends the comment", async () => {
