@@ -752,6 +752,39 @@ export class SocketBoard implements Board {
     }
   }
 
+  // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
+  // Long-standing actions no capability names: tried, and an "Unsupported action" is remembered.
+
+  private async completion<T>(action: string, params: Record<string, unknown>): Promise<T | null> {
+    if (this.unsupported.has(action)) return null;
+    try { return await this.request<T>(action, params); } catch (e) {
+      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add(action); return null; }
+      throw e;
+    }
+  }
+
+  /** Named addresses (pages, aliases, Work IDs) containing `query`; null when the service has no `pages.complete`. */
+  completePages(query: string | undefined, limit: number) {
+    return this.completion<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number } }>("pages.complete", { ...(query ? { query } : {}), limit });
+  }
+
+  /** Workspace paths starting with `prefix`; null when the service has no `files.complete`. */
+  completeFiles(prefix: string) {
+    return this.completion<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix });
+  }
+
+  /** Whole blocks matching a text search, as `blocks.query` ranks them, with whether the list was cut. */
+  async findBlocks(text: string | undefined, limit: number): Promise<{ blocks: Msg[]; truncated: number | null }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness: { kind: string; limit?: number } }>("blocks.query", { query: { ...(text ? { text } : {}), limit } });
+    return { blocks: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" ? r.completeness.limit ?? limit : null };
+  }
+
+  /** A block with its ancestors, or null when the service has no `blocks.context`. */
+  async blockContext(blockId: string): Promise<{ selected: Msg | null; ancestors: Msg[] } | null> {
+    const r = await this.completion<{ selected: WireBlock | null; ancestors?: WireBlock[] }>("blocks.context", { blockId });
+    return r && { selected: r.selected ? toMsg(r.selected) : null, ancestors: (r.ancestors ?? []).map(b => toMsg(b)) };
+  }
+
   /** Bring a Trash root (and its subtree) back where it was. */
   async restore(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("trash.restore", { blockId })); }
 

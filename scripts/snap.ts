@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll"].includes(scenario);
+const wide = ["complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey`, `kanban`, `river-write` and `scroll` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" ? await (async () => {
+// `journey`, `kanban`, `river-write`, `scroll` and `complete` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -255,6 +255,48 @@ if (scenario === "scroll") {
   await agent("open", "", { id: gate.id }); await Bun.sleep(800);
   press({ kind: "pgdn" }); press({ kind: "pgdn" });
   await snap("8-desk", 800);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "complete") {
+  // PIE-416 on its own scratch service (fictional notes): [[, (( and [file:: completion in the preview's
+  // editor, and in a comment composer.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const { mkdirSync: md, writeFileSync: wf } = await import("node:fs");
+  md(`${info.workspace}/notes/beds`, { recursive: true }); wf(`${info.workspace}/notes/plan.md`, "the plan\n"); wf(`${info.workspace}/notes/seeds.md`, "beans\n");
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  await mk(null, "Door work queue [type::work-queue] [project::garden]");
+  for (const t of ["Oil the hinges", "Hang the shed door", "Fix the gate latch"]) await board.createRoadmapItem({ title: t, priority: "medium", project: "garden", arc: "home", tracks: ["doors"] });
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  await mk(null, "Seed list [page::seeds]\nWhat to sow this spring.\n## Beans ^beans\nrunner beans");
+  await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.\n## Beds\nfour of them");
+  await mk(null, "Turn the compost [stage::doing]\nEvery two weeks, bucket by the shed.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id);
+  const type = (s: string) => { for (const c of s) ch(c); };
+  app.push(new MainMenu()); app.push(B);
+  await Bun.sleep(2500);
+  ch("e"); await Bun.sleep(600);
+  press({ kind: "end" }); press({ kind: "down" }); press({ kind: "end" }); press({ kind: "enter" });
+  type("see [[HOME");
+  await snap("1-work-ids", 800);
+  press({ kind: "down" }); await snap("2-chosen", 500);
+  // The mouse: the wheel over the popup moves the choice back, a click on the last candidate inserts it.
+  const rowOf = (t: string) => emu.text().findIndex(l => l.includes(t));
+  press({ kind: "mouse", action: "wheel-up", button: 0, x: 20, y: rowOf("references") });
+  press({ kind: "mouse", action: "down", button: 0, x: 20, y: rowOf("Fix the gate latch") });
+  press({ kind: "mouse", action: "up", button: 0, x: 20, y: rowOf("Fix the gate latch") });
+  await Bun.sleep(500);
+  type(" and ((compo");
+  await snap("3-blocks", 800);
+  press({ kind: "enter" }); await Bun.sleep(500);
+  type(" ((#be");
+  await snap("4-own-heading", 800);
+  press({ kind: "esc" }); await snap("5-dismissed", 300);
+  press({ kind: "enter" }); type("[file::notes/");
+  await snap("6-files", 800);
+  press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {

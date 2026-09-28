@@ -5,6 +5,7 @@
 import type { Msg } from "./board";
 import { Draft } from "./edit";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
+import { completionKey, type Completer } from "./surface/completer";
 import { Refused, USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { bg, C, fg, pad, RESET } from "./style";
 import type { Key } from "./term";
@@ -177,6 +178,8 @@ export interface CommentEnv {
   setMsg(m: Msg): void;
   reloadComments(): Promise<Comment[]>;
   external(d: Draft): void;
+  /** The composer's reference completion, when the connection can look references up. */
+  complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
   actor?: Actor;
   flash(msg: string): void;
@@ -237,7 +240,7 @@ export class CommentSession {
     }
     if (this.mode === "compose") {
       const d = this.composer!;
-      const a = d.key(k);
+      const a = completionKey(d, k, env.complete?.(d) ?? null);
       if (a === "save") void this.send(env);
       else if (a === "editor") env.external(d);
       else if (a === "reload") void this.relocate(env);
