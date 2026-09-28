@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll"].includes(scenario);
+const wide = ["complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey`, `kanban`, `river-write`, `scroll` and `complete` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" ? await (async () => {
+// `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -297,6 +297,47 @@ if (scenario === "complete") {
   press({ kind: "enter" }); type("[file::notes/");
   await snap("6-files", 800);
   press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "fold") {
+  // PIE-410 on its own scratch service (a fictional planting note): fold a section by keys, a list item
+  // by a click, and all sections at once; an edit elsewhere refreshes the reader and keeps the folds; an
+  // agent unfolds through the registry; the desk's reader folds the same way.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const beds = Array.from({ length: 14 }, (_, i) => `- bed ${i + 1}: beans, then squash\n  - edge it with boards\n  - two barrows of compost\n    well rotted, from the far heap`).join("\n");
+  const text = `Plan the allotment [stage::queued]\nWhat goes where this year.\n\n## Beds\n${beds}\n\n### Soil\nLoam, mostly; lime the brassica bed.\n\n## Water\nThe hose runs along the fence past the shed.\n\`\`\`\n# not a heading: code\n\`\`\`\n\n## Paths\n- woodchip between the beds\n- a wider one to the shed\n\n# Later\nMulch in autumn.`;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  const plan = await mk(null, text);
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const clickOn = (region: string, words: string, dx = 4) => {
+    const r = S.rects.get(region), rows = emu.text();
+    const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
+    if (y < 0) throw new Error(`no "${words}" in ${region}`);
+    press({ kind: "mouse", action: "down", button: 0, x: r.col + dx, y }); press({ kind: "mouse", action: "up", button: 0, x: r.col + dx, y });
+  };
+  app.push(new MainMenu()); app.push(B);
+  await agent("open", "detail", { id: plan.id });
+  await snap("1-unfolded", 2000);
+  ch(")"); await snap("2-selected", 300);
+  ch("f"); await snap("3-beds-folded", 300);
+  ch("f"); ch(")"); ch(")");
+  await snap("4-item-selected", 300);
+  clickOn("detail0", "bed 2:", 2);
+  await snap("5-item-clicked", 300);
+  ch("F"); await snap("6-all-cleared", 300);
+  ch("F"); await snap("7-all-folded", 300);
+  const cur = (await board.get(plan.id))!;
+  await board.update(plan.id, cur.text.replace("What goes where this year.", "What goes where this year (edited elsewhere)."), cur.revision!);
+  await snap("8-edited-elsewhere-folds-kept", 1000);
+  await agent("unfold", "detail", { text: "Water" });
+  await snap("9-agent-unfolds", 400);
+  app.pop(); app.push(new Desk());
+  await agent("open", "", { id: plan.id }); await Bun.sleep(800);
+  ch(")"); ch("f");
+  await snap("10-desk", 800);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {
