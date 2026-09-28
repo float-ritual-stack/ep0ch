@@ -452,7 +452,12 @@ export class NoteSurface {
     if (a === "save") void this.save(host);
     else if (a === "editor") this.external(host);
     else if (a === "reload") void this.reload(host);
-    else if (a === "close") this.closeDraft();
+    else if (a === "close") {
+      // Esc, esc discards typed text; an agent's part of it is never lost that way: it's copied out first.
+      const at = keepAgents(d, () => d.copyOut());
+      this.closeDraft();
+      if (at) host.ctx.flash(`closed · the unsaved text an agent wrote is at ${at}`);
+    }
     host.redraw();
     return true;
   }
@@ -591,7 +596,13 @@ export class NoteSurface {
     if (this.panel) return this.panelKey(k, host);
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
-      if (this.session.key(k, this.commentEnv(host)) === "close") { this.session = null; }
+      const s = this.session, composer = s.composer;
+      if (s.key(k, this.commentEnv(host)) === "close") { this.session = null; }
+      // A comment an agent was writing, closed by esc, esc: copied out first, like an edit.
+      if (k.kind === "esc" && composer && s.composer !== composer) {
+        const at = keepAgents(composer, () => composer.copyOut(`${s.blockId.slice(0, 8)}-comment`));
+        if (at) host.ctx.flash(`closed · the unsent text an agent wrote is at ${at}`);
+      }
       host.redraw();
       return true;
     }
@@ -788,6 +799,11 @@ const describeRow = (r: PropRow, src: Source | null, text: string) => ({
 function recordedAs(by: Actor): string {
   const whose = by.kind === "agent" ? `${agentLabel(by)}'s` : "yours";
   return by.with?.length ? `${whose}, naming ${recordedActorId(by)}` : whose;
+}
+
+/** Unsaved text an agent had a hand in, copied to disk before a key discards it: where it went, or null. */
+function keepAgents(d: Draft, copy: () => string): string | null {
+  return d.dirty && d.writers.some(w => w.kind === "agent") ? copy() : null;
 }
 
 /** Copy a draft out before `actor` replaces it, when someone else changed it last. Who that was, and where. */

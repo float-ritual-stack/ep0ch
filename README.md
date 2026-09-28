@@ -381,7 +381,14 @@ Bodies render with `src/doc.ts`:
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
 - **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `c` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside, `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
-- **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action; `reader=` is a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. A note action in a compressed column is refused until it's focused.
+- **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action.
+  - `reader=` is a pane id (`r7`: stable while the pane is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
+  - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the pane holding it: addressed by a number that now names another pane, it's refused with the pane's id.
+  - A block id prefers the pane holding the agent's own edit or comment on the note, then a full-width column opened on it, then any pane editing it, then a list selecting it.
+  - An agent never moves the person's focus: `open`, `split`, `up` and `link.follow` open beside and leave the keys where they are (`focus` is the explicit handover).
+  - Starting a note action in a compressed column is refused; `pin` docks the column so it widens without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
+- **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
+- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
 - **Quote** (a new note quoting this one) isn't here yet; `c` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,

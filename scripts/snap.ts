@@ -578,8 +578,11 @@ if (scenario === "river-write") {
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   await snap("1-library", 2500);
   await act("open", { id: plot.id });
-  await act("open", { id: beans.id });
+  const opened = await act("open", { id: beans.id }, "2");
+  const beansR = opened.result.reader;
   await snap("2-columns", 1500);
+  // The agent's opens left the person in the Library; they walk over to the beans column.
+  ch("l"); ch("l");
   ch("e"); await Bun.sleep(500);
   press({ kind: "down" }); press({ kind: "end" }); for (const c of " Two per plant.") ch(c);
   await snap("3-editing", 400);
@@ -593,17 +596,17 @@ if (scenario === "river-write") {
   ctrl("s");
   await snap("7-sent", 1500);
   press({ kind: "esc" });
-  // An agent drives the same column by number.
-  await act("comment", { quote: "Canes along the fence", body: "Hazel, not bamboo." }, "3");
+  // An agent drives the same column by its reader id.
+  await act("comment", { quote: "Canes along the fence", body: "Hazel, not bamboo." }, beansR);
   await snap("8-agent-commented", 1200);
-  await act("comment.close", {}, "3");
+  await act("comment.close", {}, beansR);
   // Another client edits the note while the column holds a draft: marked, not replaced.
-  await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, "3");
+  await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, beansR);
   const other = new SocketBoard(board.path);
   const now = (await other.request("blocks.context", { blockId: beans.id })).selected;
   await other.request("update", { blockId: beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("9-changed-elsewhere", 1500);
-  // Focus away: the column holding the draft resists compression, and says so.
+  // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
   ch("h"); ch("h");
   await snap("10-draft-kept-wide", 600);
   console.log(`  unsaved: ${R.unsaved()} · columns: ${JSON.stringify(S.describe().columns.map((c: any) => [c.n, c.cover]))}`);
