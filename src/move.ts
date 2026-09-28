@@ -110,12 +110,24 @@ export function applyChanges(props: Prop[], changes: Change[]): Prop[] {
 export type CreatePlan =
   | {
       kind: "create";
-      /** The properties the card is born with: the lane's plain clauses, plus its [create::key=value] default. */
+      /** The properties the card is born with: the lane's plain clauses. */
       props: Prop[];
-      /** Terms the born-with properties don't meet (an OR group, a presence clause): the text must, or it's refused on save. */
+      /** The lane's `[create::key=value]` default: added only when the typed text doesn't set that key. */
+      defaults: Prop[];
+      /** Terms the born-with properties and defaults don't meet (an OR group, a presence clause): the text must, or it's refused on save. */
       needs: QueryExpr[];
+      /**
+       * The lane lists roadmap items (a plain `type=roadmap-item`): a new one is made by the workboard's
+       * allocator (`roadmap.items.create`), never by a plain create, so it gets a work-id and its
+       * project's work queue as parent. Group-only `type=` clauses aren't read as roadmap lanes.
+       */
+      roadmap: boolean;
     }
   | { kind: "refused"; reason: string };
+
+/** Stages a roadmap item is never created in: it's created in Queued or Doing, then moved (the workboard contract). */
+export const NOT_CREATED_IN = new Set(["review", "validate", "done", "superseded"]);
+export const isRoadmapLane = (q: WritableQuery) => q.plain.some(f => f.key === "type" && f.value?.toLowerCase() === "roadmap-item");
 
 /** A lane's `[create::key=value]` default, when it has one. Throws the reason when it can't be read. */
 export function createDefault(def: Msg | undefined): Prop | null {
@@ -144,18 +156,23 @@ export function planCreate(lane: LaneLike): CreatePlan {
     if (values.length === 1) props.push({ key, value: values[0]! });
     else if (dflt?.key !== key) needs.push({ kind: "property", key });      // a presence clause: the text has to say which value
   }
+  const defaults: Prop[] = [];
   if (dflt) {
     const same = props.find(p => p.key === dflt!.key);
     if (same && same.value.toLowerCase() !== dflt.value.toLowerCase())
       return { kind: "refused", reason: `${lane.name}'s create:: default ${dflt.key}=${dflt.value} contradicts its query (${dflt.key}=${same.value})` };
-    if (!same) props.push(dflt);
+    if (!same) defaults.push(dflt);
   }
+  const roadmap = isRoadmapLane(q);
+  const stage = props.find(p => p.key === "work-stage")?.value.toLowerCase();
+  if (roadmap && stage && NOT_CREATED_IN.has(stage))
+    return { kind: "refused", reason: `${lane.name} is a ${stage} lane: roadmap items are created in Queued or Doing, then moved` };
   const at = Date.now();
-  const missing = unmet(q, { properties: props, createdAt: at, updatedAt: at });
+  const missing = unmet(q, { properties: [...props, ...defaults], createdAt: at, updatedAt: at });
   if (missing.some(m => m.ok === false && !keysOf(m.term).length))
     return { kind: "refused", reason: `${lane.name} needs ${showExpr(missing.find(m => !keysOf(m.term).length)!.term, true)}, which a new card doesn't meet` };
   needs.push(...missing.map(m => m.term));
-  return { kind: "create", props, needs };
+  return { kind: "create", props, defaults, needs, roadmap };
 }
 
 /**

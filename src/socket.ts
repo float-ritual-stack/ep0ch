@@ -31,6 +31,11 @@ interface WireBlock {
   createdAt?: string; updatedAt?: string; deletedAt?: string; effectiveDeletedRootId?: string;
   properties?: { key: string; value: string }[];
 }
+/** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
+export interface RoadmapItemInput {
+  title: string; body?: string; priority: string; workStage?: string; workBatchId?: string;
+  project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string;
+}
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 
@@ -195,6 +200,8 @@ export class SocketBoard implements Board {
   capabilities: Set<string> | null = null;
   /** Actions this service answered "Unsupported action" to, this session. */
   private unsupported = new Set<string>();
+  /** The service's protocol, from the last `ping` (null until `info()`). */
+  protocol: number | null = null;
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
@@ -261,6 +268,7 @@ export class SocketBoard implements Board {
       throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${CLIENT_PROTOCOL}`);
     // A capability list is the service's word; without one, each feature is tried once (see optional()).
     this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
+    this.protocol = r.protocolVersion;
     this.unsupported.clear();
     return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null };
   }
@@ -640,6 +648,43 @@ export class SocketBoard implements Board {
    * author, so the caller checks the revision it showed just before, and says who did it on screen.
    */
   async trash(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId })); }
+
+  /**
+   * Whether `blockId` is in Trash now (its own delete or an ancestor's): true, false, or null when the
+   * service can't say (no such block any more, or no answer). For a write whose answer was lost.
+   */
+  async isTrashed(blockId: string): Promise<boolean | null> {
+    try {
+      const ctx = await this.request<{ selected: WireBlock | null }>("blocks.context", { blockId });
+      return ctx.selected ? !!(ctx.selected.deletedAt || ctx.selected.effectiveDeletedRootId) : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Whether this service has the workboard's roadmap allocator (`roadmap.items.create`): true from
+   * protocol 82 (which every such service has, but doesn't list as a capability), false once it answered
+   * "Unsupported action", undefined before `info()`.
+   */
+  hasRoadmapAllocator(): boolean | undefined {
+    if (this.unsupported.has("roadmap.items.create")) return false;
+    return this.protocol === null ? undefined : this.protocol >= 82;
+  }
+
+  /**
+   * A roadmap item through the workboard's allocator (`roadmap.items.create`): the service issues its
+   * work-id and puts it under the project's one active work queue. Like `create`, it has no request id,
+   * so it is never retried. Null when this service has no allocator (it answered "Unsupported action").
+   */
+  async createRoadmapItem(input: RoadmapItemInput, actor: Actor = USER): Promise<{ workId: string; workQueueId: string; block: Msg } | null> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    try {
+      const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
+      return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
+    } catch (e) {
+      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add("roadmap.items.create"); return null; }
+      throw e;
+    }
+  }
 
   /** Bring a Trash root (and its subtree) back where it was. */
   async restore(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("trash.restore", { blockId })); }

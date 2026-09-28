@@ -139,8 +139,12 @@ if (scenario === "kanban") {
   // them, a new card that must meet the group, checklist steps, trash and undo.
   const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const q = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
-  const queue = await mk(null, "Work queue"), hub = await mk(null, "All work Delivery Flow");
-  await mk(hub.id, `Queued [type::virtual-branch] [query::${q("queued")}] [create::project=ep0ch-door] [create-parent::${queue.id}]`);
+  // Roadmap lanes create through the workboard's allocator: a Work-ID prefix and one work queue per project.
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  const queue = await mk(null, "Door work queue [type::work-queue] [project::ep0ch-door]");
+  await mk(null, "Outliner work queue [type::work-queue] [project::pi-outliner]");
+  const hub = await mk(null, "All work Delivery Flow");
+  await mk(hub.id, `Queued [type::virtual-branch] [query::${q("queued")}] [create::project=ep0ch-door]`);
   for (const st of ["doing", "review", "done"]) await mk(hub.id, `${st[0]!.toUpperCase()}${st.slice(1)} [type::virtual-branch] [query::${q(st)}]`);
   await mk(hub.id, "Everything [type::virtual-branch] [query::type=roadmap-item]");
   const shelf = await mk(queue.id, "Level the shelf [type::roadmap-item] [project::pi-outliner] [work-stage::queued] [priority::high]\n\n- [ ] find the spirit level\n- [ ] loosen the brackets\n- [x] clear the books");
@@ -168,13 +172,17 @@ if (scenario === "kanban") {
   await snap("3-or-move-picker", 600);
   press({ kind: "enter" }); await settle();
   await snap("4-or-moved", 800); said();
-  // A new card in Doing: no create:: default, so the text must meet the group.
-  ch("n"); await Bun.sleep(400); type("Replace the doormat");
+  // A new roadmap item in Doing: no create:: default, so the text must meet the group, and the
+  // allocator needs priority, arc and a track.
+  ch("n"); await Bun.sleep(400); type("Replace the doormat [priority::low] [arc::home] [track::doors]");
   await snap("5-composer", 400);
   ctrl("s"); await Bun.sleep(600);
   await snap("6-composer-refused", 200); said();
   type(" [project::ep0ch-door]"); ctrl("s"); await settle();
   await snap("7-created", 800); said();
+  // Review takes no new roadmap items: create in Queued or Doing, then move.
+  pick("Review", tap.id); ch("n"); await Bun.sleep(200);
+  await snap("7b-review-refused", 200); said();
   // Steps: check one off.
   pick("Doing", shelf.id); ch("s"); await Bun.sleep(500); ch(" "); await Bun.sleep(700);
   await snap("8-steps", 300); said();

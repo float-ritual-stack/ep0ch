@@ -156,10 +156,11 @@ judges the whole query on the card as the patch would leave it, so a patch can't
 
 - **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
   note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice discards). The first line is the
-  title. The lane's plain clauses, plus its `[create::key=value]` default if it has one, are appended to
-  the first line as `[key::value]` tokens, unless the text already says so; a typed value that
-  contradicts the lane is refused. An OR group the defaults don't settle has to be met by the text (type
-  `[project::ep0ch-door]`) or by a `[create::project=ep0ch-door]` on the lane; the composer says so, and
+  title. The lane's plain clauses are appended to the first line as `[key::value]` tokens, unless the text
+  already says so; a typed value that contradicts one is refused. The lane's `[create::key=value]` is a
+  default, not a requirement: it's added only when the text doesn't set that key, so typing
+  `[area::garden]` in a lane that reads `(area=kitchen OR area=garden)` with `[create::area=kitchen]` makes a
+  garden card. An OR group the defaults don't settle has to be met by the text; the composer says so, and
   before anything is written the door asks the service how it will read the text
   (`properties.preview`) and checks the lane's whole query against that. A lane that can't define a card
   (loading or invalid, two values for one key, a `created < …` range) refuses `n` with the reason.
@@ -169,16 +170,48 @@ judges the whole query on the card as the patch would leave it, so a patch can't
 - **Created once.** `create` carries no revision or request id, so a create whose answer was lost is never
   retried: the door looks under the parent for exactly that text and says whether it landed. A refused or
   unknown create keeps the composer's text (and copies it to `drafts/`). The new card reaches its lane
-  through the change feed, which asks only the lanes that could hold it; the lane selects it.
+  through the change feed, which asks only the lanes that could hold it. Your own new card is selected; an
+  agent's (`card.create`, `card.restore`) never moves your selection, focus or collapsed lanes.
+
+### Creating on roadmap boards
+
+A lane whose query has a plain `type=roadmap-item` (the workboard's stage views, the All-work board) lists
+roadmap items, and those are made only by the workboard's allocator (`roadmap.items.create`), never by a
+plain create. The allocator issues the item's work-id and files it under its project's one active work
+queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is refused).
+
+- **Fields.** Each comes from the typed text's `[key::value]` token, else the lane's plain clause, else its
+  `[create::]` default: `project`, `work-stage` and `work-batch` usually from the lane (or the OR group the
+  text picks), `priority` (`high|medium|low`), `arc` and one or more `track` from the text. A missing
+  field is refused with all of them named: `Queued makes roadmap items through the workboard's allocator,
+  which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text`.
+  `depends-on`, `related-to` and `source-block` tokens become the item's relationships. The tokens come out
+  of the title and body (the allocator writes them itself); other tokens stay.
+- **Stages.** Items are created in Queued or Doing (or the allocator's default, `unprioritized`, in a
+  lane with no stage), then moved. `n` in a Review, Validate, Done or Superseded lane is refused (`Review is
+  a review lane: roadmap items are created in Queued or Doing, then moved`), and so is a typed late stage.
+- **Checked first.** The item as the allocator will write it is checked against the lane's whole query
+  before the call, so a project outside the lane's OR group is refused with what it has.
+- **After.** The flash names the work-id: `created HOME-012 in Queued · Oil the hinges · priority=medium
+  arc=home track=doors project=ep0ch-door`; `card.create` returns `workId`. The allocator needs a Work-ID
+  prefix and exactly one active `type=work-queue` block for the project; otherwise its refusal is shown
+  as it is (`Expected exactly one active work queue for project …`). A service without the allocator
+  (older than protocol 82, or one that answers "Unsupported action") refuses roadmap lanes' `n` rather
+  than falling back. A lost answer is looked for among the project's newest items, never retried.
+
 - **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
   `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
   as it was read: a step reworded since is refused and the list read again. A step without an id is named
   by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
+  The open steps list reads the note again when it changes. A key acts on the step the list showed;
+  `step.set step=N` (or `^id`) always reads the steps fresh, so it means the note's step N as it is now.
 - **Trash** asks twice: the first `d` says what goes (`d again trashes "Fix the dripping tap" and the 3
   notes under it`), any other key keeps it. The card must still be at the revision the board showed, and
   not open for editing or commenting. A red `TRASHED … · u restores` banner stays on the hint line until you
   restore it or trash another. The service's `delete` takes no revision and records no author, so the
-  door checks the revision just before and says on screen who did it.
+  door checks the revision just before and says on screen who did it. If the delete's answer is lost, the
+  door asks whether the card is in Trash: if it is, it's reported as trashed (banner and `u` included);
+  if not, or if the outline can't say, it says so.
 - The same guard as moving: a card held by an open edit or comment isn't moved, stepped or trashed.
 
 ## Editing notes

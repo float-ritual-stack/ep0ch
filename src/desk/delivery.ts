@@ -22,8 +22,8 @@ import { Draft } from "../edit";
 import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { createMisses, planCreate } from "../move";
 import { showExpr } from "../query";
-import { Refused, type ChecklistRead, type StepStatus } from "../socket";
-import { composeCardText, pickParent, titleOf, type ParentPick } from "./writes";
+import { Refused, type ChecklistRead, type ChecklistStep, type StepStatus } from "../socket";
+import { composeCardText, pickParent, planRoadmapItem, scanTokens, titleOf, type ParentPick } from "./writes";
 
 interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead; want?: string; wantVerb?: string }
 interface Float { pane: ReaderPane; rect: Rect }
@@ -250,6 +250,14 @@ export class DeliveryBoard implements Screen, DeskApi {
    */
   private changed(c: Change) {
     const id = c.blockId;
+    // An open steps overlay shows the note's checklist: a change to that note reads it again.
+    const S = this.steps;
+    if (S && id === S.card.id && !S.busy && (c.revision === undefined || c.revision !== S.read?.revision)) {
+      this.ctx.board.checklist(id).then(r => {
+        if (this.steps !== S || S.busy || (S.read && r.revision < S.read.revision)) return;
+        S.read = r; S.sel = clamp(S.sel, 0, Math.max(0, r.items.length - 1)); this.redraw();
+      }, () => {});
+    }
     for (const r of this.readers()) {
       const m = r.msg;
       if (!m) continue;
@@ -659,13 +667,24 @@ export class DeliveryBoard implements Screen, DeskApi {
     throw new ActionRefused(`no lane on the board lists ${id}`);
   }
 
-  /** What a new card in `lane` is born with, and where it goes; the reason when the lane can't define one. */
-  private cardPlan(lane: Lane, parent?: string): { born: { key: string; value: string }[]; needs: string[]; parent: ParentPick } {
+  /**
+   * What a new card in `lane` is born with, and where it goes; the reason when the lane can't define one.
+   * A roadmap lane's items go where the workboard's allocator puts them (their project's work queue), so
+   * it has no parent to pick and a named one is refused.
+   */
+  private cardPlan(lane: Lane, parent?: string): CardPlan {
     const plan = planCreate(lane);
     if (plan.kind === "refused") throw new ActionRefused(plan.reason);
+    const needs = plan.needs.map(t => showExpr(t, true));
+    if (plan.roadmap) {
+      if (this.ctx.board.hasRoadmapAllocator() === false)
+        throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
+      if (parent) throw new ActionRefused(`${lane.name} lists roadmap items: the workboard's allocator puts them under their project's work queue, so parent= can't be chosen`);
+      return { born: plan.props, defaults: plan.defaults, needs, parent: null };
+    }
     const where = parent ? { id: parent, why: "named by the caller" } : pickParent(lane.name, lane.def, lane.items ?? [], this.lanes.flatMap(l => l.items ?? []));
     if ("refused" in where) throw new ActionRefused(where.refused);
-    return { born: plan.props, needs: plan.needs.map(t => showExpr(t, true)), parent: where };
+    return { born: plan.props, defaults: plan.defaults, needs, parent: where };
   }
 
   /**
@@ -677,13 +696,14 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (!lane || this.composer) return;
     let plan: ReturnType<DeliveryBoard["cardPlan"]>;
     try { plan = this.cardPlan(lane); } catch (e) { return this.ctx.flash(`can't create in ${lane.name}: ${(e as Error).message}`); }
-    const C0: Composer = { kind: "card", lane, born: plan.born, needs: plan.needs, parent: { ...plan.parent, title: plan.parent.id.slice(0, 8) }, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    const pick = plan.parent;
+    const C0: Composer = { kind: "card", lane, born: plan.born, defaults: plan.defaults, needs: plan.needs, parent: pick ? { ...pick, title: pick.id.slice(0, 8) } : null, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
     this.composer = C0;
     this.redraw();
-    this.ctx.board.get(plan.parent.id).then(parent => {
-      if (this.composer !== C0 || C0.kind !== "card") return;
+    if (pick) this.ctx.board.get(pick.id).then(parent => {
+      if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
       if (parent) C0.parent.title = titleOf(parent);
-      else C0.draft.note = `its parent ${plan.parent.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+      else C0.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
       this.redraw();
     }, () => {});
   }
@@ -715,7 +735,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const by = d.recordAs(USER);
     d.saving = true; d.note = "creating…"; this.redraw();
     try {
-      if (C0.kind === "card") await this.createCard(C0.lane, d.text, by, C0.parent.id);
+      if (C0.kind === "card") await this.createCard(C0.lane, d.text, by, C0.parent?.id);
       else await this.createNote(C0.parent.id, d.text, by);
       if (this.composer === C0) this.composer = null;
     } catch (e) {
@@ -733,30 +753,79 @@ export class DeliveryBoard implements Screen, DeskApi {
    * A new card in `lane`: the text, with the properties the lane needs appended to its first line, is
    * checked against the lane's whole query as the service would read it, then created under the lane's
    * parent. `create` has no revision or request id, so a lost answer is looked for, never retried.
+   * A roadmap lane's card is a roadmap item, made by the workboard's allocator instead (createItem).
    */
-  async createCard(lane: Lane, text: string, actor: Actor, parent?: string): Promise<{ id: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
+  async createCard(lane: Lane, text: string, actor: Actor, parent?: string): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the card's title first");
     const plan = this.cardPlan(lane, parent);
+    if (!plan.parent) return this.createItem(lane, body, actor, plan);
     const board = this.ctx.board;
     const typed = await board.previewPropertyList(body);
-    const composed = composeCardText(body, plan.born, typed);
+    const composed = composeCardText(body, plan.born, typed, plan.defaults);
     if ("refused" in composed) throw new ActionRefused(composed.refused);
     const final = typed ? await board.previewPropertyList(composed.text) : null;
     if (final) { const miss = createMisses(lane, final); if (miss) throw new ActionRefused(miss); }
     else if (plan.needs.length) throw new ActionRefused(`${lane.name} needs ${plan.needs.join(" and ")}, and this service can't preview properties, so the door can't check the text meets it; give the lane a [create::key=value]`);
     const m = await this.landCreate(plan.parent.id, composed.text, actor);
-    const ctx = asActor(this.ctx, actor);
-    const recordedAs = actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
-    this.lastWrite = { what: "create", id: m.id, result: `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
-    ctx.flash(`created in ${lane.name} · ${titleOf(m)}${plan.born.length ? ` · born with ${plan.born.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`);
+    const seen = typed ?? scanTokens(body);
+    const bornWith = [...plan.born, ...plan.defaults.filter(p => !seen.some(t => t.key === p.key))];   // a default the text didn't override
+    this.created(lane, m, actor, `created in ${lane.name} · ${titleOf(m)}${bornWith.length ? ` · born with ${bornWith.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`, `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`);
+    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recordedAs(actor) };
+  }
+
+  /**
+   * A roadmap item in a roadmap lane, through the workboard's allocator (`roadmap.items.create`), never
+   * a plain create: it issues the work-id and puts the item under its project's one active work queue.
+   * Its fields come from the typed tokens, the lane's plain clauses and its create:: default
+   * (planRoadmapItem); the item as it will be is checked against the lane's whole query first. Not
+   * retried: a lost answer is looked for among the project's newest items.
+   */
+  private async createItem(lane: Lane, body: string, actor: Actor, plan: CardPlan) {
+    const board = this.ctx.board;
+    const typed = await board.previewPropertyList(body);
+    const item = planRoadmapItem(lane.name, body, plan.born, plan.defaults, typed);
+    if ("refused" in item) throw new ActionRefused(item.refused);
+    const miss = createMisses(lane, item.props);
+    if (miss) throw new ActionRefused(miss);
+    const since = Date.now();
+    let made: { workId: string; workQueueId: string; block: Msg } | null;
+    try { made = await board.createRoadmapItem(item.input, actor); }
+    catch (e) {
+      if (e instanceof Refused) throw new ActionRefused(e.message);
+      const found = await this.findItem(item.input.project, item.input.title, since).catch(() => null);
+      if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
+      made = { workId: found.props["work-id"] ?? "", workQueueId: found.parentId ?? "", block: found };
+    }
+    if (!made) throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
+    const m = made.block;
+    const fields = [`priority=${item.input.priority}`, `arc=${item.input.arc}`, ...item.input.tracks.map(t => `track=${t}`), `project=${item.input.project}`];
+    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${item.input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
+    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith: item.props.filter(p => ["type", "work-stage", "project", "priority", "arc", "track", "work-batch"].includes(p.key)).map(p => `${p.key}=${p.value}`), recordedAs: recordedAs(actor) };
+  }
+
+  /** After an allocator create whose answer was lost: the project's item with that title, made since. */
+  private async findItem(project: string, title: string, since: number): Promise<Msg | null> {
+    const items = await this.ctx.board.query(`type=roadmap-item project=${project}`, 50, "created", "desc");
+    return items.find(m => m.createdAt >= since - 1000 && m.text.split("\n")[0]!.includes(`— ${title}`)) ?? null;
+  }
+
+  /**
+   * After a create landed: who did it, and the lane asked for it. The person's create selects the new
+   * card (and opens a collapsed lane to show it); an agent's never moves the person's selection, focus
+   * or saved layout.
+   */
+  private created(lane: Lane, m: Msg, actor: Actor, flash: string, result: string) {
+    this.lastWrite = { what: "create", id: m.id, result, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    asActor(this.ctx, actor).flash(flash);
+    if (actor.kind !== "agent") {
+      lane.want = m.id; lane.wantVerb = "created";
+      this.lane = this.lanes.indexOf(lane); this.focus = "lanes";
+      if (this.collapsed.delete(lane.name)) this.save();
+    }
     // The create's change record asks the lanes that could hold it; without a feed, ask this one now.
-    lane.want = m.id; lane.wantVerb = "created";
-    if (actor.kind !== "agent") { this.lane = this.lanes.indexOf(lane); this.focus = "lanes"; }
-    if (this.collapsed.delete(lane.name)) this.save();
     if (this.ctx.board.supports("changes.since") !== true) this.loadLanes([lane]);
     this.redraw();
-    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: plan.born.map(p => `${p.key}=${p.value}`), recordedAs };
   }
 
   /** A note under `parentId` (a card's child), as it was typed. */
@@ -810,7 +879,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       const it = S.read.items[S.sel];
       if (it) {
         const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
-        void this.setStep(S.card.id, S.sel, status, USER).catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
+        void this.setStep(S.card.id, S.sel, status, USER, { item: it, revision: S.read.revision }).catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
       }
     }
     this.redraw();
@@ -822,14 +891,17 @@ export class DeliveryBoard implements Screen, DeskApi {
    * again. A step without an id is named by where it starts at the read revision, and the service gives
    * it one (the note's text gains `^task-…`).
    */
-  async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string }> {
+  async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor, shown?: { item: ChecklistStep; revision: number }): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string }> {
     const card = this.cardFor(cardId);
     const blocked = this.moveBlocked(card);
     if (blocked) throw new ActionRefused(blocked.replace("another move is still landing", "a move is still landing"));
     const S = this.steps?.card.id === card.id ? this.steps : null;
-    const read = S?.read && typeof index === "number" ? S.read : await this.ctx.board.checklist(card.id);
-    const i = typeof index === "number" ? index : read.items.findIndex(x => x.itemId === index || x.itemId === index.replace(/^\^/, ""));
-    const it = read.items[i];
+    // The person's key names the step the overlay showed, at the revision it was read (the service's
+    // evidence check refuses it if it changed since). A number or ^id from anyone else is resolved on a
+    // fresh read, never on the overlay, which may be older than the note.
+    const read = shown ? { revision: shown.revision, items: [shown.item] } : await this.ctx.board.checklist(card.id);
+    const i = shown ? (typeof index === "number" ? index : 0) : typeof index === "number" ? index : read.items.findIndex(x => x.itemId === index || x.itemId === index.replace(/^\^/, ""));
+    const it = shown ? shown.item : read.items[i];
     if (!it) throw new ActionRefused(typeof index === "number" ? `there's no step ${index + 1}; ${titleOf(card)} has ${read.items.length}` : `no step ^${index} in ${titleOf(card)}`);
     if (it.identity === "duplicate") throw new ActionRefused(`step ${i + 1} shares its id ^${it.itemId} with another step; fix it in the note's text first`);
     const to: StepStatus = status ?? (it.status === "done" ? "todo" : "done");
@@ -888,12 +960,21 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (card.revision !== undefined && fresh.revision !== card.revision)
       throw new ActionRefused(`the card changed since the board showed it (revision ${card.revision} -> ${fresh.revision}) · look again before trashing`);
     const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))?.name ?? "";
+    let lost = "";
     try { await this.ctx.board.trash(card.id); }
-    catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
+    catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      if (e instanceof Refused) throw new ActionRefused(why);
+      // The answer was lost, not refused: the card may be in Trash anyway. Look before saying either.
+      const gone = await this.ctx.board.isTrashed(card.id);
+      if (gone === false) throw new ActionRefused(`${why}; the card is still there`);
+      if (gone === null) throw new ActionRefused(`${why}, and the outline didn't say whether the card is in Trash; look before trying again`);
+      lost = ` (the outline's answer was lost: ${why}; it is in Trash)`;
+    }
     const by = actor.kind === "agent" ? { by: actor.id } : {};
     this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
-    asActor(this.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it`);
+    asActor(this.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
     if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.redraw();
     return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: "not recorded: the service's delete takes no author" };
@@ -909,7 +990,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const title = titleOf(m);
     if (this.trashed?.id === m.id) {
       const lane = this.lanes.find(l => l.name === this.trashed!.lane);
-      if (lane) { lane.want = m.id; lane.wantVerb = "restored"; }
+      if (lane && actor.kind !== "agent") { lane.want = m.id; lane.wantVerb = "restored"; }   // an agent's restore never moves the person's selection
       this.trashed = null;
     }
     this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(actor.kind === "agent" ? { by: actor.id } : {}) };
@@ -1092,9 +1173,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
     const status = C0.kind === "card" ? [
-      line(`born with ${C0.born.map(p => `${p.key}=${p.value}`).join(" ") || "nothing (the lane sets no values)"}`, C.lgreen),
+      line(`born with ${C0.born.map(p => `${p.key}=${p.value}`).join(" ") || "nothing (the lane sets no values)"}${C0.defaults.length ? ` · ${C0.defaults.map(p => `${p.key}=${p.value}`).join(" ")} unless the text says otherwise` : ""}`, C.lgreen),
       ...(C0.needs.length ? [line(`the text must also meet ${C0.needs.join(" and ")} · e.g. type [${hintToken(C0.needs[0]!)}]`, C.yellow)] : []),
-      line(`under ${C0.parent.title} · ${C0.parent.why}`, C.cyan),
+      C0.parent
+        ? line(`under ${C0.parent.title} · ${C0.parent.why}`, C.cyan)
+        : line(`roadmap item · type ${roadmapHint(C0) || "its title"} · the allocator issues its work-id and files it in its project's work queue`, C.cyan),
       line(d.note || "the first line is the title; [key::value] tokens are properties", d.note.startsWith("not created") ? C.lred : C.dark),
     ] : [
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
@@ -1474,8 +1557,16 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 }
 
+/** A new card's plan: born-with properties, create:: defaults, what the text must meet, and its parent (null: a roadmap item, placed by the allocator). */
+interface CardPlan { born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: ParentPick | null }
+/** The tokens a roadmap item still needs from the text: `[priority::high|medium|low] [arc::…] [track::…]`. */
+const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] }) =>
+  ["project", "priority", "arc", "track"].filter(k => !C0.born.some(p => p.key === k) && !C0.defaults.some(p => p.key === k))
+    .map(k => k === "priority" ? "[priority::high|medium|low]" : `[${k}::…]`).join(" ");
+const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
+
 type Composer =
-  | { kind: "card"; lane: Lane; born: { key: string; value: string }[]; needs: string[]; parent: ParentPick & { title: string }; draft: Draft }
+  | { kind: "card"; lane: Lane; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; draft: Draft }
   | { kind: "child"; parent: Msg; draft: Draft };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
@@ -1535,7 +1626,7 @@ export const BOARD_ACTIONS = new ActionSet<{
     run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
   },
   "card.create": {
-    summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default), under the lane's create-parent or where its cards live; refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
+    summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
     args: {
       lane: { type: "string", about: "the lane's name" },
       text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
