@@ -507,7 +507,7 @@ if (scenario === "journey") {
   await snap("6-moved", 600); said();
   // Comment on a passage from the preview.
   for (let i = 0; i < 6 && S.focus !== "preview"; i++) press({ kind: "tab" });
-  ch("c"); await Bun.sleep(600);
+  ch("C"); await Bun.sleep(600);
   ch("j"); await Bun.sleep(100);
   await snap("7-quoting", 500);
   press({ kind: "enter" }); for (const c of "Which green? The shed or the gate green?") ch(c);
@@ -697,7 +697,7 @@ if (scenario === "comment") {
   app.push(new MainMenu()); app.push(screen);
   await snap("1-lanes", 2500);
   for (let i = 0; i < 6 && (screen as any).focus !== "preview"; i++) press({ kind: "tab" });
-  ch("c"); await Bun.sleep(500);
+  ch("C"); await Bun.sleep(500);
   ch("j"); ch("l"); for (let i = 0; i < 7; i++) ch("H");          // "release notes" on the second line that has it
   await snap("2-picking", 600);
   press({ kind: "enter" });
@@ -713,7 +713,7 @@ if (scenario === "comment") {
   press({ kind: "esc" });
   await snap("7-reader", 1500);
   // A second writer moves the note while a new comment is being written.
-  ch("c"); await Bun.sleep(500);
+  ch("C"); await Bun.sleep(500);
   press({ kind: "enter" }); for (const c of "Friday is tight.") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
@@ -837,7 +837,7 @@ if (scenario === "river-write") {
   await snap("3-editing", 400);
   ctrl("s");
   await snap("4-saved", 1500);
-  ch("c"); await Bun.sleep(600);
+  ch("C"); await Bun.sleep(600);
   ch("j"); ch("j"); ch("l"); for (let i = 0; i < 4; i++) ch("H");
   await snap("5-quoting", 400);
   press({ kind: "enter" }); for (const c of "Soft twine, or it cuts the stems.") ch(c);
