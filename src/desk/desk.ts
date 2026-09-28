@@ -4,17 +4,20 @@ import type { Ctx, Frame, Screen } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { Actor, OutlineEvent } from "../socket";
+import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
-import { dividerAt, dock, dragTo, leaves, neighbour, place, remove, resize, split, type Dir, type Divider, type LNode, type Placed } from "./layout";
+import { describeTree, dividerAt, dock, dragTo, even, leaves, neighbour, pair, place, remove, resize, revive, serialize, split, type Axis, type BinaryForm, type Dir, type Grab, type LNode, type NaryForm, type Placed } from "./layout";
+import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, makePane, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type SessionKind } from "./panes";
 
-type Saved = { t: "leaf"; kind: PaneKind } | { t: "split"; dir: "row" | "col"; ratio: number; a: Saved; b: Saved };
+/** desk.json: pairs as `ratio a b` (what every door reads), a wider split as `kids weights`. */
+type SavedLeaf = { t: "leaf"; kind: PaneKind };
+type Saved = BinaryForm<SavedLeaf> | NaryForm<SavedLeaf>;
 interface SavedDesk { root: Saved; focus: number }
 /** Panes a view puts on a desk of its own, and how they're laid out (default: side by side). */
 export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string }
@@ -23,7 +26,7 @@ const ADD: Record<string, PaneKind> = { t: "tree", r: "reader", h: "thread", a: 
 const DOCK: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right" };
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
 
-export class Desk implements Screen, DeskApi {
+export class Desk implements Screen, DeskApi, PaneHost {
   title = "desk";
   ctx!: Ctx;
   current: Msg | null = null;
@@ -33,10 +36,10 @@ export class Desk implements Screen, DeskApi {
   private zoom: number | null = null;
   private nextId = 1;
   private prefix: "" | "wm" | "add" = "";
-  private drag: Divider | null = null;
+  private drag: Grab | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   private pressed: { pane: ReaderPane; col: number; row: number } | null = null;
-  private placed: Placed = { rects: new Map(), dividers: [] };
+  private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   private search: SearchOverlay | null = null;
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
@@ -51,7 +54,7 @@ export class Desk implements Screen, DeskApi {
   constructor(private readonly preset?: DeskPreset) {
     if (preset) {
       const ids = preset.panes.map(p => this.put(p));
-      this.root = preset.layout ? preset.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => ({ t: "split", dir: "row", ratio: 0.5, a, b: { t: "leaf", id } }), { t: "leaf", id: ids[0]! });
+      this.root = preset.layout ? preset.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, { t: "leaf", id }), { t: "leaf", id: ids[0]! });
       this.focus = ids[0]!;
       if (preset.title) this.title = preset.title;
       return;
@@ -67,21 +70,15 @@ export class Desk implements Screen, DeskApi {
 
   private defaultLayout(): LNode {
     const tree = this.add("tree"), reader = this.add("reader"), thread = this.add("thread"), activity = this.add("activity");
-    return {
-      t: "split", dir: "row", ratio: 0.24, a: { t: "leaf", id: tree },
-      b: { t: "split", dir: "row", ratio: 0.66, a: { t: "leaf", id: reader },
-        b: { t: "split", dir: "col", ratio: 0.58, a: { t: "leaf", id: thread }, b: { t: "leaf", id: activity } } },
-    };
+    return pair("row", 0.24, { t: "leaf", id: tree }, pair("row", 0.66, { t: "leaf", id: reader }, pair("col", 0.58, { t: "leaf", id: thread }, { t: "leaf", id: activity })));
   }
 
-  private revive(s: Saved): LNode {
-    return s.t === "leaf" ? { t: "leaf", id: this.add(s.kind) } : { t: "split", dir: s.dir, ratio: s.ratio, a: this.revive(s.a), b: this.revive(s.b) };
-  }
+  private revive(s: Saved): LNode { return revive(s, (l: SavedLeaf) => this.add(l.kind)); }
 
   private save() {
     if (this.preset) return;
-    const ser = (n: LNode): Saved => n.t === "leaf" ? { t: "leaf", kind: this.panes.get(n.id)!.kind as PaneKind } : { t: "split", dir: n.dir, ratio: n.ratio, a: ser(n.a), b: ser(n.b) };
-    writeState("desk.json", { root: ser(this.root), focus: leaves(this.root).indexOf(this.focus) } satisfies SavedDesk);
+    const root = serialize(this.root, (id): SavedLeaf => ({ t: "leaf", kind: this.panes.get(id)!.kind as PaneKind }));
+    writeState("desk.json", { root, focus: leaves(this.root).indexOf(this.focus) } satisfies SavedDesk);
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────
@@ -133,11 +130,12 @@ export class Desk implements Screen, DeskApi {
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
 
-  actions() { return { actions: [...DESK_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
+  actions() { return { actions: [...DESK_ACTIONS.list(), ...PANE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
 
   async act(req: ActRequest, actor: Actor): Promise<unknown> {
     const args = { ...(req.args ?? {}) };
     if (DESK_ACTIONS.has(req.action)) return DESK_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
+    if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
     const r = this.pickReader(req.reader);
     const out = await r.pane.act(req.action, args, this, actor);
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
@@ -196,6 +194,7 @@ export class Desk implements Screen, DeskApi {
     const order = leaves(this.root);
     return {
       kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
+      layout: describeTree(this.root, id => String(order.indexOf(id) + 1)),
       panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined, commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined }; }),
     };
   }
@@ -207,7 +206,7 @@ export class Desk implements Screen, DeskApi {
     const canvas = new Canvas(cols, rows - 1);
     const area: Rect = { col: 0, row: 0, cols, rows: rows - 2 };
     this.placed = this.zoom !== null && this.panes.has(this.zoom)
-      ? { rects: new Map([[this.zoom, area]]), dividers: [] }
+      ? { rects: new Map([[this.zoom, area]]), nodes: new Map(), dividers: [] }
       : place(this.root, area);
     let placements: Placement[] = [];
     const order = leaves(this.root);
@@ -343,21 +342,14 @@ export class Desk implements Screen, DeskApi {
     const c = k.kind === "char" ? k.ch : k.kind === "left" ? "h" : k.kind === "right" ? "l" : k.kind === "up" ? "k" : k.kind === "down" ? "j" : "";
     if (mode === "add") {
       const kind = ADD[c];
-      if (kind) {
-        const id = this.add(kind);
-        this.root = split(this.root, this.focus, id, this.placed.rects.get(this.focus) ?? { col: 0, row: 0, cols: 80, rows: 24 });
-        this.zoom = null; this.focus = id;
-        const p = this.panes.get(id)!;
-        p.init?.(this); p.select?.(this.current, this);
-        this.save();
-      }
+      if (kind) this.addPane(kind, this.focus, undefined, USER);
       return this.redraw();
     }
     if (MOVE[c]) { const n = neighbour(this.placed.rects, this.focus, MOVE[c]!); if (n !== null) this.focus = n; }
     else if (DOCK[c]) { this.root = dock(this.root, this.focus, DOCK[c]!); this.zoom = null; }
     else if (c === "<" || c === ">") resize(this.root, this.focus, "row", c === ">" ? 0.05 : -0.05);
     else if (c === "+" || c === "-") resize(this.root, this.focus, "col", c === "+" ? 0.05 : -0.05);
-    else if (c === "=") { const even = (n: LNode) => { if (n.t === "split") { n.ratio = 0.5; even(n.a); even(n.b); } }; even(this.root); }
+    else if (c === "=") even(this.root);
     else if (c === "z") this.zoom = this.zoom === null ? this.focus : null;
     else if (c === "o") { this.prefix = "add"; return this.redraw(); }
     else if (c === "s") {
@@ -365,16 +357,90 @@ export class Desk implements Screen, DeskApi {
       const a = this.panes.get(this.focus)!, b = this.panes.get(j)!;
       this.panes.set(this.focus, b); this.panes.set(j, a); this.focus = j;
     }
-    else if (c === "x" && this.panes.get(this.focus) instanceof ReaderPane && (this.panes.get(this.focus) as ReaderPane).editing) {
-      this.ctx.flash(`not closed: it holds ${sessionName(this.panes.get(this.focus) as ReaderPane)} · e or ⏎ enters it`);
-    }
-    else if (c === "x" && leaves(this.root).length > 1) {
-      const next = remove(this.root, this.focus);
-      if (next) { this.panes.delete(this.focus); this.root = next; this.focus = leaves(next)[0]!; this.zoom = null; }
-    }
+    else if (c === "x") { const why = this.closeRefused(this.focus, USER); if (why) { if (why.flash) this.ctx.flash(why.why); } else this.closeId(this.focus); }
     this.save();
     this.redraw();
   }
+
+  // ── pane operations (PANE_ACTIONS): the keys above and `act` both come here ──
+
+  /** A pane by its number on screen (the one `peek` shows), or the focused one. */
+  private paneNamed(sel?: string): { name: string; id: number } {
+    const ids = leaves(this.root);
+    if (!sel || sel === "focused") return { name: String(ids.indexOf(this.focus) + 1), id: this.focus };
+    const id = /^[1-9][0-9]*$/.test(sel) ? ids[Number(sel) - 1] : undefined;
+    if (id === undefined) throw new ActionRefused(`no pane ${sel} on the desk; panes: ${ids.map((_, i) => i + 1).join(", ")} or focused`);
+    return { name: sel, id };
+  }
+
+  /** A new pane of `kind` beside `at`. The person's goes to it; an agent's leaves the focus where it is. */
+  private addPane(kind: PaneKind, at: number, dir: Axis | undefined, actor: Actor): number {
+    const id = this.add(kind);
+    this.root = split(this.root, at, id, this.placed.rects.get(at) ?? { col: 0, row: 0, cols: 80, rows: 24 }, dir);
+    if (actor.kind !== "agent") { this.zoom = null; this.focus = id; }
+    const p = this.panes.get(id)!;
+    p.init?.(this); p.select?.(this.current, this);
+    this.save();
+    return id;
+  }
+
+  /** Why a pane can't close: it holds an edit or a comment, it's the last one, or it has the person's keys and an agent asks. */
+  private closeRefused(id: number, actor: Actor): { why: string; flash: boolean } | null {
+    const p = this.panes.get(id);
+    const n = leaves(this.root).indexOf(id) + 1;
+    if (p instanceof ReaderPane && p.editing) return { why: `not closed: it holds ${sessionName(p)} · e or ⏎ enters it`, flash: true };
+    if (leaves(this.root).length <= 1) return { why: "the desk's last pane stays", flash: false };
+    if (actor.kind === "agent" && id === this.focus) return { why: `pane ${n} has the person's keys; an agent doesn't close it`, flash: false };
+    return null;
+  }
+
+  private closeId(id: number) {
+    const next = remove(this.root, id);
+    if (!next) return;
+    this.panes.delete(id); this.root = next;
+    if (this.focus === id) this.focus = leaves(next)[0]!;
+    if (this.zoom === id || !this.panes.has(this.zoom ?? -1)) this.zoom = null;
+  }
+
+  splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): PaneDone {
+    const at = this.paneNamed(sel);
+    const want = (kind ?? "reader") as PaneKind;
+    if (!Object.values(ADD).includes(want)) throw new ActionRefused(`pane.split: kind is ${Object.values(ADD).join(", ")}, not ${kind}`);
+    const id = this.addPane(want, at.id, dir, actor);
+    this.redraw();
+    return { pane: String(leaves(this.root).indexOf(id) + 1), kind: want, beside: at.name };
+  }
+
+  closePane(sel: string | undefined, actor: Actor): PaneDone {
+    const p = this.paneNamed(sel);
+    const why = this.closeRefused(p.id, actor);
+    if (why) throw new ActionRefused(why.why);
+    const kind = this.panes.get(p.id)!.kind;
+    this.closeId(p.id);
+    this.save(); this.redraw();
+    return { pane: p.name, kind };
+  }
+
+  resizePane(sel: string | undefined, axis: Axis, by: number, _actor: Actor): PaneDone {
+    const p = this.paneNamed(sel);
+    if (!resize(this.root, p.id, axis, 0.05 * by)) throw new ActionRefused(`pane ${p.name} has no border ${axis === "row" ? "beside it" : "above or below it"} to move`);
+    this.save(); this.redraw();
+    return { pane: p.name, axis, by };
+  }
+
+  zoomPane(sel: string | undefined, on: boolean | undefined, actor: Actor): PaneDone {
+    const p = this.paneNamed(sel);
+    const want = on ?? this.zoom !== p.id;
+    // Zooming another pane would hide the one with the person's keys.
+    if (actor.kind === "agent" && want && p.id !== this.focus) throw new ActionRefused(`zooming pane ${p.name} would hide pane ${leaves(this.root).indexOf(this.focus) + 1}, which has the person's keys`);
+    if (!want) this.zoom = null;
+    else { this.zoom = p.id; if (actor.kind !== "agent") this.focus = p.id; }
+    this.redraw();
+    return { pane: p.name, zoomed: this.zoom === p.id };
+  }
+
+  floatPane(): PaneDone { throw new ActionRefused("the desk has no floats yet; the board's o pops a reader out"); }
+  pinPane(): PaneDone { throw new ActionRefused("the desk has no drawers to pin; the board's outline and backlinks drawers pin (T, B)"); }
 
   /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {

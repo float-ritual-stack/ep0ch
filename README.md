@@ -150,7 +150,12 @@ The last board per workspace is remembered.
   agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
   a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
-  Keys: `{ }` lane height, `< >` width of the focused lane or reader.
+  The edge you grab stays under the pointer. Keys: `{ }` lane height, `< >` width of the focused lane,
+  reader or outline drawer.
+- **One layout tree** (PIE-412): the board is laid out by the desk's tree (`src/desk/layout.ts`): the lanes
+  pane over the readers row, the backlinks drawer under the readers, the outline drawer beside everything, floats
+  over it all. `peek` shows it (`layout`), and agents change it with the `pane.*` actions (`pane.resize`,
+  `pane.close`, `pane.float`, `pane.pin`), which never close or float the pane that has your keys.
 - **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
   to nudge, `o` again to dock it back as a detail, `x` to close.
 - **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`, or click `[ ] pin` in its top border: pinned, it becomes part of the layout); `S` moves it
@@ -656,6 +661,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
+| `pane.resize` | `reader=<pane>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
+| `pane.close`, `pane.float`, `pane.pin` | `reader=<pane>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer, `float` pops a reader out or docks a float, `pin` is for `tree` and `backlinks`. An agent can't close or float the pane that has your keys | board `x`, `esc`, `o`, `T`, `B`; desk `^W x` |
+| `pane.split`, `pane.zoom` | `kind=reader\|tree\|thread\|activity\|who\|art`, `dir=row\|col`; `on=true\|false`. Desk only for now: the board's details open with a note (`open reader=new-detail`) and it has no zoom yet (PIE-428). An agent zooms only the pane that has your keys | desk `^W o`, `^W z` |
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |

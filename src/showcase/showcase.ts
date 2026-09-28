@@ -21,7 +21,7 @@ import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { LastCallers, Reader, WhoOnline } from "../screens";
-import type { LNode } from "../desk/layout";
+import { leaf, pair, type LNode } from "../desk/layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 
@@ -43,7 +43,7 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 
 const PARALLEL = "parallel version, to consolidate";
 /** Two panes side by side, the first `ratio` of the width. */
-const row = (ratio: number, a: number, b: number): LNode => ({ t: "split", dir: "row", ratio, a: { t: "leaf", id: a }, b: { t: "leaf", id: b } });
+const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
 /** A preset desk whose readers show `notes` (one each, in order) once it opens. */
 function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
@@ -83,13 +83,13 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "panes", need: "open, split, zoom, close panes", part: "the pane model: the desk's layout tree (^W then o x z s HJKL < > + -)", files: "src/desk/layout.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: `${PARALLEL}: the board's fractions, floats and drawers (section 5) and the river's strip (src/river/river.ts)`,
+    key: "panes", need: "open, split, zoom, close panes", part: "the pane model: the layout tree, shared by the desk and the board (^W then o x z s HJKL < > + -; the board's x o T B { } < >); pane.* actions", files: "src/desk/layout.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
+    aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is on the tree since PIE-412`,
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
-        layout: ([t, rd, h, a]) => ({ t: "split", dir: "row", ratio: 0.24, a: { t: "leaf", id: t! }, b: { t: "split", dir: "row", ratio: 0.62, a: { t: "leaf", id: rd! }, b: { t: "split", dir: "col", ratio: 0.55, a: { t: "leaf", id: h! }, b: { t: "leaf", id: a! } } } }),
+        layout: ([t, rd, h, a]) => pair("row", 0.24, leaf(t!), pair("row", 0.62, leaf(rd!), pair("col", 0.55, leaf(h!), leaf(a!)))),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
     },
   },
@@ -113,7 +113,7 @@ export const SECTIONS: Section[] = [
       const lastBbs = new ScreenPane(`${PARALLEL} · LastCallers · src/screens.ts`, () => new LastCallers());
       return deskOf({
         title: "showcase · presence", panes: [who, act, whoBbs, lastBbs],
-        layout: ([a, b, c, e]) => ({ t: "split", dir: "row", ratio: 0.5, a: { t: "split", dir: "col", ratio: 0.35, a: { t: "leaf", id: a! }, b: { t: "leaf", id: b! } }, b: { t: "split", dir: "col", ratio: 0.35, a: { t: "leaf", id: c! }, b: { t: "leaf", id: e! } } }),
+        layout: ([a, b, c, e]) => pair("row", 0.5, pair("col", 0.35, leaf(a!), leaf(b!)), pair("col", 0.35, leaf(c!), leaf(e!))),
       }, show, []);
     },
   },
