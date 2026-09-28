@@ -9,7 +9,7 @@ import type { Subprocess } from "bun";
 import type { Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { planMove, type LaneLike } from "../src/move";
-import { EditConflict, SocketBoard } from "../src/socket";
+import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { parseFilterExpression, readView, type ViewRead } from "../src/views";
 
@@ -188,7 +188,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     expect(flashes.at(-1)).toBe("moved to Doing · work-stage queued -> doing");
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     const entry = log.entries.find((e: any) => e.block.id === cards.one.id);
-    expect(entry?.actorId).toBe("ep0ch-door");
+    expect(entry?.actorId).toBe(ACTOR_ID);
     expect(entry?.kind).toBe("properties");
   });
 

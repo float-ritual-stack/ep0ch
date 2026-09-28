@@ -5,6 +5,7 @@
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
 import { connect, type Socket } from "node:net";
+import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
@@ -67,11 +68,16 @@ export class Refused extends Error {
   constructor(message: string) { super(message); this.name = "Refused"; }
 }
 
+/**
+ * The door's actor id, per machine (`ep0ch-door:float-box`), so `activity.recent` tells a laptop edit
+ * from a float-box one.
+ */
+export const ACTOR_ID = `ep0ch-door:${hostname()}`;
 /** How door edits are attributed: a person typing in the door, like the outliner's own Detail. */
-export const EDIT_MUTATION = { author: "user", actorId: "ep0ch-door" } as const;
+export const EDIT_MUTATION = { author: "user", actorId: ACTOR_ID } as const;
 /**
  * Comments and replies are a person's, like the outliner's own Detail sends them. The service takes an
- * actor id only on agent-authored annotations, so these can't say "ep0ch-door"; resolve/reopen can.
+ * actor id only on agent-authored annotations, so these can't name the door; resolve/reopen can.
  */
 export const COMMENT_AUTHOR = "user";
 
@@ -275,10 +281,23 @@ export class SocketBoard implements Board {
     try {
       return toMsg(await this.request<WireBlock>("update", { blockId, text, expectedRevision, mutation: EDIT_MUTATION }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/changed since editing began/i.test(msg)) throw new EditConflict(blockId, msg);
+      const { conflict, now } = await this.conflictCheck(blockId, expectedRevision, e);
+      // No answer, yet the note now holds exactly this text: the save landed before the answer was lost.
+      if (conflict && now && !(e instanceof Refused) && now.text === text) return now;
+      if (conflict) throw new EditConflict(blockId, e instanceof Error ? e.message : String(e));
       throw e;
     }
+  }
+
+  /**
+   * After a failed write: is it a revision conflict? The service says so only in words today
+   * ("changed since editing began"), which could be reworded, so the door also reads the block again:
+   * a revision past `expected` is a conflict whatever the message said. Returns that current block.
+   */
+  private async conflictCheck(blockId: string, expected: number, e: unknown): Promise<{ conflict: boolean; now: Msg | null }> {
+    const worded = /changed since editing began/i.test(e instanceof Error ? e.message : String(e));
+    const now = await this.get(blockId);
+    return { conflict: worded || (now?.revision !== undefined && now.revision !== expected), now };
   }
 
   private previewUnsupported = false;
@@ -320,8 +339,8 @@ export class SocketBoard implements Board {
     try {
       return toMsg(await this.request<WireBlock>("properties.patch", { blockId, expectedRevision, operations, mutation: EDIT_MUTATION }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/changed since editing began/i.test(msg)) throw new EditConflict(blockId, msg);
+      // Only a refusal can be called a conflict here: without an answer the patch may have landed.
+      if (e instanceof Refused && (await this.conflictCheck(blockId, expectedRevision, e)).conflict) throw new EditConflict(blockId, e.message);
       throw e;
     }
   }

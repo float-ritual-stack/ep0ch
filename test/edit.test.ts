@@ -1,16 +1,16 @@
 // EPD-001: editing from a reader. The draft model and key decoding run anywhere; the save and
 // conflict tests start a throwaway outliner service (never a real outline) and skip without one.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { Draft } from "../src/edit";
+import { Draft, DRAFT_DAYS, DRAFT_KEEP, pruneDrafts } from "../src/edit";
 import { MainMenu } from "../src/screens";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
-import { SocketBoard } from "../src/socket";
+import { ACTOR_ID, EditConflict, Refused, SocketBoard } from "../src/socket";
 import { Term, type Key } from "../src/term";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -71,6 +71,57 @@ describe("key decoding", () => {
   });
   test("Delete is its own key", () => {
     expect(feed([new TextEncoder().encode("\x1b[3~")])).toEqual([{ kind: "delete" }]);
+  });
+});
+
+// ── review follow-ups (PR #2): conflicts by revision, pruned copies, per-machine actor ──
+
+describe("attribution", () => {
+  test("door edits carry a per-machine actor id, so activity tells machines apart", () => expect(ACTOR_ID).toMatch(/^ep0ch-door:.+/));
+});
+
+describe("draft copies are pruned", () => {
+  test(`keeps the newest ${DRAFT_KEEP} and anything younger than ${DRAFT_DAYS} days, and always the new one`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-drafts-"));
+    const now = Date.now(), day = 86_400_000;
+    const make = (name: string, age: number) => { const p = join(dir, name); writeFileSync(p, "x"); utimesSync(p, (now - age) / 1000, (now - age) / 1000); return p; };
+    for (let i = 0; i < DRAFT_KEEP + 5; i++) make(`young-${i}.md`, i * 60_000);            // 55 recent: all kept (under 30 days)
+    for (let i = 0; i < 5; i++) make(`old-${i}.md`, (DRAFT_DAYS + 1 + i) * day);          // old and past the newest 50: pruned
+    const fresh = make("fresh.md", (DRAFT_DAYS + 9) * day);                                // the copy just written, even if its clock is off
+    const removed = pruneDrafts(dir, fresh, now);
+    expect(removed.map(p => p.split("/").pop()).sort()).toEqual(["old-0.md", "old-1.md", "old-2.md", "old-3.md", "old-4.md"]);
+    expect(readdirSync(dir).length).toBe(DRAFT_KEEP + 5 + 1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("conflicts are read, not just worded", () => {
+  // A board whose service answers `update` with whatever the test says, and reports the block at a set revision.
+  const stub = (answer: () => unknown, current: { revision: number; text: string }) => {
+    const b = new SocketBoard("/nonexistent");
+    (b as any).request = async (action: string) => {
+      if (action === "update" || action === "properties.patch") { const a = answer(); if (a instanceof Error) throw a; return a; }
+      if (action === "blocks.context") return { selected: { id: "n1", parentId: null, text: current.text, revision: current.revision, author: "user", createdAt: "", updatedAt: "", properties: [] }, children: [] };
+      throw new Error(`unexpected ${action}`);
+    };
+    return b;
+  };
+  test("a refusal in other words is still a conflict when the revision moved", async () => {
+    const b = stub(() => new Refused("Revision mismatch for n1"), { revision: 5, text: "theirs" });
+    expect(await b.update("n1", "mine", 4).catch(e => e)).toBeInstanceOf(EditConflict);
+    expect(await b.patchProperties("n1", 4, []).catch(e => e)).toBeInstanceOf(EditConflict);
+  });
+  test("a refusal with the revision unchanged is not a conflict, and says why", async () => {
+    const e = await stub(() => new Refused("text too long"), { revision: 4, text: "old" }).update("n1", "mine", 4).catch(x => x);
+    expect(e).toBeInstanceOf(Refused);
+    expect(e.message).toBe("text too long");
+  });
+  test("a lost answer after the save landed is a save, not a conflict", async () => {
+    const m = await stub(() => new Error("update timed out"), { revision: 5, text: "mine" }).update("n1", "mine", 4);
+    expect([m.revision, m.text]).toEqual([5, "mine"]);
+    // A lost answer on a property patch can't be told from someone else's write: not called a conflict.
+    const e = await stub(() => new Error("properties.patch timed out"), { revision: 5, text: "mine" }).patchProperties("n1", 4, []).catch(x => x);
+    expect(e).not.toBeInstanceOf(EditConflict);
   });
 });
 
@@ -138,7 +189,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect(pane.msg?.revision).toBe(now.revision);
     expect(flashes.at(-1)).toBe(`saved · revision ${now.revision}`);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
-    expect(log.entries.find((e: any) => e.block.id === b.id)?.actorId).toBe("ep0ch-door");
+    expect(log.entries.find((e: any) => e.block.id === b.id)?.actorId).toBe(ACTOR_ID);
   });
 
   test("a save that turns a property into plain text says so", async () => {

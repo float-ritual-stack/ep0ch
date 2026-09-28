@@ -129,7 +129,7 @@ On a board lane, `e` edits the selected card in the preview. The river stays rea
   text on its line is plain text). When the service offers `properties.preview` (pi-herdr-outliner
   PIE-401), the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
   again saves. Older services save at once, and the reader then says which properties changed.
-- **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door`, like the
+- **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
 
@@ -164,7 +164,7 @@ The same readers comment on the note they show. On the board, Tab to the preview
 - **While commenting** the reader stays on its note and takes every key. `Ctrl+C` and closing the
   screen ask twice when a comment is unsent, and copy it to `drafts/` if you go ahead.
 - **Attribution:** comments and replies are `author: user`, like the outliner's own Detail (the service
-  takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door`.
+  takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
 - The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
 
 ## Reading notes
@@ -258,7 +258,7 @@ puts the door in `clients.list` until it exits.
 
 Writes, only on an explicit key:
 
-- `update` when you save an edit, with `expectedRevision`, attributed `author: user`, `actorId: ep0ch-door`.
+- `update` when you save an edit, with `expectedRevision`, attributed `author: user`, `actorId: ep0ch-door:<hostname>`.
 - `properties.patch` when you move a card between lanes, with `expectedRevision`, attributed the same way.
 - `annotations.batch` (one `block-comment` operation) when you send a comment: `expectedRevision`, the
   exact quote and its offset, and a `requestId`.

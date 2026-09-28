@@ -11,7 +11,7 @@ import { Desk } from "../src/desk/desk";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { renderDoc } from "../src/doc";
 import { MainMenu } from "../src/screens";
-import { Refused, SocketBoard } from "../src/socket";
+import { ACTOR_ID, Refused, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     list = await threads(b.id);
     expect(list[0].lifecycle).toBe("resolved");
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
-    expect(log.entries.find((e: any) => e.block.id === list[0].block.id)?.actorId).toBe("ep0ch-door");
+    expect(log.entries.find((e: any) => e.block.id === list[0].block.id)?.actorId).toBe(ACTOR_ID);
 
     pane.key(char("x"), d);
     await idle(pane);

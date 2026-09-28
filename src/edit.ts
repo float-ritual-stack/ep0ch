@@ -1,7 +1,7 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { stateDir } from "./state";
@@ -70,6 +70,7 @@ export class Draft {
     const path = join(dir, `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
     writeFileSync(path, this.text + "\n");
     this.savedCopy = path;
+    pruneDrafts(dir, path);
     return path;
   }
 
@@ -178,3 +179,18 @@ export class Draft {
 const isLow = (s: string, i: number) => { const c = s.charCodeAt(i); return c >= 0xdc00 && c <= 0xdfff; };
 const stepBack = (s: string, i: number) => (i >= 2 && isLow(s, i - 1) ? i - 2 : i - 1);
 const stepForward = (s: string, i: number) => (isLow(s, i + 1) ? i + 2 : i + 1);
+
+/** Copies kept in `state/drafts/`: the newest this many, and anything younger than DRAFT_DAYS. */
+export const DRAFT_KEEP = 50, DRAFT_DAYS = 30;
+
+/** Drop old draft copies so the folder doesn't grow forever. The copy just written is always kept. */
+export function pruneDrafts(dir: string, keep: string, now = Date.now()): string[] {
+  let files: { path: string; at: number }[];
+  try {
+    files = readdirSync(dir).filter(f => f.endsWith(".md")).map(f => ({ path: join(dir, f), at: statSync(join(dir, f)).mtimeMs }));
+  } catch { return []; }
+  files.sort((a, b) => b.at - a.at);
+  const old = files.filter((f, i) => f.path !== keep && i >= DRAFT_KEEP && now - f.at > DRAFT_DAYS * 86_400_000);
+  for (const f of old) { try { rmSync(f.path); } catch { /* best effort */ } }
+  return old.map(f => f.path);
+}
