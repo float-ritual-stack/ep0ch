@@ -276,11 +276,30 @@ export interface PlacedScreen<I = number> extends Placed<I> {
 
 /** Place a screen: the docked panes without the sliding drawers, then each drawer where docking would put it. */
 export function placeScreen<I>(s: ScreenLayout<I, Float>, r: Rect, opts: PlaceOpts<I> = {}): PlacedScreen<I> {
-  const sliding = leaves(s.root).filter(id => s.over.has(id));
-  let base: LNode<I> | null = s.root;
-  for (const id of sliding) base = base && remove(base, id);
-  const out: PlacedScreen<I> = { ...(base ? place(base, r, opts) : { rects: new Map(), nodes: new Map(), dividers: [] }), over: new Map() };
-  if (sliding.length) {
+  const sliding = new Set(leaves(s.root).filter(id => s.over.has(id)));
+  // Take the sliding drawers out as remove() would, but keep untouched splits as they are and remember
+  // which split each copy came from (and its kept kids' places), so a border dragged here moves the tree.
+  const orig = new Map<Split<I>, { node: Split<I>; idx: number[] }>();
+  const prune = (n: LNode<I>): LNode<I> | null => {
+    if (n.t === "leaf") return sliding.has(n.id) ? null : n;
+    const kids: LNode<I>[] = [], weights: number[] = [], idx: number[] = [];
+    n.kids.forEach((k, i) => { const p = prune(k); if (p) { kids.push(p); weights.push(n.weights[i]!); idx.push(i); } });
+    if (!kids.length) return null;
+    if (kids.length === 1 && !n.key) return kids[0]!;
+    if (kids.length === n.kids.length && kids.every((k, i) => k === n.kids[i])) return n;
+    const copy: Split<I> = { ...n, kids, weights };
+    orig.set(copy, { node: n, idx });
+    return copy;
+  };
+  const base = sliding.size ? prune(s.root) : s.root;
+  const placed = base ? place(base, r, opts) : { rects: new Map<I, Rect>(), nodes: new Map<string, Rect>(), dividers: [] };
+  placed.dividers = placed.dividers.map(d => {
+    const o = orig.get(d.node);
+    if (!o || o.idx[d.i + 1] !== o.idx[d.i]! + 1) return d;
+    return { ...d, node: o.node, i: o.idx[d.i]! };
+  });
+  const out: PlacedScreen<I> = { ...placed, over: new Map() };
+  if (sliding.size) {
     const full = place(s.root, r, opts);
     for (const id of sliding) {
       const rect = full.rects.get(id);

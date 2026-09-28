@@ -89,6 +89,23 @@ describe("drawers and floats", () => {
     expect(pinned.rects.get("lanes")!.col).toBe(54);
   });
 
+  test("with drawers sliding over, dragging a border underneath moves the tree's own weights", () => {
+    const root = beside(beside(board(), { key: "readers" }, leaf("links"), { dir: "col", weight: 0.45 }), { key: "board" }, leaf("tree"), { dir: "row", before: true, weight: 0.3 });
+    const P = placeScreen({ root, over: new Set(["tree", "links"]), floats: [] }, r, { sized: id => id === "tree" || id === "links" });
+    const readers = P.dividers.find(d => d.node.key === "readers")!;
+    const lanes = P.dividers.find(d => d.node.key === "board")!;
+    expect(readers.node).toBe(node(root, "readers")!);
+    expect(lanes.node).toBe(node(root, "board")!);
+    const before = [...node(root, "readers")!.weights], boardBefore = [...node(root, "board")!.weights];
+    dragTo({ d: readers, side: 0 }, 60, 30);
+    dragTo({ d: lanes, side: 0 }, 60, 30);
+    expect(node(root, "readers")!.weights).not.toEqual(before);
+    expect(node(root, "board")!.weights).not.toEqual(boardBefore);
+    const again = placeScreen({ root, over: new Set(["tree", "links"]), floats: [] }, r, { sized: id => id === "tree" || id === "links" });
+    expect(again.rects.get("preview")!.cols).toBe(61);
+    expect(again.rects.get("lanes")!.rows).toBe(31);
+  });
+
   test("a drawer shut gives its place back; a named split stays with one kid, an unnamed one gives way", () => {
     const root = beside(board(), { key: "readers" }, leaf("links"), { dir: "col", weight: 0.45 });
     expect(share(root, "links")).toBeCloseTo(0.45);
