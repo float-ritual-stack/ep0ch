@@ -1,3 +1,4 @@
+import { queryRequestProblem } from "./block-query";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import { proposeEditMerge } from "./edit-merge-model";
@@ -1370,10 +1371,12 @@ export class OutlinerServer {
       }
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
+      const problem = queryRequestProblem(error);
       return {
         id: request.id,
         ok: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(problem ? { problem } : {}),
         sequence: this.store.sequence,
       };
     }
@@ -1415,6 +1418,13 @@ export class OutlinerServer {
         case "blocks.read":
           result = this.store.readBlocks(request.ids, request.fields);
           break;
+        case "views.read": {
+          const options = { limit: request.limit, offset: request.offset, expectedRevision: request.expectedRevision };
+          result = request.format === "tree"
+            ? this.store.readSavedView(request.viewId, options, "tree")
+            : this.store.readSavedView(request.viewId, options);
+          break;
+        }
         case "blocks.authored-links":
           result = readAuthoredLinks(this.store, request.ownerBlockId);
           break;
@@ -2161,10 +2171,12 @@ export class OutlinerServer {
       }
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
+      const problem = queryRequestProblem(error);
       return {
         id: request.id,
         ok: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(problem ? { problem } : {}),
         sequence: this.store.sequence,
       };
     }
@@ -2536,10 +2548,12 @@ export class OutlinerServer {
         : undefined;
       response = await this.handleAsync(request, subscribedClient);
     } catch (error) {
+      const problem = queryRequestProblem(error);
       response = {
         id: request?.id ?? "invalid",
         ok: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(problem ? { problem } : {}),
         sequence: this.store.sequence,
       };
     }

@@ -13,6 +13,23 @@ This file records notable user-facing changes. The project remains active dogfoo
   Protocol 82 introduces negotiation, so restart the service and clients once
   when upgrading. PIE-402.
 
+- Saved views and block queries can use `OR`, `NOT`, parentheses and
+  `created`/`updated` ranges: `work-stage=review OR work-stage=validate`,
+  `NOT status=done`, `NOT priority`, `updated > 2026-09-20`, `updated >= -7d`.
+  Existing clause lists keep their meaning. Invalid queries fail with the
+  character position (`views.read` problems, `blocks.query` error `problem`)
+  instead of returning nothing. Available in `[query::…]`, `blocks.query`
+  `expression`/`where`, CLI `list --query` and `outliner_query`. Service
+  capability `query.expression`; restart the service to use it. PIE-398.
+
+- The service evaluates saved virtual-branch views. `views.read` returns a
+  view's members in branch order with its authored limit, paging (`offset`,
+  `nextOffset`), an exact `total`, truncation and structured errors, from one
+  read transaction. Tree, the branch navigator, Detail view embeds, CLI `view`
+  and `outliner_view` now read membership through it instead of evaluating the
+  query themselves. Service capability `views.read`; restart the service to
+  use it. PIE-397.
+
 - Keep ticket-key autolinks outside complete Markdown URL spans. Plain and
   angle-bracket URLs, including Jira smart links, stay one destination through
   narrow wrapping; adjacent bare ticket keys still open local pages. PIE-392.

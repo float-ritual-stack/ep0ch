@@ -3257,15 +3257,17 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     ...outlinerToolPresentation("Outliner View"),
     name: "outliner_view",
     label: "Outliner View",
-    description: "Read matching canonical items of a saved virtual branch in branch order, independent of pane expansion. Reports limits, invalid definitions and concurrent changes explicitly.",
+    description: "Read matching canonical items of a saved virtual branch in branch order, independent of pane expansion. The service evaluates the view; results report the total, paging, limits and invalid definitions explicitly.",
     promptSnippet: "Read the results of a saved virtual branch",
     parameters: Type.Object({
       viewId: Type.String(),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+      offset: Type.Optional(Type.Integer({ minimum: 0 })),
       expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
     }),
     async execute(_id, params) {
       await ensureService(false);
+      await client.requireCompatibleService(["views.read"]);
       return queryToolResult(await readSavedView(client, params.viewId, params));
     },
   });
@@ -3275,10 +3277,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     name: "outliner_query",
     label: "Outliner Query",
     description:
-      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes",
+      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes. `expression` accepts the query grammar with OR, NOT, parentheses and created/updated ranges (e.g. `work-stage=review OR work-stage=validate`, `NOT status=done`, `updated >= -7d`); it is ANDed with filters",
     promptSnippet: "Query shared blocks by text or scoped property",
     parameters: Type.Object({
       text: Type.Optional(Type.String()),
+      expression: Type.Optional(Type.String()),
       filters: Type.Optional(
         Type.Array(
           Type.Object({
@@ -3300,6 +3303,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     }),
     async execute(_id, params) {
       await ensureService(false);
+      if (params.expression !== undefined) await client.requireCompatibleService(["query.expression"]);
       const collection = await client.request<VisibleBlockCollection>({
         action: "blocks.query",
         query: { ...params, limit: params.limit ?? 100 },

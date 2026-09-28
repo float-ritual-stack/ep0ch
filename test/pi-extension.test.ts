@@ -34,6 +34,7 @@ import type {
   ChecklistSearchCollection,
   ChecklistUpdateReceipt,
   OutlinerClientRegistration,
+  OutlinerServiceStatus,
   RoadmapItemCreateInput,
   SelectionContext,
   VisibleBlockCollection,
@@ -71,8 +72,14 @@ test("saved-view tool reports branch identity and presentation omissions through
   await server.start();
   const fixture = new OutlinerClient(join(root, "service.sock"));
   const original = OutlinerClient.prototype.request;
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, timeout?: number): Promise<T> {
-    return original.call(fixture, input, timeout) as Promise<T>;
+  let withholdViewsRead = false;
+  const requests: string[] = [];
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(async function<T>(input: RequestInput, timeout?: number): Promise<T> {
+    requests.push(input.action);
+    const result = await original.call(fixture, input, timeout) as T;
+    if (input.action !== "ping" || !withholdViewsRead) return result;
+    const status = result as OutlinerServiceStatus;
+    return {...status, capabilities: status.capabilities?.filter(capability => capability !== "views.read")} as T;
   });
   type Tool = {name: string; parameters: TSchema; execute(id: string, params: unknown): Promise<{content: {text?: string}[]; details: any}>};
   const tools = new Map<string, Tool>();
@@ -93,6 +100,11 @@ test("saved-view tool reports branch identity and presentation omissions through
     expect([shown.status, shown.viewId, shown.completeness]).toEqual(["ready", view.id, {kind: "complete"}]);
     expect(shown.presentation).toEqual({returned: 1, presented: 0, omitted: 1});
     expect(bounded.details).toEqual(shown);
+    // A service without views.read is refused before the tool sends the read.
+    withholdViewsRead = true;
+    requests.length = 0;
+    await expect(tool.execute("old-service-view", {viewId: view.id})).rejects.toThrow("does not support views.read");
+    expect(requests).not.toContain("views.read");
   } finally { transport.mockRestore(); await server.close(); store.close(); rmSync(root, {recursive: true, force: true}); }
 });
 
@@ -1404,6 +1416,7 @@ test("requires the current protocol, attributes agent creates and page follows, 
   };
   let protocolVersion: number = OUTLINER_PROTOCOL_VERSION;
   let minClientProtocol: number | undefined;
+  let capabilities: string[] | undefined;
   let queryCollection = collection;
   let queryError: Error | undefined;
   const requests: RequestInput[] = [];
@@ -1445,7 +1458,7 @@ test("requires the current protocol, attributes agent creates and page follows, 
         : clients) as T;
     }
     if (input.action === "ping") {
-      return { status: "ready", protocolVersion, minClientProtocol } as unknown as T;
+      return { status: "ready", protocolVersion, minClientProtocol, capabilities } as unknown as T;
     }
     throw new Error(`Unexpected request: ${input.action}`);
   };
@@ -1756,6 +1769,18 @@ test("requires the current protocol, attributes agent creates and page follows, 
     expect(largeEnvelope.presentation.returned).toBe(100);
     expect(largeEnvelope.presentation.presented).toBe(largeEnvelope.blocks.length);
     expect(largeEnvelope.presentation.omitted).toBeGreaterThan(0);
+    // `expression` is sent only to a service that parses it; plain queries need no capability.
+    requests.length = 0;
+    await expect(tools.get("outliner_query")!.execute("old-service-expression", { expression: "a OR b" } as never)).rejects.toThrow(
+      "does not support query.expression",
+    );
+    expect(requests.some(request => request.action === "blocks.query")).toBe(false);
+    await tools.get("outliner_query")!.execute("old-service-plain", { text: "plain" });
+    capabilities = ["query.expression"];
+    requests.length = 0;
+    await tools.get("outliner_query")!.execute("expression-query", { expression: "a OR b" } as never);
+    expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { expression: "a OR b" } });
+    capabilities = undefined;
     protocolVersion = OUTLINER_PROTOCOL_VERSION + 1;
     await tools.get("outliner_query")!.execute("newer-service-query", {});
     minClientProtocol = OUTLINER_PROTOCOL_VERSION + 1;

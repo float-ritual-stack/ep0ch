@@ -23,6 +23,7 @@ import type {
   BookmarkResolution,
   BookmarkRemoveReceipt,
   OutlinerRegion,
+  SavedViewReadResult,
   VisibleBlockCollection,
   WorkspaceSnapshot,
 } from "./types";
@@ -37,6 +38,7 @@ import {
 import {
   isVirtualBranchDefinition,
   projectVirtualBranches,
+  savedViewMembership,
   type TreePresentationState,
   type VirtualBranchOccurrenceRow,
 } from "./virtual-branches";
@@ -98,12 +100,12 @@ async function loadProjection(presentation: TreePresentationState) {
   const projection = await projectVirtualBranches(
     definitions,
     snapshot.physical.blocks,
-    (query) => client.request<VisibleBlockCollection>({
-      action: "blocks.query",
-      query: launch.adapter === "bookmark"
-        ? { ...query, subtreeRootId: launch.viewId }
-        : query,
-    }),
+    // Bookmarks scope their query to the bookmark root, so they are not a plain saved-view read.
+    launch.adapter === "bookmark"
+      ? (query) => client.request<VisibleBlockCollection>({
+        action: "blocks.query", query: { ...query, subtreeRootId: launch.viewId },
+      })
+      : { members: savedViewMembership(viewId => client.request<SavedViewReadResult>({ action: "views.read", viewId })) },
     snapshot.virtualOccurrenceRanks,
     presentation,
   );
@@ -330,6 +332,8 @@ process.on("SIGTERM", () => stop(143));
 process.on("SIGHUP", () => stop(129));
 
 try {
+  // Bookmark scopes query blocks.query with the parsed view, which may carry a `where` expression.
+  if (!mentions) await client.requireCompatibleService(launch.adapter === "bookmark" ? ["query.expression"] : ["views.read"]);
   await controller.initialize();
   const navigatorClientId = `navigator-${crypto.randomUUID()}`;
   const watcher = client.watch({

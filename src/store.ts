@@ -1,9 +1,9 @@
-import {parseVirtualBranchConfig} from "./virtual-branches";
+import {isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
-import type {VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
+import type {QueryExpression, SavedViewReadOptions, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -27,8 +27,9 @@ import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycl
 import { seedDefaultWorkspace } from "./default-workspace";
 import { migrateRoadmapText } from "./roadmap-migration";
 import {
+  compileQueryExpression,
   normalizeBlockSearchQuery,
-  parsePropertyFilterExpression,
+  positivePropertyFilters,
 } from "./block-query";
 import {
   firstLineWithoutPropertyTokens,
@@ -268,6 +269,19 @@ function propertyMatchContexts(records: readonly PropertyRecord[]) {
   }));
 }
 
+function sortByOccurrenceRank(blocks: VisibleBlock[], ranks: readonly VirtualOccurrenceRank[]): void {
+  const rankById = new Map(ranks.map(entry => [entry.blockId, entry.rank]));
+  const preorder = new Map(blocks.map((block, index) => [block.id, index]));
+  blocks.sort((left, right) => {
+    const leftRank = rankById.get(left.id);
+    const rightRank = rankById.get(right.id);
+    if (leftRank === undefined && rightRank === undefined) return preorder.get(left.id)! - preorder.get(right.id)!;
+    if (leftRank === undefined) return 1;
+    if (rightRank === undefined) return -1;
+    return leftRank - rightRank || left.id.localeCompare(right.id);
+  });
+}
+
 function sortQueriedBlocks(
   blocks: VisibleBlock[],
   sort: NonNullable<BlockSearchQuery["sort"]>,
@@ -282,6 +296,9 @@ function sortQueriedBlocks(
 }
 
 interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
+  /** Boolean expression, ANDed with filters; relative times already resolved. */
+  where?: QueryExpression;
+  now?: number;
   text?: string;
   stopAfterMatches?: number;
   deletedMode?: "active" | "roots" | "all";
@@ -454,6 +471,9 @@ function boundedTreeLabel(text: string): string {
   const boundary = treeLabelSegmenter.segment(text).containing(511)!.index;
   return `${text.slice(0, boundary)}…`;
 }
+
+/** Internal saved-view evaluation counts every member; public queries stay within 1..1000. */
+const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
 
 function compactTreeBlock(
   { text, displayText: _displayText, propertyMatches: _matches, ...metadata }: VisibleBlock,
@@ -1844,7 +1864,7 @@ export class OutlinerStore {
       if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
       if (parsed.config.sort) throw Error("This branch is sorted; manual ranking is disabled");
       // The authored limit bounds display, not rank operations over hidden members.
-      const result=this.queryBlocks({filters:parsed.config.filters,rankViewId:viewId,limit:1000});
+      const result=this.queryBlocks(virtualBranchMembershipQuery(viewId,parsed.config,1000));
       return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
     })();
   }
@@ -2295,28 +2315,108 @@ export class OutlinerStore {
 
   queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
     const query = normalizeBlockSearchQuery(input);
+    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query))();
+  }
 
-    return this.database.transaction((): VisibleBlockCollection => {
-      if (query.subtreeRootId) this.require(query.subtreeRootId);
-      const deletedMode = query.includeDeleted ?? "active";
-      if (query.rankViewId && deletedMode === "active") {
-        return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
+  /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
+  private queryNormalizedBlocksFromCurrentRead(query: BlockSearchQuery): VisibleBlockCollection {
+    if (query.subtreeRootId) this.require(query.subtreeRootId);
+    const deletedMode = query.includeDeleted ?? "active";
+    if (query.rankViewId && deletedMode === "active" && !query.where) {
+      return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
+    }
+    const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
+    const blocks = this.traverseLoadedGraph(this.loadGraph(), {
+      filters: query.filters,
+      where: query.where,
+      propertyScope: query.propertyScope,
+      subtreeRootId: query.subtreeRootId,
+      text: query.text,
+      stopAfterMatches: query.sort || ranked ? undefined : query.limit + 1,
+      deletedMode,
+    });
+    if (query.sort) sortQueriedBlocks(blocks, query.sort);
+    // Same order as ranked SQL: manual ranks first, then canonical preorder.
+    if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
+    if (blocks.length <= query.limit) {
+      return { blocks, completeness: { kind: "complete" } };
+    }
+    return {
+      blocks: blocks.slice(0, query.limit),
+      completeness: { kind: "truncated", limit: query.limit },
+    };
+  }
+
+  /**
+   * Evaluate a saved virtual branch in one read transaction: the same membership,
+   * order and limit Tree projects, plus the exact eligible total for paging.
+   */
+  readSavedView(viewId: string, options?: SavedViewReadOptions): SavedViewReadResult<VisibleBlock>;
+  readSavedView(viewId: string, options: SavedViewReadOptions, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
+  readSavedView(
+    viewId: string,
+    options: SavedViewReadOptions = {},
+    format: "full" | "tree" = "full",
+  ): SavedViewReadResult<VisibleBlock | TreeIndexBlock> {
+    if (typeof viewId !== "string" || !viewId) throw new Error("View read requires a view block ID");
+    const { limit, offset = 0, expectedRevision } = options;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
+      throw new Error("View read limit must be an integer from 1 through 1000");
+    }
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("View read offset must be a non-negative integer");
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
+      throw new Error("Expected view revision must be a positive integer");
+    }
+    return this.database.transaction((): SavedViewReadResult<VisibleBlock | TreeIndexBlock> => {
+      const result: SavedViewReadResult<VisibleBlock | TreeIndexBlock> = {
+        status: "missing", viewId, sequence: this.sequence, blocks: [], completeness: null, errors: [], problems: [],
+      };
+      const fail = (status: SavedViewReadResult["status"], problems: SavedViewReadProblem[]) =>
+        ({ ...result, status, errors: problems.map(problem => problem.message), problems });
+      const definition = this.getFromCurrentRead(viewId);
+      if (!definition || definition.effectiveDeletedRootId) {
+        return fail("missing", [{ code: "view-missing", message: "Saved view not found in the active workspace" }]);
       }
-      const blocks = this.traverseLoadedGraph(this.loadGraph(), {
-        filters: query.filters,
-        propertyScope: query.propertyScope,
-        subtreeRootId: query.subtreeRootId,
-        text: query.text,
-        stopAfterMatches: query.sort ? undefined : query.limit + 1,
-        deletedMode,
-      });
-      if (query.sort) sortQueriedBlocks(blocks, query.sort);
-      if (blocks.length <= query.limit) {
-        return { blocks, completeness: { kind: "complete" } };
+      result.revision = definition.revision;
+      if (expectedRevision !== undefined && definition.revision !== expectedRevision) {
+        return fail("changed", [{ code: "view-changed", message: "Saved view revision changed; read the current definition before retrying" }]);
       }
+      if (!isVirtualBranchDefinition(definition)) {
+        return fail("unsupported", [{ code: "view-unsupported", message: "This reader supports type=virtual-branch; other view kinds are not substituted with a property query" }]);
+      }
+      // create-parent only affects creation, which a read never performs.
+      const parsed = parseVirtualBranchConfig(definition, []);
+      if (!parsed.config) {
+        return fail("invalid", (parsed.configurationProblems ?? parsed.configurationErrors.map(message => ({ message })))
+          .map(problem => ({ code: "view-invalid", ...problem })));
+      }
+      const effectiveLimit = limit ?? parsed.config.limit;
+      Object.assign(result, { configuredLimit: parsed.config.limit, effectiveLimit, offset });
+      let selected: VirtualBranchMembers<VisibleBlock>;
+      try {
+        const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId, parsed.config, 1));
+        const ranks = this.virtualOccurrenceRanksFromCurrentRead();
+        if (query.rankViewId && (query.includeDeleted ?? "active") === "active" && !query.where) {
+          // Same route as queryNormalizedBlocksFromCurrentRead. Rank and count lightweight id/depth pairs, then hydrate only the page:
+          // Tree and embeds read small pages of views with many members.
+          const candidates = this.rankedMatchIdsFromCurrentRead(query, query.rankViewId);
+          const page = selectVirtualBranchMembers(viewId, parsed.config, { blocks: candidates, completeness: { kind: "complete" } }, ranks, effectiveLimit, offset);
+          selected = { ...page, members: this.hydrateRankedPageFromCurrentRead(page.members, query) };
+        } else {
+          // Sorted, Trash and expression views are evaluated over the loaded graph, which is already hydrated.
+          const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES });
+          selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
+        }
+      } catch (error) {
+        return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
+      }
+      const blocks = format === "tree"
+        ? selected.members.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id)))
+        : selected.members;
       return {
-        blocks: blocks.slice(0, query.limit),
-        completeness: { kind: "truncated", limit: query.limit },
+        ...result, status: "ready", blocks, total: selected.eligible,
+        completeness: selected.truncated ? { kind: "truncated", limit: effectiveLimit } : { kind: "complete" },
+        ...(selected.truncated ? { nextOffset: offset + selected.members.length } : {}),
       };
     })();
   }
@@ -2395,6 +2495,7 @@ export class OutlinerStore {
       }
       const matched = this.traverseLoadedGraph(graph, {
         filters: query?.filters,
+        where: query?.where,
         propertyScope: query?.propertyScope,
         subtreeRootId: query?.subtreeRootId,
         text: query?.text,
@@ -2537,10 +2638,16 @@ export class OutlinerStore {
     return rows.map((row) => this.hydrate(row));
   }
 
-  private queryRankedBlocksFromCurrentRead(
+  /**
+   * The recursive ranked-match statement shared by bounded queries and saved-view
+   * reads. `columns` selects either full rows or the lightweight id/depth pairs a
+   * saved-view read ranks before it hydrates one page.
+   */
+  private rankedMatchStatement(
     query: BlockSearchQuery,
     rankViewId: string,
-  ): VisibleBlockCollection {
+    columns: "full" | "ids",
+  ): { sql: string; parameters: Array<string | number> } {
     const parameters: Array<string | number> = [];
     const rootQuery = query.subtreeRootId
       ? "SELECT id, 0, printf('%010d:%s', position, created_at) FROM blocks WHERE id = ?"
@@ -2571,11 +2678,16 @@ export class OutlinerStore {
       predicates.push("INSTR(LOWER(block.text), LOWER(?)) > 0");
       parameters.push(query.text);
     }
-    parameters.push(query.limit + 1);
-
     const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
-    const rows = this.database
-      .query(`
+    const selected = columns === "ids"
+      ? "block.id, tree.depth"
+      : `block.*,
+          tree.depth,
+          EXISTS (
+            SELECT 1 FROM blocks child
+            WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
+          ) AS has_children`;
+    const sql = `
         WITH RECURSIVE tree(id, depth, sort_path) AS (
           ${rootQuery}
           UNION ALL
@@ -2587,12 +2699,7 @@ export class OutlinerStore {
           JOIN tree ON child.parent_id = tree.id
         )
         SELECT
-          block.*,
-          tree.depth,
-          EXISTS (
-            SELECT 1 FROM blocks child
-            WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
-          ) AS has_children
+          ${selected}
         FROM tree
         JOIN blocks block ON block.id = tree.id
         LEFT JOIN virtual_occurrence_ranks occurrence_rank
@@ -2602,13 +2709,22 @@ export class OutlinerStore {
           CASE WHEN occurrence_rank.rank IS NULL THEN 1 ELSE 0 END,
           occurrence_rank.rank,
           CASE WHEN occurrence_rank.rank IS NULL THEN tree.sort_path ELSE block.id END
-        LIMIT ?
-      `)
-      .all(...parameters) as VisibleBlockRow[];
+      `;
+    return { sql, parameters };
+  }
+
+  private queryRankedBlocksFromCurrentRead(
+    query: BlockSearchQuery,
+    rankViewId: string,
+  ): VisibleBlockCollection {
+    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "full");
+    const rows = this.database
+      .query(`${sql} LIMIT ?`)
+      .all(...parameters, query.limit + 1) as VisibleBlockRow[];
     const blocks = this.hydrateVisibleRowsFromCurrentRead(
       rows.slice(0, query.limit),
       query.filters ?? [],
-      propertyScope,
+      query.propertyScope ?? "block",
     );
     return {
       blocks,
@@ -2616,6 +2732,40 @@ export class OutlinerStore {
         ? { kind: "truncated", limit: query.limit }
         : { kind: "complete" },
     };
+  }
+
+  /**
+   * Every ranked match as a lightweight id/depth pair, in the same order as
+   * queryRankedBlocksFromCurrentRead. Saved-view reads rank and count these, then
+   * hydrate only the requested page.
+   */
+  private rankedMatchIdsFromCurrentRead(
+    query: BlockSearchQuery,
+    rankViewId: string,
+  ): Array<{ id: string; depth: number }> {
+    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "ids");
+    return this.database.query(sql).all(...parameters) as Array<{ id: string; depth: number }>;
+  }
+
+  /** Hydrate a bounded page of ranked matches, keeping the page's order. */
+  private hydrateRankedPageFromCurrentRead(
+    page: ReadonlyArray<{ id: string; depth: number }>,
+    query: BlockSearchQuery,
+  ): VisibleBlock[] {
+    if (page.length === 0) return [];
+    const placeholders = page.map(() => "?").join(", ");
+    const rows = this.database
+      .query(`
+        SELECT block.*, EXISTS (
+          SELECT 1 FROM blocks child
+          WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
+        ) AS has_children
+        FROM blocks block WHERE block.id IN (${placeholders})
+      `)
+      .all(...page.map(entry => entry.id)) as Array<Omit<VisibleBlockRow, "depth">>;
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const ordered = page.map(entry => ({ ...byId.get(entry.id)!, depth: entry.depth }) as VisibleBlockRow);
+    return this.hydrateVisibleRowsFromCurrentRead(ordered, query.filters ?? [], query.propertyScope ?? "block");
   }
 
   private hydrateVisibleRowsFromCurrentRead(
@@ -2815,6 +2965,8 @@ export class OutlinerStore {
     const filterText = options.text?.toLowerCase();
     const deletedMode = options.deletedMode ?? "active";
     const propertyScope = options.propertyScope ?? "block";
+    const where = options.where ? compileQueryExpression(options.where, options.now) : null;
+    const contextFilters = [...(options.filters ?? []), ...(options.where ? positivePropertyFilters(options.where) : [])];
     const visit = (block: Block, depth: number): boolean => {
       const effectivelyDeleted = Boolean(block.effectiveDeletedRootId);
       if (deletedMode === "active" && effectivelyDeleted) return false;
@@ -2835,6 +2987,7 @@ export class OutlinerStore {
         deletionMatches &&
         (!options.filters?.length ||
           matchesFilters(propertyRecords, options.filters, propertyScope)) &&
+        (!where || where(block, propertyRecords, propertyScope)) &&
         (!filterText || block.text.toLowerCase().includes(filterText));
       if (matches) {
         const children = (graph.byParent.get(block.id) ?? []).filter((child) =>
@@ -2854,10 +3007,10 @@ export class OutlinerStore {
             block.text,
             (blockId) => graph.byId.get(blockId) ?? null,
           ),
-          ...(propertyScope !== "block" && options.filters?.length
+          ...(propertyScope !== "block" && contextFilters.length
             ? {
                 propertyMatches: propertyMatchContexts(
-                  matchingPropertyRecords(propertyRecords, options.filters, propertyScope),
+                  matchingPropertyRecords(propertyRecords, contextFilters, propertyScope),
                 ),
               }
             : {}),
@@ -3901,15 +4054,13 @@ export class OutlinerStore {
     for (const row of rows) {
       const branch = this.getFromCurrentRead(row.id);
       if (!branch) continue;
-      const queries = branch.properties.filter((property) => property.key === "query");
-      if (queries.length !== 1) continue;
-      let filters: PropertyFilter[];
-      try {
-        filters = parsePropertyFilterExpression(queries[0]!.value);
-      } catch {
-        continue;
-      }
-      if (!matchesFilters(block.properties, filters)) continue;
+      // Parse and evaluate exactly as views.read does, so a receipt names every
+      // view that would list the item, including OR/NOT/date grammar. Invalid
+      // views list nothing in views.read and are omitted here too.
+      const { config } = parseVirtualBranchConfig(branch, []);
+      if (!config) continue;
+      if (!matchesFilters(block.properties, config.filters)) continue;
+      if (config.where && !compileQueryExpression(config.where)(block, block.properties)) continue;
       const rank = this.database.query(
         "SELECT rank FROM virtual_occurrence_ranks WHERE view_id = ? AND block_id = ?",
       ).get(branch.id, block.id) as { rank: number } | null;

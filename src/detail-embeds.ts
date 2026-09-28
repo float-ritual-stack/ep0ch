@@ -3,7 +3,6 @@ import {atomicDocument, concatDocuments, observeDocument, sourceDocument, sliceD
   generatedDocument, type MappedDocument, type SourceSlice} from './document-provenance';
 import type { RequestInput } from "./client";
 import {isChecklistView,projectChecklistView} from './checklist-views';
-import { MAX_BLOCK_QUERY_LIMIT } from "./block-query";
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
 import { blockDisplayTitle } from "./references";
@@ -12,11 +11,12 @@ import {
   isRelationViewDefinition,
   parseRelationViewConfig,
 } from "./relation-views";
+import { checkServiceCompatibility } from "./service-compatibility";
 import type {
   Block,
   BlockCollectionCompleteness,
-  VisibleBlock,
-  VisibleBlockCollection,
+  OutlinerServiceStatus,
+  SavedViewReadResult,
   WorkspaceSnapshot,
 } from "./types";
 import {
@@ -116,23 +116,27 @@ function explicitFallback(
   };
 }
 
-function eligibleResults(
-  definition: Block,
-  collection: VisibleBlockCollection,
-  limit: number,
-): { blocks: VisibleBlock[]; completeness: BlockCollectionCompleteness } {
-  const seen = new Set<string>([definition.id]);
-  const blocks: VisibleBlock[] = [];
-  for (const block of collection.blocks) {
-    if (seen.has(block.id)) continue;
-    seen.add(block.id);
-    blocks.push(block);
+/** In-flight or positive capability checks per requester; a missing capability is not kept. */
+const viewReadChecks = new WeakMap<DetailEmbedRequester, Promise<string | undefined>>();
+
+/**
+ * Every surface that projects embeds (Detail, backlink peek, Goto and the other
+ * previews) reaches `views.read` here, so the capability is checked here before
+ * the first read: an older service yields its restart instruction, not an
+ * unknown-action error. A missing capability is re-checked on the next
+ * projection so a restarted service is picked up.
+ */
+function viewReadIncompatibility(requester: DetailEmbedRequester): Promise<string | undefined> {
+  let pending = viewReadChecks.get(requester);
+  if (!pending) {
+    pending = requester.request<OutlinerServiceStatus>({ action: "ping" })
+      .then(service => checkServiceCompatibility(service, ["views.read"])?.message);
+    viewReadChecks.set(requester, pending);
+    const check = pending;
+    const forget = () => { if (viewReadChecks.get(requester) === check) viewReadChecks.delete(requester); };
+    check.then(message => { if (message) forget(); }, forget);
   }
-  const truncated = blocks.length > limit || collection.completeness.kind === "truncated";
-  return {
-    blocks: blocks.slice(0, limit),
-    completeness: truncated ? { kind: "truncated", limit } : { kind: "complete" },
-  };
+  return pending;
 }
 
 async function projectVirtualBranch(
@@ -150,17 +154,24 @@ async function projectVirtualBranch(
   }
 
   try {
-    const collection = await requester.request<VisibleBlockCollection>({
-      action: "blocks.query",
-      query: {
-        filters: parsed.config.filters,
-        ...(parsed.config.sort
-          ? { sort: parsed.config.sort }
-          : { rankViewId: definition.id }),
-        limit: Math.min(MAX_BLOCK_QUERY_LIMIT, parsed.config.limit + 2),
-      },
-    });
-    const projected = eligibleResults(definition, collection, parsed.config.limit);
+    const incompatibility = await viewReadIncompatibility(requester);
+    if (incompatibility) {
+      return {
+        text: `${linkedHeading(definition.id, "SERVICE NEEDS RESTART")}\n  ${boundedError(incompatibility)}`,
+        state: { blockId: definition.id, status: "failed", count: 0 },
+      };
+    }
+    // The service evaluates membership, order and bounds exactly as Tree shows them.
+    const projected = await requester.request<SavedViewReadResult>({ action: "views.read", viewId: definition.id });
+    if (projected.status === "invalid") {
+      return {
+        text: `${linkedHeading(definition.id, "CONFIG ERROR")}\n  ${boundedError(projected.errors.join("; "))}`,
+        state: { blockId: definition.id, status: "invalid", count: 0 },
+      };
+    }
+    if (projected.status !== "ready" || !projected.completeness) {
+      throw new Error(projected.errors.join("; ") || `View read ${projected.status}`);
+    }
     if (projected.blocks.length === 0) {
       return {
         text: linkedHeading(definition.id, "EMPTY"),

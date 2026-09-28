@@ -1263,8 +1263,27 @@ export interface BlockTraversalOptions {
   propertyScope?: PropertyQueryScope;
 }
 
+export type QueryTimeField = "created" | "updated";
+export type QueryComparison = "<" | "<=" | ">" | ">=";
+
+/**
+ * Boolean property/timestamp predicate. Property leaves have filter semantics
+ * (presence or case-insensitive equality within propertyScope). Time values are
+ * YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N{h,d,w}; relative
+ * values resolve when the service evaluates the query.
+ */
+export type QueryExpression =
+  | { kind: "property"; key: string; value?: string }
+  | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
+  | { kind: "not"; operand: QueryExpression }
+  | { kind: "and" | "or"; operands: QueryExpression[] };
+
 export interface BlockSearchQuery {
   filters?: PropertyFilter[];
+  /** Structured predicate, ANDed with filters. */
+  where?: QueryExpression;
+  /** Query text in the documented grammar, parsed by the service and ANDed with where. */
+  expression?: string;
   text?: string;
   subtreeRootId?: string;
   rankViewId?: string;
@@ -1375,6 +1394,45 @@ export interface TreePreviewReference {
   start: number;
   end: number;
   target: Pick<BlockReferenceResolution, "blockId" | "fragmentId"> | null;
+}
+
+export interface SavedViewReadOptions {
+  /** An explicit bounded page size; the authored limit remains unchanged. */
+  limit?: number;
+  /** Number of eligible members to skip, in branch order. */
+  offset?: number;
+  expectedRevision?: number;
+}
+
+export type SavedViewReadStatus = "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
+
+export interface SavedViewReadProblem {
+  code: "view-missing" | "view-unsupported" | "view-changed" | "view-invalid" | "query-failed";
+  message: string;
+  /** Definition property that caused an invalid view, such as query. */
+  property?: string;
+  /** 0-based character position within that property value, for syntax errors. */
+  position?: number;
+}
+
+/** One saved view's members, evaluated atomically by the service (views.read). */
+export interface SavedViewReadResult<B = VisibleBlock> {
+  status: SavedViewReadStatus;
+  viewId: string;
+  revision?: number;
+  sequence: number;
+  configuredLimit?: number;
+  effectiveLimit?: number;
+  offset?: number;
+  /** Every eligible member of the view, beyond the authored limit and this page. */
+  total?: number;
+  /** Offset of the next page when this page does not reach the end. */
+  nextOffset?: number;
+  /** Matching canonical roots, in branch order. Context children are not matches. */
+  blocks: B[];
+  completeness: BlockCollectionCompleteness | null;
+  errors: string[];
+  problems?: SavedViewReadProblem[];
 }
 
 export interface TreeIndexCollection {
@@ -1547,6 +1605,8 @@ export const OUTLINER_MIN_CLIENT_PROTOCOL = 82;
 export const OUTLINER_CAPABILITIES = [
   "blocks.read",
   "properties.preview",
+  "query.expression",
+  "views.read",
 ] as const;
 export type OutlinerCapability = (typeof OUTLINER_CAPABILITIES)[number];
 
@@ -1583,6 +1643,7 @@ export type OutlinerRequest =
   | { id: string; action: "ping" }
   | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
+  | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
   | { id: string; action: "blocks.authored-links"; ownerBlockId: string }
   | { id: string; action: "get"; blockId: string }
   | { id: string; action: "children"; parentId: string | null }
@@ -2004,9 +2065,19 @@ export type OutlinerRequest =
       expectedRevision: number;
     };
 
+/** Machine-readable detail for a rejected request, such as a query syntax position. */
+export interface OutlinerRequestProblem {
+  code: "query-syntax" | "query-invalid";
+  message: string;
+  /** Query field that failed, such as expression. */
+  field?: string;
+  /** 0-based character position within that field's text. */
+  position?: number;
+}
+
 export type OutlinerResponse =
   | { id: string; ok: true; result: unknown; sequence: number }
-  | { id: string; ok: false; error: string; sequence: number };
+  | { id: string; ok: false; error: string; problem?: OutlinerRequestProblem; sequence: number };
 
 export interface SelectionContext {
   selected: Block | null;

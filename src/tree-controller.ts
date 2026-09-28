@@ -9,7 +9,7 @@ import {TreeConnections} from "./tree-connections";
 import {TreeWorkingSelection} from "./tree-working-selection";
 import {OpenDestinationChooser, destinationRecoveryKey, missingNavigationDestination, type OpenDestinationTarget} from "./open-destination-chooser";
 import type {DetailDestinationPlacement} from "./detail-pane-placement";
-import type {OutlinerViewAddress} from "./types";
+import type {OutlinerCapability, OutlinerViewAddress} from "./types";
 import {DocumentPreview, type DocumentPreviewState} from './document-preview';
 import {treePreviewFrame, defaultPreviewPreferences, type PreviewPreferences} from './tree-preview';
 import type { RequestInput } from "./client";
@@ -76,6 +76,7 @@ import type {
   NavigationLinkState,
   OutlinerNavigationTarget,
   PropertyCatalogItem,
+  SavedViewReadResult,
   TreeIndexBlock,
   TreeIndexCollection,
   TreeIndexSnapshot,
@@ -87,6 +88,7 @@ import {
   isVirtualBranchRootOccurrence,
   projectVirtualBranches,
   planVirtualChild,
+  savedViewMembership,
   type PhysicalTreeRow as ProjectedPhysicalRow,
   type TreeRow as ProjectedTreeRow,
   type VirtualBranchOccurrenceRow as ProjectedOccurrenceRow,
@@ -348,6 +350,14 @@ function fallbackRowBeforeDelete(
   );
   return survivingRows[Math.max(0, fallbackIndex)] ?? null;
 }
+
+/**
+ * Capabilities every process hosting a Tree controller requires at startup:
+ * saved views are read with views.read, and virtual-child admission sends a
+ * saved view's parsed `where` with tree.query, which an older service would
+ * ignore and answer unfiltered.
+ */
+export const TREE_SERVICE_CAPABILITIES: readonly OutlinerCapability[] = ["views.read", "query.expression"];
 
 export function createTreeController(effects: TreeControllerEffects): TreeController {
   let baseRows: TreeRow[] = [];
@@ -840,7 +850,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const projection = await projectVirtualBranches(
       visible,
       physical,
-      (query) => effects.request<TreeIndexCollection>({ action: "tree.query", query }),
+      { members: savedViewMembership(viewId => effects.request<SavedViewReadResult<TreeIndexBlock>>({ action: "views.read", viewId, format: "tree" })) },
       snapshot.virtualOccurrenceRanks,
       presentation,
     );

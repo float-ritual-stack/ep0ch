@@ -594,6 +594,7 @@ Do not leave older editors running across this upgrade.
 - canonical reads: `get`, `blocks.read` (batch by ids with field projection and per-id missing/trashed reports), `children`, `blocks.context`, `workspace.snapshot`
 - compact Tree reads: `tree.index`
 - bounded search: `blocks.query` (optional `fields` projection), `tree.query`, `tree.focus`
+- saved-view evaluation: `views.read`
 - resource identity and documents: `resource-sources.create | list | get` and `resources.intern | intern-filesystem | get | relocate | describe | open | refresh`
 - resource retention: `resources.retention.get | configure | inspect | pin | unpin | reference | unreference` and explicit `resources.collect` eviction/purge passes
 - computed producers: `computed.invocations.create`, `computed.invocations.revise`, `computed.handlers.resolve`, `computed.executions.list`, and async `computed.execute`
@@ -776,6 +777,8 @@ Clients must never infer absence from a truncated collection. Workspace snapshot
 ```ts
 interface BlockSearchQuery {
   filters?: Array<{ key: string; value?: string }>;
+  where?: QueryExpression;   // property | time | not | and | or
+  expression?: string;       // query grammar text, parsed by the service
   text?: string;
   subtreeRootId?: string;
   rankViewId?: string;
@@ -792,6 +795,10 @@ interface BlockSearchQuery {
 The service normalizes every query before regular graph traversal or ranked virtual-branch SQL. It validates limits from 1 through 1000 without clamping, lowercases property keys, preserves exact interior value spaces, distinguishes presence from equality, removes exact duplicate clauses, validates `propertyScope`, validates subtree roots, validates timestamp sort fields and directions, rejects timestamp sorting combined with `rankViewId`, and translates the reserved `deleted=true` compatibility filter into explicit deleted-root mode. Created/updated sorting orders every match before limit truncation with a deterministic timestamp/id tie break.
 
 Property filters default to block metadata. Explicit `line`, `inline`, or `all` queries use the same derived index and return matching record context—scope, ordinal, line, column, and source span—on each result. Human text surfaces share one minimal property-filter parser: whitespace-separated positive-AND clauses, `key` presence, `key=value`/`key::value` equality, and double-quoted spaced values with `\\` and `\"` escapes. Tree and Pi commands use the expression parser; each repeated CLI `--filter` is parsed as one clause so a shell-quoted value containing spaces remains exact. Virtual branches persist the canonical expression in `[query::…]`; their omitted scope therefore remains block-only. Agent tools remain structured and bypass the shorthand.
+
+The `query.expression` capability adds the boolean query grammar (see README "Bounded block queries"). `parseSearchExpression` lexes clauses with the same tokenizer; a query without `AND`/`OR`/`NOT`, parentheses or `created`/`updated` comparisons returns the flat positive-AND filters, so existing meanings, the ranked SQL path and the `deleted=true` compatibility filter are unchanged. Otherwise it returns a `where` expression. Those keywords and prefixes were syntax errors before, and a trailing `)` closes a group only while one is open. The service normalizes `expression` text and structured `where` (depth ≤ 32, ≤ 200 leaves), ANDs them with `filters`, and evaluates the compiled predicate during graph traversal with relative times resolved once per read. Ranked (`rankViewId`) queries with an expression are ordered in memory with the same rule as the ranked SQL: manual ranks, then canonical preorder. Syntax errors return an error response with `problem: { code: "query-syntax", field: "expression", position }`; invalid structured expressions use `query-invalid`. The client rejects with `OutlinerRequestError` carrying that problem. Saved views parse `[query::…]` with the same function, so views.read reports invalid grammar with the property and position. An older service would ignore both fields and return unfiltered results, so every client that sends `expression` or `where` first requires `query.expression`: CLI `list --query`, `outliner_query` with `expression`, Tree (virtual-child admission sends `where` with `tree.query`), including the Tree inside a composed Detail surface, and bookmark navigators.
+
+Grammar and evaluation details: a trailing `)` that balances a `(` in the same unquoted clause stays in the value, so `((k=f(x)))` matches `f(x)`. Impossible ISO dates and times fail rather than rolling over. Nothing re-evaluates relative ranges on a timer; Tree re-reads views on workspace change events. The `problem` names `field: "expression"` only when the request's `expression` was parsed; syntax errors from other text (a saved definition) carry only the code and message. Roadmap receipts evaluate each view's parsed configuration exactly as `views.read` does.
 
 `tree.index.view.query` uses the same model for bounded Tree filtering. The response retains complete physical membership for canonical ancestry and projection construction, with one compact record per block identity and separate visible-row depths. Records contain bounded previews, service-resolved reference metadata, and authored-text digests instead of full document bodies. `tree.query` returns compact matches using the same canonical query engine; `tree.focus` ranks fuzzy goto matches against full canonical text, including text beyond the preview. `rankViewId` is internal projection context and is rejected from index view queries.
 
@@ -949,6 +956,56 @@ Optional properties:
 - `[create-parent::<block-id>]` — physical parent for branch-created blocks.
 - `[summary-properties::key,key,…]` — ordered Tree summary allowlist for projected occurrences in this view.
 
+### Saved-view reads (`views.read`)
+
+The `views.read` capability adds the one evaluator of saved-view membership:
+
+```ts
+{ action: "views.read"; viewId: string; limit?: number; offset?: number;
+  expectedRevision?: number; format?: "full" | "tree" }
+```
+
+The service reads the definition, its query, persisted occurrence ranks and the
+matching blocks in one SQLite read transaction. It excludes the definition,
+deduplicates, applies manual ranks to unsorted branches (timestamp sort
+otherwise), and returns the page `[offset, offset + limit)` of that branch order.
+`limit` defaults to the authored `[limit::N]`; an explicit 1–1,000 override
+affects only this read. `total` counts every eligible member, beyond the
+authored limit; `completeness` is `truncated` (with `nextOffset`) whenever
+members follow the page. `format: "tree"` returns compact `TreeIndexBlock`
+entries for Tree; the default returns full `VisibleBlock`s.
+
+Only `status: "ready"` is a result set. `invalid`, `unsupported`, `missing`,
+`changed` (an `expectedRevision` mismatch) and `failed` return no blocks, a null
+completeness, human `errors`, and structured `problems` with a `code`. Invalid
+query syntax also carries the definition `property` and the 0-based `position`
+inside that property's value. Invalid page options (limit, offset, revision) are
+request errors. The read has no side effects on selection, disclosure or panes.
+
+Tree, the virtual-branch navigator, Detail view embeds, CLI `view` and the
+`outliner_view` agent tool all read membership through `views.read`; they keep
+only presentation (descendant context, disclosure, attention) locally. Each
+requires the `views.read` capability before its first read, so a service
+without it produces a restart instruction rather than an unknown-action error.
+Tree, Detail, the navigator, CLI `view` and `outliner_view` check at startup or
+before the request. View embeds are also projected by short-lived previews
+(backlink peek, Goto, the navigation destination menu, document preview, the
+mentions navigator and bookmark/mentions navigators), so the embed projection
+itself pings once per client before its first `views.read` and renders
+`SERVICE NEEDS RESTART` with the restart instruction when the capability is
+missing; a positive answer is kept, a missing one is re-checked on the next
+projection. Older
+clients that evaluate views from `workspace.snapshot` plus `blocks.query` keep
+working because those actions are unchanged. Two client paths still evaluate
+over `blocks.query`: the Tree's virtual-child admission check, which asks whether
+a not-yet-created child would appear, and bookmark navigators, which scope the
+query to the bookmark root. Those paths see at most the 1,000 matches one
+`blocks.query` returns. Below a limit of 999 their membership and truncation agree
+exactly with `views.read`: a truncated query means at least 999 eligible members.
+At limits of 999 and 1,000, when more than 1,000 blocks match, they report
+truncation conservatively and may show one member fewer if the definition matches
+its own query; they never report `total`.
+
 Tree builds canonical parent-to-children adjacency once from the complete physical
 snapshot, never from the collapse-pruned visible collection. It queries, ranks,
 deduplicates, and bounds matched roots first, then allocates read-only contextual
@@ -972,8 +1029,8 @@ target `canonicalId`. Projected indent/outdent and add operations remain disable
 Branch count, completeness, and truncation remain root-only. Root-query truncation
 is distinct from depth and 1,000-row budget truncation, and all three are surfaced.
 Unsorted branches use persisted ranks and `Option+Up` / `Option+Down` reorder through the action registry;
-`workspace.snapshot` carries every occurrence rank in the same transactional read
-as the block graph, and projection reapplies those ranks before the root limit.
+`views.read` applies every occurrence rank in the same transactional read as the
+matched blocks, before the root limit.
 Timestamp-sorted branches order all matched roots before the limit, ignore
 persisted ranks, and disable manual occurrence reorder. Rank rows survive
 temporary query mismatches and cascade when either the branch definition or
