@@ -4,7 +4,7 @@
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import type { Msg } from "./board";
 import { Draft } from "./edit";
-import { editHint, renderEditor } from "./surface/editor";
+import { editHint, renderEditor, writtenBy } from "./surface/editor";
 import { Refused, USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { bg, C, fg, pad, RESET } from "./style";
 import type { Key } from "./term";
@@ -312,11 +312,13 @@ export class CommentSession {
     }
     this.confirmNew = false;
     const requestId = this.out.begin(key);
+    // Recorded as whoever wrote the text, not only whoever pressed send (see Draft.recordAs).
+    const by = d.recordAs(env.actor ?? USER);
     this.busy = t.kind === "quote" ? "sending the comment..." : "sending the reply..."; this.error = null; env.redraw();
     try {
       const r = t.kind === "quote"
-        ? await env.board.comment(requestId, t.blockId, t.revision, body, t.passage, env.actor ?? USER)
-        : await env.board.reply(requestId, t.thread.id, body, env.actor ?? USER);
+        ? await env.board.comment(requestId, t.blockId, t.revision, body, t.passage, by)
+        : await env.board.reply(requestId, t.thread.id, body, by);
       this.out.done();
       this.composer = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
       this.mode = "threads"; this.busy = "loading the thread...";
@@ -390,8 +392,7 @@ export class CommentSession {
 
   // ── drawing ─────────────────────────────────────────────────────────────────
 
-  /** `by`: who else typed into the comment being written (an agent), for the edit frame. */
-  render(w: number, h: number, title: string, by: string | null = null): string[] {
+  render(w: number, h: number, title: string): string[] {
     const status = (s: string, colour: number) => fg(colour) + pad(s, w) + RESET;
     const state = this.busy ? status(this.busy, C.grey)
       : this.error ? status(`! ${this.error}`, C.lred)
@@ -415,7 +416,7 @@ export class CommentSession {
       return renderEditor(d, {
         title: t.kind === "quote" ? `comment · ${title}` : `reply to ${t.thread.author} · ${title}`,
         status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-        context: q, by,
+        context: q, by: writtenBy(d, "send"),
       }, w, h);
     }
     // threads

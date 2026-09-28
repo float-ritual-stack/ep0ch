@@ -204,7 +204,8 @@ The same readers comment on the note they show. On the board, Tab to the preview
   screen ask twice when a comment is unsent, and copy it to `drafts/` if you go ahead.
 - **Attribution:** comments and replies are `author: user`, like the outliner's own Detail (the service
   takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
-  An agent's comments and replies (below) are `author: agent` with the agent's actor id.
+  An agent's comments and replies (below) are `author: agent` with the agent's actor id, and so is one
+  you and an agent both wrote (see "Who a write is recorded as").
 - The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
 
 ## Reading notes
@@ -327,9 +328,31 @@ satisfy); nothing is half-done.
 as yours: the status bar says `an agent (claude-7) · …` for every action and everything it makes the door
 say, the reader it touched says what it did (`an agent (claude-7) saved this note`) until it shows
 another note, a draft or comment it typed says so in its frame, and its writes are recorded as
-`author: agent`, `actorId: <its id>` (default `ep0ch-door:<hostname>:agent`). If you had typed into a draft
-the agent replaces, your text is copied to `drafts/` first and the draft says where. The `$EDITOR`
-handoff stays yours: it would take over your terminal. `peek` shows the last agent action per reader.
+`author: agent`, `actorId: <its id>` (default `ep0ch-door:<hostname>:agent`). The `$EDITOR` handoff stays
+yours: it would take over your terminal. `peek` shows the last agent action per reader.
+
+**Nobody's text is lost.** Each draft and comment remembers who changed it last; every keystroke of yours
+makes that you. When an agent replaces text someone else changed last (your typing, however often it has
+typed there before, or another agent's), that text is copied to `drafts/` first, the draft says where, and
+the action answers `keptYourDraftAt`. While a save is checking properties or landing, or a comment is
+sending, the draft holds still: keys wait and an agent's `edit.text`, `edit.close`, `edit.reload` and
+`comment.write` are refused with the reason. An agent's `card.select` and `card.move` move the lanes'
+cursor, never your keys; only `open` and `focus` move them, and they say so in the status bar. Readers in a
+shut drawer (`tree`, `backlinks`) are refused until the drawer is open, so nothing changes out of sight.
+
+**Who a write is recorded as.** A save or send is recorded as whoever wrote the text, not whoever
+pressed `Ctrl+S` or called `edit.save`:
+
+- One party changed it since the edit opened: theirs. You saving a draft only the agent typed records the
+  agent; the agent saving what only you typed records you (`author: user`, `actorId: ep0ch-door:<hostname>`).
+- Both did: the saver's, and the actor id names everyone, saver first, joined by `+`, e.g. `author: user`,
+  `actorId: ep0ch-door:<hostname>+claude-7`. A comment is the exception in form, not substance: the service
+  takes an actor id only on agent comments, so one you both wrote is `author: agent` with that same joined
+  actor id, rather than yours with the agent left out.
+
+The edit frame says which before you save (`an agent (claude-7) typed this · it saves as the agent's`,
+`an agent (claude-7) and you typed this · saved as whoever saves it, naming both`), the status bar says
+`recorded as …` whenever that isn't simply the saver, and `edit.save` answers with `recordedAs`.
 
 ## On the service platform
 

@@ -318,6 +318,14 @@ export class DeliveryBoard implements Screen, DeskApi {
    * focused reader, or the preview when the lanes have focus.
    */
   private pickReader(sel?: string): { name: string; region: Region | null; pane: ReaderPane } {
+    const r = this.findReader(sel);
+    // The outline drawer's and the backlinks' readers exist while their drawers are shut. An action there
+    // would change a note where the person can't see it, so it is refused until the drawer is open.
+    if (!r.region) throw new ActionRefused(`${r.name} isn't on screen; open it first (${r.name === "tree" ? "t opens the outline drawer" : "b opens a reader's backlinks"})`);
+    return r;
+  }
+
+  private findReader(sel?: string): { name: string; region: Region | null; pane: ReaderPane } {
     const all = this.namedReaders();
     if (!sel || sel === "focused") {
       const f = this.focus === "lanes" ? null : all.find(r => r.region === this.focus);
@@ -329,7 +337,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (named) return named;
     if (/^[0-9a-f-]{8,}$/.test(sel)) {
       const showing = all.filter(r => r.pane.msg?.id.startsWith(sel));
-      const r = showing.find(x => x.pane.editing) ?? showing[0];
+      const r = showing.find(x => x.region && x.pane.editing) ?? showing.find(x => x.region) ?? showing[0];
       if (r) return r;
       throw new ActionRefused(`no reader shows ${sel}; open it first (open id=${sel})`);
     }
@@ -389,7 +397,8 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
-    if (card && !this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+    // Selecting the card to move never takes the keys from the reader the person is in.
+    if (card && !this.selectCard(card, actor.kind !== "agent")) throw new ActionRefused(`no lane on the board lists ${card}`);
     const c = this.card();
     if (!c) throw new ActionRefused("no card is selected");
     const want = lane.toLowerCase();
@@ -1118,12 +1127,18 @@ export const BOARD_ACTIONS = new ActionSet<{
   "focus": {
     summary: "give keys to reader=<name> or reader=lanes", keys: "tab, click",
     args: {},
-    run(_, { b, reader }) { if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)"); return b.focusOn(reader); },
+    run(_, { b, reader }, actor) {
+      if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)");
+      const r = b.focusOn(reader);
+      b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
+      return r;
+    },
   },
   "card.select": {
     summary: "select a card in its lane; the preview follows", keys: "h l j k, click",
     args: { id: { type: "string", about: "the card's block id (or its first 8+ characters)" } },
-    run({ id }, { b }) { if (!b.selectCard(id)) throw new ActionRefused(`no lane on the board lists ${id}`); return { selected: id }; },
+    // An agent's selection moves the lanes' cursor (and the preview with it), never the person's keys.
+    run({ id }, { b }, actor) { if (!b.selectCard(id, actor.kind !== "agent")) throw new ActionRefused(`no lane on the board lists ${id}`); return { selected: id }; },
   },
   "card.move": {
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",

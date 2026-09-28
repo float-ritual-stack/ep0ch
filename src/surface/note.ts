@@ -10,14 +10,14 @@ import type { Ctx } from "../app";
 import { subject, type Msg } from "../board";
 import { CommentSession, type CommentEnv } from "../comment";
 import { renderDoc } from "../doc";
-import { Draft } from "../edit";
+import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
-import { EditConflict, USER, type Actor, type Comment } from "../socket";
-import { C, fg, pad, RESET } from "../style";
+import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment } from "../socket";
+import { C, fg, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { bbsDate, rule } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
-import { draftState, editHint, openInEditor, renderEditor } from "./editor";
+import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -66,8 +66,6 @@ export class NoteSurface {
   unread = "";
   /** The last thing an agent did here, shown in the header until the surface shows another note. */
   agent: { id: string; did: string; at: number } | null = null;
-  /** An agent typed into the open draft or comment (`edit.text`, `comment.write`): who, for the edit frame. */
-  private typedBy: string | null = null;
 
   get editing() { return this.draft !== null || this.session !== null; }
   /** Typed text that isn't saved or sent: an edit, or a comment being written. */
@@ -158,7 +156,7 @@ export class NoteSurface {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
-    if (this.session) return { lines: this.session.render(w, h, subject(m), this.typedBy) };
+    if (this.session) return { lines: this.session.render(w, h, subject(m)) };
     if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
@@ -179,7 +177,8 @@ export class NoteSurface {
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
     if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
-    const body = doc.lines.map(l => " " + l);
+    // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
+    const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
     const room = Math.max(1, h - head.length);
     this.scroll = Math.max(0, Math.min(this.scroll, body.length - room));
     const placements: Placement[] = [];
@@ -196,14 +195,13 @@ export class NoteSurface {
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number): string[] {
-    const rev = `rev ${d.base} · `;
     return renderEditor(d, {
       title: `editing · ${subject(m)}`,
       status: [
-        fg(C.brown) + rev + pad(draftState(d), Math.max(1, w - rev.length)) + RESET,
+        fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
         fg(C.cyan) + pad(d.note || "whole text: subject, body and [key::value] properties", w) + RESET,
       ],
-      by: this.typedBy,
+      by: writtenBy(d, "save"),
     }, w, h);
   }
 
@@ -218,14 +216,13 @@ export class NoteSurface {
     if (this.msg?.id !== m.id || this.editing) return;
     this.msg = fresh;
     this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
-    this.typedBy = null;
     host.redraw();
     if (external) this.external(host);
   }
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const d = this.draft!;
-    if (d.saving) return true;
+    if (d.busy) return true;
     const a = d.key(k);
     if (a === "save") void this.save(host);
     else if (a === "editor") this.external(host);
@@ -236,29 +233,40 @@ export class NoteSurface {
   }
 
   private closeDraft() {
-    this.draft = null; this.typedBy = null;
+    this.draft = null;
     if (this.msg) this.links = linksOf(this.msg);
   }
 
-  /** Whole-text update from the draft's base revision. A refusal keeps the draft and copies it to disk. */
-  async save(host: SurfaceHost, actor: Actor = USER): Promise<void> {
+  /**
+   * Whole-text update from the draft's base revision. A refusal keeps the draft and copies it to disk.
+   * The write is recorded as whoever wrote the text (Draft.recordAs), which is not always `actor`, the
+   * one who pressed save; returns that, or null when nothing was written.
+   */
+  async save(host: SurfaceHost, actor: Actor = USER): Promise<Actor | null> {
     const d = this.draft;
-    if (!d) return;
-    if (!d.dirty) { this.closeDraft(); host.ctx.flash("nothing changed"); host.redraw(); return; }
+    if (!d || d.busy) return null;
+    if (!d.dirty) { this.closeDraft(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
+    const text = d.text;
     // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
-    if (d.propertyWarned !== d.text) {
-      const next = await host.ctx.board.previewProperties(d.text).catch(() => null);
+    // Meanwhile the draft holds still: keys wait, and edit.text / edit.close / edit.reload are refused.
+    if (d.propertyWarned !== text) {
+      d.previewing = true; host.redraw();
+      let next: Record<string, string> | null = null;
+      try { next = await host.ctx.board.previewProperties(text).catch(() => null); } finally { d.previewing = false; }
+      // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
+      if (this.draft !== d || d.text !== text) { host.redraw(); return null; }
       const change = next ? propertyChange(d.baseProps, next) : "";
-      if (change && this.draft === d) {
-        d.propertyWarned = d.text;
+      if (change) {
+        d.propertyWarned = text;
         d.note = `this save changes properties: ${change} · ctrl+s again saves`;
         host.redraw();
-        return;
+        return null;
       }
     }
+    const by = d.recordAs(actor);
     d.saving = true; d.note = "saving…"; host.redraw();
     try {
-      const m = await host.ctx.board.update(d.blockId, d.text, d.base, actor);
+      const m = await host.ctx.board.update(d.blockId, text, d.base, by);
       if (this.draft === d) this.closeDraft();
       this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
       this.links = linksOf(this.msg);
@@ -266,7 +274,9 @@ export class NoteSurface {
       // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
       const change = propertyChange(d.baseProps, m.props);
       this.notice = change ? `properties changed: ${change}` : "";
-      host.ctx.flash(change ? `saved · revision ${m.revision} · properties changed: ${change}` : `saved · revision ${m.revision}`);
+      const whose = sameParty(by, actor) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
+      host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
+      return by;
     } catch (e) {
       d.saving = false;
       if (e instanceof EditConflict) {
@@ -275,8 +285,10 @@ export class NoteSurface {
       } else {
         d.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
       }
+      return null;
+    } finally {
+      host.redraw();
     }
-    host.redraw();
   }
 
   /** Drop the draft for the note's current text. Typed work is copied to disk first. */
@@ -344,7 +356,6 @@ export class NoteSurface {
     this.msg = fresh;
     if (this.commentsFor !== m.id) await this.loadComments(host);
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
-    this.typedBy = null;
     host.redraw();
   }
 
@@ -353,7 +364,7 @@ export class NoteSurface {
   key(k: Key, host: SurfaceHost): boolean {
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
-      if (this.session.key(k, this.commentEnv(host)) === "close") { this.session = null; this.typedBy = null; }
+      if (this.session.key(k, this.commentEnv(host)) === "close") { this.session = null; }
       host.redraw();
       return true;
     }
@@ -423,7 +434,7 @@ export class NoteSurface {
     const d = this.draft;
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
-      editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, typedBy: this.typedBy } : undefined,
+      editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save") } : undefined,
       commenting: this.session ? this.session.describe() : undefined,
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, selected: i === this.link })),
@@ -453,20 +464,30 @@ export class NoteSurface {
     return this.draft;
   }
 
-  /** Replace the draft's text, as the $EDITOR handoff does. A person's unsaved typing is copied to disk first. */
+  /**
+   * Replace the draft's text, as the $EDITOR handoff does. Text someone else changed last (the person's
+   * typing, or another agent's) is copied to disk first, however often each of them has typed before.
+   */
   setDraftText(d: Draft, text: string, actor: Actor): string | null {
-    let kept: string | null = null;
-    if (actor.kind === "agent" && d.dirty && this.typedBy === null) kept = d.copyOut();
-    d.replace(text);
-    d.note = kept ? `${agentLabel(actor)} replaced the draft · what you had typed is at ${kept}` : "";
-    this.typedBy = actor.kind === "agent" ? `${agentLabel(actor)} typed this · it saves as the agent's` : null;
-    return kept;
+    const kept = keepOthers(d, actor, () => d.copyOut());
+    d.replace(text, actor);
+    d.note = kept ? `${agentLabel(actor)} replaced the draft · what ${kept.whose} had typed is at ${kept.at}` : "";
+    return kept?.at ?? null;
+  }
+
+  /** The same for the comment or reply being written. */
+  setComposerText(s: CommentSession, body: string, actor: Actor): string | null {
+    const d = s.composer!;
+    const kept = keepOthers(d, actor, () => d.copyOut(`${s.blockId.slice(0, 8)}-comment`));
+    d.replace(body, actor);
+    d.note = kept ? `${agentLabel(actor)} replaced the text · what ${kept.whose} had typed is at ${kept.at}` : "";
+    return kept?.at ?? null;
   }
 
   closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string } {
     const d = this.draft;
     if (!d) return { closed: false };
-    if (d.saving) throw new ActionRefused("the save is still landing");
+    if (d.busy) throw new ActionRefused("the save is still landing");
     let keptAt: string | undefined;
     if (d.dirty) {
       if (!discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (copied to disk first)");
@@ -499,11 +520,23 @@ export class NoteSurface {
   }
 
   env(host: SurfaceHost, actor: Actor) { return this.commentEnv(host, actor); }
-  markTyped(actor: Actor) { this.typedBy = actor.kind === "agent" ? `${agentLabel(actor)} typed this · it sends as the agent's` : null; }
-  closeSession() { this.session = null; this.typedBy = null; }
+  closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost) { return this.follow(i, host); }
   selectLink(i: number) { if (!this.links[i]) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`); this.link = i; }
   goUp(host: SurfaceHost) { return this.up(host); }
+}
+
+/** "yours", "an agent (x)'s", with anyone else who wrote part of it: how a save was recorded. */
+function recordedAs(by: Actor): string {
+  const whose = by.kind === "agent" ? `${agentLabel(by)}'s` : "yours";
+  return by.with?.length ? `${whose}, naming ${recordedActorId(by)}` : whose;
+}
+
+/** Copy a draft out before `actor` replaces it, when someone else changed it last. Who that was, and where. */
+function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; whose: string } | null {
+  const last = d.lastWriter;
+  if (!d.dirty || !last || sameParty(last, actor)) return null;
+  return { at: copy(), whose: last.kind === "user" ? "you" : agentLabel(last) };
 }
 
 // ── the actions ──────────────────────────────────────────────────────────────
@@ -540,15 +573,15 @@ const findThread = (s: CommentSession, id: string): number => {
 async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
   const d = surface.draft;
   if (!d) throw new ActionRefused("nothing is being edited here");
-  if (d.saving) throw new ActionRefused("the save is still landing");
+  if (d.busy) throw new ActionRefused("the save is still landing");
   const before = surface.msg?.revision;
-  await surface.save(host, actor);
+  const by = await surface.save(host, actor);
   if (surface.draft === d) {
     if (d.propertyWarned === d.text && d.note.startsWith("this save changes properties")) return { saved: false, warning: d.note, next: "edit.save again saves it" };
     throw new ActionRefused(d.conflict ? `${d.conflict} · ${d.note}` : d.note || "not saved");
   }
   surface.noteAgent(actor, "saved this note");
-  return { saved: true, revision: surface.msg?.revision, from: before };
+  return { saved: true, revision: surface.msg?.revision, from: before, recordedAs: by ? mutationFor(by) : undefined };
 }
 
 async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
@@ -579,7 +612,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     args: { text: { type: "string", about: "subject line, body and [key::value] properties" } },
     async run({ text }, { surface, host }, actor) {
       const d = await surface.ensureDraft(host);
-      if (d.saving) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused("the save is still landing");
       const kept = surface.setDraftText(d, text, actor);
       surface.noteAgent(actor, "is editing this note");
       host.redraw();
@@ -596,6 +629,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     args: {},
     async run(_, { surface, host }) {
       if (!surface.draft) throw new ActionRefused("nothing is being edited here");
+      if (surface.draft.busy) throw new ActionRefused("the save is still landing");
       await surface.reload(host);
       return { baseRevision: surface.draft?.base, note: surface.draft?.note };
     },
@@ -640,7 +674,9 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     },
     async run({ quote, near }, { surface, host }, actor) {
       const s = await surface.ensureSession(host, "select");
-      const p = s.passage!;
+      // Picking reads the note again; when that fails the session stays where it was, with the reason.
+      const p = s.mode === "select" ? s.passage : null;
+      if (!p) throw new ActionRefused(s.error ?? "the passage couldn't be picked: the note's current text wasn't read");
       if (quote !== undefined) { const why = p.selectText(quote, near); if (why) { p.note = why; host.redraw(); throw new ActionRefused(why); } }
       surface.noteAgent(actor, "is quoting a passage");
       host.redraw();
@@ -653,12 +689,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     async run({ body }, { surface, host }, actor) {
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
+      if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
       if (s.mode === "select") { const why = s.write(); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");
-      s.composer.replace(body);
-      surface.markTyped(actor);
+      const kept = surface.setComposerText(s, body, actor);
       host.redraw();
-      return { dirty: s.composer.dirty };
+      return { dirty: s.composer.dirty, keptYourDraftAt: kept ?? undefined };
     },
   },
   "comment.send": {
@@ -710,8 +746,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       const s = await on.surface.ensureSession(on.host, "threads");
       const why = s.replyTo(findThread(s, thread));
       if (why) throw new ActionRefused(why);
-      s.composer!.replace(body);
-      on.surface.markTyped(actor);
+      on.surface.setComposerText(s, body, actor);
       return sendComment(on.surface, on.host, actor);
     },
   },

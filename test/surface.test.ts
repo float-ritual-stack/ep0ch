@@ -15,7 +15,7 @@ import { Draft } from "../src/edit";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
 import { width } from "../src/style";
 import { ActionRefused, ActionSet, asActor, parseActArgs } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
@@ -25,6 +25,16 @@ import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
+const AGENT: Actor = { kind: "agent", id: "claude-7" };
+/** Run `f` with the door's state (where drafts are copied) in a throwaway directory. */
+async function withState<T>(f: (dir: string) => Promise<T> | T): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "ep0ch-state-")), was = process.env.EP0CH_STATE;
+  process.env.EP0CH_STATE = dir;
+  try { return await f(dir); } finally {
+    if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 const note = (text: string, over: Partial<Msg> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {}, ...over });
 
 describe("the surface without a service", () => {
@@ -35,12 +45,16 @@ describe("the surface without a service", () => {
   const TEXT = "Plan the allotment [stage::queued]\nBeans along the fence, squash by the compost.\n\n> [!note] Frost dates\n> Nothing out before mid May.\n\n- [ ] dig the bed\n- [ ] buy canes\n\n| crop | row |\n|---|---|\n| beans | 1 |";
 
   test("draws at any width a river column might have: reading, editing, quoting, writing a comment", () => {
-    for (const w of [14, 22, 30, 48]) {
+    for (const w of [8, 14, 22, 30, 48]) {
       const s = new NoteSurface(), h = host();
       s.show(note(TEXT), h);
       const views: [string, string[]][] = [["read", s.render(w, 20, h).lines]];
       s.draft = new Draft(s.msg!.id, 3, TEXT);
       views.push(["edit", s.render(w, 20, h).lines]);
+      // A long-lived note: the revision alone is wider than a narrow column.
+      s.draft = new Draft(s.msg!.id, 1_234_567_890, TEXT);
+      s.draft.changedElsewhere = true;
+      views.push(["edit at a large revision", s.render(w, 20, h).lines]);
       s.draft = null;
       s.session = new CommentSession(s.msg!, [], "select");
       s.session.passage!.selectText("squash by the compost");
@@ -114,6 +128,109 @@ describe("the surface without a service", () => {
     expect(() => agentActor("rm -rf /")).toThrow("an actor id");
   });
 
+  test("a save holds the draft still while the service previews its properties, and warns only for the text it read", async () => {
+    let answer: (p: Record<string, string>) => void = () => {};
+    const updates: string[] = [];
+    const h = host();
+    Object.assign(h.ctx.board, {
+      previewProperties: () => new Promise<Record<string, string>>(r => { answer = r; }),
+      update: async (id: string, text: string) => { updates.push(text); return note(text, { id, revision: 4 }); },
+    });
+    const s = new NoteSurface();
+    s.show(note("Plan the allotment [stage::queued]\nBeans."), h);
+    s.draft = new Draft(s.msg!.id, 3, s.msg!.text, { stage: "queued" });
+    for (const c of " soon") s.key(char(c), h);
+    const previewed = s.draft.text;
+    const saving = s.save(h);
+    expect(s.draft.busy).toBe(true);
+    expect(s.render(60, 10, h).lines.join("\n")).toContain("checking properties");
+    // While the answer is out, nothing changes or closes the draft: not the keys, not an agent.
+    s.key(char("!"), h); s.key({ kind: "esc" }, h); s.key({ kind: "esc" }, h);
+    const act = async (name: string, args: Record<string, unknown> = {}) => s.act(name, args, h, AGENT);
+    await expect(act("edit.text", { text: "Something else" })).rejects.toThrow("still landing");
+    await expect(act("edit.close", { discard: true })).rejects.toThrow("still landing");
+    await expect(act("edit.reload")).rejects.toThrow("still landing");
+    await expect(act("edit.save")).rejects.toThrow("still landing");
+    expect(s.draft?.text).toBe(previewed);
+    answer({});
+    await saving;
+    expect([s.draft?.propertyWarned, s.draft?.busy, updates]).toEqual([previewed, false, []]);
+    expect(s.draft?.note).toContain("-stage=queued");
+
+    // Had the text moved on under the preview anyway, the save is off and no warning is kept for it.
+    s.draft!.propertyWarned = null;
+    const again = s.save(h);
+    s.draft!.replace("Plan the allotment [stage::queued] later\nBeans.");
+    answer({});
+    await again;
+    expect([s.draft?.propertyWarned, updates]).toEqual([null, []]);
+  });
+
+  test("an agent writing a comment keeps the person's unsent text, and waits while a send is out", () => withState(async () => {
+    const h = host();
+    const s = new NoteSurface();
+    s.show(note("Water\nwater the ferns"), h);
+    s.session = new CommentSession(s.msg!, [], "select");
+    s.session.write();
+    for (const c of "Mine: daily?") s.key(char(c), h);
+    const r: any = await s.act("comment.write", { body: "Twice a week is enough." }, h, AGENT);
+    expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe("Mine: daily?\n");
+    expect(s.session.composer!.text).toBe("Twice a week is enough.");
+    expect(s.render(400, 12, h).lines.join("\n")).toContain(r.keptYourDraftAt);
+    // The agent's own text again: nothing of anyone else's to keep.
+    expect(await s.act("comment.write", { body: "Twice a week." }, h, AGENT)).toEqual({ dirty: true });
+    s.session.busy = "sending the comment...";
+    const act = async (name: string, args: Record<string, unknown>) => s.act(name, args, h, AGENT);
+    await expect(act("comment.write", { body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
+    await expect(act("comment", { quote: "ferns", body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
+    expect(s.session.composer!.text).toBe("Twice a week.");
+  }));
+
+  test("once an agent has typed, the person's later typing is still theirs: kept before an agent replaces it", () => withState(() => {
+    const s = new NoteSurface(), h = host();
+    s.show(note("Water the ferns\nTwice a week."), h);
+    const d = s.draft = new Draft(s.msg!.id, 3, s.msg!.text);
+    expect(s.setDraftText(d, "Water the ferns\nDaily.", AGENT)).toBeNull();
+    s.key({ kind: "end" }, h); for (const c of " (mine)") s.key(char(c), h);
+    expect(d.lastWriter).toEqual({ kind: "user" });
+    const typed = d.text;
+    const kept = s.setDraftText(d, "Water the ferns\nWeekly.", AGENT);
+    expect(readFileSync(kept!, "utf8")).toBe(typed + "\n");
+    expect(d.note).toContain("what you had typed is at");
+    // Another agent's text is kept from this one too.
+    expect(s.setDraftText(d, "Water the ferns\nNever.", { kind: "agent", id: "other-agent" })).not.toBeNull();
+    expect(d.writers.map(w => (w.kind === "agent" ? w.id : "you"))).toEqual(["claude-7", "you", "other-agent"]);
+  }));
+
+  test("a save is recorded as whoever wrote the draft; when several did, as the saver's naming the rest", () => {
+    const d = new Draft("x", 1, "Seed list");
+    expect(d.recordAs(AGENT)).toEqual(AGENT);                                      // nothing typed yet
+    d.key(char("s"));
+    expect(d.recordAs(AGENT)).toEqual({ kind: "user" });                           // the person's alone
+    const a = new Draft("x", 1, "Seed list");
+    a.replace("Seed list: beans", AGENT);
+    expect(a.recordAs({ kind: "user" })).toEqual(AGENT);                           // the agent's alone
+    a.key(char("!"));
+    expect(a.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["claude-7"] });
+    expect(a.recordAs(AGENT)).toEqual({ ...AGENT, with: [ACTOR_ID] });
+    // Navigation isn't writing.
+    const n = new Draft("x", 1, "one\ntwo");
+    for (const k of ["up", "down", "left", "right", "home", "end"] as const) n.key({ kind: k } as Key);
+    expect(n.writers).toEqual([]);
+  });
+
+  test("passage.select says why when the note couldn't be read again, instead of failing inside", async () => {
+    const h = host();
+    Object.assign(h.ctx.board, { get: async () => { throw new Error("socket closed"); } });
+    const s = new NoteSurface();
+    s.show(note("Water\nwater the ferns"), h);
+    s.session = new CommentSession(s.msg!, [], "threads");
+    const r = (async () => s.act("passage.select", { quote: "ferns" }, h, AGENT))();
+    await expect(r).rejects.toBeInstanceOf(ActionRefused);
+    await expect(r).rejects.toThrow("can't read the note's current revision");
+    expect(s.session.mode).toBe("threads");
+  });
+
   test("every note action has keys or says it's agent-only, and a summary", () => {
     const list = NOTE_ACTIONS.list();
     expect(list.map(a => a.name)).toEqual(expect.arrayContaining(["edit", "edit.text", "edit.save", "edit.close", "passage.select", "comment.write", "comment.send", "comment", "reply", "resolve", "link.follow"]));
@@ -133,9 +250,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
-  /** Who last changed a block, as the service's activity log recorded it. */
-  const lastBy = async (id: string) => {
-    const log = await other.request("activity.recent", { author: "agent", limit: 50 });
+  /** Who last changed a block, as the service's activity log recorded it (among `author`'s changes). */
+  const lastBy = async (id: string, author: "agent" | "user" = "agent") => {
+    const log = await other.request("activity.recent", { author, limit: 50 });
     const e = log.entries.find((x: any) => x.block.id === id);
     return e && [e.author, e.actorId];
   };
@@ -223,6 +340,73 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect((await current(cards.mine.id)).text).toBe("Turn the compost [stage::queued]\nEvery two weeks.");
   });
 
+  /** Open a fresh note in a detail and give that detail the keys, as a person would have it. */
+  const openFresh = async (text: string) => {
+    const m = await create(null, text);
+    await act("open", { id: m.id }, "detail");
+    const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
+    await until(() => pane.msg?.id === m.id && !pane.msg?.partial, "the note");
+    await act("focus", {}, reader);
+    return { id: m.id as string, pane, reader };
+  };
+  const type = (s: string) => { for (const c of s) key(char(c)); };
+
+  test("the person's typing after an agent's is copied out before the agent replaces it again", async () => {
+    const { pane, reader } = await openFresh("Water the ferns\nTwice a week.");
+    await act("edit.text", { text: "Water the ferns\nTwice a week, early." }, reader);
+    key({ kind: "end" }); type(" (mine)");
+    const typed = pane.draft!.text;
+    const r: any = await act("edit.text", { text: "Water the ferns\nDaily." }, reader);
+    expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe(typed + "\n");
+    expect(pane.draft!.note).toContain("what you had typed is at");
+    await act("edit.close", { discard: true }, reader);
+  });
+
+  test("a save is recorded as who wrote it, not who pressed save", async () => {
+    // The agent wrote it, the person saved it: the agent's.
+    const a = await openFresh("Mulch the roses\nIn autumn.");
+    await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.reader);
+    expect(a.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) typed this · it saves as the agent's");
+    key(ctrl("s"));
+    await until(() => !a.pane.draft, "the person's save");
+    expect(await lastBy(a.id)).toEqual(["agent", AS]);
+    expect(message()).toContain(`recorded as an agent (${AS})'s`);
+
+    // The person wrote it, the agent saved it: the person's.
+    const u = await openFresh("Net the currants\nBefore June.");
+    key(char("e")); await until(() => !!u.pane.draft, "the draft");
+    key({ kind: "end" }); type(" (birds)");
+    expect(await act("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
+    expect(await lastBy(u.id, "user")).toEqual(["user", ACTOR_ID]);
+
+    // Both wrote it: the saver's, and the actor id names both. The frame said so before the save.
+    const m = await openFresh("Prune the apple\nIn winter.");
+    await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.reader);
+    key({ kind: "end" }); type(" (me)");
+    expect(m.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) and you typed this · saved as whoever saves it, naming both");
+    key(ctrl("s"));
+    await until(() => !m.pane.draft, "the person's save");
+    expect(await lastBy(m.id, "user")).toEqual(["user", `${ACTOR_ID}+${AS}`]);
+    expect(message()).toContain(`recorded as yours, naming ${ACTOR_ID}+${AS}`);
+
+    // A comment the agent wrote and the person sent is the agent's; one they both wrote names both.
+    const commentOn = async (id: string, quote: string, body: string, more = "") => {
+      await act("open", { id }, "detail");
+      await act("passage.select", { quote }, id);
+      await act("comment.write", { body }, id);
+      await act("focus", {}, id);
+      const pane = B().details.find((p: ReaderPane) => p.msg?.id === id) as ReaderPane;
+      key({ kind: "end" }); type(more); key(ctrl("s"));
+      await until(() => pane.session?.mode === "threads" && !pane.session.busy, "the comment sent");
+      key({ kind: "esc" });
+      return threads(id);
+    };
+    let list = await commentOn(m.id, "Prune the apple", "Which branches?");
+    expect([list[0].block.author, list[0].block.actorId]).toEqual(["agent", AS]);
+    list = await commentOn(u.id, "Net the currants", "Which net?", " The fine one.");
+    expect([list[0].block.author, list[0].block.actorId, list[0].body]).toEqual(["agent", `${ACTOR_ID}+${AS}`, "Which net? The fine one."]);
+  });
+
   test("comment, reply, resolve: the same session the keys drive, authored by the agent", async () => {
     await act("open", { id: cards.beans.id }, "detail");
     const reader = `detail${B().active + 1}`;
@@ -266,6 +450,30 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await expect(act("card.move", { lane: "Compost" })).rejects.toThrow("no lane Compost");
     await expect(act("card.fly", {})).rejects.toThrow("no action card.fly");
     await expect(act("edit.save", {}, "detail9")).rejects.toThrow("no reader detail9");
+  });
+
+  test("an agent's card.select and card.move leave the person's keys where they are", async () => {
+    await settled();
+    const { reader } = await openFresh("Label the seed trays\nBefore sowing.");
+    const region = B().focus;
+    expect(region).toStartWith("detail");
+    expect(await act("card.select", { id: cards.gate.id })).toEqual({ selected: cards.gate.id });
+    expect(B().focus).toBe(region);
+    expect(await act("card.move", { lane: "Doing", card: cards.beans.id })).toMatchObject({ lane: "Doing" });
+    expect(B().focus).toBe(region);
+    // Giving the keys away is only ever an explicit action, and it says so.
+    expect(await act("focus", {}, "lanes")).toEqual({ focus: "lanes" });
+    expect(message()).toContain("an agent (test-agent-7) gave the keys to lanes");
+    await act("focus", {}, reader);
+    await settled();
+  });
+
+  test("an agent can't act in a drawer's reader while the drawer is shut", async () => {
+    expect(B().treeOpen).toBe(false);
+    expect(B().links).toBeFalsy();
+    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree isn't on screen; open it first (t opens the outline drawer)");
+    await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks isn't on screen");
+    expect(B().treePreview.msg).toBeNull();
   });
 
   test("the control socket: `actions` lists them, `act` runs them, as the agent that asked", async () => {

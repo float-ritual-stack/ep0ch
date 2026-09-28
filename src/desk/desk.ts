@@ -352,6 +352,11 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string }; "focus": Rec
   "focus": {
     summary: "give keys to reader=<pane number>", keys: "tab, 1-9, click",
     args: {},
-    run(_, { d, reader }) { if (!reader) throw new ActionRefused("focus needs reader=<pane number>"); return d.focusOn(reader); },
+    run(_, { d, reader }, actor) {
+      if (!reader) throw new ActionRefused("focus needs reader=<pane number>");
+      const r = d.focusOn(reader);
+      d.ctx.flash(`${agentLabel(actor)} gave the keys to reader ${r.focus}`);
+      return r;
+    },
   },
 });

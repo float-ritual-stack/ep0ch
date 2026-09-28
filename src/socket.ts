@@ -140,17 +140,30 @@ export const COMMENT_AUTHOR = "user";
  * Who a write is for: the person at the keys, or an agent driving the door through its control socket
  * (`ep0ch-door act`). An agent's writes are recorded as `author: agent` with its own actor id, never as
  * the person's, so the outline's activity and comment threads say honestly who did it.
+ *
+ * `with` names others who wrote part of what is being saved (a draft the person and an agent both typed
+ * into): the write stays the saver's, and its actor id names them all, `<saver>+<co-writer>…`.
  */
-export type Actor = { kind: "user" } | { kind: "agent"; id: string };
+export type Actor = ({ kind: "user" } | { kind: "agent"; id: string }) & { with?: string[] };
 export const USER: Actor = { kind: "user" };
 /** The actor id an agent gets when it doesn't name itself: `ep0ch-door:<hostname>:agent`. */
 export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
+/** One party's own id: an agent's, or the door's for the person at the keys. */
+export const actorIdOf = (actor: Actor): string => (actor.kind === "agent" ? actor.id : ACTOR_ID);
+/** The actor id a write records: the saver's, then anyone else who wrote part of it, joined by `+`. */
+export const recordedActorId = (actor: Actor): string => [actorIdOf(actor), ...(actor.with ?? [])].join("+");
 /** The `mutation` a write carries for `actor`. */
 export const mutationFor = (actor: Actor = USER) =>
-  actor.kind === "agent" ? { author: "agent" as const, actorId: actor.id } : EDIT_MUTATION;
-/** How a comment or reply is authored: a person's carries no actor id (the service allows one only on agent comments). */
+  actor.kind === "agent" || actor.with?.length ? { author: actor.kind, actorId: recordedActorId(actor) } : EDIT_MUTATION;
+/**
+ * How a comment or reply is authored. A person's alone carries no actor id: the service takes one only on
+ * agent comments. So one a person and an agent both wrote is recorded as `author: agent`, with an actor
+ * id naming both (the sender first), rather than as the person's with the agent left out.
+ */
 const annotationAuthor = (actor: Actor = USER) =>
-  actor.kind === "agent" ? { author: "agent", source: "agent", provenance: { actorId: actor.id } } : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
+  actor.kind === "agent" || actor.with?.length
+    ? { author: "agent", source: "agent", provenance: { actorId: recordedActorId(actor) } }
+    : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
 
 class Line {
   private buf = "";
