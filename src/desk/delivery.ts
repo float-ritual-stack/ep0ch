@@ -1215,6 +1215,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     return { lines: canvas.lines(), placements };
   }
 
+  /** `T` or a click on the outline drawer's `[ ] pin`: it joins the layout (pinned) or slides over again. */
+  private pinTree() { this.treePinned = !this.treePinned; this.treeOpen = this.treePinned || this.treeOpen; this.save(); this.redraw(); }
+  /** `B` or a click on the backlinks drawer's `[ ] pin`, as `pinTree`. */
+  private pinLinks() { this.linksPinned = !this.linksPinned; if (!this.links) this.showLinks(this.focus); this.save(); this.redraw(); }
+
   private frame(canvas: Canvas, r: Rect, region: Region, title: string, hint = "") {
     const on = this.focus === region;
     canvas.box(r, fg(on ? C.lcyan : C.blue), `${fg(on ? C.white : C.grey)}${title}`, on ? fg(C.dark) + hint : "");
@@ -1389,7 +1394,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     const count = L.items ? `${L.items.length} source${L.items.length === 1 ? "" : "s"}` : "…";
     const listW = Math.round(r.cols * 0.5);
     const listR: Rect = { ...r, cols: listW };
-    const inner = this.frame(canvas, listR, "backlinks", `backlinks · ${subject(L.target).slice(0, 50)} · ${count} ${fg(C.dark)}(from ${L.from})${this.linksPinned ? " · pinned" : ""}`, "⏎ open · alt⏎ new detail · B pin · esc");
+    const inner = this.frame(canvas, listR, "backlinks", `${pinBox(this.linksPinned)} · backlinks · ${subject(L.target).slice(0, 50)} · ${count} ${fg(C.dark)}(from ${L.from})`, `⏎ open · alt⏎ new detail · B ${this.linksPinned ? "unpin" : "pin"} · esc`);
+    this.rects.set("pin:backlinks", pinRect(listR));
     const items = L.items ?? [];
     const fit = Math.max(1, Math.floor(inner.rows / 2));
     if (L.sel < L.top) L.top = L.sel;
@@ -1416,7 +1422,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (overlay) canvas.clear(r, bg(C.black));
     const treeRows = r.rows >= 24 ? Math.round(r.rows * 0.6) : r.rows;
     const tr: Rect = { ...r, rows: treeRows };
-    const inner = this.frame(canvas, tr, "tree", `outline · ${this.treePinned ? "pinned" : "drawer"} · ${this.lay.treeSide}`, "⏎ open · T pin · S side · esc");
+    const inner = this.frame(canvas, tr, "tree", `${pinBox(this.treePinned)} · outline · ${this.lay.treeSide}`, `⏎ open · T ${this.treePinned ? "unpin" : "pin"} · S side · esc`);
+    this.rects.set("pin:tree", pinRect(tr));
     this.tree.render(inner.cols, inner.rows, this.focus === "tree", this).lines.slice(0, inner.rows)
       .forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
     if (treeRows < r.rows) {
@@ -1555,10 +1562,10 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.save(); return this.redraw();
     }
     if (c === "t") { this.treeOpen = !this.treeOpen || this.focus !== "tree"; this.focus = this.treeOpen ? "tree" : "lanes"; if (!this.treeOpen) this.treePinned = false; this.save(); return this.redraw(); }
-    if (c === "T") { this.treePinned = !this.treePinned; this.treeOpen = this.treePinned || this.treeOpen; this.save(); return this.redraw(); }
+    if (c === "T") return this.pinTree();
     if (c === "S") { this.lay.treeSide = this.lay.treeSide === "left" ? "right" : "left"; this.treeOpen = true; this.save(); return this.redraw(); }
     if (c === "b" && this.focus !== "backlinks") return this.showLinks(this.focus);
-    if (c === "B") { this.linksPinned = !this.linksPinned; if (!this.links) this.showLinks(this.focus); this.save(); return this.redraw(); }
+    if (c === "B") return this.pinLinks();
     if (c === "o") return this.popOut();
     if (c === "C") { this.collapsed.clear(); this.save(); return this.redraw(); }
     if (c === "x" && rd?.editing) return this.ctx.flash(`not closed: it holds ${sessionName(rd)} · e or ⏎ enters it`);
@@ -1682,6 +1689,9 @@ export class DeliveryBoard implements Screen, DeskApi {
       };
       const e = edgeHit();
       if (e) { this.drag = e; return; }
+      // A drawer's `[ ] pin` in its top border: the same toggle as T and B.
+      if (this.treeOpen && inside(this.rects.get("pin:tree"))) return this.pinTree();
+      if (this.links && inside(this.rects.get("pin:backlinks"))) return this.pinLinks();
       // The drawers' previews aren't areas of their own (yet): a click there doesn't reach what's under
       // them, but a link clicked in one opens in a detail (their previews follow the drawer's selection).
       if (this.treeOpen && inside(this.rects.get("tree-preview"))) return void this.clickReader(this.treePreview, this.rects.get("tree-preview")!, k);
@@ -1885,3 +1895,8 @@ export const BOARD_ACTIONS = new ActionSet<{
     run: ({ id }, { b }, actor) => b.restoreCard(id, actor),
   },
 });
+
+/** A drawer's pin as it's drawn at the start of its title: checked when it's part of the layout. */
+function pinBox(pinned: boolean) { return pinned ? "[x] pin" : "[ ] pin"; }
+/** Where `pinBox` lands: Canvas.box writes the title from col+2 after one space. */
+function pinRect(frame: Rect): Rect { return { col: frame.col + 3, row: frame.row, cols: 7, rows: 1 }; }

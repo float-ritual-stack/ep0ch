@@ -150,7 +150,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | Word | Meaning A | Meaning B | Use instead |
 |---|---|---|---|
 | Reader | BBS screen `Reader` `scr:256` | `ReaderPane` `pan:184` | "reader" = B only |
-| pin | Desk reader stops following `pan:234` | River column resists squeeze `riv:879` | hold/dock |
+| pin | Desk reader stops following `pan:234` | River column resists squeeze `riv:879` | **pin** = a drawer joins the layout (`T`, `B`, or its `[ ] pin`); the desk reader **holds** (`p hold`); a river column **docks** |
 | preview | Board reader following the card | Desk `/` search's right half `dsk:404` | A only |
 | detail | Door: a reader you opened (*Current*) | Outliner: the Detail pane | owner decides |
 | region | Board pane `del:31` | Outliner PreviewRegion (focusable item) | "pane" |
@@ -325,7 +325,7 @@ BBS = News, Conference and the BBS `Reader` together.
 | `x` | close detail or float | `^W x` close | close pane | — |
 | `o` | pop out float | `^W o` add pane | — | — |
 | `t` | outline drawer | `^W o t` add outline | — | `T` thread |
-| `p` | — | pin reader | dock column | `P` previous |
+| `p` | — | hold reader | dock column | `P` previous |
 | `f` | fold | fold | filter | — |
 | `alt+⏎` | second detail | — | duplicate column | — |
 | `q` | — | menu | "quote isn't here" | back |

@@ -184,11 +184,11 @@ export { propertyChange };
 export class ReaderPane implements Pane {
   readonly kind = "reader";
   readonly surface = new NoteSurface();
-  private pinned = false;
+  private held = false;
   /**
-   * `follows`: this reader shows the view's current note as it changes (the desk's readers), so `p` pins
-   * it to the note it shows. Readers that never follow (the board's preview, details, drawers and floats)
-   * have nothing to pin, so they don't offer it.
+   * `follows`: this reader shows the view's current note as it changes (the desk's readers), so `p` holds
+   * it on the note it shows. Readers that never follow (the board's preview, details, drawers and floats)
+   * have nothing to hold, so they don't offer it. ("Pin" is kept for a drawer joining the layout.)
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
@@ -203,22 +203,22 @@ export class ReaderPane implements Pane {
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   title() {
     const st = this.surface.state();
-    return ["reader", this.pinned ? "pinned" : "", st].filter(Boolean).join(" · ");
+    return ["reader", this.held ? "held" : "", st].filter(Boolean).join(" · ");
   }
-  hint() { return this.surface.hint(this.follows ? (this.pinned ? "p unpin · " : "p pin · ") : ""); }
+  hint() { return this.surface.hint(this.follows ? (this.held ? "p follow · " : "p hold · ") : ""); }
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
   host(desk: DeskApi): SurfaceHost {
     const h: SurfaceHost = {
       ctx: desk.ctx,
       redraw: () => desk.redraw(),
-      navigate: m => { if (this.pinned) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this }); },
+      navigate: m => { if (this.held) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this }); },
       summaryKeys: m => desk.summaryKeys?.(m),
     };
     return h;
   }
 
-  select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
+  select(m: Msg | null, desk: DeskApi) { if (!this.held) this.show(m, desk); }
   refresh(m: Msg) { this.surface.refresh(m); }
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
@@ -234,10 +234,10 @@ export class ReaderPane implements Pane {
   scrollKey(k: Key, desk: DeskApi) { return this.surface.scrollKey(k, this.host(desk)); }
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }
-  describe() { return { title: this.title(), pinned: this.pinned, ...this.surface.describe() }; }
+  describe() { return { title: this.title(), held: this.held, ...this.surface.describe() }; }
 
   key(k: Key, desk: DeskApi): boolean {
-    if (this.follows && !this.editing && ch(k) === "p") { this.pinned = !this.pinned; if (!this.pinned) this.show(desk.current, desk); desk.redraw(); return true; }
+    if (this.follows && !this.editing && ch(k) === "p") { this.held = !this.held; if (!this.held) this.show(desk.current, desk); desk.redraw(); return true; }
     return this.surface.key(k, this.host(desk));
   }
 

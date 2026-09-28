@@ -353,6 +353,31 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
   });
 
+  test("a drawer pins into the layout by T or by a click on its [ ] pin, and unpins the same way", async () => {
+    await settled();
+    B().focus = "lanes";
+    const drawn = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    const clickPin = () => {
+      const r = B().rects.get("pin:tree");
+      press({ kind: "mouse", action: "down", button: 0, x: r.col + 1, y: r.row });
+      press({ kind: "mouse", action: "up", button: 0, x: r.col + 1, y: r.row });
+    };
+    press({ kind: "char", ch: "t" });
+    expect(drawn()).toContain("[ ] pin · outline");          // a drawer: slides over, not pinned
+    expect(B().treePinned).toBe(false);
+    clickPin();
+    expect(B().treePinned).toBe(true);
+    expect(drawn()).toContain("[x] pin · outline");
+    expect(drawn()).toContain("T unpin");
+    clickPin();
+    expect(B().treePinned).toBe(false);
+    press({ kind: "char", ch: "T" });                         // the key is the same toggle
+    expect(B().treePinned).toBe(true);
+    press({ kind: "char", ch: "T" });
+    press({ kind: "esc" });
+    expect(B().treePinned).toBe(false);
+  });
+
   test("esc on a typed card asks twice; a click can't take the keys; an agent's create never touches it", async () => {
     await settled();
     B().focus = "lanes"; B().lane = laneIndex("Doing");
