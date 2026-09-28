@@ -79,7 +79,7 @@ export class NoteSurface {
   scroll = 0;
   private crumbs = "";
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
-  private notice = "";
+  notice = "";
   private links: Link[] = [];
   private unfold = false;
   private link = -1;
@@ -773,6 +773,7 @@ export class NoteSurface {
   env(host: SurfaceHost, actor: Actor) { return this.commentEnv(host, actor); }
   closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost) { return this.follow(i, host); }
+  clearLink() { this.link = -1; }
   selectLink(i: number) { if (!this.links[i]) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`); this.link = i; }
   goUp(host: SurfaceHost) { return this.up(host); }
 }

@@ -380,7 +380,9 @@ Bodies render with `src/doc.ts`:
 - **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
-- **Quote** needs write access, so it's not here.
+- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `c` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside, `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
+- **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action; `reader=` is a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. A note action in a compressed column is refused until it's focused.
+- **Quote** (a new note quoting this one) isn't here yet; `c` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
 cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
