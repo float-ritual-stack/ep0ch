@@ -4,12 +4,13 @@
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { C, fg, pad, RESET, width as vwidth } from "./style";
 import { wrap } from "./text";
+import { resolveLive } from "./live";
 
 const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 
 /** `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. */
-export function frame(title: string, body: string[], W: number): string[] {
+export function frame(title: string, body: string[], W: number, footer = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
@@ -21,7 +22,10 @@ export function frame(title: string, body: string[], W: number): string[] {
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + "·".repeat(left) + fg(ACCENT) + label + fg(DIM) + "·".repeat(right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  return [top, side(""), ...body.map(side), side(""), fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
+  const foot = footer ? ` ${[...footer].slice(0, Math.max(0, w - 8)).join("")} ` : "";
+  const fl = [...foot].length;
+  const bottom = fg(DIM) + "+" + "·".repeat(Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
+  return [top, side(""), ...body.map(side), side(""), footer ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
 }
 
 type Props = Record<string, any>;
@@ -153,6 +157,18 @@ export function renderGraph(kind: string, yaml: string, W: number): string[] {
   let props: Props = {};
   try { props = (Bun.YAML.parse(yaml) as Props) ?? {}; }
   catch (e) { return frame(kind, [fg(C.lred) + `bad YAML: ${(e as Error).message}` + RESET], W); }
+  // A block with query:/view: is answered from the outline now, not from copied values.
+  const live = resolveLive(kind, props);
+  if (live) {
+    if (live.error && !live.status) return frame(String(props.title ?? kind), [fg(C.lred) + live.error + RESET], W, "live");
+    if (live.waiting) return frame(String(props.title ?? kind), [fg(DIM) + "asking the outline…" + RESET], W, "live");
+    props = live.props;
+    const draw = KINDS[kind];
+    const body = draw ? draw(props, Math.max(10, W - 4)) : [];
+    if (live.error) body.push(fg(C.lred) + live.error + RESET);
+    if (!body.length) body.push(fg(DIM) + "no results" + RESET);
+    return frame(String(props.title ?? ""), body, W, live.status ?? "live");
+  }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
   try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4)), W); }

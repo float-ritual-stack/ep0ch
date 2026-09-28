@@ -5,6 +5,7 @@ import type { SocketBoard, OutlineEvent } from "./socket";
 import { bg, C, fg, pad, RESET } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
+import { invalidateLive, setLiveSource } from "./live";
 
 export interface Frame { lines: string[]; placements?: Placement[] }
 
@@ -59,6 +60,7 @@ export class App implements Ctx {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
+    setLiveSource(board, () => this.redraw());
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
   }
@@ -79,6 +81,7 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) {
     if (e.domain !== "content") return;
+    invalidateLive();
     this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();

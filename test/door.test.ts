@@ -141,3 +141,29 @@ test("a figure title wider than a narrow pane is shortened, and the frame keeps 
   expect(out[0]).toContain("…");
   expect(out[0]!.endsWith("+")).toBe(true);
 });
+
+import { invalidateLive, setLiveSource } from "../src/live";
+describe("live figures answer from the outline", () => {
+  const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  test("a query-backed check shows current state, and re-asks after the outline changes", async () => {
+    let stage = "waiting";
+    const block = (id: string, title: string, props: Record<string, string>) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
+    const fake: any = {
+      request: async (_a: string, p: any) => ({ blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.filters[0].key === "type"), completeness: { kind: "complete" } }),
+      toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: Object.fromEntries(b.properties.map((x: any) => [x.key, x.value])) })),
+    };
+    let redraws = 0;
+    setLiveSource(fake, () => redraws++);
+    const yaml = 'title: outbox\nquery: "type=outbox-item"\ndone: "outbox=done"\nnote: waiting-on';
+    expect(renderGraph("check", yaml, 60).map(strip).join("\n")).toContain("asking the outline");
+    await Bun.sleep(10);
+    let out = renderGraph("check", yaml, 60).map(strip).join("\n");
+    expect(out).toContain("[ ]  Nudge Sumit");
+    expect(out).toContain("live · 1 result");
+    stage = "done"; invalidateLive();
+    renderGraph("check", yaml, 60); await Bun.sleep(10);
+    out = renderGraph("check", yaml, 60).map(strip).join("\n");
+    expect(out).toContain("[x]  Nudge Sumit");
+    expect(redraws).toBeGreaterThanOrEqual(2);
+  });
+});

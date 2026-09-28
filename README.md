@@ -91,6 +91,14 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
   gantt, tree, table (`src/graphs.ts`). The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed
   the same way. Unknown kinds say so inside the frame.
+- **Live figures** (`src/live.ts`): give a figure `query: "type=outbox-item ticket=PC-762"` or `view: ((block-ref))`
+  instead of values, and the door answers it from the outline on every render, re-asking when the outline changes.
+  The note stores the question, so status lives in one place. Footer reads `live · N results`.
+  - `check`: `done: "outbox=done"` ticks rows, `note: waiting-on` adds a property line
+  - `stat`/`kpi`: each item takes its own `query`/`view`; the value is a live count
+  - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
+  - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
+  - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 

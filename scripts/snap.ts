@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -69,6 +69,21 @@ if (scenario === "doc") {
     return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => " " + (n[i] ?? "") + "\x1b[0m" + " ".repeat(Math.max(0, 48 - [...(n[i] ?? "").replace(/\x1b\[[\d;]*m/g, "")].length)) + "  " + (v[i] ?? "")) };
   }, key() {} } as any);
   await snap("1-doc", 4000);
+  board.close(); process.exit(0);
+}
+if (scenario === "live") {
+  const { ReaderPane } = await import("../src/desk/panes");
+  const text = ["Live figures", "", "::graph-check", "---", "title: PC-762 outbox", "query: \"type=outbox-item ticket=PC-762\"", "done: \"outbox=done\"", "note: waiting-on", "---", "::", "",
+    "::graph-stat", "---", "title: outbox now", "items:", "  - { label: drafts, query: \"type=outbox-item outbox=draft\" }", "  - { label: waiting, query: \"type=outbox-item outbox=waiting\" }", "  - { label: done, query: \"type=outbox-item outbox=done\" }", "---", "::", "",
+    "::graph-table", "---", "title: reply owed", "query: \"type=outbox-item outbox=waiting\"", "columns: [ticket, title, waiting-on, updated]", "headers: [Ticket, Message, \"Waiting on\", Sent]", "---", "::", "",
+    "::graph-rank", "---", "title: outbox by ticket", "query: \"type=outbox-item\"", "group: ticket", "---", "::", "",
+    "::graph-check", "---", "title: doing (saved view)", `view: ((${process.env.VIEW}))`, "note: ticket", "---", "::"].join("\n");
+  const pane = new ReaderPane();
+  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  app.push({ title: "live", render: (ctx: any) => ({ lines: pane.render(110, ctx.t.rows - 2, true, api).lines.map((l: string) => "  " + l) }), key() {} } as any);
+  await snap("1-asking", 200);
+  await snap("2-answered", 5000);
   board.close(); process.exit(0);
 }
 if (scenario === "float") {
