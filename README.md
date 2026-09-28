@@ -54,7 +54,7 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 | Pane | What it shows |
 |---|---|
 | outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow (or click it), `u` parent |
+| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow (or click it), `u` parent, `( ) f F` fold |
 | thread | the current block's children as replies, and its comment threads with quoted passages |
 | last callers · live | `activity.recent`, refreshed on outline events |
 | who's online | `clients.list`, with what each client is reading |
@@ -344,6 +344,32 @@ printed; they are in the **property panel**, one key away.
   its links and block-valued properties resolve in one `references.resolve`, asked again only when a
   change record names one of those blocks.
 
+### Folding
+
+Readers fold headings and nested lists the way Detail does (PIE-386). A heading folds everything through
+the next heading of the same or a higher level; a list item folds its nested items and continuation
+lines, keeping its own line. Each one shows its disclosure, `▾` open and `▸` folded
+(`▸ ## Beds · 7 lines folded`), and a click on it folds or unfolds. Folding is this reader's
+reading state: the note's text never changes, another reader can show the same note unfolded, and
+folds stay through live refreshes and edits elsewhere in the note. A fold whose heading or item is
+reworded or removed is dropped, so it never hides a different section; a heading with an anchor
+(`## Beds ^beds`) keeps its fold by the anchor, and a step keeps its fold when it's ticked. Repeated
+headings (two `## Notes`) are told apart by their order. Showing another note in the reader starts it
+unfolded.
+`#` lines in a code fence or a figure are text, not headings.
+
+| Keys | Action |
+|---|---|
+| `(` / `)` | select the previous / next heading or list item that folds (`▾`, yellow); the hint names it |
+| `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
+| `esc`, scrolling, `[ ]`, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail) |
+| `F` | fold every outermost section and list item; with anything folded, unfold everything |
+| click | a heading (anywhere on its line but a link, which opens), or a list item's `▾`/`▸`, folds or unfolds it; the frame and its scroll thumb don't |
+| `z` | unfold callouts that start folded (`[!x]-`); unchanged |
+
+Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
+`all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
+
 ### The property panel
 
 `i` in any reader (Detail's Props inspector), and on the board from the lanes too (the preview takes
@@ -378,7 +404,7 @@ Bodies render with `src/doc.ts`:
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
-  `[!x]-` starts folded, `z` unfolds.
+  `[!x]-` starts folded, `z` unfolds. Headings and list items fold too (see Folding).
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
 - **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
@@ -489,6 +515,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
 | `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
+| `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
 number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means
@@ -612,6 +639,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts props     # a roadmap-like card: summary line, panel (inline, full, edit, a refused edit, follow), every embed state
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes

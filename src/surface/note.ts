@@ -9,7 +9,7 @@
 import type { Ctx } from "../app";
 import { subject, type Msg } from "../board";
 import { CommentSession, type CommentEnv } from "../comment";
-import { renderDoc, type DocEnv } from "../doc";
+import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion } from "../embeds";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
@@ -64,14 +64,29 @@ const linkText = (l: Link, text: string, src: Source | null) => l.block
  * metadata (those are in the summary and the property panel), links as they read.
  */
 export function readableBody(m: Msg, embeds: boolean, src: Source | null, sink?: Link[]): string {
+  return presentLinks(readableSource(m, src).text, embeds, src, m.text, sink);
+}
+
+/**
+ * The readable body before its links are presented, line for line: `lines[i]` is the note line (from 0,
+ * the subject) body line i comes from, `anchors[i]` the fragment anchor read mode hid from it.
+ */
+export function readableSource(m: Msg, src: Source | null): { text: string; lines: number[]; anchors: (string | undefined)[] } {
   const tokens = tokensOf(m.text, src);
   const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
   let fenced = false;
-  const body = m.text.split("\n").filter((_, i) => i > 0 && !hidden.has(i))
+  const rows = m.text.split("\n").map((l, i) => ({ l, i })).filter(({ i }) => i > 0 && !hidden.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
-    .map(l => (/^\s*```/.test(l) ? ((fenced = !fenced), l) : fenced ? l : l.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, "")))
-    .join("\n").replace(/^\n+/, "");
-  return presentLinks(body, embeds, src, m.text, sink);
+    .map(({ l, i }) => {
+      if (/^\s*```/.test(l)) { fenced = !fenced; return { l, i }; }
+      const a = fenced ? null : l.match(/ \^([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/);
+      return a ? { l: l.slice(0, a.index), i, anchor: a[1] } : { l, i };
+    });
+  // Blank lines before the first line with text aren't drawn.
+  let lead = 0;
+  while (lead < rows.length - 1 && rows[lead]!.l === "") lead++;
+  const kept = rows.slice(lead);
+  return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)) };
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
@@ -102,6 +117,19 @@ export class NoteSurface {
   private hits: Hit[] = [];
   private unfold = false;
   private link = -1;
+  /**
+   * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
+   * text. Kept while the note refreshes or is edited elsewhere; cleared when the reader shows another note.
+   */
+  folded = new Set<string>();
+  /** The fold point `( )` selected (its key), which `f` and ⏎ fold or unfold. */
+  private foldSel: string | null = null;
+  /** Bring the selected fold point into view on the next render (after `( )` or a fold). */
+  private revealFold = false;
+  private foldsOf: string | null = null;
+  private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
+  /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[] } | null = null;
   /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
   draft: Draft | null = null;
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
@@ -164,8 +192,11 @@ export class NoteSurface {
     if (this.session) return this.session.hint();
     if (this.draft) return editHint(this.draft, { save: "save", reload: this.draft.conflict || this.draft.changedElsewhere ? "reload" : null });
     const l = this.links[this.link];
-    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`
-      : `${extra}[ ] links · i properties · z folds · u up · c comment · m comments`;
+    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
+    const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
+    const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
+    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next`; }
+    return `${extra}[ ] links · ( ) f folds · i properties · z callouts · u up · c comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -196,6 +227,7 @@ export class NoteSurface {
     if (this.session && m?.id !== this.session.blockId) return false;
     if (this.panel?.field && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSel = null; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.link = -1; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -236,6 +268,7 @@ export class NoteSurface {
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.hits = [];
     const m = this.msg;
+    this.drawn = null;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
@@ -277,18 +310,36 @@ export class NoteSurface {
     };
     // Transclusions: the target drawn the way this reader draws a note, without expanding its own embeds.
     const inner = (target: Msg, width: number) => renderDoc(readableBody(target, false, src), { ...env, width, graphics: false }).lines;
+    const { text: source, points, lines: noteLines } = this.foldsIn(m);
+    // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
+    const keys = new Set(points.map(p => p.key));
+    for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
+    if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
     // Every link drawn (the body's, an embed's title and results) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
-    const doc = renderDoc(readableBody(m, true, src, drawn), { ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn) });
-    // Media become followable links too: [ ] selects, ⏎ opens with the system viewer.
+    const doc = renderDoc(presentLinks(source, true, src, m.text, drawn), {
+      ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn),
+      folds: { points, folded: this.folded, selected: this.foldSel },
+    });
+    // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
+    // section aren't drawn, so they aren't links until it's unfolded.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
-    if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
+    if (this.links.filter(l => l.media).map(l => l.media).join("\n") !== mediaLinks.map(l => l.media).join("\n")) {
+      const sel = this.links[this.link];
+      this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
+      this.link = sel ? this.links.findIndex(l => (sel.media ? l.media === sel.media : l === sel)) : -1;
+    }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - head.length);
     this.maxScroll = Math.max(0, body.length - Math.max(1, room));
+    // The fold point just selected or folded stays in view.
+    const sel = this.revealFold ? doc.heads.find(x => x.key === this.foldSel) : undefined;
+    this.revealFold = false;
+    if (sel && room > 0) { if (sel.row < this.scroll) this.scroll = sel.row; else if (sel.row >= this.scroll + room) this.scroll = sel.row - room + 1; }
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines };
     const placements: Placement[] = [];
     for (const im of doc.images) {
       const top = im.line - this.scroll, bottom = top + im.rows;
@@ -694,14 +745,25 @@ export class NoteSurface {
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
-    if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
-    if (isDown(k)) { this.scroll++; host.redraw(); return true; }
-    if (k.kind === "pgdn" || c === " ") { this.scroll += 15; host.redraw(); return true; }
-    if (k.kind === "pgup") { this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
-    if (c === "]" || c === "[") { this.stepLink(c === "]" ? 1 : -1); host.redraw(); return true; }
+    // A fold point selected with ( ) is let go by esc and by moving on (scrolling, [ ], following, u), so
+    // ⏎ has its usual meaning again (in the board's preview: open the note in a detail).
+    if (k.kind === "esc" && this.foldSel) { this.foldSel = null; host.redraw(); return true; }
+    if (isUp(k)) { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
+    if (isDown(k)) { this.foldSel = null; this.scroll++; host.redraw(); return true; }
+    if (k.kind === "pgdn" || c === " ") { this.foldSel = null; this.scroll += 15; host.redraw(); return true; }
+    if (k.kind === "pgup") { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
+    if (c === "]" || c === "[") { this.stepLink(c === "]" ? 1 : -1); this.foldSel = null; host.redraw(); return true; }
     if (c === "z") { this.unfold = !this.unfold; host.redraw(); return true; }
-    if (k.kind === "enter" && this.links[this.link]) { void this.follow(this.link, host); return true; }
-    if (c === "u" && this.msg?.parentId) { void this.up(host); return true; }
+    if (k.kind === "enter" && this.links[this.link]) { this.foldSel = null; void this.follow(this.link, host); return true; }
+    if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { if (!this.stepFold(c === ")" ? 1 : -1)) host.ctx.flash("this note has no headings or nested lists to fold"); host.redraw(); return true; }
+    // ⏎ folds only a fold point the person selected and can see; otherwise it isn't the reader's.
+    if ((c === "f" || (k.kind === "enter" && this.selectedFold())) && this.msg && !this.msg.partial) {
+      const p = this.foldTargetAtKeys();
+      if (p) this.setFold(p, !this.folded.has(p.key)); else host.ctx.flash("nothing to fold here · ( ) pick a heading or a list item");
+      host.redraw(); return true;
+    }
+    if (c === "F" && this.msg && !this.msg.partial) { const n = this.foldAll(this.folded.size === 0); host.ctx.flash(n ? `${this.folded.size ? `folded ${n}` : `unfolded ${n}`}` : "this note has no headings or nested lists to fold"); host.redraw(); return true; }
+    if (c === "u" && this.msg?.parentId) { this.foldSel = null; void this.up(host); return true; }
     return false;
   }
 
@@ -717,7 +779,7 @@ export class NoteSurface {
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
     else if (this.session) return;
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
-    else this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3));
+    else { this.foldSel = null; this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
     host.redraw();
   }
 
@@ -738,9 +800,132 @@ export class NoteSurface {
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : k.kind === "home" ? -1e9 : k.kind === "end" ? 1e9 : 0;
     if (!by) return false;
+    this.foldSel = null;
     this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + by));
     host.redraw();
     return true;
+  }
+
+  // ── folds ──────────────────────────────────────────────────────────────────
+
+  /** The note's readable source, the note line each of its lines comes from, and its fold points. */
+  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[] } {
+    const r = readableSource(m, this.src);
+    const sig = r.text + "\0" + r.anchors.join("\0");
+    if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
+    return { text: r.text, lines: r.lines, points: this.foldCache.points };
+  }
+
+  /** The fold points drawn now: none inside a folded section or item. */
+  visibleFolds(m: Msg): FoldPoint[] {
+    const out: FoldPoint[] = [];
+    let hideTo = -1;
+    for (const p of this.foldsIn(m).points) {
+      if (p.line < hideTo) continue;
+      out.push(p);
+      if (this.folded.has(p.key)) hideTo = p.end;
+    }
+    return out;
+  }
+
+  /**
+   * Fold (or unfold) `p`. By the person's keys or click it becomes the selected fold point, kept in view;
+   * an agent's fold leaves their selection and scroll where they were.
+   */
+  setFold(p: FoldPoint, on: boolean, select = true) {
+    if (on) this.folded.add(p.key); else this.folded.delete(p.key);
+    if (select) { this.foldSel = p.key; this.link = -1; this.revealFold = true; }
+  }
+
+  /**
+   * Fold every outermost heading and list item, or unfold everything. How many changed. By the person's
+   * keys (`select`) their selection stays in view, or is let go when a fold hides it; an agent's leaves
+   * their selection and scroll where they were.
+   */
+  foldAll(on: boolean, select = true): number {
+    if (!on) { const n = this.folded.size; this.folded.clear(); if (select) this.revealFold = !!this.foldSel; return n; }
+    const all = this.msg ? this.foldsIn(this.msg).points : [];
+    const outer = all.filter(p => !all.some(q => q.line < p.line && p.line < q.end));
+    for (const p of outer) this.folded.add(p.key);
+    if (select && this.foldSel && !outer.some(p => p.key === this.foldSel)) this.foldSel = null;
+    return outer.length;
+  }
+
+  /**
+   * The fold point `( )` selected, while it's in view (drawn there, or about to be brought there by the
+   * next render): what ⏎ folds.
+   */
+  private selectedFold(): FoldPoint | null {
+    const m = this.msg, d = this.drawn;
+    if (!this.foldSel || !m || m.partial) return null;
+    const p = this.visibleFolds(m).find(p => p.key === this.foldSel);
+    if (!p || this.revealFold) return p ?? null;
+    const row = d?.doc.heads.find(h => h.key === p.key)?.row;
+    return d && row !== undefined && row >= d.scroll && row < d.scroll + d.room ? p : null;
+  }
+
+  /** `( )`: the previous or next fold point drawn (from the view when none is selected). False when there are none. */
+  private stepFold(d: 1 | -1): boolean {
+    const vis = this.visibleFolds(this.msg!);
+    if (!vis.length) return false;
+    const rowOf = (p: FoldPoint) => this.drawn?.doc.heads.find(h => h.key === p.key)?.row ?? 0;
+    let i = vis.findIndex(p => p.key === this.foldSel);
+    if (i >= 0) i = (i + d + vis.length) % vis.length;
+    else if (d === 1) { i = vis.findIndex(p => rowOf(p) >= this.scroll); if (i < 0) i = 0; }
+    else { const bottom = this.scroll + (this.drawn?.room ?? 0); i = vis.findLastIndex(p => rowOf(p) < bottom); if (i < 0) i = vis.length - 1; }
+    this.foldSel = vis[i]!.key; this.link = -1; this.revealFold = true;
+    return true;
+  }
+
+  /**
+   * What `f` folds: the selected fold point, or else the section being read (the innermost heading around
+   * the top of the view; failing that, the innermost list item there).
+   */
+  private foldTargetAtKeys(): FoldPoint | null {
+    const m = this.msg!;
+    const vis = this.visibleFolds(m);
+    const sel = vis.find(p => p.key === this.foldSel);
+    if (sel) return sel;
+    const d = this.drawn;
+    const top = d ? d.doc.source[d.scroll] ?? 0 : 0;
+    const around = vis.filter(p => p.line <= top && top < Math.max(p.end, p.line + 1));
+    return around.findLast(p => p.kind === "heading") ?? around.at(-1) ?? null;
+  }
+
+  /**
+   * A click in the reader, at column `x` and row `y` of what `render` returned, that isn't on a link: on a
+   * heading, or on a list item's mark, it folds or unfolds it. False when the click wasn't on one.
+   */
+  private clickFold(x: number, y: number, host: SurfaceHost): boolean {
+    const d = this.drawn, m = this.msg;
+    if (!d || !m || this.draft || this.session) return false;
+    const row = y - d.top;
+    // Only the surface's own cells: a host's frame and its scroll thumb (drawn on the border) never fold.
+    if (row < 0 || row >= d.room || x < 0 || x >= d.w) return false;
+    const h = d.doc.heads.find(x => x.row === d.scroll + row);
+    // The body is drawn one column in from the reader's edge.
+    if (!h || x > h.cols + 1) return false;
+    const p = this.foldsIn(m).points.find(p => p.key === h.key);
+    if (!p) return false;
+    this.setFold(p, !this.folded.has(p.key));
+    host.redraw();
+    return true;
+  }
+
+  /** The folds for `peek`: how many fold points, which are folded, and the one the keys selected. */
+  private describeFolds(m: Msg) {
+    const points = this.foldsIn(m).points, sel = points.find(p => p.key === this.foldSel);
+    return { points: points.length, folded: points.filter(p => this.folded.has(p.key)).map(foldLabel), selected: sel ? foldLabel(sel) : null };
+  }
+
+  /** The note line (from 0, the subject line) reader row `y` of the last render shows, or null off the note's body. */
+  sourceLineAt(y: number): number | null {
+    const d = this.drawn;
+    if (!d) return null;
+    const row = y - d.top;
+    if (row < 0 || row >= d.room) return null;
+    const body = d.doc.source[d.scroll + row];
+    return body === undefined ? null : d.lines[body] ?? null;
   }
 
   private stepLink(d: 1 | -1) {
@@ -758,8 +943,8 @@ export class NoteSurface {
    * A click in the last render (`x`, `y` in the surface's cells). While an edit, a comment or a value
    * being typed holds the surface, only a completion candidate takes it (chosen and inserted, as Enter
    * does). Otherwise a link opens where ⏎ on it would (and becomes the selected `[ ]` link when it is one
-   * of them); a property panel row is selected, and a click on its linked value follows it. False when
-   * nothing is there.
+   * of them); a property panel row is selected, and a click on its linked value follows it. Elsewhere on
+   * a heading, or on a list item's mark, it folds or unfolds it (clickFold). False when nothing is there.
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
@@ -769,7 +954,7 @@ export class NoteSurface {
     }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
     const h = at.find(h => "link" in h || h.follow) ?? at[0];
-    if (!h) return false;
+    if (!h) return this.clickFold(x, y, host);
     if ("prop" in h) {
       const m = this.msg, r = m && this.panel ? this.rows(m)[h.prop - 1] : undefined;
       if (!r || !this.panel) return false;
@@ -858,6 +1043,7 @@ export class NoteSurface {
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
+      folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
       properties: this.panel && this.msg ? {
         open: this.panel.full ? "full" : "inline", selected: this.panel.sel + 1, note: this.panel.note || null,
         editing: this.panel.field ? { n: this.panel.field.row.n, key: this.panel.field.row.key, text: this.panel.field.text, revision: this.panel.field.revision, changedElsewhere: this.panel.field.changedElsewhere, note: this.panel.field.note || null } : null,
@@ -962,6 +1148,9 @@ export class NoteSurface {
   goUp(host: SurfaceHost) { return this.up(host); }
 }
 
+/** `## Beds`, `- dig the bed`: a fold point as the hint, `peek` and the fold actions name it. */
+const foldLabel = (p: FoldPoint) => `${p.kind === "heading" ? "#".repeat(p.level) : "-"} ${printable(p.text)}`;
+
 /** A panel row as `peek` and the props actions report it. */
 const describeRow = (r: PropRow, src: Source | null, text: string) => ({
   n: r.n, key: r.key, value: r.value, scope: r.scope, ...(r.placement ? { placement: r.placement } : {}),
@@ -1015,6 +1204,74 @@ export interface NoteActionArgs {
   "props.close": Record<string, never>;
   "props.summary": { keys?: string; toggle?: string; reset?: boolean };
   "complete": { text?: string; insert?: number };
+  "folds": Record<string, never>;
+  "fold": FoldArgs & { all?: boolean };
+  "unfold": FoldArgs & { all?: boolean };
+  "fold.toggle": FoldArgs;
+}
+interface FoldArgs { text?: string; line?: number; n?: number }
+
+const FOLD_ARGS = {
+  text: { type: "string", optional: true, about: "a heading's or list item's text (## optional; a unique start is enough)" },
+  line: { type: "number", optional: true, about: "a line of the note (1 is the subject): the heading or item on it, or else the innermost one around it" },
+  n: { type: "number", optional: true, about: "which fold point, from 1, as folds lists them" },
+} as const;
+
+/** The fold point `text`, `line` or `n` names in the note the reader shows (the whole note, waited for). */
+async function foldTarget(surface: NoteSurface, { text, line, n }: FoldArgs): Promise<FoldPoint> {
+  const m = await surface.whole();
+  const { points, lines } = surface.foldsIn(m);
+  if ([text, line, n].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say which heading or list item: one of text=, line= or n= (folds lists them)");
+  if (!points.length) throw new ActionRefused("this note has no headings or nested lists to fold");
+  const listed = (ps: FoldPoint[]) => ps.slice(0, 8).map(p => `line ${lines[p.line]! + 1} ${foldLabel(p)}`).join("; ");
+  if (n !== undefined) {
+    const p = points[n - 1];
+    if (!p) throw new ActionRefused(`there is no fold point ${n}; the note has ${points.length} (folds lists them)`);
+    return p;
+  }
+  if (line !== undefined) {
+    const at = lines.indexOf(line - 1);
+    if (at < 0) throw new ActionRefused(line === 1 ? "line 1 is the subject; it doesn't fold" : `line ${line} isn't part of the note's readable body (it's past the end, or holds only properties)`);
+    const p = points.find(p => p.line === at) ?? points.filter(p => p.line < at && at < p.end).at(-1);
+    if (!p) throw new ActionRefused(`line ${line} isn't a heading or a list item with nested lines, nor inside one; the note's are: ${listed(points)}`);
+    return p;
+  }
+  const want = text!.trim().replace(/^(#{1,6}|[-*]|\d+[.)])\s+/, "").replace(/\s+/g, " ").toLowerCase();
+  const heading = /^#{1,6}\s/.test(text!.trim()) ? text!.trim().match(/^#+/)![0].length : null;
+  const pool = points.filter(p => heading === null || (p.kind === "heading" && p.level === heading));
+  // A task's box ([ ], [x]) needn't be said.
+  const reads = (p: FoldPoint) => [p.text.toLowerCase(), p.text.replace(/^\[.\]\s+/, "").toLowerCase()];
+  let hits = pool.filter(p => reads(p).includes(want));
+  if (!hits.length) hits = pool.filter(p => reads(p).some(r => r.startsWith(want)));
+  if (!hits.length) throw new ActionRefused(`no heading or list item reads ${JSON.stringify(text)}; the note's are: ${listed(points)}`);
+  if (hits.length > 1) throw new ActionRefused(`${hits.length} match ${JSON.stringify(text)} (${listed(hits)}); pass line= or n=`);
+  return hits[0]!;
+}
+
+/** What a fold action reports: the fold point, whether it's folded now, and every fold in the reader. */
+function foldResult(surface: NoteSurface, p: FoldPoint) {
+  const { points, lines } = surface.foldsIn(surface.msg!);
+  return {
+    n: points.indexOf(p) + 1, kind: p.kind, text: p.text, line: lines[p.line]! + 1, hidden: p.hidden, folded: surface.folded.has(p.key),
+    foldedNow: points.filter(q => surface.folded.has(q.key)).map(foldLabel),
+  };
+}
+
+/** fold, unfold: one fold point, or with all=true every outermost one (fold) or all of them (unfold). */
+async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolean }, { surface, host }: On, actor: Actor) {
+  if (all) {
+    if (Object.values(which).some(x => x !== undefined)) throw new ActionRefused("all=true folds or unfolds every one; leave out text, line and n");
+    const m = await surface.whole();
+    const changed = surface.foldAll(on, actor.kind === "user");
+    surface.noteAgent(actor, on ? "folded the note's sections" : "unfolded the whole note");
+    host.redraw();
+    return { changed, foldedNow: surface.foldsIn(m).points.filter(q => surface.folded.has(q.key)).map(foldLabel) };
+  }
+  const p = await foldTarget(surface, which);
+  surface.setFold(p, on, actor.kind === "user");
+  surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
+  host.redraw();
+  return foldResult(surface, p);
 }
 
 /**
@@ -1382,6 +1639,38 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       else { setUserSummaryKeys(reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
       const m = surface.msg;
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
+    },
+  },
+  "folds": {
+    summary: "list the note's fold points (headings, and list items with nested lines): which are folded, and the line each is on",
+    args: {},
+    async run(_, { surface }) {
+      const m = await surface.whole();
+      const { points, lines } = surface.foldsIn(m);
+      const shown = new Set(surface.visibleFolds(m).map(p => p.key));
+      return { folds: points.map((p, i) => ({ n: i + 1, kind: p.kind, level: p.level, text: p.text, line: lines[p.line]! + 1, hidden: p.hidden, folded: surface.folded.has(p.key), shown: shown.has(p.key) })) };
+    },
+  },
+  "fold": {
+    summary: "fold a heading (hiding through the next heading of its level or higher) or a list item (hiding its nested items and continuation lines); all=true folds every outermost one. Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
+    args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "fold every outermost heading and list item" } },
+    run: (args, on, actor) => runFold(true, args, on, actor),
+  },
+  "unfold": {
+    summary: "unfold a heading or list item; all=true unfolds everything", keys: "( ) then f or enter, click, F",
+    args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "unfold everything in this reader" } },
+    run: (args, on, actor) => runFold(false, args, on, actor),
+  },
+  "fold.toggle": {
+    summary: "fold a heading or list item, or unfold it if it's folded", keys: "f, enter, click",
+    args: FOLD_ARGS,
+    async run(args, { surface, host }, actor) {
+      const p = await foldTarget(surface, args);
+      const on = !surface.folded.has(p.key);
+      surface.setFold(p, on, actor.kind === "user");
+      surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
+      host.redraw();
+      return foldResult(surface, p);
     },
   },
 });

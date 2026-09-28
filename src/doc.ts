@@ -14,13 +14,99 @@ export interface DocEnv {
    * (inside an embed) the token stays text: embeds are never expanded recursively.
    */
   embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
+  /**
+   * The body's fold points (from `foldPoints` of the same body, line for line), which of them are folded,
+   * and the one selected by the keys. Without it nothing folds (an embed, a draft's preview).
+   */
+  folds?: { points: readonly FoldPoint[]; folded: ReadonlySet<string>; selected?: string | null };
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
-/** `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. */
-export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[]; links: LinkRange[] }
+/**
+ * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `source[r]`: the
+ * body line rendered row `r` comes from (the first line of a table, callout, fence or figure for all of its
+ * rows). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
+ * row, a list item's indent and mark).
+ */
+export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[] }
+
+/**
+ * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
+ * higher level) or a list item with nested items or continuation lines under it. `line` is its body
+ * line, `end` the line after the last it hides (trailing blank lines stay shown), `hidden` how many of
+ * those have text. `key` names it across edits elsewhere in the note: its anchor (`^beds`) when it has
+ * one, else its kind, level and text (without a step's box) with how many identical headings or items
+ * come before it, folding or not.
+ */
+export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
 
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 const inline = (s: string) => colourBody(s).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
+
+const HEADING = /^(#{1,6})\s+(.*)$/;
+const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
+const TASK_ID = / \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g;
+const indentOf = (l: string) => l.length - l.trimStart().length;
+
+/**
+ * The fold points of a body, computed from its source text (before links are presented, so a link's
+ * title arriving later never renames a fold). Headings and list markers inside a fence or a figure are
+ * text; a media line or a transclusion isn't a fold point. `anchors[i]` is line i's stable anchor, if any.
+ */
+export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
+  const src = body.split("\n");
+  // Which fence or figure each line is part of (the line that opened it), or -1 for plain structure.
+  const block: number[] = [];
+  let open = -1, kind: "fence" | "graph" | null = null;
+  src.forEach((l, i) => {
+    if (kind) { block.push(open); if (kind === "fence" ? /^\s*```/.test(l) : /^\s*::\s*$/.test(l)) kind = null; return; }
+    if (/^\s*```/.test(l)) { open = i; kind = "fence"; block.push(i); return; }
+    if (isGraphStart(l)) { open = i; kind = "graph"; block.push(i); return; }
+    block.push(-1);
+  });
+  const foldable = (i: number) => block[i] === -1 && !MEDIA_LINE.test(src[i]!) && !new RegExp(EMBED.source).test(src[i]!);
+  const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
+  const out: FoldPoint[] = [];
+  const seen = new Map<string, number>();
+  const add = (kind: FoldPoint["kind"], level: number, text: string, line: number, end: number) => {
+    const plain = text.replace(TASK_ID, "").trim().replace(/\s+/g, " ");
+    // A step's box ([ ] or [x]) isn't part of its name: ticking it keeps its fold. Every occurrence counts
+    // toward the ordinal, empty ones too, so an earlier `## Notes` gaining a body doesn't renumber this one.
+    const base = `${kind}:${level}:${plain.replace(/^\[.\]\s+/, "")}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    if (end <= line + 1) return;
+    const hidden = src.slice(line + 1, end).filter(l => l.trim()).length;
+    out.push({ key: anchors[line] ? `^${anchors[line]}` : `${base}#${n}`, kind, level, text: plain, line, end, hidden });
+  };
+  for (let i = 0; i < src.length; i++) {
+    if (!foldable(i)) continue;
+    const line = src[i]!;
+    const h = line.match(HEADING);
+    if (h) {
+      const level = h[1]!.length;
+      let j = i + 1;
+      while (j < src.length && !(block[j] === -1 && (src[j]!.match(HEADING)?.[1]!.length ?? 7) <= level)) j++;
+      add("heading", level, h[2]!, i, trim(i + 1, j));
+      continue;
+    }
+    const li = line.match(ITEM);
+    if (li) {
+      // Nested items and continuation lines are indented past the item's own marker; a fence or figure
+      // opened among them belongs to the item as a whole, however its lines are indented.
+      const indent = li[1]!.length;
+      let last = i;
+      for (let j = i + 1; j < src.length; j++) {
+        const l = src[j]!;
+        if (block[j]! > i && block[j]! <= last) { last = j; continue; }
+        if (!l.trim()) continue;
+        if (indentOf(l) > indent) { last = j; continue; }
+        break;
+      }
+      add("list", indent, li[3]!, i, last + 1);
+    }
+  }
+  return out;
+}
 
 const CALLOUT: Record<string, [string, number]> = {
   note: ["✎", C.lcyan], info: ["ℹ", C.lcyan], todo: ["☐", C.lcyan],
@@ -40,9 +126,27 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const W = Math.max(10, env.width);
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
-  const src = body.split("\n").map(l => l.replace(/ \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g, ""));
+  const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
+  const source: number[] = [], heads: Doc["heads"] = [];
+  const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
+  // Each row comes from the line its construct started on: rows pushed since then are filled in here.
+  let from = 0;
+  const mark = () => { while (source.length < out.length) source.push(from); };
   for (let i = 0; i < src.length; i++) {
+    mark();
+    from = i;
     const line = src[i]!;
+
+    // A heading or a list item the reader can fold: its disclosure, and nothing it hides when folded.
+    const fp = at.get(i);
+    if (fp && env.folds) {
+      const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
+      const rows = prose(line, W, { folded, selected, hidden: fp.hidden });
+      heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
+      out.push(...rows);
+      if (folded) i = fp.end - 1;
+      continue;
+    }
 
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
     const gk = isGraphStart(line);
@@ -165,21 +269,34 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
     out.push(...prose(line, W));
   }
+  mark();
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads };
 }
 
+/**
+ * How a fold point is drawn: every one shows its disclosure, a click target as much as a sign (▾ open,
+ * ▸ folded, with what it hides); the one the keys selected is yellow.
+ */
+interface Disclosure { folded: boolean; selected: boolean; hidden: number }
+const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidden === 1 ? "" : "s"} folded` + RESET;
+
 /** Blockquote, heading, list item or paragraph. */
-function prose(line: string, W: number): string[] {
+function prose(line: string, W: number, fold?: Disclosure): string[] {
   const out: string[] = [];
   if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
-  const h = line.match(/^(#{1,6})\s+(.*)$/);
-  if (h) return [fg(C.dark) + h[1] + " " + RESET + BOLD + fg(C.white) + h[2] + RESET];
-  const li = line.match(/^(\s*)([-*]|\d+[.)])\s+(.*)$/);
+  const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
+  const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
+  const h = line.match(HEADING);
+  if (h) return [(glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET + BOLD + fg(fold?.selected ? C.yellow : C.white) + h[2] + RESET + (fold?.folded ? foldedNote(fold) : "")];
+  const li = line.match(ITEM);
   if (li) {
-    const indent = li[1]!.length, mark = /\d/.test(li[2]!) ? li[2]! : "∙";
+    const indent = li[1]!.length, num = /\d/.test(li[2]!);
+    // A folded bullet becomes its disclosure; a number keeps its place with the disclosure after it.
+    const mark = num ? li[2]! + glyph : glyph || "∙";
     const lead = " ".repeat(indent) + mark + " ";
-    wrap(li[3]!, W - lead.length).forEach((l, k) => out.push((k ? " ".repeat(lead.length) : fg(C.lcyan) + lead + RESET) + inline(l)));
+    const rows = wrap(li[3]!, W - lead.length);
+    rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;
   }
   if (!line.trim()) return [""];

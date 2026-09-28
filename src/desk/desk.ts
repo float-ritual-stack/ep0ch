@@ -358,7 +358,8 @@ export class Desk implements Screen, DeskApi {
       if (!hit) return;
       this.focus = hit[0];
       const r = hit[1];
-      if (k.x > r.col && k.y > r.row) this.panes.get(hit[0])?.click?.(k.x - r.col - 1, k.y - r.row - 1, this);
+      // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
+      if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) this.panes.get(hit[0])?.click?.(k.x - r.col - 1, k.y - r.row - 1, this);
       return this.redraw();
     }
     if (hit && (k.action === "wheel-up" || k.action === "wheel-down")) this.panes.get(hit[0])?.wheel?.(k.action === "wheel-up" ? -1 : 1, this);
