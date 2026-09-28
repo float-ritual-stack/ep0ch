@@ -12,6 +12,8 @@ import { DeliveryBoard } from "./desk/delivery";
 import { Logon, MainMenu } from "./screens";
 import { DEFAULT_SOCKET, SocketBoard } from "./socket";
 import { Term } from "./term";
+import { controlClient, startControl } from "./control";
+import { Mirror } from "./mirror";
 
 const STATE = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door", "lastcall.json");
 
@@ -23,6 +25,7 @@ function writeLastCall(at: number) {
 }
 
 const args = process.argv.slice(2);
+if (["peek", "snap", "open"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 const deskFirst = args.includes("--desk");
 const riverFirst = args.includes("--river");
 const boardAt = args.indexOf("--board");
@@ -43,10 +46,16 @@ catch (e) {
 
 const term = new Term();
 await term.start();
+// Everything the terminal is sent also goes to a mirror, so `snap` can show exactly this screen.
+const mirror = new Mirror(term.info.cols, term.info.rows);
+const rawWrite = term.write;
+term.write = (s: string) => { rawWrite(s); mirror.write(s); };
+process.stdout.on("resize", () => mirror.resize(term.info.cols, term.info.rows));
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
 const app = new App(term, board, lastCall, () => {
   term.stop();
+  control?.close();
   board.close();
   writeLastCall(loggedOnAt);
   process.exit(0);
@@ -55,6 +64,8 @@ app.host = info.host;
 app.workspace = info.workspace;
 board.subscribe(e => app.event(e));
 process.on("SIGTERM", () => app.quit());
+let control: { close(): void } | null = null;
+startControl({ app, mirror, info: () => term.info }).then(c => { control = c; }, () => {});
 if (boardAt >= 0) { app.push(new MainMenu()); app.push(new DeliveryBoard(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])); }
 else if (riverFirst) { app.push(new MainMenu()); app.push(new River()); }
 else if (deskFirst) { app.push(new MainMenu()); app.push(new Desk()); }

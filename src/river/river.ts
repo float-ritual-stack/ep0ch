@@ -439,6 +439,12 @@ export class River implements Screen {
     return true;
   }
 
+  openBlock(m: Msg) { this.open(m, false); }
+
+  describe() {
+    return { kind: "river", focus: this.focus, columns: this.cols.map((c, i) => ({ n: i + 1, pinned: c.pinned, focused: i === this.focus, panes: c.panes.map(p => ({ title: this.titleOf(p), source: p.source, filter: filterText(p.filter), selected: this.flat(p)[p.sel]?.m.id ?? null })) })) };
+  }
+
   onEvent(e: OutlineEvent) {
     const id = e.blockId;
     if (id) for (const c of this.cols) for (const p of c.panes) {

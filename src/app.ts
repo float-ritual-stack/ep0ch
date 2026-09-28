@@ -37,6 +37,10 @@ export interface Screen {
   /** Called ~30×/s while it returns true (modem-speed reveals). */
   tick?(ctx: Ctx): boolean;
   onEvent?(e: OutlineEvent, ctx: Ctx): void;
+  /** What this screen shows, for agents (`ep0ch-door peek`). */
+  describe?(): unknown;
+  /** Put a block in front of the user (`ep0ch-door open <id>`). */
+  openBlock?(m: import("./board").Msg): void;
 }
 
 export class App implements Ctx {
@@ -78,6 +82,22 @@ export class App implements Ctx {
     this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();
+  }
+
+  describe() {
+    const s = this.stack.at(-1);
+    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, state: s?.describe?.() ?? null };
+  }
+
+  async openBlock(id: string): Promise<string> {
+    const m = await this.board.get(id);
+    if (!m) throw new Error(`no block ${id}`);
+    const s = this.stack.at(-1);
+    if (!s?.openBlock) throw new Error(`the ${s?.title ?? "current"} screen can't open blocks; open the board or desk first`);
+    s.openBlock(m);
+    this.flash(`an agent opened: ${m.text.split("\n")[0]!.slice(0, 60)}`);
+    this.redraw();
+    return m.id;
   }
 
   quit() {

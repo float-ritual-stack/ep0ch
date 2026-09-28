@@ -188,6 +188,9 @@ export class ReaderPane implements Pane {
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
 
+  /** Same note, new text: keep the scroll position and link selection. */
+  refresh(m: Msg) { if (this.msg?.id === m.id) this.msg = m; }
+
   show(m: Msg | null, desk: DeskApi) {
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
     this.links = m ? [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! })) : [];

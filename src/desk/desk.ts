@@ -10,7 +10,7 @@ import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { dividerAt, dock, dragTo, leaves, neighbour, place, remove, resize, split, type Dir, type Divider, type LNode, type Placed } from "./layout";
-import { makePane, type DeskApi, type Pane, type PaneKind } from "./panes";
+import { makePane, ReaderPane, type DeskApi, type Pane, type PaneKind } from "./panes";
 
 type Saved = { t: "leaf"; kind: PaneKind } | { t: "split"; dir: "row" | "col"; ratio: number; a: Saved; b: Saved };
 interface SavedDesk { root: Saved; focus: number }
@@ -80,7 +80,22 @@ export class Desk implements Screen, DeskApi {
 
   redraw() { this.ctx?.redraw(); }
 
-  onEvent(_e: OutlineEvent) { for (const p of this.panes.values()) p.onEvent?.(this); }
+  onEvent(e: OutlineEvent) {
+    for (const p of this.panes.values()) p.onEvent?.(this);
+    const id = e.blockId;
+    const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane);
+    if (id && readers.some(r => r.msg?.id === id)) this.ctx.board.get(id).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+  }
+
+  openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
+
+  describe() {
+    const order = leaves(this.root);
+    return {
+      kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
+      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined }; }),
+    };
+  }
 
   // ── drawing ────────────────────────────────────────────────────────────────
 

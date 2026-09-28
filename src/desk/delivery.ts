@@ -137,9 +137,31 @@ export class DeliveryBoard implements Screen, DeskApi {
     }, () => { l.items = []; });
   }
 
-  onEvent(_e: OutlineEvent) {
+  onEvent(e: OutlineEvent) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => this.loadLanes(), 1200);
+    // Any open reader showing the changed block re-reads it in place.
+    const id = e.blockId;
+    if (id && this.readers().some(r => r.msg?.id === id))
+      this.ctx.board.get(id).then(m => { if (m) { for (const r of this.readers()) r.refresh(m); this.redraw(); } }, () => {});
+  }
+
+  private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
+
+  openBlock(m: Msg) { this.current = m; this.openDetail(m, false); }
+
+  describe() {
+    const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
+    return {
+      kind: "board", hub: brief(this.hub), focus: this.focus,
+      lanes: this.lanes.map((l, i) => ({ name: l.name, count: l.items?.length ?? null, status: l.read?.status, truncated: l.read?.truncated, collapsed: this.collapsed.has(l.name), focused: i === this.lane, selected: brief(l.items?.[l.sel]) })),
+      preview: brief(this.preview.msg),
+      details: this.details.map((d, i) => ({ ...brief(d.msg), opensHere: i === this.active })),
+      floats: this.floats.map(f => ({ ...brief(f.pane.msg), rect: f.rect })),
+      tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg) },
+      backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
+      images: this.placed.length,
+    };
   }
 
   private card(): Msg | undefined { const l = this.lanes[this.lane]; return l?.items?.[l.sel]; }
