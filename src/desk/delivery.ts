@@ -4,7 +4,7 @@
 // Drawers slide over; nothing reflows unless it is pinned. Every border can be dragged.
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
-import { Canvas, type Rect } from "../canvas";
+import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
 import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
@@ -18,7 +18,7 @@ import { ago } from "../text";
 import { applyMove, describeChanges, planMove, type MovePlan } from "../move";
 import { matchesFilters, readView, type ViewRead } from "../views";
 import { holds } from "../query";
-import { ReaderPane, TreePane, type DeskApi, type Pane, type PaneKind } from "./panes";
+import { Entered, ReaderPane, sessionName, sessionStart, startSession, TreePane, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import { Draft } from "../edit";
 import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { createMisses, planCreate } from "../move";
@@ -70,6 +70,8 @@ export class DeliveryBoard implements Screen, DeskApi {
   private laneEdges: { a: number; b: number; x: number; rect: Rect }[] = [];
   private readerEdges: { a: number; b: number; x: number; area: Rect }[] = [];
   private focus: Region = "lanes";
+  /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
+  private entered = new Entered();
   private rects = new Map<string, Rect>();   // region → rect, plus "float-title:N", splitter lines
   private laneRects: { lane: number; rect: Rect; spine: boolean }[] = [];
   private drag: Drag | null = null;
@@ -385,10 +387,13 @@ export class DeliveryBoard implements Screen, DeskApi {
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     this.current = m;
+    // An agent's open gives the keys to the reader it opened, unless the person is in an edit, a comment
+    // or the property panel: that keeps them.
+    const keep = !!this.personIn();
     if (where === "preview") {
       if (!this.selectCard(m.id, false)) this.preview.show(m, this);
       if (this.preview.msg?.id !== m.id) throw new ActionRefused("the preview is holding an edit or a comment on another note");
-      this.focus = "preview";
+      if (!keep) this.focus = "preview";
     } else if (where === "detail" || where === "new-detail") {
       this.openDetail(m, where === "new-detail");
       if (this.details[this.active]?.msg?.id !== m.id) throw new ActionRefused("both details hold edits · save or close one first");
@@ -396,12 +401,14 @@ export class DeliveryBoard implements Screen, DeskApi {
       const pane = new ReaderPane(); pane.show(m, this);
       const W = this.ctx.t.cols, H = this.ctx.t.rows - 2, n = this.floats.length;
       this.floats.push({ pane, rect: { col: Math.round(W * 0.22) + n * 3, row: Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) } });
-      this.focus = `float${this.floats.length - 1}`;
+      if (keep) this.focus = this.regionOf(this.personIn()!) ?? this.focus;   // the float list moved under it
+      else this.focus = `float${this.floats.length - 1}`;
     } else {
       const r = this.pickReader(where);
       if (!r.pane.show(m, this)) throw new ActionRefused(`${r.name} is holding an edit or a comment on another note`);
-      if (r.region) this.focus = r.region;
+      if (r.region && !keep) this.focus = r.region;
     }
+    this.entered.follow(this.focusedReader());
     this.redraw();
     const r = this.namedReaders().find(x => x.region === this.focus) ?? this.namedReaders().find(x => x.pane.msg?.id === m.id);
     return { reader: r?.name ?? where, id: m.id };
@@ -409,6 +416,8 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   /** `focus`: which area keys go to — "lanes" or a reader. */
   focusOn(sel: string): { focus: string } {
+    // The person comes back to a session by moving to it: they enter it again with e or ⏎.
+    this.entered.clear();
     if (sel === "lanes") this.focus = "lanes";
     else {
       const r = this.pickReader(sel);
@@ -433,16 +442,24 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
-    // Selecting the card to move never takes the keys from the reader the person is in.
-    if (card && !this.selectCard(card, actor.kind !== "agent")) throw new ActionRefused(`no lane on the board lists ${card}`);
-    const c = this.card();
+    // An agent's move names its card without selecting it: the person's lane, selection, preview and
+    // keys stay where they are. (The person's own card.move, through the socket as `you`, selects it.)
+    let from = this.lane, c = this.card();
+    if (card) {
+      if (actor.kind === "agent") {
+        from = this.lanes.findIndex(l => l.items?.some(m => m.id === card || (card.length >= 8 && m.id.startsWith(card))));
+        c = from >= 0 ? this.lanes[from]!.items!.find(m => m.id === card || m.id.startsWith(card)) : undefined;
+        if (!c) throw new ActionRefused(`no lane on the board lists ${card}`);
+      } else if (!this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+      else { from = this.lane; c = this.card(); }
+    }
     if (!c) throw new ActionRefused("no card is selected");
     const want = lane.toLowerCase();
     const to = this.lanes.findIndex(l => l.name.toLowerCase() === want);
     if (to < 0) throw new ActionRefused(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
-    if (to === this.lane) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
+    if (to === from) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
     this.lastMove = null;
-    await this.moveTo(to, actor);
+    await this.moveTo(to, actor, { card: c, from });
     const r = this.lastMove as DeliveryBoard["lastMove"];
     if (!r) throw new ActionRefused("not moved");
     if (r.result.startsWith("refused")) throw new ActionRefused(r.result.replace(/^refused: /, ""));
@@ -503,10 +520,62 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.active = this.details.length - 1;
     }
     this.details[this.active]!.show(m, this);
-    if (!this.readerFor(this.focus)?.pane.editing) this.focus = `detail${this.active}`;
+    // Focus follows the note into its detail, unless the person is in an edit, comment or panel elsewhere.
+    if (!this.personIn()) this.focus = `detail${this.active}`;
     if (!this.treePinned) this.treeOpen = false;
     this.redraw();
   }
+
+  /**
+   * The reader whose area has focus: the preview, a detail or a float. The lanes, the outline drawer and
+   * the backlinks list are not readers (their previews follow them and never take keys).
+   */
+  private focusedReader(): ReaderPane | null {
+    const f = this.focus;
+    return f === "preview" || f.startsWith("detail") || f.startsWith("float") ? this.readerFor(f)?.pane ?? null : null;
+  }
+  /** The focused reader, when the person is in its edit, comment or property panel. */
+  private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
+  /** Where a docked or floating reader is now. */
+  private regionOf(p: ReaderPane): Region | null {
+    if (p === this.preview) return "preview";
+    const d = this.details.indexOf(p);
+    if (d >= 0) return `detail${d}`;
+    const f = this.floats.findIndex(x => x.pane === p);
+    return f >= 0 ? `float${f}` : null;
+  }
+
+  /**
+   * The person's key starts an edit, a comment or the property panel in `pane`: the keys go there at once
+   * (focus moves to it), and it is theirs once it opens, if they still want it by then: esc, or moving
+   * to another area, while the note is read means it doesn't open.
+   */
+  private start(pane: ReaderPane, kind: SessionKind) {
+    const region = this.regionOf(pane);
+    if (!region || !pane.msg) return;
+    this.focus = region;
+    if (region.startsWith("detail")) this.active = Number(region.slice(6));
+    if (pane.holdsKeys) return this.enterSession(pane);   // one is open already (an agent's): e enters it
+    const still = () => this.focusedReader() === pane;
+    const opened = (open: boolean) => {
+      if (open && still()) { this.entered.enter(pane); this.ctx.flash(`${this.labelOf(pane)} · ${pane.surface.state()} · ${pane.hint()}`); }
+      this.redraw();
+    };
+    this.redraw();
+    const r = startSession(pane, kind, this, still);
+    // A thread list whose comments are already read opens at once: the next key is already its.
+    if (r === true || pane.sessionOf()) opened(true);
+    else r.then(opened, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
+  }
+
+  /** e or ⏎ on a reader holding a session the person isn't in: now they are. */
+  private enterSession(pane: ReaderPane) {
+    this.entered.enter(pane);
+    this.ctx.flash(`in ${sessionName(pane)} · ${pane.hint()}`);
+    this.redraw();
+  }
+
+  private labelOf(p: ReaderPane): string { const r = this.regionOf(p); return (r && this.readerFor(r)?.label) ?? "reader"; }
 
   private readerFor(r: Region): { pane: ReaderPane; label: string } | null {
     if (r === "preview" || r === "lanes") return { pane: this.preview, label: "preview" };
@@ -541,8 +610,13 @@ export class DeliveryBoard implements Screen, DeskApi {
     const W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
     if (f.startsWith("float")) {
       const i = Number(f.slice(5)), fl = this.floats[i]!;
+      // Docking takes a detail's place when both are open: never one holding an edit or a comment.
+      if (this.details.length >= 2) {
+        const drop = this.details.findIndex(d => !d.editing);
+        if (drop < 0) return this.ctx.flash("not docked: both details hold edits or comments · save or close one first");
+        this.details.splice(drop, 1);
+      }
       this.floats.splice(i, 1);
-      if (this.details.length >= 2) this.details.shift();
       this.details.push(fl.pane);
       this.active = this.details.length - 1;
       this.focus = `detail${this.active}`;
@@ -584,8 +658,10 @@ export class DeliveryBoard implements Screen, DeskApi {
    * Move the selected card into lane `to` by patching the properties its query names. Keys, the mouse
    * and the `card.move` action all come here; `actor` is who the patch is recorded as.
    */
-  private async moveTo(to: number, actor: Actor = USER) {
-    const from = this.lane, card = this.card(), target = this.lanes[to];
+  private async moveTo(to: number, actor: Actor = USER, named?: { card: Msg; from: number }) {
+    const from = named?.from ?? this.lane, card = named?.card ?? this.card(), target = this.lanes[to];
+    // The person's move follows the card into its lane; an agent's leaves the person's selection alone.
+    const person = actor.kind !== "agent";
     if (!card || !target || to === from) return;
     const ctx = asActor(this.ctx, actor);
     const by = actor.kind === "agent" ? { by: actor.id } : {};
@@ -594,7 +670,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     const plan = planMove(card, target);
     if (plan.kind === "refused") { this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}`, ...by }; return ctx.flash(`can't move to ${target.name}: ${plan.reason}`); }
     if (plan.kind === "already") {
-      this.lane = to; target.want = card.id; this.loadLanes();
+      if (person) { this.lane = to; target.want = card.id; }
+      this.loadLanes();
       this.lastMove = { card: card.id, to: target.name, result: "already there", ...by };
       return ctx.flash(`already in ${target.name} · nothing to change`);
     }
@@ -606,9 +683,11 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}`, ...by };
       ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
       for (const r of this.readers()) r.refresh({ ...m, childIds: r.msg?.id === m.id ? r.msg.childIds : m.childIds });
-      if (this.lane === from) this.lane = to;           // follow the card unless the user already went elsewhere
-      target.want = card.id;
-      if (this.collapsed.delete(target.name)) this.save();   // a card moved into a spine should still be seen
+      if (person) {
+        if (this.lane === from) this.lane = to;           // follow the card unless the user already went elsewhere
+        target.want = card.id;
+        if (this.collapsed.delete(target.name)) this.save();   // a card moved into a spine should still be seen
+      }
       landed = true;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
@@ -1040,7 +1119,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     let x = area.col;
     docked.forEach((r, i) => {
       const w = i === docked.length - 1 ? area.col + area.cols - x : Math.max(12, Math.round((area.cols * ww[i]!) / wsum));
-      this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label, r.pane.hint(), 0);
+      this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label, undefined, 0);
       x += w;
       if (i < docked.length - 1) this.readerEdges.push({ a: i, b: i + 1, x, area: { col: area.col, row: laneH, cols: area.cols, rows: readersH } });
     });
@@ -1215,14 +1294,24 @@ export class DeliveryBoard implements Screen, DeskApi {
     canvas.text(r.col + 1, r.row + r.rows - 2, fg(S.busy ? C.grey : C.dark) + pad(` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}`, w) + RESET, w);
   }
 
-  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint(), layer = 0) {
-    const inner = this.frame(canvas, r, region, label, hint);
-    if (inner.cols < 4 || inner.rows < 1) return;
-    this.paneInto(canvas, inner, pane, region, layer);
+  /**
+   * A reader in its frame. The title says what holds it (editing, comments, properties) and, when the
+   * note is longer than the frame, how far down it is (`· 42%`), with a thumb on the right border.
+   */
+  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint?: string, layer = 0) {
+    const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+    const view = inner.cols >= 4 && inner.rows >= 1 ? pane.render(inner.cols, inner.rows, false, this) : null;
+    const on = this.focus === region, base = fg(on ? C.white : C.grey);
+    const state = pane.surface.state();
+    const held = pane.holdsKeys && !this.entered.in(pane);
+    const title = `${label}${state ? `${fg(C.yellow)} · ${state}${held ? fg(C.dark) + " (e enters)" : ""}${base}` : ""}${overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : ""}`;
+    this.frame(canvas, r, region, title, hint ?? (held ? "e ⏎ enter · j k scroll" : pane.hint()));
+    if (!view) return;
+    this.paneInto(canvas, inner, pane, region, layer, view);
+    if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(on ? C.lcyan : C.cyan));
   }
 
-  private paneInto(canvas: Canvas, inner: Rect, pane: ReaderPane, key: string, layer: number) {
-    const view = pane.render(inner.cols, inner.rows, false, this);
+  private paneInto(canvas: Canvas, inner: Rect, pane: ReaderPane, key: string, layer: number, view: PaneView = pane.render(inner.cols, inner.rows, false, this)) {
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
     for (const p of view.placements ?? [])
       this.placed.push({ layer, p: { ...p, key: `${key}:${p.key}`, col: inner.col + p.col, row: inner.row + p.row, cols: Math.min(p.cols, inner.cols - p.col), rows: Math.min(p.rows, inner.rows - p.row) } });
@@ -1249,6 +1338,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     // Its own preview, following the selected source.
     const pr: Rect = { col: r.col + listW, row: r.row, cols: r.cols - listW, rows: r.rows };
     canvas.box(pr, fg(C.blue), fg(C.grey) + "backlink preview");
+    this.rects.set("links-preview", pr);
     const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
     const snip = items[L.sel]?.snippet;
     if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`"${snip}"`, pin.cols) + RESET, pin.cols);
@@ -1266,6 +1356,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (treeRows < r.rows) {
       const pr: Rect = { col: r.col, row: r.row + treeRows, cols: r.cols, rows: r.rows - treeRows };
       canvas.box(pr, fg(C.blue), fg(C.grey) + "outline preview");
+      this.rects.set("tree-preview", pr);
       const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
       this.paneInto(canvas, pin, this.treePreview, "treepv", this.treePinned ? 0 : 2);
     }
@@ -1284,7 +1375,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     for (let y = r.row + 1; y <= Math.min(H - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
     canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, W - r.col - 1))) + RESET, W);
     const title = `${fg(C.yellow)}⧉ ${f.pane.msg ? subject(f.pane.msg).slice(0, r.cols - 12) : "float"}`;
-    this.drawReader(canvas, r, `float${i}`, f.pane, title, "drag title · drag ◢ · o dock · x close", 3 + i);
+    this.drawReader(canvas, r, `float${i}`, f.pane, title, f.pane.holdsKeys ? undefined : "drag title · drag ◢ · o dock · x close", 3 + i);
     canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     this.rects.set(`float-title:${i}`, { col: r.col, row: r.row, cols: r.cols, rows: 1 });
     this.rects.set(`float-corner:${i}`, { col: r.col + r.cols - 2, row: r.row + r.rows - 2, cols: 2, rows: 2 });
@@ -1304,6 +1395,14 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.mover) return pad(paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched"), W);
     if (this.composer) return pad(fg(C.dark) + " " + editHint(this.composer.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET, W);
     if (this.steps) return pad(paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read"), W);
+    // A reader holding an edit, a comment or the property panel: what it is, and how to get in or out.
+    const rd = this.focusedReader();
+    if (rd?.holdsKeys) {
+      const where = `${this.labelOf(rd)} · ${rd.surface.state()}`;
+      return this.entered.in(rd)
+        ? pad(paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET, W)
+        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)} · |15j k|08 scroll · |15tab|08 area · |15esc|08 lanes`), W);
+    }
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
       ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
@@ -1324,16 +1423,33 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   key(k: Key, ctx: Ctx) {
-    // An open edit takes every key, board shortcuts included, until it is saved or closed.
-    const editing = this.readerFor(this.focus)?.pane;
-    if (editing?.editing) {
-      // Clicks can't move focus off an open edit; that would strand it where no key reaches it.
-      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
-      editing.key(k, this); return;
-    }
-    // The property panel takes the keys it uses (Tab, y, o, e) before the board's own; clicks still pass.
-    if (editing?.holdsKeys && k.kind !== "mouse") { editing.key(k, this); return; }
+    this.keyIn(k, ctx);
+    // Moving to another area leaves a session: coming back, e or ⏎ enters it again.
+    this.entered.follow(this.focusedReader());
+  }
+
+  private keyIn(k: Key, ctx: Ctx) {
+    // Only the focused reader's session can take keys (never the preview's while the lanes have focus),
+    // and only one the person is in (PIE-411).
+    const rd = this.focusedReader();
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    if (rd?.holdsKeys) {
+      if (this.entered.in(rd)) {
+        // Every key is the edit's, comment's or panel's, board shortcuts included, until it's closed. The
+        // wheel still scrolls whatever is under the pointer. A click can't move focus off an open edit
+        // (esc leaves it); with only the property panel open, clicks pass.
+        if (k.kind !== "mouse") { rd.key(k, this); return; }
+        if (rd.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
+          return;
+        }
+      } else if (k.kind !== "mouse") {
+        // One the person isn't in (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn
+        // scroll the reader, and the board's keys keep working. None of its own keys get here.
+        if (c === "e" || k.kind === "enter") return this.enterSession(rd);
+        if (rd.scrollKey(k, this)) return;
+      }
+    }
     // A card or note being written holds every key, like an edit; a click can't take focus from it.
     if (this.composer) {
       if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the new card first · ctrl+s creates · esc closes"); return; }
@@ -1376,6 +1492,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (c === "B") { this.linksPinned = !this.linksPinned; if (!this.links) this.showLinks(this.focus); this.save(); return this.redraw(); }
     if (c === "o") return this.popOut();
     if (c === "C") { this.collapsed.clear(); this.save(); return this.redraw(); }
+    if (c === "x" && rd?.editing) return this.ctx.flash(`not closed: it holds ${sessionName(rd)} · e or ⏎ enters it`);
     if (c === "x" && this.focus.startsWith("detail")) {
       this.details.splice(Number(this.focus.slice(6)), 1);
       this.active = Math.max(0, this.details.length - 1);
@@ -1406,8 +1523,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.focus === "lanes") return this.laneKey(k, c);
     if (this.focus === "tree") { this.tree.key(k, this); return; }
     if (this.focus === "backlinks") return this.linksKey(k, c);
-    const rd = this.readerFor(this.focus);
-    if (rd && !rd.pane.key(k, this) && k.kind === "enter" && rd.pane === this.preview && this.preview.msg) this.openDetail(this.preview.msg, false);
+    if (!rd || rd.holdsKeys) return;
+    const start = sessionStart(k);
+    if (start) return this.start(rd, start);
+    if (!rd.key(k, this) && k.kind === "enter" && rd === this.preview && this.preview.msg) this.openDetail(this.preview.msg, false);
   }
 
   private laneKey(k: Key, c: string) {
@@ -1416,8 +1535,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     const n = l?.items?.length ?? 0;
     if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
     else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
-    else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
-    else if ((c === "i" || c === "I") && this.preview.msg) { this.focus = "preview"; this.preview.surface.openPanel(c === "I"); return this.redraw(); }
+    // e, ctrl+e, i, I edit or open the properties of the selected card in the preview, which takes the keys.
+    else if ((c === "e" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) return this.start(this.preview, sessionStart(k)!);
     else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
     else if (c === "m") return this.openMover();
     else if (c === "n") return this.openCardComposer();
@@ -1491,6 +1610,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       };
       const e = edgeHit();
       if (e) { this.drag = e; return; }
+      // The drawers' previews aren't areas of their own (yet): a click there doesn't reach what's under them.
+      if ((this.treeOpen && inside(this.rects.get("tree-preview"))) || (this.links && inside(this.rects.get("links-preview")))) return;
       const order: Region[] = ["tree", "backlinks", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
       const region = order.find(r => inside(this.rects.get(r)) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
       if (region) {
@@ -1527,7 +1648,9 @@ export class DeliveryBoard implements Screen, DeskApi {
       const dir = (k.action === "wheel-up" ? -1 : 1) as 1 | -1;
       if (floatHit !== undefined) return this.floats[floatHit]!.pane.wheel(dir, this);
       if (this.treeOpen && inside(this.rects.get("tree"))) return this.tree.wheel(dir, this);
+      if (this.treeOpen && inside(this.rects.get("tree-preview"))) return this.treePreview.wheel(dir, this);
       if (this.links && inside(this.rects.get("backlinks"))) { const L = this.links; L.sel = clamp(L.sel + dir, 0, Math.max(0, (L.items?.length ?? 1) - 1)); this.previewLink(); return this.redraw(); }
+      if (this.links && inside(this.rects.get("links-preview"))) return this.linksPreview.wheel(dir, this);
       for (const r of ["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]) if (inside(this.rects.get(r))) return this.readerFor(r)!.pane.wheel(dir, this);
       const hit = this.laneRects.find(l => inside(l.rect));
       if (hit && !hit.spine) { const l = this.lanes[hit.lane]!; l.sel = clamp(l.sel + dir, 0, Math.max(0, (l.items?.length ?? 1) - 1)); if (hit.lane === this.lane) this.follow(); this.redraw(); }

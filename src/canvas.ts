@@ -5,6 +5,13 @@ import { RESET } from "./style";
 
 interface Cell { ch: string; sgr: string }
 export interface Rect { col: number; row: number; cols: number; rows: number }
+/** Where a view is in its content: the first line shown, how many fit, how many there are. */
+export interface Scroll { top: number; room: number; total: number }
+
+/** The content is longer than the view: its frame shows a thumb and how far down it is. */
+export const overflows = (s: Scroll | null | undefined): s is Scroll => !!s && s.total > s.room;
+/** `42%`: how much has been read by the bottom of the view, as the message reader (screens.ts) says it. */
+export const scrollPct = (s: Scroll) => `${Math.round((Math.min(s.top + s.room, s.total) / s.total) * 100)}%`;
 
 const SGR = /(\x1b\[[\d;]*m)/;
 
@@ -49,6 +56,15 @@ export class Canvas {
     put(r.col, r.row, "┌"); put(right, r.row, "┐"); put(r.col, bottom, "└"); put(right, bottom, "┘");
     if (title) this.text(r.col + 2, r.row, ` ${title} `, r.cols - 4);
     if (hint) this.text(r.col + 2, bottom, ` ${hint} `, r.cols - 4);
+  }
+
+  /** A scroll thumb on the right border of box `r`: its length is the share in view, its place how far down. */
+  thumb(r: Rect, s: Scroll, sgr: string): void {
+    const track = r.rows - 2;
+    if (track < 1 || !overflows(s)) return;
+    const size = Math.max(1, Math.min(track, Math.round((track * s.room) / s.total)));
+    const pos = Math.round((track - size) * Math.min(1, Math.max(0, s.top / (s.total - s.room))));
+    for (let i = 0; i < size; i++) this.text(r.col + r.cols - 1, r.row + 1 + pos + i, sgr + "█" + RESET, 1);
   }
 
   lines(): string[] {

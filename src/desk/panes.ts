@@ -3,6 +3,7 @@ import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
 import { subject, type Caller, type Msg } from "../board";
+import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import type { Activity, Actor, Comment } from "../socket";
@@ -12,7 +13,7 @@ import type { Key } from "../term";
 import { ago, wrap } from "../text";
 
 export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art";
-export interface PaneView { lines: string[]; placements?: Placement[] }
+export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
   ctx: Ctx;
@@ -216,11 +217,15 @@ export class ReaderPane implements Pane {
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView { return this.surface.render(w, h, desk && this.host(desk)); }
-  edit(desk: DeskApi, external = false) { return this.surface.edit(this.host(desk), external); }
+  edit(desk: DeskApi, external = false, still?: () => boolean) { return this.surface.edit(this.host(desk), external, still); }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
   onEvent(desk: DeskApi) { this.surface.onEvent(this.host(desk)); }
-  comment(desk: DeskApi, mode: "select" | "threads") { return this.surface.comment(this.host(desk), mode); }
+  comment(desk: DeskApi, mode: "select" | "threads", still?: () => boolean) { return this.surface.comment(this.host(desk), mode, still); }
+  /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
+  sessionOf() { return this.surface.sessionOf(); }
+  /** j k, arrows, PgUp PgDn, space, Home End scroll the note, whatever holds the reader (see NoteSurface.scrollKey). */
+  scrollKey(k: Key, desk: DeskApi) { return this.surface.scrollKey(k, this.host(desk)); }
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }
   describe() { return { title: this.title(), pinned: this.pinned, ...this.surface.describe() }; }
@@ -231,6 +236,53 @@ export class ReaderPane implements Pane {
   }
 
   wheel(dir: 1 | -1, desk: DeskApi) { this.surface.wheel(dir, this.host(desk)); }
+}
+
+// ── which reader session the person is in (PIE-411) ──────────────────────────
+
+/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, c quote, m threads, i / I properties. */
+export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
+export function sessionStart(k: Key): SessionKind | null {
+  if (k.kind !== "char") return null;
+  if (k.ctrl) return k.ch === "e" ? "external" : null;
+  return k.ch === "e" ? "edit" : k.ch === "c" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+}
+
+/**
+ * Start a session by the person's key. An edit or a comment reads the note first; `still` says, once it
+ * has, whether they still want it (they may have pressed esc or moved to another area meanwhile), and if
+ * not nothing opens. True (at once for the panel, or once read) when the reader holds a session.
+ */
+export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi, still: () => boolean): true | Promise<boolean> {
+  // The property panel opens at once, so the next key is already its.
+  if (kind === "props" || kind === "props-full") { pane.surface.openPanel(kind === "props-full"); desk.redraw(); return true; }
+  const opening = kind === "edit" || kind === "external" ? pane.edit(desk, kind === "external", still) : pane.comment(desk, kind, still);
+  return opening.then(() => pane.sessionOf() !== null);
+}
+
+/** "the edit", "an agent's (claude-7) edit", "the comment", "the property panel": for hints and flashes. */
+export function sessionName(p: ReaderPane): string {
+  const s = p.surface;
+  const what = s.draft ? "edit" : s.session ? "comment" : "property panel";
+  const typed = s.draft?.writers ?? s.session?.composer?.writers ?? [];
+  const agents = [...new Set(typed.filter(w => w.kind === "agent").map(w => (w as { id: string }).id))];
+  return agents.length ? `an agent's (${agents.join(", ")}) ${what}` : `the ${what}`;
+}
+
+/**
+ * The reader session (edit, comment, property panel) the person is in. Only that one takes their keys: one
+ * they opened by key is entered as it opens; one an agent opened, or theirs after they moved to another
+ * area, is entered with e or ⏎. Until then the host's keys keep working and j k PgDn scroll the reader,
+ * so an agent's session never takes the person's keys (the river does the same, PIE-407).
+ */
+export class Entered {
+  private at: { pane: ReaderPane; of: object } | null = null;
+  /** The person is in `p`'s current session. */
+  in(p: ReaderPane | null | undefined): boolean { const e = this.at; return !!p && !!e && e.pane === p && e.of === p.sessionOf(); }
+  enter(p: ReaderPane) { const of = p.sessionOf(); this.at = of ? { pane: p, of } : null; }
+  clear() { this.at = null; }
+  /** Focus is on `p` now: a session anywhere else is left (entering it again takes e or ⏎). */
+  follow(p: ReaderPane | null | undefined) { if (this.at && this.at.pane !== p) this.at = null; }
 }
 
 // ── thread: replies (children) and comment threads ───────────────────────────
