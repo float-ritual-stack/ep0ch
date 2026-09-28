@@ -133,3 +133,11 @@ describe("mdxcn figures and callouts", () => {
     expect(lines.join(" ")).toContain("no reply yet.");
   });
 });
+
+test("a figure title wider than a narrow pane is shortened, and the frame keeps both borders", () => {
+  const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  const out = renderGraph("check", 'title: "PC-762 path to prod"\nitems:\n  - { label: "PR 1 and PR 2 merged", done: true }', 24).map(strip);
+  expect(out.every(l => [...l].length === 24)).toBe(true);
+  expect(out[0]).toContain("…");
+  expect(out[0]!.endsWith("+")).toBe(true);
+});

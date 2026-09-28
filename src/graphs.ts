@@ -12,7 +12,11 @@ const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 export function frame(title: string, body: string[], W: number): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
-  const label = title ? ` [ ${title.toUpperCase()} ] ` : "";
+  // The title shrinks before the frame does: keep at least one dot each side.
+  let t = title.toUpperCase();
+  const fit = w - 10;
+  if ([...t].length > fit) t = fit > 1 ? [...t].slice(0, fit - 1).join("") + "…" : "";
+  const label = t ? ` [ ${t} ] ` : "";
   const lw = [...label].length;
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + "·".repeat(left) + fg(ACCENT) + label + fg(DIM) + "·".repeat(right) + "+" + RESET;
