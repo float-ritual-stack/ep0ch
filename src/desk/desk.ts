@@ -2,7 +2,7 @@
 // mouse-dragged dividers, and a floating search, all drawn by us rather than a multiplexer.
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
-import { Canvas, type Rect } from "../canvas";
+import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Actor, OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
@@ -12,7 +12,7 @@ import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { dividerAt, dock, dragTo, leaves, neighbour, place, remove, resize, split, type Dir, type Divider, type LNode, type Placed } from "./layout";
-import { makePane, ReaderPane, type DeskApi, type Pane, type PaneKind } from "./panes";
+import { Entered, makePane, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type SessionKind } from "./panes";
 
 type Saved = { t: "leaf"; kind: PaneKind } | { t: "split"; dir: "row" | "col"; ratio: number; a: Saved; b: Saved };
 interface SavedDesk { root: Saved; focus: number }
@@ -34,6 +34,10 @@ export class Desk implements Screen, DeskApi {
   private drag: Divider | null = null;
   private placed: Placed = { rects: new Map(), dividers: [] };
   private search: SearchOverlay | null = null;
+  /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
+  private entered = new Entered();
+  /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
+  private pending: { pane: ReaderPane } | null = null;
 
   constructor() {
     const saved = readState<SavedDesk>("desk.json");
@@ -136,13 +140,17 @@ export class Desk implements Screen, DeskApi {
     const r = this.pickReader(sel);
     this.setCurrent(m, { reveal: true });
     if (r.pane.msg?.id !== m.id && !r.pane.show(m, this)) throw new ActionRefused(`reader ${r.name} is holding an edit or a comment on another note`);
-    this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null;
+    // The reader gets the keys, unless the person is in an edit, a comment or the panel: that keeps them.
+    if (!this.personIn()) { this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null; }
     this.redraw();
     return { reader: r.name, id: m.id };
   }
 
   focusOn(sel: string): { focus: string } {
     const r = this.pickReader(sel);
+    // Coming back to a session by moving to it: e or ⏎ enters it again. Focusing the reader the person
+    // is already in moves nothing, so they stay in it.
+    if (r.id !== this.focus) this.entered.clear();
     this.focus = r.id; this.zoom = this.zoom !== null ? r.id : null;
     this.redraw();
     return { focus: r.name };
@@ -175,11 +183,15 @@ export class Desk implements Screen, DeskApi {
       const pane = this.panes.get(id)!;
       const focused = id === this.focus;
       const n = order.indexOf(id) + 1;
-      canvas.box(r, fg(focused ? C.lcyan : C.blue), `${fg(focused ? C.white : C.dark)}${n} ${fg(focused ? C.lcyan : C.cyan)}${pane.title()}`, focused ? fg(C.dark) + pane.hint() : "");
       const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
-      if (inner.cols < 1 || inner.rows < 1) continue;
-      const view = pane.render(inner.cols, inner.rows, focused, this);
+      const view = inner.cols >= 1 && inner.rows >= 1 ? pane.render(inner.cols, inner.rows, focused, this) : null;
+      // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
+      const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
+      const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
+      canvas.box(r, fg(focused ? C.lcyan : C.blue), `${fg(focused ? C.white : C.dark)}${n} ${fg(focused ? C.lcyan : C.cyan)}${pane.title()}${held ? fg(C.dark) + " (e enters)" : ""}${more}`, focused ? fg(C.dark) + (held ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : pane.hint()) : "");
+      if (!view) continue;
       view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+      if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
       for (const p of view.placements ?? []) {
         placements.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
       }
@@ -196,6 +208,13 @@ export class Desk implements Screen, DeskApi {
   }
 
   private hints(cols: number): string {
+    const rd = this.panes.get(this.focus);
+    if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys) {
+      const where = `reader ${leaves(this.root).indexOf(this.focus) + 1} · ${rd.surface.state()}`;
+      return this.entered.in(rd)
+        ? pad(paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET, cols)
+        : pad(paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`), cols);
+    }
     const s = this.prefix === "wm"
       ? "|14^W |07hjkl |08focus · |07HJKL |08dock to edge · |07< > + - |08size · |07= |08even · |07z |08zoom · |07o |08add · |07x |08close · |07s |08swap next"
       : this.prefix === "add"
@@ -206,20 +225,60 @@ export class Desk implements Screen, DeskApi {
 
   // ── input ──────────────────────────────────────────────────────────────────
 
+  /** The focused pane, when it's a reader. */
+  private focusedReader(): ReaderPane | null { const p = this.panes.get(this.focus); return p instanceof ReaderPane ? p : null; }
+  /** The focused reader, when the person is in its edit, comment or property panel. */
+  private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
+
+  /** The person's key starts a session in the focused reader: theirs once it opens, if they're still there. */
+  private start(rd: ReaderPane, kind: SessionKind) {
+    // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
+    const token = { pane: rd };
+    this.pending = token;
+    const still = () => this.pending === token && this.focusedReader() === rd && !this.search;
+    const opened = (open: boolean) => {
+      const want = still();
+      if (this.pending === token) this.pending = null;
+      if (open && want) { this.entered.enter(rd); this.ctx.flash(`reader ${leaves(this.root).indexOf(this.focus) + 1} · ${rd.surface.state()} · ${rd.hint()}`); }
+      this.redraw();
+    };
+    const r = startSession(rd, kind, this, still);
+    // A thread list whose comments are already read opens at once: the next key is already its.
+    if (r === true || rd.sessionOf()) opened(true);
+    else r.then(opened, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
+  }
+
   key(k: Key, ctx: Ctx) {
+    this.keyIn(k, ctx);
+    this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
+  }
+
+  private keyIn(k: Key, ctx: Ctx) {
     if (this.search) {
       if (this.search.key(k, this) === "close") this.search = null;
       return this.redraw();
     }
-    // An open edit takes every key, window commands included, until it is saved or closed,
-    // and clicks can't move focus off it.
-    const focused = this.panes.get(this.focus);
-    if (focused instanceof ReaderPane && focused.editing) {
-      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
-      focused.key(k, this); return;
+    // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
+    if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
+    const focused = this.focusedReader();
+    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    if (focused?.holdsKeys) {
+      if (this.entered.in(focused)) {
+        // The person is in it: every key is the edit's, comment's or panel's, window commands included,
+        // until it's closed. The wheel still scrolls the pane under the pointer; a click can't move focus
+        // off an open edit (esc leaves it), but passes with only the property panel open.
+        if (k.kind !== "mouse") { focused.key(k, this); return; }
+        if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
+          return;
+        }
+      } else if (k.kind !== "mouse" && !this.prefix) {
+        // One they aren't in (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn scroll,
+        // and the desk's keys keep working. None of its own keys get here.
+        if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)} · ${focused.hint()}`); return this.redraw(); }
+        if (focused.scrollKey(k, this)) return;
+      }
     }
-    // The property panel takes the keys it uses (Tab, y, o, e) before the desk's own; clicks still pass.
-    if (focused instanceof ReaderPane && focused.holdsKeys && k.kind !== "mouse") { focused.key(k, this); return; }
     if (k.kind === "mouse") return this.mouse(k);
     if (this.prefix) return this.command(k);
     if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }
@@ -230,14 +289,16 @@ export class Desk implements Screen, DeskApi {
       this.save(); return this.redraw();
     }
     const pane = this.panes.get(this.focus);
-    if (pane?.key(k, this)) return;
+    const start = focused && !focused.holdsKeys && focused.msg ? sessionStart(k) : null;
+    if (focused && start) return this.start(focused, start);
+    if (!focused?.holdsKeys && pane?.key(k, this)) return;
     if (k.kind === "char" && !k.ctrl) {
       if (k.ch === "/") { this.search = new SearchOverlay(); return this.redraw(); }
       if (k.ch === "V") return ctx.cycleVideo();
       if (/^[1-9]$/.test(k.ch)) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) { this.focus = id; this.zoom = this.zoom !== null ? id : null; } return this.redraw(); }
-      if (k.ch === "q") return ctx.pop();
+      if (k.ch === "q") { this.pending = null; return ctx.pop(); }
     }
-    if (k.kind === "esc") { if (this.zoom !== null) { this.zoom = null; return this.redraw(); } return ctx.pop(); }
+    if (k.kind === "esc") { if (this.zoom !== null) { this.zoom = null; return this.redraw(); } this.pending = null; return ctx.pop(); }
   }
 
   private command(k: Key) {
@@ -267,6 +328,9 @@ export class Desk implements Screen, DeskApi {
       const ids = leaves(this.root), i = ids.indexOf(this.focus), j = ids[(i + 1) % ids.length]!;
       const a = this.panes.get(this.focus)!, b = this.panes.get(j)!;
       this.panes.set(this.focus, b); this.panes.set(j, a); this.focus = j;
+    }
+    else if (c === "x" && this.panes.get(this.focus) instanceof ReaderPane && (this.panes.get(this.focus) as ReaderPane).editing) {
+      this.ctx.flash(`not closed: it holds ${sessionName(this.panes.get(this.focus) as ReaderPane)} · e or ⏎ enters it`);
     }
     else if (c === "x" && leaves(this.root).length > 1) {
       const next = remove(this.root, this.focus);

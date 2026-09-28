@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props"].includes(scenario);
+const wide = ["desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey`, `kanban` and `river-write` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" ? await (async () => {
+// `journey`, `kanban`, `river-write` and `scroll` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -214,6 +214,47 @@ if (scenario === "kanban") {
   await snap("10-trashed", 600); said();
   ch("u"); await settle();
   await snap("11-restored", 600); said();
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "scroll") {
+  // PIE-411 on its own scratch service (fictional long notes): scroll indicators on docked readers, a
+  // float and the desk; a comment session opened by m shows in the frame and hints; an agent's edit
+  // doesn't take the person's keys until they enter it.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const long = (t: string, st: string) => `${t} [stage::${st}]\n${Array.from({ length: 90 }, (_, i) => `${i % 12 === 0 ? `## Part ${i / 12 + 1}\n` : ""}${t} line ${i + 1}: the hose runs along the fence past the shed.`).join("\n")}`;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"]] as const) await mk(null, long(t, st));
+  const gate = (await board.query("stage=doing", 5))[0]!;
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const wheelAt = (region: string, n: number) => { const r = S.rects.get(region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-board", 2500);
+  press({ kind: "enter" }); await Bun.sleep(600);
+  press({ kind: "pgdn" }); press({ kind: "pgdn" }); wheelAt("preview", 4);
+  await snap("2-scrolled", 600);
+  ch("m"); await Bun.sleep(600);
+  await snap("3-comments-mode", 400);
+  wheelAt("preview", 6);
+  await snap("4-wheel-while-commenting", 400);
+  press({ kind: "esc" }); press({ kind: "esc" });
+  await agent("edit", "preview");
+  ch("j"); ch("j");
+  await snap("5-agent-edit-lanes-keep-keys", 600);
+  press({ kind: "tab" });
+  await snap("6-agent-edit-focused", 400);
+  await agent("edit.close", "preview", { discard: true });
+  press({ kind: "esc" });
+  await agent("open", "float", { id: gate.id }); await Bun.sleep(600);
+  for (let i = 0; i < 3; i++) press({ kind: "pgdn" });
+  await snap("7-float", 600);
+  app.pop(); app.push(new Desk());
+  await agent("open", "", { id: gate.id }); await Bun.sleep(800);
+  press({ kind: "pgdn" }); press({ kind: "pgdn" });
+  await snap("8-desk", 800);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {

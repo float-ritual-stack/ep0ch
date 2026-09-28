@@ -354,6 +354,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("the person's typing after an agent's is copied out before the agent replaces it again", async () => {
     const { pane, reader } = await openFresh("Water the ferns\nTwice a week.");
     await act("edit.text", { text: "Water the ferns\nTwice a week, early." }, reader);
+    key(char("e"));                                                            // the person enters the agent's edit
     key({ kind: "end" }); type(" (mine)");
     const typed = pane.draft!.text;
     const r: any = await act("edit.text", { text: "Water the ferns\nDaily." }, reader);
@@ -367,7 +368,10 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const a = await openFresh("Mulch the roses\nIn autumn.");
     await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.reader);
     expect(a.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) typed this · it saves as the agent's");
+    // An agent's edit takes the person's keys only once they enter it (PIE-411).
     key(ctrl("s"));
+    expect(a.pane.draft).not.toBeNull();
+    key(char("e")); key(ctrl("s"));
     await until(() => !a.pane.draft, "the person's save");
     expect(await lastBy(a.id)).toEqual(["agent", AS]);
     expect(message()).toContain(`recorded as an agent (${AS})'s`);
@@ -382,6 +386,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     // Both wrote it: the saver's, and the actor id names both. The frame said so before the save.
     const m = await openFresh("Prune the apple\nIn winter.");
     await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.reader);
+    key(char("e"));
     key({ kind: "end" }); type(" (me)");
     expect(m.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) and you typed this · saved as whoever saves it, naming both");
     key(ctrl("s"));
@@ -396,6 +401,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       await act("comment.write", { body }, id);
       await act("focus", {}, id);
       const pane = B().details.find((p: ReaderPane) => p.msg?.id === id) as ReaderPane;
+      key(char("e"));                                                          // enter the agent's comment
       key({ kind: "end" }); type(more); key(ctrl("s"));
       await until(() => pane.session?.mode === "threads" && !pane.session.busy, "the comment sent");
       key({ kind: "esc" });
@@ -430,7 +436,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(pane.render(90, 30, true, b).lines.join("\n")).toContain("resolved");
     // The person picks it up from there with the keys: the session is theirs too.
     await act("focus", {}, reader);
-    key(char("x"));
+    key(char("x"));                                                              // not in it yet: the board's x, refused
+    expect(pane.session?.threads[0]?.open).toBe(false);
+    key({ kind: "enter" }); key(char("x"));
     await until(() => pane.session?.threads[0]?.open === true, "reopened by the key");
     key({ kind: "esc" });
     expect(pane.session).toBeNull();
