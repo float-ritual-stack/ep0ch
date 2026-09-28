@@ -129,7 +129,7 @@ export class NoteSurface {
   private foldsOf: string | null = null;
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
-  private drawn: { top: number; scroll: number; room: number; doc: Doc; lines: number[] } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[] } | null = null;
   /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
   draft: Draft | null = null;
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
@@ -194,7 +194,7 @@ export class NoteSurface {
     const l = this.links[this.link];
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
-    const f = points.findIndex(p => p.key === this.foldSel);
+    const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
     if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next`; }
     return `${extra}[ ] links · ( ) f folds · i properties · z callouts · u up · c comment · m comments`;
   }
@@ -339,7 +339,7 @@ export class NoteSurface {
     this.revealFold = false;
     if (sel && room > 0) { if (sel.row < this.scroll) this.scroll = sel.row; else if (sel.row >= this.scroll + room) this.scroll = sel.row - room + 1; }
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
-    this.drawn = { top: head.length, scroll: this.scroll, room, doc, lines: noteLines };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines };
     const placements: Placement[] = [];
     for (const im of doc.images) {
       const top = im.line - this.scroll, bottom = top + im.rows;
@@ -745,21 +745,25 @@ export class NoteSurface {
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
-    if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
-    if (isDown(k)) { this.scroll++; host.redraw(); return true; }
-    if (k.kind === "pgdn" || c === " ") { this.scroll += 15; host.redraw(); return true; }
-    if (k.kind === "pgup") { this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
+    // A fold point selected with ( ) is let go by esc and by moving on (scrolling, [ ], following, u), so
+    // ⏎ has its usual meaning again (in the board's preview: open the note in a detail).
+    if (k.kind === "esc" && this.foldSel) { this.foldSel = null; host.redraw(); return true; }
+    if (isUp(k)) { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
+    if (isDown(k)) { this.foldSel = null; this.scroll++; host.redraw(); return true; }
+    if (k.kind === "pgdn" || c === " ") { this.foldSel = null; this.scroll += 15; host.redraw(); return true; }
+    if (k.kind === "pgup") { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
     if (c === "]" || c === "[") { this.stepLink(c === "]" ? 1 : -1); this.foldSel = null; host.redraw(); return true; }
     if (c === "z") { this.unfold = !this.unfold; host.redraw(); return true; }
-    if (k.kind === "enter" && this.links[this.link]) { void this.follow(this.link, host); return true; }
+    if (k.kind === "enter" && this.links[this.link]) { this.foldSel = null; void this.follow(this.link, host); return true; }
     if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { if (!this.stepFold(c === ")" ? 1 : -1)) host.ctx.flash("this note has no headings or nested lists to fold"); host.redraw(); return true; }
-    if ((c === "f" || (k.kind === "enter" && this.foldSel)) && this.msg && !this.msg.partial) {
+    // ⏎ folds only a fold point the person selected and can see; otherwise it isn't the reader's.
+    if ((c === "f" || (k.kind === "enter" && this.selectedFold())) && this.msg && !this.msg.partial) {
       const p = this.foldTargetAtKeys();
       if (p) this.setFold(p, !this.folded.has(p.key)); else host.ctx.flash("nothing to fold here · ( ) pick a heading or a list item");
       host.redraw(); return true;
     }
     if (c === "F" && this.msg && !this.msg.partial) { const n = this.foldAll(this.folded.size === 0); host.ctx.flash(n ? `${this.folded.size ? `folded ${n}` : `unfolded ${n}`}` : "this note has no headings or nested lists to fold"); host.redraw(); return true; }
-    if (c === "u" && this.msg?.parentId) { void this.up(host); return true; }
+    if (c === "u" && this.msg?.parentId) { this.foldSel = null; void this.up(host); return true; }
     return false;
   }
 
@@ -775,7 +779,7 @@ export class NoteSurface {
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
     else if (this.session) return;
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
-    else this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3));
+    else { this.foldSel = null; this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
     host.redraw();
   }
 
@@ -796,6 +800,7 @@ export class NoteSurface {
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : k.kind === "home" ? -1e9 : k.kind === "end" ? 1e9 : 0;
     if (!by) return false;
+    this.foldSel = null;
     this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + by));
     host.redraw();
     return true;
@@ -832,14 +837,31 @@ export class NoteSurface {
     if (select) { this.foldSel = p.key; this.link = -1; this.revealFold = true; }
   }
 
-  /** Fold every outermost heading and list item, or unfold everything. How many changed. */
-  foldAll(on: boolean): number {
-    if (!on) { const n = this.folded.size; this.folded.clear(); this.revealFold = !!this.foldSel; return n; }
+  /**
+   * Fold every outermost heading and list item, or unfold everything. How many changed. By the person's
+   * keys (`select`) their selection stays in view, or is let go when a fold hides it; an agent's leaves
+   * their selection and scroll where they were.
+   */
+  foldAll(on: boolean, select = true): number {
+    if (!on) { const n = this.folded.size; this.folded.clear(); if (select) this.revealFold = !!this.foldSel; return n; }
     const all = this.msg ? this.foldsIn(this.msg).points : [];
     const outer = all.filter(p => !all.some(q => q.line < p.line && p.line < q.end));
     for (const p of outer) this.folded.add(p.key);
-    if (this.foldSel && !outer.some(p => p.key === this.foldSel)) this.foldSel = null;
+    if (select && this.foldSel && !outer.some(p => p.key === this.foldSel)) this.foldSel = null;
     return outer.length;
+  }
+
+  /**
+   * The fold point `( )` selected, while it's in view (drawn there, or about to be brought there by the
+   * next render): what ⏎ folds.
+   */
+  private selectedFold(): FoldPoint | null {
+    const m = this.msg, d = this.drawn;
+    if (!this.foldSel || !m || m.partial) return null;
+    const p = this.visibleFolds(m).find(p => p.key === this.foldSel);
+    if (!p || this.revealFold) return p ?? null;
+    const row = d?.doc.heads.find(h => h.key === p.key)?.row;
+    return d && row !== undefined && row >= d.scroll && row < d.scroll + d.room ? p : null;
   }
 
   /** `( )`: the previous or next fold point drawn (from the view when none is selected). False when there are none. */
@@ -878,7 +900,8 @@ export class NoteSurface {
     const d = this.drawn, m = this.msg;
     if (!d || !m || this.draft || this.session) return false;
     const row = y - d.top;
-    if (row < 0 || row >= d.room) return false;
+    // Only the surface's own cells: a host's frame and its scroll thumb (drawn on the border) never fold.
+    if (row < 0 || row >= d.room || x < 0 || x >= d.w) return false;
     const h = d.doc.heads.find(x => x.row === d.scroll + row);
     // The body is drawn one column in from the reader's edge.
     if (!h || x > h.cols + 1) return false;
@@ -1239,7 +1262,7 @@ async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolea
   if (all) {
     if (Object.values(which).some(x => x !== undefined)) throw new ActionRefused("all=true folds or unfolds every one; leave out text, line and n");
     const m = await surface.whole();
-    const changed = surface.foldAll(on);
+    const changed = surface.foldAll(on, actor.kind === "user");
     surface.noteAgent(actor, on ? "folded the note's sections" : "unfolded the whole note");
     host.redraw();
     return { changed, foldedNow: surface.foldsIn(m).points.filter(q => surface.folded.has(q.key)).map(foldLabel) };

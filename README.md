@@ -353,19 +353,22 @@ lines, keeping its own line. Each one shows its disclosure, `▾` open and `▸`
 reading state: the note's text never changes, another reader can show the same note unfolded, and
 folds stay through live refreshes and edits elsewhere in the note. A fold whose heading or item is
 reworded or removed is dropped, so it never hides a different section; a heading with an anchor
-(`## Beds ^beds`) keeps its fold by the anchor. Showing another note in the reader starts it unfolded.
+(`## Beds ^beds`) keeps its fold by the anchor, and a step keeps its fold when it's ticked. Repeated
+headings (two `## Notes`) are told apart by their order. Showing another note in the reader starts it
+unfolded.
 `#` lines in a code fence or a figure are text, not headings.
 
 | Keys | Action |
 |---|---|
 | `(` / `)` | select the previous / next heading or list item that folds (`▾`, yellow); the hint names it |
-| `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view |
+| `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
+| `esc`, scrolling, `[ ]`, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail) |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
-| click | a heading (anywhere on its line), or a list item's `▾`/`▸`, folds or unfolds it |
+| click | a heading (anywhere on its line but a link, which opens), or a list item's `▾`/`▸`, folds or unfolds it; the frame and its scroll thumb don't |
 | `z` | unfold callouts that start folded (`[!x]-`); unchanged |
 
 Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
-`all=true`). River columns show only a note's first lines, so they don't fold.
+`all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
 
 ### The property panel
 

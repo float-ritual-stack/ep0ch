@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
+import { Desk } from "../src/desk/desk";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { foldPoints, renderDoc, type DocEnv } from "../src/doc";
 import { MainMenu } from "../src/screens";
@@ -269,6 +270,115 @@ describe("a reader's folds, without a service", () => {
   });
 });
 
+describe("review fixes (PR #13)", () => {
+  const LONG = `Long note\n## Top\n- a\n  - a1\n${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n## End\nlast`;
+
+  test("1: every repeat counts toward a fold's name, so an earlier empty one gaining a body doesn't move the fold", () => {
+    const before = foldPoints("## Notes\n## Notes\nb");
+    const after = foldPoints("## Notes\na\n## Notes\nb");
+    expect(before.map(p => p.key)).toEqual(["heading:2:Notes#1"]);
+    expect(after.find(p => p.line === 2)!.key).toBe(before[0]!.key);
+    const s = new NoteSurface(), h = host();
+    s.show(note("Twice\n## Notes\n## Notes\nsecond body"), h);
+    s.key(char(")"), h); s.key(char("f"), h);
+    expect(body(s, h)).not.toContain("second body");
+    s.refresh(note("Twice\n## Notes\nfirst body\n## Notes\nsecond body", { revision: 4 }));
+    const text = body(s, h);
+    expect(text).toContain("first body");                  // the first section isn't the folded one
+    expect(text).not.toContain("second body");             // the second stays folded
+  });
+
+  test("6: ticking a step elsewhere keeps its fold (the box isn't part of its name)", () => {
+    expect(foldPoints("- [x] dig\n  - edge")[0]!.key).toBe(foldPoints("- [ ] dig\n  - edge")[0]!.key);
+    const s = new NoteSurface(), h = host();
+    s.show(note("Steps\n- [ ] dig\n  - edge it"), h);
+    s.key(char(")"), h); s.key(char("f"), h);
+    s.refresh(note("Steps\n- [x] dig\n  - edge it", { revision: 4 }));
+    expect(s.describe().folds!.folded).toEqual(["- [x] dig"]);
+    expect(body(s, h)).not.toContain("edge it");
+  });
+
+  test("2: moving on, or esc, lets go of the selected fold point, and then ⏎ isn't the reader's", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(LONG), h);
+    s.render(60, 20, h);
+    s.key(char(")"), h);
+    expect(s.key({ kind: "enter" }, h)).toBe(true);          // selected and in view: ⏎ folds it
+    expect(s.describe().folds!.folded).toEqual(["## Top"]);
+    s.key({ kind: "enter" }, h);
+    s.key(char("j"), h);                                     // scrolling lets go
+    expect(s.describe().folds!.selected).toBe(null);
+    expect(s.key({ kind: "enter" }, h)).toBe(false);         // the host's ⏎ again (the preview opens a detail)
+    s.key(char(")"), h);
+    s.wheel(1, h);
+    expect(s.describe().folds!.selected).toBe(null);
+    s.key(char(")"), h);
+    expect(s.key({ kind: "esc" }, h)).toBe(true);            // esc lets go, and is used up doing so
+    expect(s.describe().folds!.selected).toBe(null);
+    expect(s.key({ kind: "esc" }, h)).toBe(false);           // the next esc is the host's
+    // Selected but scrolled out of view (say by an agent): ⏎ isn't a fold.
+    s.scroll = 0;
+    s.render(60, 20, h);
+    s.key(char(")"), h);
+    expect(s.describe().folds!.selected).toBe("## Top");
+    s.render(60, 20, h);
+    s.scroll = 30;
+    s.render(60, 20, h);
+    expect(s.key({ kind: "enter" }, h)).toBe(false);
+    expect(s.describe().folds!.folded).toEqual([]);
+  });
+
+  test("3: an agent's fold all and unfold all leave the person's selection and scroll alone", async () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(LONG), h);
+    s.render(60, 20, h);
+    s.key(char(")"), h); s.key(char(")"), h);                // "- a", not an outermost fold point
+    s.render(60, 20, h);
+    expect(s.describe().folds!.selected).toBe("- a");
+    s.scroll = 25;
+    s.render(60, 20, h);
+    await s.act("fold", { text: "a" }, h, AGENT);
+    await s.act("unfold", { all: true }, h, AGENT);
+    s.render(60, 20, h);
+    expect(s.scroll).toBe(25);
+    expect(s.describe().folds!.selected).toBe("- a");
+    await s.act("fold", { all: true }, h, AGENT);
+    expect(s.describe().folds!.selected).toBe("- a");
+  });
+
+  test("4: a link in a heading opens; elsewhere on the heading the click folds it", async () => {
+    const target = note("Stake the beans\ncanes", { id: "22222222-2222-4333-8444-555555555555" });
+    const went: string[] = [];
+    const h = host();
+    (h.ctx.board as any).get = async (id: string) => (id === target.id ? target : null);
+    h.navigate = (m: Msg) => { went.push(m.id); };
+    const s = new NoteSurface();
+    s.show(note(`Links\n## See ((${target.id})) first\nunder it`), h);
+    const lines = s.render(60, 20, h).lines.map(plain);
+    const row = lines.findIndex(l => l.includes("## See"));
+    const link = (s as any).hits.find((x: any) => x.row === row && x.link);
+    expect(link).toBeTruthy();
+    expect(s.click(link.from, row, h)).toBe(true);
+    await Bun.sleep(0);
+    expect(went).toEqual([target.id]);
+    expect(s.describe().folds!.folded).toEqual([]);
+    expect(s.click(1, row, h)).toBe(true);                   // the disclosure
+    expect(s.describe().folds!.folded.length).toBe(1);
+    expect(went).toEqual([target.id]);
+  });
+
+  test("5: a click past the surface's cells (a host's border, its scroll thumb) never folds", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(TEXT), h);
+    const lines = s.render(60, 40, h).lines.map(plain);
+    const water = lines.findIndex(l => l.includes("## Water"));
+    expect(s.click(60, water, h)).toBe(false);
+    expect(s.click(-1, water, h)).toBe(false);
+    expect(s.describe().folds!.folded).toEqual([]);
+    expect(s.click(59, water, h)).toBe(true);
+  });
+});
+
 describe.skipIf(!outliner)("folds in the board's readers, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, card: any;
@@ -333,5 +443,81 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     await until(() => d.msg?.id === other.id && !d.msg.partial, "the other note");
     expect(d.surface.describe().folds.folded).toEqual([]);
     expect(frame().join("\n")).toContain("The hose again.");
+  });
+
+  const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
+  const rowIn = (lines: string[], r: any, text: string) => lines.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(text));
+
+  test("review 2: in the preview, ( ) then moving on or esc gives ⏎ back: it opens the note in a detail", async () => {
+    await act("open", { id: card.id }, "preview");
+    const p = B().preview;
+    await until(() => p.msg?.id === card.id && !p.msg.partial, "the whole note in the preview");
+    expect(B().focus).toBe("preview");
+    const opened = () => B().details.filter((d: any) => d.msg?.id === card.id).length;
+    const was = opened();
+    frame();
+    key(char(")"));
+    expect(p.surface.describe().folds.selected).toBe("## Beds");
+    key(char("j"));
+    key({ kind: "enter" });
+    await until(() => opened() === was + 1, "⏎ to open a detail");
+    await act("open", { id: card.id }, "preview");
+    frame();
+    key(char(")"));
+    key({ kind: "esc" });
+    expect(p.surface.describe().folds.selected).toBe(null);
+    expect(B().focus).toBe("preview");                        // the first esc only let go of the fold point
+  });
+
+  test("review 4, 5: a heading's link opens, the heading folds, each click reaches the surface once, and the frame never folds", async () => {
+    const beans = await create(null, "Stake the beans\nCanes along the fence.");
+    const linked = await create(null, `Links in headings\n## See ((${beans.id})) first\nunder the heading\n## Water\nThe hose.`);
+    await act("open", { id: linked.id }, "detail");
+    const d = B().details.find((x: any) => x.msg?.id === linked.id);
+    await until(() => !d.msg.partial && frame().join("\n").includes("Stake the beans"), "the link's title drawn");
+    const region = `detail${B().details.indexOf(d)}`;
+    const r = B().rects.get(region);
+    let calls = 0;
+    const orig = d.surface.click.bind(d.surface);
+    d.surface.click = (...a: any[]) => { calls++; return orig(...a); };
+    // The frame: its right border (where the scroll thumb is drawn) and its bottom border.
+    const water = rowIn(frame(), r, "## Water");
+    click(r.col + r.cols - 1, water);
+    click(r.col + 4, r.row + r.rows - 1);
+    expect(d.surface.describe().folds.folded).toEqual([]);
+    // The heading, off its link: folds, delivered once.
+    calls = 0;
+    click(r.col + 4, water);
+    expect(calls).toBe(1);
+    expect(d.surface.describe().folds.folded).toEqual(["## Water"]);
+    // The link in a heading: opens it, doesn't fold.
+    const lines = frame(), y = rowIn(lines, r, "Stake the beans");
+    const x = plain(lines[y]!).indexOf("Stake the beans", r.col);
+    calls = 0;
+    click(x + 1, y);
+    expect(calls).toBe(1);
+    await until(() => d.msg?.id === beans.id, "the heading's link to open");
+    d.surface.click = orig;
+  });
+
+  test("review 5: the desk's reader: a click on its border or scroll thumb doesn't fold", async () => {
+    const desk = new Desk();
+    app.push(desk);
+    try {
+      await app.act({ action: "open", args: { id: card.id }, as: "test-agent-410" });
+      const reader = () => [...(desk as any).panes.entries()].find(([, p]: any) => p.kind === "reader") as [number, any];
+      await until(() => reader()[1].msg?.id === card.id && !reader()[1].msg.partial, "the note in the desk reader");
+      const lines = () => desk.render((desk as any).ctx).lines.map(plain);
+      const r = () => (desk as any).placed.rects.get(reader()[0]);
+      // Zoomed, its right border is the screen's edge (between panes it's a divider, which drags).
+      (desk as any).focus = reader()[0];
+      key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("z"));
+      await until(() => rowIn(lines(), r(), "## Beds") >= 0 && r().col + r().cols === (desk as any).ctx.t.cols, "the zoomed reader drawn");
+      const y = rowIn(lines(), r(), "## Beds");
+      click(r().col + r().cols - 1, y);
+      expect(reader()[1].surface.describe().folds.folded).toEqual([]);
+      click(r().col + 4, y);
+      expect(reader()[1].surface.describe().folds.folded).toEqual(["## Beds"]);
+    } finally { app.pop(); }
   });
 });

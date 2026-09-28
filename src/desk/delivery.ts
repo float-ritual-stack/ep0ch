@@ -1580,6 +1580,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       return this.redraw();
     }
     if (c === "V") return ctx.cycleVideo();
+    // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.
+    if (k.kind === "esc" && rd && !rd.holdsKeys && rd.key(k, this)) return this.redraw();
     if (k.kind === "esc") {
       if (this.focus === "tree" && !this.treePinned) { this.treeOpen = false; this.focus = "lanes"; return this.redraw(); }
       if (this.focus === "backlinks" && !this.linksPinned) { this.links = null; this.focus = "lanes"; return this.redraw(); }

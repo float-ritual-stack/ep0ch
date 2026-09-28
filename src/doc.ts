@@ -34,7 +34,8 @@ export interface Doc { lines: string[]; images: DocImage[]; media: { path: strin
  * higher level) or a list item with nested items or continuation lines under it. `line` is its body
  * line, `end` the line after the last it hides (trailing blank lines stay shown), `hidden` how many of
  * those have text. `key` names it across edits elsewhere in the note: its anchor (`^beds`) when it has
- * one, else its kind, level and text with how many identical ones come before it.
+ * one, else its kind, level and text (without a step's box) with how many identical headings or items
+ * come before it, folding or not.
  */
 export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
 
@@ -67,11 +68,13 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
   const add = (kind: FoldPoint["kind"], level: number, text: string, line: number, end: number) => {
-    if (end <= line + 1) return;
     const plain = text.replace(TASK_ID, "").trim().replace(/\s+/g, " ");
-    const base = `${kind}:${level}:${plain}`;
+    // A step's box ([ ] or [x]) isn't part of its name: ticking it keeps its fold. Every occurrence counts
+    // toward the ordinal, empty ones too, so an earlier `## Notes` gaining a body doesn't renumber this one.
+    const base = `${kind}:${level}:${plain.replace(/^\[.\]\s+/, "")}`;
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
+    if (end <= line + 1) return;
     const hidden = src.slice(line + 1, end).filter(l => l.trim()).length;
     out.push({ key: anchors[line] ? `^${anchors[line]}` : `${base}#${n}`, kind, level, text: plain, line, end, hidden });
   };
