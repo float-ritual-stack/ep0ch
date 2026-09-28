@@ -48,7 +48,7 @@ test("the README's showcase says what SECTIONS registers: how many, the act rang
 test("the help screen says which screens write to the outline, not that the door is read-only", () => {
   const text = new Help().render({ t: { cols: 140 } } as any).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
   expect(text).not.toContain("Read-only");
-  expect(text).toContain("Kanban, Quay, Desk, Today, Showcase and the message reader write");
+  expect(text).toContain("Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write");
   expect(text).toContain("recorded as you, or as the agent that did them");
 });
 

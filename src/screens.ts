@@ -14,6 +14,8 @@ import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
 import { Brief } from "./brief/brief";
+import { Waiting } from "./hub/waiting";
+import { claudeNow } from "./hub/pinned";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { ActionRefused, ActionSet, asActor, type ActRequest } from "./surface/actions";
@@ -227,6 +229,9 @@ const ITEMS: MenuItem[] = [
   { key: "X", label: "Showcase", open: () => new Showcase() },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
   { key: "T", label: "Today", open: () => new Brief() },
+  // float-hub's own views: its outbox items still waiting, and the agents' status page, pinned.
+  { key: "O", label: "Waiting", open: () => new Waiting() },
+  { key: "C", label: "Claude·now", open: () => claudeNow() },
 ];
 
 export class MainMenu implements Screen {
@@ -264,17 +269,24 @@ export class MainMenu implements Screen {
     lines.push("");
     // The key line: every key, each one clickable; the items without a slot in the art (the showcase and
     // today's brief) are named there, and lit when they're the one selected.
-    lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [
+    const keys: (string | [string, Key, number])[] = [
       "|09[|15ep0ch|09] |11main menu |08(",
       ...ITEMS.slice(0, slotted).map((i, n): [string, Key, number] => [`${n === this.sel ? "|15" : "|07"}${i.key}`, char(i.key), n]),
       "|08)",
-      ...ITEMS.slice(slotted).flatMap((i, j): (string | [string, Key, number])[] => {
-        const n = slotted + j, on = n === this.sel;
-        return [" |08· ", [on ? `${bg(C.magenta)}|15${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
-      }),
-      // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
-      ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`,
-    ], { centre: true }));
+    ];
+    const extras = ITEMS.slice(slotted).flatMap((i, j): (string | [string, Key, number])[] => {
+      const n = slotted + j, on = n === this.sel;
+      return [" |08· ", [on ? `${bg(C.magenta)}|15${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
+    });
+    // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
+    const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
+    const all = [...keys, ...extras, lit];
+    // Too wide for one line (80 columns): the named items go on a line of their own under the keys.
+    if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
+    else {
+      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
+      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, extras.slice(1), { centre: true }));
+    }
     lines.push(center(paint(`|08${ctx.events ? `|14${ctx.events} change(s) on the outline since you logged on · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
     return { lines, placements: frame };
   }
@@ -902,7 +914,7 @@ export class Help implements Screen {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
         ...ITEMS.map((i, n) => hotLine(ptr, 2 + n, w, [[`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`, char(i.key), n]])),
-        "", paint("|08   Kanban, Quay, Desk, Today, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
+        "", paint("|08   Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
@@ -926,7 +938,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 
 export class Goodbye implements Screen {
