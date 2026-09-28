@@ -9,6 +9,7 @@
 import type { Msg } from "./board";
 import { subject } from "./board";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
+import { anyChangeSince, changeClock, changedSince, outlineChanged } from "./refs";
 import type { SocketBoard } from "./socket";
 import { C, fg, pad, RESET } from "./style";
 import { readView, type ViewRead } from "./views";
@@ -23,16 +24,51 @@ type State =
   | { kind: "view"; target: Msg; view: ViewRead };
 interface Entry { state: State; at: number; asking: boolean }
 
-let generation = 0;
 const cacheBy = new WeakMap<object, Map<string, Entry>>();
-/** The outline changed: every embed is read again on the next render (what it showed stays meanwhile). */
-export function invalidateEmbeds() { generation++; }
+/** Everything changed: every embed is read again on the next render (what it showed stays meanwhile). */
+export function invalidateEmbeds() { outlineChanged(null); }
+
+/**
+ * Stale after its target changes (refs.ts `outlineChanged`). A view's results can change with any block,
+ * and a failure is worth asking again after any change; a note embed waits for its own target.
+ */
+const stale = (id: string, e: Entry) => changedSince(e.at, [id]) || ((e.state.kind === "view" || e.state.kind === "failed") && anyChangeSince(e.at));
 
 const key = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
 
+type Waiter = { resolve: (m: Msg | null) => void; reject: (e: Error) => void };
+const queued = new WeakMap<object, Map<string, Waiter[]>>();
+/**
+ * An embed's target, whole. The targets one render asks for go out together as one `blocks.read`
+ * (PIE-400); a trashed one is read on its own for its title, and a service without `blocks.read` gets
+ * one read per target.
+ */
+function readTarget(b: SocketBoard, id: string): Promise<Msg | null> {
+  if (typeof b.readBlocks !== "function") return b.read(id);
+  let q = queued.get(b);
+  if (!q) { queued.set(b, (q = new Map())); setTimeout(() => void flush(b), 0); }
+  const waiting = q.get(id) ?? [];
+  q.set(id, waiting);
+  return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+}
+
+async function flush(b: SocketBoard) {
+  const q = queued.get(b);
+  queued.delete(b);
+  if (!q) return;
+  const settle = (id: string, p: Promise<Msg | null>) => p.then(m => q.get(id)!.forEach(w => w.resolve(m)), (e: Error) => q.get(id)!.forEach(w => w.reject(e)));
+  let got: Awaited<ReturnType<SocketBoard["readBlocks"]>>;
+  try { got = await b.readBlocks([...q.keys()]); } catch (e) { for (const id of q.keys()) settle(id, Promise.reject(e)); return; }
+  for (const id of q.keys()) {
+    const found = got?.blocks.find(m => m.id === id);
+    const gone = got?.unavailable.find(u => u.id === id);
+    settle(id, found ? Promise.resolve(found) : gone?.status === "missing" ? Promise.resolve(null) : b.read(id));
+  }
+}
+
 async function project(b: SocketBoard, id: string, fragment?: string): Promise<State> {
   let target: Msg | null;
-  try { target = await b.read(id); } catch (e) { return { kind: "failed", error: (e as Error).message }; }
+  try { target = await readTarget(b, id); } catch (e) { return { kind: "failed", error: (e as Error).message }; }
   if (!target) return { kind: "missing" };
   if (target.deleted) return { kind: "deleted", title: subject(target) };
   if (fragment) {
@@ -51,8 +87,8 @@ export function embedState(id: string, fragment: string | undefined, src: Source
   if (!cache) cacheBy.set(src.board, (cache = new Map()));
   const k = key(id, fragment), c = cache;
   const hit = cache.get(k);
-  if (hit && (hit.at >= generation || hit.asking)) return hit.state;
-  const at = generation;
+  if (hit && (hit.asking || !stale(id, hit))) return hit.state;
+  const at = changeClock();
   cache.set(k, { state: hit?.state ?? { kind: "loading" }, at, asking: true });
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
   Promise.resolve().then(() => project(src.board, id, fragment)).then(

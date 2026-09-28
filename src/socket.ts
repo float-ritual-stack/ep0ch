@@ -435,6 +435,15 @@ export class SocketBoard implements Board {
   }
 
   /**
+   * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
+   * Trash. Null when this service can't.
+   */
+  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] } | null> {
+    const r = await this.optional<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", "blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+    return r && { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
+  }
+
+  /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
    * Null when this service can't; the door then evaluates the view itself (src/views.ts).
    */

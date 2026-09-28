@@ -50,11 +50,14 @@ export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPref
   return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) }));
 }
 
-/** How a row's value reads: a block value also shows the target's title, as a link would. */
-export function valueView(r: PropRow, src: Source | null): string {
+/**
+ * How a row's value reads: a block value also shows the target's title, as a link would. `noteText`: the
+ * note's whole text, whose one references answer holds the value's target.
+ */
+export function valueView(r: PropRow, src: Source | null, noteText?: string): string {
   const v = printable(r.value);
   if (r.target && "block" in r.target) {
-    const res = referencesIn(`((${r.target.block}))`, src)?.get(r.target.block);
+    const res = referencesIn(noteText ?? `((${r.target.block}))`, src)?.get(r.target.block);
     const view = refView(r.target.block, undefined, undefined, res);
     return res ? `${view.text}  ${v.length > 13 ? v.slice(0, 8) + "…" : v}` : v;
   }
@@ -125,7 +128,7 @@ export class PropertyPanel {
   }
 
   /** The panel's lines, at most `h`, `w` wide. `summary` holds the keys the summary line shows. */
-  render(rows: PropRow[], w: number, h: number, info: { revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null }): string[] {
+  render(rows: PropRow[], w: number, h: number, info: { revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
     const out = [rule(w, [...title].length > w - 8 ? [...title].slice(0, Math.max(1, w - 9)).join("") + "…" : title)];
@@ -149,7 +152,7 @@ export class PropertyPanel {
         const shown = f.text.slice(start, start + valW - 1);
         const cur = f.cursor - start;
         value = fg(C.white) + shown.slice(0, cur) + bg(C.lcyan) + fg(C.black) + (shown[cur] ?? " ") + RESET + fg(C.white) + shown.slice(cur + 1);
-      } else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src);
+      } else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
       const shown = pad(value, valW);
       const line = mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
       out.push(on ? bg(C.blue) + pad(line.split(RESET).join(RESET + bg(C.blue)), w) + RESET : pad(line, w));

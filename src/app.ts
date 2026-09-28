@@ -7,8 +7,11 @@ import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
-import { invalidateEmbeds } from "./embeds";
-import { invalidateReferences } from "./refs";
+import { invalidatePropertyErrors } from "./props";
+import { outlineChanged } from "./refs";
+
+/** Changes whose record names the one block they touched (a move or trash carries a subtree). */
+const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
 
 export interface Frame { lines: string[]; placements?: Placement[] }
 
@@ -130,7 +133,16 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) {
     if (!forScreens(e)) return;
-    if (e.change?.kind !== "draft") { invalidateLive(); invalidateEmbeds(); invalidateReferences(); }
+    if (e.change?.kind !== "draft") {
+      invalidateLive();
+      // A change record names its block: only the links, pages and embeds that show it are asked again.
+      // A move or trash takes a subtree along, and an event without a record could be anything.
+      const c = e.change;
+      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId] : null);
+      else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
+      else outlineChanged(null, e.action === "reset");
+      invalidatePropertyErrors();
+    }
     if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();

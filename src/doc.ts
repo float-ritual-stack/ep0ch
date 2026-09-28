@@ -137,14 +137,25 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // Transclusions: each `!((…))` becomes its shaded region; the text around it stays where it was.
+    // Inline code keeps its text (fences are consumed above): only what's outside backticks is split.
     if (env.embed && line.includes("!((")) {
-      const parts = line.split(new RegExp(EMBED.source, "g"));
-      if (parts.length > 1) {
+      const pieces: (string | { id: string; fragment?: string })[] = [];
+      let text = "";
+      line.split(/(`[^`]*`)/).forEach((part, j) => {
+        if (j % 2) { text += part; return; }
+        const parts = part.split(new RegExp(EMBED.source, "g"));
         for (let k = 0; k < parts.length; k += 3) {
-          const text = k === 0 ? parts[k]!.trimEnd() : parts[k]!.trim();
-          if (text.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(text)) out.push(...prose(text, W));
-          if (k + 1 < parts.length) out.push(...env.embed(parts[k + 1]!, parts[k + 2] || undefined, embeds++, W));
+          text += parts[k]!;
+          if (k + 1 < parts.length) { pieces.push(text, { id: parts[k + 1]!, fragment: parts[k + 2] || undefined }); text = ""; }
         }
+      });
+      if (pieces.length) {
+        pieces.push(text);
+        pieces.forEach((p, k) => {
+          if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
+          const t = k === 0 ? p.trimEnd() : p.trim();
+          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W));
+        });
         continue;
       }
     }

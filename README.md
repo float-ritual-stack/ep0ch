@@ -308,8 +308,11 @@ printed; they are in the **property panel**, one key away.
   with the service and shows the whole note with "fragment slices need PIE-404": the service doesn't
   serve slices yet and the door doesn't re-derive the fragment rules. Missing and trashed targets,
   missing or duplicate fragments, failed reads and the 17th embed (`EMBED LIMIT · maximum 16`) each say
-  what they are. Embeds refresh when the outline changes and are never recursive: an embed's own
-  `!((…))` reads `!title · embed not expanded here`.
+  what they are. Embeds refresh when their target changes (an embedded view: when anything does) and
+  are never recursive: an embed's own `!((…))` reads `!title · embed not expanded here`. `!((…))` in
+  inline code or a code fence stays code. A note's embed targets are read together (`blocks.read`), and
+  its links and block-valued properties resolve in one `references.resolve`, asked again only when a
+  change record names one of those blocks.
 
 ### The property panel
 
@@ -317,12 +320,14 @@ printed; they are in the **property panel**, one key away.
 focus with it open); `I` fills the reader with it instead. It lists every
 property token of the note: repeated keys stay separate rows, and line and inline scope are marked.
 `■` marks the keys the summary line shows. While it is open it takes the reader's keys, the board's and
-desk's own shortcuts (`Tab`, `o`, …) included.
+desk's own shortcuts (`Tab`, `o`, …) included, except scrolling: `PgDn`, `PgUp` and `Space` still page
+the note (or the list, when it fills the reader). An agent's `props` actions never open it: the rows
+come back in the reply and the reader stays as the person left it.
 
 | Keys | Action |
 |---|---|
 | `Tab` / `Shift+Tab`, `j k` | next / previous value |
-| `y` | copy the value, as authored, to the terminal's clipboard (OSC 52) |
+| `y` | copy the value, as authored, to the terminal's clipboard (OSC 52); only your `y` does, an agent's `props.copy` just returns it |
 | `o` | follow a block (`related-to::<id>`, `((id))`), `[[page]]` or Work-ID value (the workspace's own prefix) |
 | `Enter` / `e` | edit the value in place; `Enter` saves, `Esc` cancels |
 | `s` | show or hide this key in the summary line (your choice) |
@@ -576,8 +581,9 @@ door's evaluator, which lanes a change asks again, a dropped connection's catch-
 and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks the door's query parser against the outliner's
 `block-query.ts`, and every lane after the moves against the outliner's own `saved-view-read.ts`. Point
 `EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
-skip. The `edit`, `move` and `comment` snapshots write too, so they refuse to run unless
-`EP0CH_SNAP_WRITES=1`: never point them at a real outline.
+skip. The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
+unless `EP0CH_SNAP_WRITES=1` and `EP0CH_SOCKET` is set explicitly to a socket under the temp dir whose
+service serves a workspace there too (a scratch service): they never fall back to the default socket.
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,
 Kitty upload, place, crop and delete) and composites them into a PNG.

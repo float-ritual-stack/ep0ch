@@ -1,7 +1,9 @@
 // Drive the real door against the live outline and snapshot what a Kitty terminal would show.
 // src/mirror.ts consumes the exact bytes the door writes and composites them into a PNG.
 //   bun scripts/snap.ts [cells] → out/snap-*.png
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, sep } from "node:path";
 import { Mirror } from "../src/mirror";
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
@@ -12,6 +14,22 @@ import { SocketBoard } from "../src/socket";
 import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
+
+// Scenarios that write seed their own board and edit it. They only ever run against a scratch service:
+// an explicit EP0CH_SOCKET (never the default socket) under the temp dir, whose workspace is there too.
+const WRITES = ["edit", "props", "move", "comment", "agent"];
+const underTemp = (p: string) => {
+  const real = (x: string) => { try { return realpathSync(x); } catch { return resolve(x); } };
+  const r = real(p);
+  return [...new Set([tmpdir(), "/tmp"].map(real))].some(t => r === t || r.startsWith(t + sep));
+};
+const refuse = (why: string) => { console.error(`${scenario} writes to the outline: ${why}`); process.exit(2); };
+if (WRITES.includes(scenario)) {
+  const sock = process.env.EP0CH_SOCKET;
+  if (!sock) refuse("set EP0CH_SOCKET to a scratch service's socket (the default socket is never written to), and EP0CH_SNAP_WRITES=1");
+  else if (!underTemp(sock)) refuse(`EP0CH_SOCKET must be a scratch service's socket under the temp dir (${tmpdir()}), not ${sock}`);
+  else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
+}
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
 const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
@@ -37,6 +55,7 @@ const scratch = scenario === "journey" || scenario === "kanban" ? await (async (
 })() : null;
 const board = new SocketBoard(scratch ? await scratch.start() : undefined);
 const info = await board.info();
+if (WRITES.includes(scenario) && !underTemp(info.workspace)) refuse(`the service at EP0CH_SOCKET serves ${info.workspace}, not a scratch workspace under the temp dir`);
 const app = new App(fakeTerm as any, board, Date.now() - 6 * 3600_000, () => {});
 app.host = info.host; app.workspace = info.workspace;
 mkdirSync("out", { recursive: true });

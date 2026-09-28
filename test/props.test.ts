@@ -314,8 +314,10 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     key({ kind: "tab" }); key({ kind: "tab" });
     expect([B().focus, B().preview.surface.panel.sel]).toEqual(["preview", 2]);
     await expect(act("props.copy", { key: "track" })).rejects.toThrow("pass n");
+    // An agent gets the value in its reply; the person's panel selection and clipboard stay as they were.
     expect(await act("props.copy", { n: 6 })).toMatchObject({ key: "track", value: "tools" });
-    expect(shown()).toContain("copied track: tools");
+    expect(B().preview.surface.panel.sel).toBe(2);
+    expect(shown()).not.toContain("copied track");
   });
 
   test("an edit is one revision-checked properties.patch, recorded as whoever made it; a stale one is refused", async () => {
@@ -357,6 +359,60 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await act("props.summary", { reset: true });
   });
 
+  test("requests: an unrelated change asks nothing again, a note's references resolve once, embed targets are read together", async () => {
+    const counts: Record<string, number> = {};
+    const request = board.request.bind(board);
+    const tally = () => ({ ...counts });
+    const reset = () => { for (const k of Object.keys(counts)) delete counts[k]; };
+    (board as any).request = (action: string, params: any = {}) => {
+      const k = action === "blocks.read" ? (params.fields?.includes("text") ? "blocks.read+text" : "blocks.read(lanes)")
+        : action === "references.resolve" && !params.text ? "prefix" : action;
+      counts[k] = (counts[k] ?? 0) + 1;
+      return request(action, params);
+    };
+    const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("Embedded view · Queued chores") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
+    try {
+      await act("open", { id: ids.card });
+      await act("props.close");
+      await settled("the embeds");
+      // 1. Someone edits a note this card neither links nor embeds.
+      const bystander = await create(null, "A bystander note");
+      await Bun.sleep(300);
+      reset();
+      const events = (app as any).events;
+      const b0 = await current(bystander);
+      await other.update(bystander, "A bystander note, edited", b0.revision);
+      await until(() => (app as any).events > events, "the event");
+      await settled("the redraw");
+      const unrelated = tally();
+      console.log(`  requests after an unrelated edit: ${JSON.stringify(unrelated)}`);
+      expect(unrelated["references.resolve"] ?? 0).toBe(0);
+      expect(unrelated["blocks.context"] ?? 0).toBe(0);
+      expect(unrelated["prefix"] ?? 0).toBe(0);
+      expect(unrelated["pages.resolve"] ?? 0).toBeLessThanOrEqual(1);       // [[GDN-99]] is missing: any edit could add it
+      expect(unrelated["blocks.read+text"] ?? 0).toBeLessThanOrEqual(1);    // the embedded view's definition, with its results
+      // 2. Everything again (a reset): the card's embed targets in one blocks.read.
+      reset();
+      invalidateEmbeds();
+      await settled("the embeds again");
+      const all = tally();
+      console.log(`  requests to re-read every embed: ${JSON.stringify(all)}`);
+      expect(all["blocks.read+text"]).toBe(1);
+      expect(all["blocks.context"] ?? 0).toBeLessThanOrEqual(1);            // the trashed target, for its title
+      // 3. A note whose body links a target by label and whose property holds the same target's id.
+      const linked = await create(null, `Linked note [related-to::${ids.plan}]\nSee ((${ids.plan}|the plan)) and ((${ids.plan})).`);
+      reset();
+      await act("open", { id: linked });
+      await until(() => !B().preview.msg.partial, "the note");
+      B().preview.surface.openPanel();
+      await until(() => { const s = shown(); return s.includes("See the plan and Garden plan.") && /related-to\s+Garden plan/.test(s); }, "the links and the panel", 8000);
+      const once = tally();
+      console.log(`  requests to open a note with links and a block-valued property: ${JSON.stringify(once)}`);
+      expect(once["references.resolve"]).toBe(1);
+      B().preview.surface.panel = null;
+    } finally { (board as any).request = request; }
+  }, 30_000);
+
   test("embeds refresh when their target changes", async () => {
     await act("open", { id: ids.card });
     await act("props.close");
@@ -365,5 +421,132 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await other.update(ids.plan, plan.text.replace("Beans along the fence.", "Peas along the fence."), plan.revision);
     await until(() => shown(120).includes("Peas along the fence."), "the refreshed embed", 8000);
     invalidateReferences();
+  });
+});
+
+// ── review fixes: each test fails without its fix ─────────────────────────────
+
+const AGENT = { kind: "agent", id: "test-agent-7" } as const;
+const tok = (key: string, value: string, line: number, ordinal: number, over: Partial<PropertyRecord> = {}): PropertyRecord =>
+  ({ key, value, raw: `[${key}::${value}]`, start: 0, end: 0, line, column: 0, placement: "metadata-line", syntax: "bracket", ordinal, scope: "block", ...over });
+
+/** A reader on a fake board: property reads answer from `tokens` (or wait, when it returns a promise). */
+function panelRig(text: string, tokens: (text: string) => PropertyRecord[] | Promise<PropertyRecord[]>) {
+  const ID = "eeeeeeee-5555-4555-8555-555555555555";
+  const patches: { revision: number; ops: unknown[] }[] = [], copied: string[] = [];
+  const board: any = {
+    propertyRecords: async (t: string) => tokens(t),
+    patchProperties: async (id: string, revision: number, ops: unknown[]) => { patches.push({ revision, ops }); return msg(id, text, { revision: revision + 1 }); },
+    workIdPrefix: async () => null, resolveReferences: async () => [], resolvePage: async (address: string) => ({ address, status: "missing" }),
+    ancestors: async () => [], comments: async () => [], get: async () => null, read: async () => null,
+  };
+  const h: SurfaceHost = { ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false, copy: (v: string) => copied.push(v) } as any, redraw() {}, navigate() {} };
+  const s = new NoteSurface();
+  const m = msg(ID, text, { revision: 1, properties: P(["priority", "high"], ["track", "soil"]), props: { priority: "high", track: "soil" } });
+  s.show(m, h);
+  return { s, h, m, patches, copied, ID };
+}
+
+describe("review: property actions", () => {
+  test("an agent's edit uses the revision its ordinals came from, and is refused when the note moved while they were read", async () => {
+    const text = "Card\n[priority::high] [track::soil]";
+    let release: ((t: PropertyRecord[]) => void) | null = null;
+    const { s, h, patches, ID } = panelRig(text, t => (t === text ? new Promise(r => { release = r; }) : [tok("owner", "x", 1, 0), tok("priority", "high", 1, 1), tok("track", "soil", 1, 2)]));
+    const p = s.act("props.edit", { key: "track", value: "tools" }, h, AGENT);
+    p.catch(() => {});
+    await until(() => release !== null, "the property read");
+    // An event lands while the tokens are on their way: the note gained a property before track.
+    s.refresh(msg(ID, "Card\n[owner::x] [priority::high] [track::soil]", { revision: 2, properties: P(["owner", "x"], ["priority", "high"], ["track", "soil"]) }));
+    release!([tok("priority", "high", 1, 0), tok("track", "soil", 1, 1)]);
+    await expect(p).rejects.toThrow("changed while");
+    expect(patches).toEqual([]);                                  // never ordinal 1 (now priority) at revision 2
+  });
+
+  test("agent props, props.copy and props.edit leave the person's reader as it was, and never touch the clipboard", async () => {
+    const text = "Card\n[priority::high] [track::soil]";
+    const { s, h, patches, copied } = panelRig(text, () => [tok("priority", "high", 1, 0), tok("track", "soil", 1, 1)]);
+    const listed = await s.act("props", {}, h, AGENT) as any;
+    expect(listed.rows.map((r: any) => r.key)).toEqual(["priority", "track"]);
+    expect(await s.act("props.copy", { n: 2 }, h, AGENT)).toMatchObject({ key: "track", value: "soil" });
+    expect(await s.act("props.edit", { key: "priority", value: "low" }, h, AGENT)).toMatchObject({ saved: true, to: "low" });
+    expect([s.panel, s.holdsKeys, copied]).toEqual([null, false, []]);
+    expect(patches).toEqual([{ revision: 1, ops: [{ op: "replace", ordinal: 0, value: "low" }] }]);
+    // The person's own panel: an agent doesn't move its selection or open a field in it.
+    s.key(char("i"), h); s.key({ kind: "tab" }, h);
+    await s.act("props.copy", { n: 1 }, h, AGENT);
+    expect([s.panel?.sel, s.panel?.field ?? null, copied]).toEqual([1, null, []]);
+    // Only the person's `y` copies to the clipboard.
+    s.key(char("y"), h);
+    expect(copied).toEqual(["soil"]);
+  });
+
+  test("with the panel open, PgDn, PgUp and Space still scroll (the note inline, the list when full)", () => {
+    const body = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
+    const { s, h } = panelRig(`Card\n[priority::high]\n\n${body}`, () => [tok("priority", "high", 1, 0)]);
+    s.key(char("i"), h);
+    s.key({ kind: "pgdn" }, h);
+    expect(s.scroll).toBe(15);
+    s.key(char(" "), h);
+    expect(s.scroll).toBe(30);
+    s.key({ kind: "pgup" }, h);
+    expect(s.scroll).toBe(15);
+    expect(s.panel).not.toBeNull();
+    // While a value is typed, Space is text.
+    s.key({ kind: "enter" }, h); s.key(char(" "), h);
+    expect([s.scroll, s.panel!.field!.text]).toEqual([15, "high "]);
+  });
+});
+
+describe("review: what the reader hides and expands", () => {
+  test("only the preamble run is hidden: a hashtag-only line in the body stays", () => {
+    const text = "Title\n[a::b] [c::d]\n#garden\n\nBody text\n#compost\nmore";
+    const tokens = [tok("a", "b", 1, 0), tok("c", "d", 1, 1), tok("tag", "garden", 2, 2, { syntax: "hashtag" }), tok("tag", "compost", 5, 3, { syntax: "hashtag" })];
+    expect([...metadataLines(text, tokens)]).toEqual([1, 2]);
+    expect([...metadataLines("Title\n\n#only-tags\nbody\n#late", [tok("tag", "only-tags", 2, 0, { syntax: "hashtag" }), tok("tag", "late", 4, 1, { syntax: "hashtag" })])]).toEqual([2]);
+  });
+
+  test("a transclusion inside inline code stays code", () => {
+    const seen: string[] = [];
+    const doc = renderDoc(`Write \`!((${A}))\` to embed, like !((${A})) here`, {
+      width: 70, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false,
+      embed: (id, _f, n) => { seen.push(`${n}:${id.slice(0, 4)}`); return [`[embed ${n}]`]; },
+    });
+    expect(seen).toEqual(["0:aaaa"]);
+    expect(doc.lines.map(strip)).toEqual(["Write !((aaaaaaaa…)) to embed, like", "[embed 0]", "here"]);   // code, drawn as code
+  });
+
+  test("a failed properties.preview is asked again after the next outline event, not on every redraw", async () => {
+    const { tokensOf, invalidatePropertyErrors } = await import("../src/props") as any;
+    let asked = 0, fail = true;
+    const src: Source = { board: { propertyRecords: async () => { asked++; if (fail) throw new Error("socket closed"); return []; } } as any, redraw() {} };
+    expect(tokensOf("T\n[a::b]", src)).toBeNull();
+    await until(() => tokensOf("T\n[a::b]", src)?.state === "error", "the error");
+    for (let i = 0; i < 5; i++) tokensOf("T\n[a::b]", src);
+    expect(asked).toBe(1);
+    fail = false;
+    invalidatePropertyErrors();
+    tokensOf("T\n[a::b]", src);
+    await until(() => tokensOf("T\n[a::b]", src)?.state === "ready", "the retry");
+    expect(asked).toBe(2);
+  });
+});
+
+describe("review: snapshot write scenarios are scratch-only", () => {
+  const run = (env: Record<string, string>) => {
+    const home = mkdtempSync(join(tmpdir(), "ep0ch-home-"));
+    try {
+      const p = Bun.spawnSync(["bun", "scripts/snap.ts", "props"], { cwd: join(import.meta.dir, ".."), env: { PATH: process.env.PATH!, HOME: home, EP0CH_SNAP_WRITES: "1", ...env }, stdout: "pipe", stderr: "pipe" });
+      return { code: p.exitCode, err: p.stderr.toString() };
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  };
+  test("no EP0CH_SOCKET: refused before connecting (never the default socket)", () => {
+    const r = run({});
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("EP0CH_SOCKET");
+  });
+  test("a socket outside the temp dir: refused before connecting", () => {
+    const r = run({ EP0CH_SOCKET: "/var/lib/not-a-scratch/outliner.sock" });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("temp");
   });
 });

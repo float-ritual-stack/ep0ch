@@ -81,8 +81,14 @@ export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
 /** Where a reader's reads go, and what to redraw when an answer arrives: the reader's own connection. */
 export interface Source { board: SocketBoard; redraw(): void }
 
-interface Parsed { state: "loading" | "ready" | "unsupported" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed> }
+interface Parsed { state: "loading" | "ready" | "unsupported" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed>; asked?: number }
 const parsedBy = new WeakMap<object, Map<string, Parsed>>();
+let outlineEvents = 0;
+/**
+ * An outline event (or a reconnect) arrived: a read that failed is asked again on the next render. Not
+ * sooner: an error redraws, and asking again on every redraw would loop against a failing service.
+ */
+export function invalidatePropertyErrors() { outlineEvents++; }
 
 /**
  * How the service parses `text` (synchronous for the renderer: null until it has answered). The answer
@@ -94,14 +100,15 @@ export function tokensOf(text: string, src: Source | null | undefined): Parsed |
   let parsed = parsedBy.get(src.board);
   if (!parsed) parsedBy.set(src.board, (parsed = new Map()));
   const hit = parsed.get(text);
-  if (hit) { parsed.delete(text); parsed.set(text, hit); return hit.state === "loading" ? null : hit; }
+  if (hit && !(hit.state === "error" && (hit.asked ?? 0) < outlineEvents)) { parsed.delete(text); parsed.set(text, hit); return hit.state === "loading" ? null : hit; }
+  const asked = outlineEvents;
   const entry: Parsed = { state: "loading", tokens: [] };
   parsed.set(text, entry);
   if (parsed.size > 300) parsed.delete(parsed.keys().next().value!);
   const cache = parsed;
   entry.done = Promise.resolve().then(() => src.board.propertyRecords(text)).then(
     (t): Parsed => (t ? { state: "ready", tokens: t } : { state: "unsupported", tokens: [] }),
-    (e: Error): Parsed => ({ state: "error", tokens: [], error: e.message }),
+    (e: Error): Parsed => ({ state: "error", tokens: [], error: e.message, asked }),
   ).then(r => { if (cache.get(text) === entry) cache.set(text, r); src.redraw(); return r; });
   return null;
 }
@@ -114,20 +121,19 @@ export async function tokensFor(text: string, src: Source | null | undefined): P
 }
 
 /**
- * The line numbers (0 = subject) the body leaves out because they hold block metadata only: every line
- * whose tokens the service calls block-scope metadata lines (`[key::value]` runs, hashtags there). Bare
- * `key:: value` lines are line-scope content and stay. Without the service's answer, the documented rule:
- * the first run of property-only lines after the subject (blank lines before it skipped).
+ * The line numbers (0 = subject) the body leaves out because they hold block metadata only: the
+ * preamble, the run of lines right after the subject (blank lines before it skipped) whose tokens the
+ * service calls block-scope metadata lines (`[key::value]` runs, hashtags among them). Only that run: the
+ * service gives a hashtag block scope wherever it is, so a `#tag` line further down is body text and
+ * stays, as do bare `key:: value` lines (line scope). Without the service's answer, the documented rule:
+ * the first run of `[key::value]`-only lines after the subject.
  */
 export function metadataLines(text: string, tokens: PropertyRecord[] | null): Set<number> {
   const out = new Set<number>();
-  if (tokens) {
-    for (const t of tokens) if (t.scope === "block" && t.placement === "metadata-line" && t.line > 0) out.add(t.line);
-    return out;
-  }
+  const meta = tokens ? new Set(tokens.filter(t => t.scope === "block" && t.placement === "metadata-line").map(t => t.line)) : null;
   const lines = text.split("\n");
   let i = 1;
   while (i < lines.length && !lines[i]!.trim()) i++;
-  for (; i < lines.length && /^\s*(\[[\w-]+::[^\]\n]*\]\s*)+$/.test(lines[i]!); i++) out.add(i);
+  for (; i < lines.length && (meta ? meta.has(i) : /^\s*(\[[\w-]+::[^\]\n]*\]\s*)+$/.test(lines[i]!)); i++) out.add(i);
   return out;
 }
