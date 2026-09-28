@@ -6,10 +6,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { Rgba } from "./vga";
+import type { PngRef } from "./media";
 
 export interface Placement {
   key: string;          // stable identity of this placement on screen
-  image: Rgba;
+  image: Rgba | PngRef;
   col: number;          // 0-based cell position
   row: number;
   cols: number;         // cells the image is scaled into
@@ -59,18 +60,19 @@ export class KittyLayer {
 
   constructor(private readonly write: (s: string) => void) {}
 
-  private upload(img: Rgba): number {
-    const hash = createHash("sha1").update(img.data).update(`${img.width}x${img.height}`).digest("hex");
+  private upload(img: Rgba | PngRef): number {
+    const png = "png" in img;
+    const hash = png ? `png:${img.key}` : createHash("sha1").update(img.data).update(`${img.width}x${img.height}`).digest("hex");
     const known = this.uploaded.get(hash);
     if (known) return known;
     const id = this.nextId++;
-    // Raw RGBA + zlib: no PNG step, and o=z keeps remote (SSH) transfers small.
-    const b64 = deflateSync(img.data).toString("base64");
+    // PNG files go as-is (f=100); our own rasters go as raw RGBA + zlib (o=z), small over SSH either way.
+    const b64 = png ? img.png.toString("base64") : deflateSync(img.data).toString("base64");
+    const head0 = png ? `a=t,f=100,t=d,i=${id},q=2` : `a=t,f=32,o=z,t=d,i=${id},s=${img.width},v=${img.height},q=2`;
     let out = "";
     for (let at = 0; at < b64.length; at += 4096) {
       const more = at + 4096 < b64.length ? 1 : 0;
-      const head = at === 0 ? `a=t,f=32,o=z,t=d,i=${id},s=${img.width},v=${img.height},q=2,m=${more}` : `m=${more}`;
-      out += APC(head, b64.slice(at, at + 4096));
+      out += APC(at === 0 ? `${head0},m=${more}` : `m=${more}`, b64.slice(at, at + 4096));
     }
     this.bytesSent += out.length;
     this.write(out);

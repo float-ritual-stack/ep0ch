@@ -79,3 +79,19 @@ describe("saved-view query parsing (matches the outliner's rules)", () => {
     expect(() => parseFilterExpression("type=")).toThrow(/cannot be empty/);
   });
 });
+
+import { table } from "../src/doc";
+import { resolveMediaPath } from "../src/media";
+describe("document rendering", () => {
+  const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  test("tables wrap long cells onto more lines instead of truncating, and fit the width", () => {
+    const out = table(["| Ticket | Notes |", "|---|---|", "| PC-762 | Three eFax values into dev's Key Vault before the dev end-to-end test can run |"], 40).map(strip);
+    expect(out.every(l => [...l].length <= 40)).toBe(true);
+    const body = out.filter(l => l.startsWith("│") && !l.includes("Ticket"));
+    expect(body.length).toBeGreaterThan(1);
+    expect(body.map(l => l.split("│")[2]!.trim()).join(" ")).toContain("end-to-end test can run");
+  });
+  test("media paths: backslash spaces and macOS screenshot names", () => {
+    expect(resolveMediaPath("/tmp/no\\ such\\ file.png").path).toBe("/tmp/no such file.png");
+  });
+});

@@ -9,6 +9,7 @@ import type { Activity, Comment } from "../socket";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, colourBody, rule, wrap } from "../text";
+import { renderDoc } from "../doc";
 
 export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art";
 export interface PaneView { lines: string[]; placements?: Placement[] }
@@ -176,12 +177,13 @@ export class ReaderPane implements Pane {
   private pinned = false;
   private scroll = 0;
   private crumbs = "";
-  private links: { block?: string; page?: string }[] = [];
+  private links: { block?: string; page?: string; media?: string }[] = [];
+  private unfold = false;
   private link = -1;
   title() { return this.pinned ? "reader · pinned" : "reader"; }
   hint() {
     const l = this.links[this.link];
-    return l ? `link ${this.link + 1}/${this.links.length} ${l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ follow` : "p pin · [ ] links · u up";
+    return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up";
   }
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
@@ -196,7 +198,7 @@ export class ReaderPane implements Pane {
     }, () => {});
   }
 
-  render(w: number, h: number): PaneView {
+  render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
@@ -206,10 +208,28 @@ export class ReaderPane implements Pane {
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       rule(w),
     ];
-    const body = wrap(m.text.split("\n").slice(1).join("\n").replace(/^\n+/, ""), w - 1).map(l => " " + colourBody(l));
+    const t = desk?.ctx.t;
+    const doc = renderDoc(m.text.split("\n").slice(1).join("\n").replace(/^\n+/, ""), {
+      width: w - 1, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!desk?.ctx.graphics,
+      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold,
+    });
+    // Media become followable links too: [ ] selects, ⏎ opens with the system viewer.
+    const mediaLinks = doc.media.map(x => ({ media: x.path }));
+    if (this.links.filter(l => l.media).length !== mediaLinks.length) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
+    const body = doc.lines.map(l => " " + l);
     const room = Math.max(1, h - head.length);
     this.scroll = Math.max(0, Math.min(this.scroll, body.length - room));
-    return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)] };
+    const placements: Placement[] = [];
+    for (const im of doc.images) {
+      const top = im.line - this.scroll, bottom = top + im.rows;
+      if (bottom <= 0 || top >= room) continue;
+      const cutTop = Math.max(0, -top), cutBottom = Math.max(0, bottom - room);
+      const visible = im.rows - cutTop - cutBottom;
+      const img = im.media.image;
+      const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / im.rows) * img.height), w: img.width, h: Math.max(1, Math.round((visible / im.rows) * img.height)) } : undefined;
+      placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
+    }
+    return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)], placements };
   }
 
   key(k: Key, desk: DeskApi): boolean {
@@ -224,6 +244,8 @@ export class ReaderPane implements Pane {
       if (n) this.link = c === "]" ? (this.link + 1) % n : this.link <= 0 ? n - 1 : this.link - 1;
       desk.redraw(); return true;
     }
+    if (c === "z") { this.unfold = !this.unfold; desk.redraw(); return true; }
+    if (k.kind === "enter" && this.links[this.link]?.media) { Bun.spawn(["open", this.links[this.link]!.media!], { stdout: "ignore", stderr: "ignore" }); desk.ctx.flash("opened in the system viewer"); return true; }
     if (k.kind === "enter" && this.links[this.link]) { void this.go(this.links[this.link]!, desk); return true; }
     if (c === "u" && this.msg?.parentId) {
       desk.ctx.board.get(this.msg.parentId).then(p => { if (p) { if (this.pinned) this.show(p, desk); desk.setCurrent(p, { reveal: true, from: this }); } }, () => {});
@@ -232,7 +254,7 @@ export class ReaderPane implements Pane {
     return false;
   }
 
-  private async go(l: { block?: string; page?: string }, desk: DeskApi) {
+  private async go(l: { block?: string; page?: string; media?: string }, desk: DeskApi) {
     let target: Msg | null = null;
     if (l.block) target = await desk.ctx.board.get(l.block);
     else if (l.page) {

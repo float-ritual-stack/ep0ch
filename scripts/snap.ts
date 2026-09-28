@@ -4,6 +4,7 @@
 //   bun scripts/snap.ts [cells] → out/snap-*.png
 import { mkdirSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
+import { decodePng } from "./png-decode";
 import { CP437_HIGH } from "../src/ansi";
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
@@ -17,7 +18,7 @@ import { readFileSync } from "node:fs";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
@@ -74,8 +75,9 @@ class Emu {
       this.chunks.set(this.lastId, this.chunks.get(this.lastId)! + payload);
       if (kv.m === "0") {
         const meta = (this as any)[`meta${this.lastId}`];
-        const raw = inflateSync(Buffer.from(this.chunks.get(this.lastId)!, "base64"));
-        this.images.set(this.lastId, { w: Number(meta.s), h: Number(meta.v), data: raw });
+        const bytes = Buffer.from(this.chunks.get(this.lastId)!, "base64");
+        if (meta.f === "100") { const d = decodePng(bytes); this.images.set(this.lastId, { w: d.w, h: d.h, data: d.data }); }
+        else this.images.set(this.lastId, { w: Number(meta.s), h: Number(meta.v), data: inflateSync(bytes) });
         this.chunks.delete(this.lastId);
       }
     } else if (kv.a === "p") {
@@ -101,7 +103,8 @@ class Emu {
           const sx = p.cx + Math.floor((x / bw) * cw), sy = p.cy + Math.floor((y / bh) * chh);
           const so = (sy * img.w + sx) * 4, dx = p.col * t.cellW + x, dy = p.row * t.cellH + y;
           if (dx >= W || dy >= H) continue;
-          const o = (dy * W + dx) * 4; px[o] = img.data[so]!; px[o + 1] = img.data[so + 1]!; px[o + 2] = img.data[so + 2]!;
+          const o = (dy * W + dx) * 4, al = (img.data[so + 3] ?? 255) / 255;
+          px[o] = px[o]! * (1 - al) + img.data[so]! * al; px[o + 1] = px[o + 1]! * (1 - al) + img.data[so + 1]! * al; px[o + 2] = px[o + 2]! * (1 - al) + img.data[so + 2]! * al;
         }
       }
     };
@@ -150,6 +153,37 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "doc") {
+  // A fake note through the real reader: callouts, a wrapped table, code, and a screenshot.
+  const { ReaderPane } = await import("../src/desk/panes");
+  const { onMediaChange } = await import("../src/media");
+  const shot = "/opt/float/bbs/inbox/screenshots/Screenshot\\ 2026-09-27\\ at\\ 8.05.26 PM.png";
+  const text = ["Doc rendering demo", "[type::demo]", "", "> [!summary] Where the work is", "> Two tickets in flight. PC-762 waits on Sumit's eFax keys; PC-985 is ready for QA on staging.",
+    "", "> [!warning]- Folded until z", "> hidden detail", "", "| Ticket | State | Waiting on | Notes |", "|---|:-:|---|---|",
+    "| PC-762 | waiting | Sumit | Three eFax values into dev's Key Vault before the dev end-to-end test can run; Milind holds prod until then. |",
+    "| PC-985 | QA | Felipe, Adam | Registration works on dev and staging; the sign-up form stays hidden behind a CMS flag. |",
+    "", "## Screenshot", "", `img:: ${shot}`, "", "```ts", "const board = await readView(sock, def);", "```"].join("\n");
+  const pane = new ReaderPane();
+  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  onMediaChange(() => app.redraw());
+  app.push({ title: "doc", render: (ctx: any) => { const v = pane.render(ctx.t.cols - 4, ctx.t.rows - 3, true, api); return { lines: v.lines.map((l: string) => "  " + l), placements: (v.placements ?? []).map((p: any) => ({ ...p, col: p.col + 2 })) }; }, key() {} } as any);
+  await snap("1-doc", 4000);
+  board.close(); process.exit(0);
+}
+if (scenario === "board3") {
+  const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+  app.push(new MainMenu()); app.push(new DeliveryBoard());
+  await Bun.sleep(6000);
+  press({ kind: "enter" }); await Bun.sleep(1200); press({ kind: "tab" });   // open a detail, back to lanes
+  const edgeX = (app as any).stack.at(-1).laneEdges[0].x;
+  mouse("down", edgeX, 10); mouse("drag", edgeX + 30, 10); mouse("up", edgeX + 30, 10);          // widen the first lane
+  const rEdge = (app as any).stack.at(-1).readerEdges[0].x;
+  mouse("down", rEdge, 40); mouse("drag", rEdge - 25, 40); mouse("up", rEdge - 25, 40);           // narrow the preview
+  await snap("1-dragged", 1500);
+  console.log("lane edge", edgeX, "→", (app as any).stack.at(-1).laneEdges[0].x, "reader edge", rEdge, "→", (app as any).stack.at(-1).readerEdges[0].x);
+  board.close(); process.exit(0);
+}
 if (scenario === "board2") {
   const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
   app.push(new MainMenu()); app.push(new DeliveryBoard());

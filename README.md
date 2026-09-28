@@ -65,7 +65,8 @@ The last board per workspace is remembered.
   Checked identical against the outliner's own evaluator: all 8 branches on float-hub and all 34 on the pi-outliner outline.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
 - **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
-- **Resize** by dragging any border (lanes/readers, preview/details, drawer edges), or `{ }` and `< >`.
+- **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
+  Keys: `{ }` lane height, `< >` width of the focused lane or reader.
 - **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
   to nudge, `o` again to dock it back as a detail, `x` to close.
 - **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`); `S` moves it
@@ -73,6 +74,20 @@ The last board per workspace is remembered.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
   snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
 - Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
+
+## Reading notes
+
+Every reader (board, desk) renders bodies with `src/doc.ts`:
+
+- **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
+  through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
+  `~/.cache/ep0ch-door/media`. `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
+  `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
+  If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
+- **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
+  `[!x]-` starts folded, `z` unfolds.
+- **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
+- Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
 ## The river
 

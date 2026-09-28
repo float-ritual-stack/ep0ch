@@ -5,6 +5,8 @@
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
+import type { Placement } from "../kitty";
+import { onMediaChange } from "../media";
 import type { Backlink, OutlineEvent } from "../socket";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
@@ -17,9 +19,10 @@ interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: 
 interface Float { pane: ReaderPane; rect: Rect }
 type Region = "lanes" | "preview" | `detail${number}` | `float${number}` | "tree" | "backlinks";
 type Drag =
-  | { kind: "lanes-split" } | { kind: "preview-split" } | { kind: "tree-edge" } | { kind: "links-edge" }
+  | { kind: "lanes-split" } | { kind: "tree-edge" } | { kind: "links-edge" }
+  | { kind: "lane-edge"; a: number; b: number } | { kind: "reader-edge"; a: number; b: number }
   | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float };
-interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right" }
+interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right"; laneWeights: Record<string, number>; readerWeights: number[] }
 interface Saved extends Layout { treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string> }
 
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
@@ -49,7 +52,11 @@ export class DeliveryBoard implements Screen, DeskApi {
   private links: { target: Msg; from: string; items: Backlink[] | null; sel: number; top: number } | null = null;
   private linksPreview = new ReaderPane();
   private linksPinned = false;
-  private lay: Layout = { laneFrac: 0.42, previewFrac: 0.4, treeFrac: 0.3, linksFrac: 0.45, treeSide: "left" };
+  private lay: Layout = { laneFrac: 0.42, previewFrac: 0.4, treeFrac: 0.3, linksFrac: 0.45, treeSide: "left", laneWeights: {}, readerWeights: [4, 3, 3] };
+  private placed: { p: Placement; layer: number }[] = [];
+  private overlays: { r: Rect; layer: number }[] = [];
+  private laneEdges: { a: number; b: number; x: number; rect: Rect }[] = [];
+  private readerEdges: { a: number; b: number; x: number; area: Rect }[] = [];
   private focus: Region = "lanes";
   private rects = new Map<string, Rect>();   // region → rect, plus "float-title:N", splitter lines
   private laneRects: { lane: number; rect: Rect; spine: boolean }[] = [];
@@ -64,7 +71,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (s) {
       this.treePinned = !!s.treePinned; this.treeOpen = !!s.treePinned; this.linksPinned = !!s.linksPinned;
       this.lane = s.lane ?? 0; this.collapsed = new Set(s.collapsed ?? []); this.hubs = s.hubs ?? {};
-      for (const k of ["laneFrac", "previewFrac", "treeFrac", "linksFrac", "treeSide"] as const) if (s[k] !== undefined) (this.lay as any)[k] = s[k];
+      for (const k of ["laneFrac", "previewFrac", "treeFrac", "linksFrac", "treeSide", "laneWeights", "readerWeights"] as const) if (s[k] !== undefined) (this.lay as any)[k] = s[k];
     }
   }
 
@@ -76,6 +83,7 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   async enter(ctx: Ctx) {
     this.ctx = ctx;
+    onMediaChange(() => this.redraw());
     try {
       const remembered = this.hubId ?? this.hubs[ctx.workspace];
       const hub = remembered ? await ctx.board.get(remembered) : null;
@@ -227,6 +235,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const H = rows - 2;
     const canvas = new Canvas(W, rows - 1);
     this.rects.clear();
+    this.placed = []; this.overlays = []; this.readerEdges = [];
     const treeW = clamp(Math.round(W * this.lay.treeFrac), 28, Math.round(W * 0.7));
     const pinnedTree = this.treePinned && this.treeOpen;
     const area: Rect = {
@@ -247,33 +256,39 @@ export class DeliveryBoard implements Screen, DeskApi {
       { region: "preview", pane: this.preview, label: "preview · follows the board" },
       ...this.details.map((p, i) => ({ region: `detail${i}` as Region, pane: p, label: `detail ${i + 1}${this.details.length > 1 && i === this.active ? " · ⏎ opens here" : ""}` })),
     ];
-    const pw = this.details.length ? clamp(Math.round(area.cols * this.lay.previewFrac), 20, area.cols - 20 * this.details.length) : area.cols;
+    const ww = docked.map((_, i) => Math.max(0.2, this.lay.readerWeights[i] ?? 3));
+    const wsum = ww.reduce((a, b) => a + b, 0);
     let x = area.col;
     docked.forEach((r, i) => {
-      const w = i === 0 ? pw : i === docked.length - 1 ? area.col + area.cols - x : Math.round((area.cols - pw) / this.details.length);
-      this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label);
+      const w = i === docked.length - 1 ? area.col + area.cols - x : Math.max(12, Math.round((area.cols * ww[i]!) / wsum));
+      this.drawReader(canvas, { col: x, row: laneH, cols: w, rows: readersH }, r.region, r.pane, r.label, r.pane.hint(), 0);
       x += w;
+      if (i < docked.length - 1) this.readerEdges.push({ a: i, b: i + 1, x, area: { col: area.col, row: laneH, cols: area.cols, rows: readersH } });
     });
-    if (this.details.length) this.rects.set("split:preview", { col: area.col + pw, row: laneH, cols: 1, rows: readersH });
 
     // Backlinks drawer spans every reader; overlays unless pinned.
     if (this.links) {
       const r: Rect = { col: area.col, row: laneH + (this.linksPinned ? readersH : readersH - linksH), cols: area.cols, rows: linksH };
+      if (!this.linksPinned) this.overlays.push({ r, layer: 1 });
       this.drawLinks(canvas, r);
       this.rects.set("split:links", { col: r.col, row: r.row, cols: r.cols, rows: 1 });
     }
     // Outline drawer on the left or right, sliding over unless pinned.
     if (this.treeOpen) {
       const r: Rect = { col: this.lay.treeSide === "left" ? 0 : W - treeW, row: 0, cols: treeW, rows: H };
+      if (!this.treePinned) this.overlays.push({ r: { ...r, cols: r.cols + 1 }, layer: 2 });
       this.drawTree(canvas, r, !this.treePinned);
       this.rects.set("split:tree", { col: this.lay.treeSide === "left" ? r.col + r.cols - 1 : r.col, row: 0, cols: 1, rows: H });
     }
     if (this.picker) this.drawPicker(canvas, W, H);
     // Floating panes last, in z-order.
-    this.floats.forEach((f, i) => this.drawFloat(canvas, f, i, W, H));
+    this.floats.forEach((f, i) => { this.overlays.push({ r: { ...f.rect, cols: f.rect.cols + 1, rows: f.rect.rows + 1 }, layer: 3 + i }); this.drawFloat(canvas, f, i, W, H); });
 
     canvas.text(0, rows - 2, this.hints(W), W);
-    return { lines: canvas.lines() };
+    // Kitty images sit under text but above cell backgrounds, so anything a drawer or float covers is left out.
+    const hit = (a: Rect, b: Rect) => a.col < b.col + b.cols && b.col < a.col + a.cols && a.row < b.row + b.rows && b.row < a.row + a.rows;
+    const placements = this.placed.filter(({ p, layer }) => !this.overlays.some(o => o.layer > layer && hit(o.r, { col: p.col, row: p.row, cols: p.cols, rows: p.rows }))).map(x => x.p);
+    return { lines: canvas.lines(), placements };
   }
 
   private frame(canvas: Canvas, r: Rect, region: Region, title: string, hint = "") {
@@ -286,15 +301,25 @@ export class DeliveryBoard implements Screen, DeskApi {
   private drawLanes(canvas: Canvas, r: Rect) {
     this.laneRects = [];
     if (!this.lanes.length) { canvas.box(r, fg(C.blue), fg(C.grey) + (this.hub ? subject(this.hub) : "board")); canvas.text(r.col + 2, r.row + 1, fg(C.dark) + this.status + RESET); return; }
-    const open = this.lanes.filter(l => !this.collapsed.has(l.name)).length;
-    const spines = this.lanes.length - open;
-    const each = open ? Math.floor((r.cols - spines * SPINE) / open) : 0;
-    let x = r.col, seenOpen = 0;
+    const spines = this.lanes.filter(l => this.collapsed.has(l.name)).length;
+    const openLanes = this.lanes.map((l, i) => ({ l, i })).filter(x => !this.collapsed.has(x.l.name));
+    const wsum = openLanes.reduce((a, x) => a + (this.lay.laneWeights[x.l.name] ?? 1), 0) || 1;
+    const room = r.cols - spines * SPINE;
+    this.laneEdges = [];
+    let x = r.col, prevOpen = -1, openSeen = 0;
     this.lanes.forEach((l, i) => {
       const spine = this.collapsed.has(l.name);
-      if (!spine) seenOpen++;
-      const w = spine ? SPINE : seenOpen === open ? r.col + r.cols - x - (this.lanes.slice(i + 1).filter(n => this.collapsed.has(n.name)).length * SPINE) : each;
+      let w = SPINE;
+      if (!spine) {
+        openSeen++;
+        const rest = this.lanes.slice(i + 1).filter(n => this.collapsed.has(n.name)).length * SPINE;
+        w = openSeen === openLanes.length ? r.col + r.cols - x - rest : Math.max(10, Math.round((room * (this.lay.laneWeights[l.name] ?? 1)) / wsum));
+      }
       const rect: Rect = { col: x, row: r.row, cols: w, rows: r.rows };
+      if (!spine) {
+        if (prevOpen >= 0 && this.laneRects[this.laneRects.length - 1] && !this.laneRects[this.laneRects.length - 1]!.spine) this.laneEdges.push({ a: prevOpen, b: i, x, rect: r });
+        prevOpen = i;
+      } else prevOpen = -1;
       this.laneRects.push({ lane: i, rect, spine });
       x += w;
       const on = this.focus === "lanes" && i === this.lane;
@@ -344,10 +369,17 @@ export class DeliveryBoard implements Screen, DeskApi {
       (i === P.sel ? SEL : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
   }
 
-  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint()) {
+  private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint(), layer = 0) {
     const inner = this.frame(canvas, r, region, label, hint);
     if (inner.cols < 4 || inner.rows < 1) return;
-    pane.render(inner.cols, inner.rows).lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    this.paneInto(canvas, inner, pane, region, layer);
+  }
+
+  private paneInto(canvas: Canvas, inner: Rect, pane: ReaderPane, key: string, layer: number) {
+    const view = pane.render(inner.cols, inner.rows, false, this);
+    view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    for (const p of view.placements ?? [])
+      this.placed.push({ layer, p: { ...p, key: `${key}:${p.key}`, col: inner.col + p.col, row: inner.row + p.row, cols: Math.min(p.cols, inner.cols - p.col), rows: Math.min(p.rows, inner.rows - p.row) } });
   }
 
   private drawLinks(canvas: Canvas, r: Rect) {
@@ -374,7 +406,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
     const snip = items[L.sel]?.snippet;
     if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`“${snip}”`, pin.cols) + RESET, pin.cols);
-    this.linksPreview.render(pin.cols, pin.rows - 1).lines.slice(0, pin.rows - 1).forEach((l, i) => canvas.text(pin.col, pin.row + 1 + i, l, pin.cols));
+    this.paneInto(canvas, { ...pin, row: pin.row + 1, rows: pin.rows - 1 }, this.linksPreview, "links", this.linksPinned ? 0 : 1);
   }
 
   private drawTree(canvas: Canvas, r: Rect, overlay: boolean) {
@@ -389,7 +421,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       const pr: Rect = { col: r.col, row: r.row + treeRows, cols: r.cols, rows: r.rows - treeRows };
       canvas.box(pr, fg(C.blue), fg(C.grey) + "outline preview");
       const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
-      this.treePreview.render(pin.cols, pin.rows).lines.slice(0, pin.rows).forEach((l, i) => canvas.text(pin.col, pin.row + i, l, pin.cols));
+      this.paneInto(canvas, pin, this.treePreview, "treepv", this.treePinned ? 0 : 2);
     }
     if (overlay) {
       const edge = this.lay.treeSide === "left" ? r.col + r.cols : r.col - 1;
@@ -406,7 +438,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     for (let y = r.row + 1; y <= Math.min(H - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
     canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, W - r.col - 1))) + RESET, W);
     const title = `${fg(C.yellow)}⧉ ${f.pane.msg ? subject(f.pane.msg).slice(0, r.cols - 12) : "float"}`;
-    this.drawReader(canvas, r, `float${i}`, f.pane, title, "drag title · drag ◢ · o dock · x close");
+    this.drawReader(canvas, r, `float${i}`, f.pane, title, "drag title · drag ◢ · o dock · x close", 3 + i);
     canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     this.rects.set(`float-title:${i}`, { col: r.col, row: r.row, cols: r.cols, rows: 1 });
     this.rects.set(`float-corner:${i}`, { col: r.col + r.cols - 2, row: r.row + r.rows - 2, cols: 2, rows: 2 });
@@ -453,8 +485,13 @@ export class DeliveryBoard implements Screen, DeskApi {
     const nudge = (key: keyof Layout, d: number, lo: number, hi: number) => { (this.lay as any)[key] = clamp((this.lay as any)[key] + d, lo, hi); this.save(); this.redraw(); };
     if (c === "{") return nudge("laneFrac", -0.05, 0.15, 0.8);
     if (c === "}") return nudge("laneFrac", 0.05, 0.15, 0.8);
-    if (c === "<") return this.focus === "tree" ? nudge("treeFrac", -0.04, 0.15, 0.7) : nudge("previewFrac", -0.05, 0.15, 0.8);
-    if (c === ">") return this.focus === "tree" ? nudge("treeFrac", 0.04, 0.15, 0.7) : nudge("previewFrac", 0.05, 0.15, 0.8);
+    if (c === "<" || c === ">") {
+      const d = c === ">" ? 1 : -1;
+      if (this.focus === "tree") return nudge("treeFrac", 0.04 * d, 0.15, 0.7);
+      if (this.focus === "lanes") { const n = this.lanes[this.lane]?.name; if (n) this.lay.laneWeights[n] = clamp((this.lay.laneWeights[n] ?? 1) + 0.2 * d, 0.3, 5); }
+      else { const i = this.focus === "preview" ? 0 : this.focus.startsWith("detail") ? Number(this.focus.slice(6)) + 1 : -1; if (i >= 0) this.lay.readerWeights[i] = clamp((this.lay.readerWeights[i] ?? 3) + 0.5 * d, 0.5, 20); }
+      this.save(); return this.redraw();
+    }
     if (c === "t") { this.treeOpen = !this.treeOpen || this.focus !== "tree"; this.focus = this.treeOpen ? "tree" : "lanes"; if (!this.treeOpen) this.treePinned = false; this.save(); return this.redraw(); }
     if (c === "T") { this.treePinned = !this.treePinned; this.treeOpen = this.treePinned || this.treeOpen; this.save(); return this.redraw(); }
     if (c === "S") { this.lay.treeSide = this.lay.treeSide === "left" ? "right" : "left"; this.treeOpen = true; this.save(); return this.redraw(); }
@@ -543,13 +580,20 @@ export class DeliveryBoard implements Screen, DeskApi {
         else if (k.y === f.rect.row) this.drag = { kind: "float-move", f, dx: k.x - f.rect.col, dy: k.y - f.rect.row };
         return this.redraw();
       }
-      for (const [name, kind] of [["split:tree", "tree-edge"], ["split:links", "links-edge"], ["split:preview", "preview-split"], ["split:lanes", "lanes-split"]] as const) {
-        const r = this.rects.get(name);
-        if (r && (inside(r) || (kind === "preview-split" && inside({ ...r, col: r.col - 1 })) || (kind === "tree-edge" && inside({ ...r, col: r.col + (this.lay.treeSide === "left" ? 1 : -1) })))) {
-          if ((kind === "tree-edge" && !this.treeOpen) || (kind === "links-edge" && !this.links)) continue;
-          this.drag = { kind } as Drag; return;
-        }
-      }
+      const near = (x: number, edge: number) => x === edge || x === edge - 1;
+      const edgeHit = (): Drag | null => {
+        const tr = this.rects.get("split:tree");
+        if (this.treeOpen && tr && k.y >= tr.row && k.y < tr.row + tr.rows && (k.x === tr.col || k.x === tr.col + (this.lay.treeSide === "left" ? 1 : -1))) return { kind: "tree-edge" };
+        const lr = this.rects.get("split:links");
+        if (this.links && lr && (k.y === lr.row) && k.x >= lr.col && k.x < lr.col + lr.cols) return { kind: "links-edge" };
+        for (const e of this.laneEdges) if (near(k.x, e.x) && k.y >= e.rect.row && k.y < e.rect.row + e.rect.rows) return { kind: "lane-edge", a: e.a, b: e.b };
+        for (const e of this.readerEdges) if (near(k.x, e.x) && k.y >= e.area.row && k.y < e.area.row + e.area.rows) return { kind: "reader-edge", a: e.a, b: e.b };
+        const sl = this.rects.get("split:lanes");
+        if (sl && (k.y === sl.row || k.y === sl.row - 1) && k.x >= sl.col && k.x < sl.col + sl.cols) return { kind: "lanes-split" };
+        return null;
+      };
+      const e = edgeHit();
+      if (e) { this.drag = e; return; }
       const order: Region[] = ["tree", "backlinks", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
       const region = order.find(r => inside(this.rects.get(r)) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
       if (region) {
@@ -591,10 +635,25 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   private dragTo(x: number, y: number) {
     const d = this.drag!, W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
-    const pinnedLeft = this.treePinned && this.treeOpen && this.lay.treeSide === "left";
-    const pinnedW = this.treePinned && this.treeOpen ? clamp(Math.round(W * this.lay.treeFrac), 28, Math.round(W * 0.7)) : 0;
     if (d.kind === "lanes-split") this.lay.laneFrac = clamp(y / H, 0.12, 0.85);
-    else if (d.kind === "preview-split") this.lay.previewFrac = clamp((x - (pinnedLeft ? pinnedW : 0)) / (W - pinnedW), 0.12, 0.85);
+    else if (d.kind === "lane-edge") {
+      const ra = this.laneRects.find(l => l.lane === d.a)?.rect, rb = this.laneRects.find(l => l.lane === d.b)?.rect;
+      const na = this.lanes[d.a]!.name, nb = this.lanes[d.b]!.name;
+      if (ra && rb) {
+        const total = ra.cols + rb.cols, wa = clamp(x - ra.col + 1, 10, total - 10);
+        const sum = (this.lay.laneWeights[na] ?? 1) + (this.lay.laneWeights[nb] ?? 1);
+        this.lay.laneWeights[na] = (sum * wa) / total; this.lay.laneWeights[nb] = (sum * (total - wa)) / total;
+      }
+    }
+    else if (d.kind === "reader-edge") {
+      const ra = this.rects.get(d.a === 0 ? "preview" : `detail${d.a - 1}`), rb = this.rects.get(`detail${d.b - 1}`);
+      if (ra && rb) {
+        const total = ra.cols + rb.cols, wa = clamp(x - ra.col + 1, 12, total - 12);
+        const rw = this.lay.readerWeights;
+        const sum = (rw[d.a] ?? 3) + (rw[d.b] ?? 3);
+        rw[d.a] = (sum * wa) / total; rw[d.b] = (sum * (total - wa)) / total;
+      }
+    }
     else if (d.kind === "tree-edge") this.lay.treeFrac = clamp((this.lay.treeSide === "left" ? x + 1 : W - x) / W, 0.15, 0.7);
     else if (d.kind === "links-edge") {
       const laneH = Math.round(H * this.lay.laneFrac);
