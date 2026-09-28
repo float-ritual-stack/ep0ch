@@ -62,7 +62,7 @@ It is **not** part of the outliner repo, on purpose.
   - Context: the review `((46ba739c-4929-40ff-97a9-7db98a34797c))`.
 - **Shared runtime:** Evan, 2026-09-27, while stepping away: on float-box you may close, restart and redeploy
   services and panes as needed; it won't disrupt him. Don't change the laptop. For merges, follow the pi-outliner
-  workboard's review and merge contract.
+  workboard's review and merge contract. Deploying anywhere other than float-box is still Evan's call. Ask first.
 - **Astra (codex, pane `wF:pC`) works the same repo and outline.** Its goal is paused.
   Check open PIE items and branches before claiming work, so the two of you don't collide.
 
