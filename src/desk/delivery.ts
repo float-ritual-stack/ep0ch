@@ -668,27 +668,32 @@ export class DeliveryBoard implements Screen, DeskApi {
     return { born: plan.props, needs: plan.needs.map(t => showExpr(t, true)), parent: where };
   }
 
-  /** `n`: a new card in the focused lane, written in a composer over the board. */
-  private async openCardComposer() {
+  /**
+   * `n`: a new card in the focused lane, written in a composer over the board. It opens at once, so what
+   * is typed next is the card's text, never board keys; the parent's title is filled in when it's read.
+   */
+  private openCardComposer() {
     const lane = this.lanes[this.lane];
-    if (!lane) return;
+    if (!lane || this.composer) return;
     let plan: ReturnType<DeliveryBoard["cardPlan"]>;
     try { plan = this.cardPlan(lane); } catch (e) { return this.ctx.flash(`can't create in ${lane.name}: ${(e as Error).message}`); }
-    const parent = await this.ctx.board.get(plan.parent.id).catch(() => null);
-    if (!parent) return this.ctx.flash(`can't create in ${lane.name}: its new cards would go under ${plan.parent.id.slice(0, 8)}, which isn't in the outline`);
-    if (this.composer) return;
-    this.composer = { kind: "card", lane, born: plan.born, needs: plan.needs, parent: { ...plan.parent, title: titleOf(parent) }, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    const C0: Composer = { kind: "card", lane, born: plan.born, needs: plan.needs, parent: { ...plan.parent, title: plan.parent.id.slice(0, 8) }, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    this.composer = C0;
     this.redraw();
+    this.ctx.board.get(plan.parent.id).then(parent => {
+      if (this.composer !== C0 || C0.kind !== "card") return;
+      if (parent) C0.parent.title = titleOf(parent);
+      else C0.draft.note = `its parent ${plan.parent.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+      this.redraw();
+    }, () => {});
   }
 
-  /** `N`: a note under the selected card. */
-  private async openChildComposer() {
+  /** `N`: a note under the selected card, opened at once like `n`. */
+  private openChildComposer() {
     const card = this.card();
     if (!card) return this.ctx.flash("select a card to add a note under");
-    const parent = await this.ctx.board.get(card.id).catch(() => null);
-    if (!parent) return this.ctx.flash("that card isn't in the outline any more");
     if (this.composer) return;
-    this.composer = { kind: "child", parent, draft: new Draft(`new-under-${card.id.slice(0, 8)}`, 0, "") };
+    this.composer = { kind: "child", parent: card, draft: new Draft(`new-under-${card.id.slice(0, 8)}`, 0, "") };
     this.redraw();
   }
 
@@ -1322,8 +1327,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
     else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
     else if (c === "m") return this.openMover();
-    else if (c === "n") return void this.openCardComposer();
-    else if (c === "N") return void this.openChildComposer();
+    else if (c === "n") return this.openCardComposer();
+    else if (c === "N") return this.openChildComposer();
     else if (c === "s") return void this.openSteps();
     else if (c === "d") return void this.armTrash();
     else if (c === "u" && this.trashed) return void this.restoreCard(undefined, USER).catch(e => this.ctx.flash(`not restored: ${(e as Error).message}`));

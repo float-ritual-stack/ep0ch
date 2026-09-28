@@ -196,7 +196,8 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     expect(B().composer.born).toEqual([{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }, { key: "project", value: "ep0ch-door" }]);
-    expect(B().composer.parent).toMatchObject({ id: queue.id, title: "Work queue", why: "Queued's create-parent" });
+    expect(B().composer.parent).toMatchObject({ id: queue.id, why: "Queued's create-parent" });
+    await until(() => B().composer.parent.title === "Work queue", "the parent's title");
     // While it's open every key is the text's, board keys included.
     type("Oil the hinges\nThe back door squeaks.");
     expect(B().composer.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
@@ -256,6 +257,26 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer).toBeNull();
     await expect(act("card.create", { lane: "Review", text: "Mow the lawn [project::garden-club]" })).rejects.toThrow("Review needs (project=pi-outliner OR project=ep0ch-door) and the card would have project=garden-club");
     await expect(act("card.create", { lane: "Review", text: "Mow the lawn [work-stage::doing] [project::ep0ch-door]" })).rejects.toThrow("the text sets work-stage::doing, but the lane needs work-stage=review");
+  });
+
+  test("typing straight after n or N is the card's text: no board key fires, nothing moves or opens", async () => {
+    await settled();
+    await select("Doing", cards.kettle.id);
+    const before = await current(cards.kettle.id);
+    press({ kind: "char", ch: "n" });
+    type("Level the Hedge, then mend it");                                  // L, H, e, m, d: all board keys
+    expect(B().composer.draft.text).toBe("Level the Hedge, then mend it");
+    expect(B().details.some((d: any) => d.editing) || B().preview.editing).toBe(false);
+    expect(B().mover).toBeNull();
+    press({ kind: "esc" }); press({ kind: "esc" });
+    press({ kind: "char", ch: "N" });
+    type("Hmm, descale it monthly");
+    expect(B().composer.draft.text).toBe("Hmm, descale it monthly");
+    press({ kind: "esc" }); press({ kind: "esc" });
+    expect(B().composer).toBeNull();
+    await Bun.sleep(300);
+    expect((await current(cards.kettle.id)).revision).toBe(before.revision);
+    expect(B().trashArm).toBeNull();
   });
 
   test("N and note.create: a note under the card, as typed", async () => {
