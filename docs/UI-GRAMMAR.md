@@ -11,7 +11,7 @@ three pane models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
-| render or read a note | `NoteSurface`, hosted through `SurfaceHost`; literal regions (PIE-422) found by `src/literal.ts`, the service's rules mirrored and parity-tested | `src/surface/note.ts`, `src/literal.ts` |
+| render or read a note | `NoteSurface`, hosted through `SurfaceHost`; the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts` | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts` |
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
@@ -38,7 +38,8 @@ three pane models and four searches (§4).
 ## TL;DR
 
 - **One reader, two renderers.** Board, desk and river host `NoteSurface`. The BBS `Reader`
-  (`scr:256`) is a separate, older reader: no links, props, folds, comments, edit or agent actions.
+  (`scr:256`) is a separate, older reader: its body is `renderDoc`'s (PIE-444), but it has no link
+  navigation, props, folds, comments, edit or agent actions.
 - **Pane operations exist three times.** The desk has a layout tree and zoom. The board has
   fixed fractions, floats and drawers. The river has a strip of columns. Keys differ between them
   (`x`, `o`, `s`, `p`), and zoom exists only on the desk.
@@ -302,8 +303,9 @@ BBS = News, Conference and the BBS `Reader` together.
 
 ### F1. Two readers, two body renderers
 
-- `NoteSurface` renders with `renderDoc` (`note:320`). The BBS `Reader` (`scr:282`), the desk
-  search preview (`dsk:404`) and river cards (`riv:362`) use `wrap` + `colourBody`.
+- `NoteSurface` renders with `renderDoc` (`note:320`). The desk search preview (`dsk:404`) and river
+  cards (`riv:362`) use `wrap` + `colourBody`. The BBS `Reader`'s body is drawn by `renderDoc` since
+  PIE-444 (links, Markdown and components as every reader draws them), but its links are text there.
 - The BBS reader has its own header (`scr:273`) and its own `N P T U` keys, and it can't edit,
   comment, fold, open props or be driven by an agent.
 - **Resolves:** PIE-426 (BBS on the note surface). River cards stay a list, but PIE-431 decides

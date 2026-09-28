@@ -2,10 +2,11 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { media, MEDIA_LINE, type Media } from "./media";
-import { balanceTags, C, extractLinks, fg, pad, RESET, splitVisible, stripTags, trimTagged, width as vwidth, type LinkRange } from "./style";
+import { balanceTags, C, extractLinks, fg, pad, RESET, splitVisible, STYLE, stripTags, styleMarks, trimTagged, width as vwidth, type LinkRange } from "./style";
+import { ComponentCatalog, documentComponent } from "./components";
 import { colourBody, wrap } from "./text";
 import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
-import { EMBED, stripMarks } from "./refs";
+import { EMBED, presentLinks, stripMarks } from "./refs";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -29,6 +30,17 @@ export interface DocEnv {
    * plain. Links and Markdown still render, as the service and Detail treat them.
    */
   literal?: ReadonlySet<number>;
+  /**
+   * The renderers this note load resolved (src/components.ts), so a redraw never reads their files again.
+   * Without it each render resolves them afresh.
+   */
+  components?: ComponentCatalog;
+  /**
+   * Present text the renderer takes from inside a fence: a component's labels and values, which support
+   * links and Markdown as Detail's do. The reader passes presentLinks with its link list, so they are
+   * links `[ ]` stops on. Without it they read as links do without a service (labels, short ids).
+   */
+  present?: (text: string) => string;
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
@@ -51,7 +63,9 @@ export interface Doc { lines: string[]; images: DocImage[]; media: { path: strin
 export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
 
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
-const inlineOf = (s: string, literal = false) => colourBody(s, literal).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
+// Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
+// text was wrapped; colourBody turns them into SGR.
+const inlineOf = (s: string, literal = false) => colourBody(s, literal);
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
@@ -182,7 +196,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (fence) {
       const code: string[] = [];
       for (i++; i < src.length && !/^\s*```/.test(src[i]!); i++) code.push(src[i]!);
-      const figure = reframeAscii(code, W);
+      // A component fence (```component:status): its renderer's panel, or why there isn't one above the
+      // code as typed, as Detail shows it.
+      const component = documentComponent(fence[1]!.trim(), code.join("\n"), env.components ?? new ComponentCatalog());
+      if (component?.kind === "labelled-values") { out.push(...labelledValues(component.entries, W, env.present ?? (t => presentLinks(t, false, null)))); continue; }
+      if (component) for (const l of wrap(`Component unavailable: ${component.reason}`, W)) out.push(fg(C.yellow) + l + RESET);
+      const figure = component ? null : reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
       if (fence[1]) out.push(fg(C.dark) + `╭ ${fence[1].trim()}` + RESET);
       for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
@@ -310,7 +329,7 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false): str
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
   const h = line.match(HEADING);
-  if (h) return [(glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET + BOLD + fg(fold?.selected ? C.yellow : C.white) + h[2] + RESET + (fold?.folded ? foldedNote(fold) : "")];
+  if (h) return [(glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(h[2]!, { bold: false }) + RESET + (fold?.folded ? foldedNote(fold) : "")];
   const li = line.match(ITEM);
   if (li) {
     const indent = li[1]!.length, num = /\d/.test(li[2]!);
@@ -325,6 +344,18 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false): str
   }
   if (!line.trim()) return [""];
   return wrap(line, W).map(inline);
+}
+
+/**
+ * Detail's `labelled-values` layout: `label: value` items, the label bold, on one row joined by ` · ` when
+ * they all fit, else one item to a row, wrapped. `present` gives a label or value its links and styles.
+ */
+function labelledValues(entries: readonly { label: string; value: string }[], W: number, present: (s: string) => string): string[] {
+  const [on, off] = STYLE.bold;
+  const items = entries.map(e => on + present(e.label) + off + ": " + present(e.value));
+  const natural = items.reduce((n, it) => n + vwidth(it), 0) + (items.length - 1) * 3;
+  if (natural <= W) return [inlineOf(items.join(" · "))];
+  return items.flatMap(it => wrap(it, W).map(l => inlineOf(l)));
 }
 
 function chunk(s: string, w: number): string[] {
@@ -356,8 +387,9 @@ export function table(rows: string[], W: number, literal = false): string[] {
   const body = rows.slice(2).map(cells);
   const n = Math.max(head.length, ...body.map(r => r.length));
   const all = [head, ...body].map(r => Array.from({ length: n }, (_, k) => r[k] ?? ""));
-  const natural = Array.from({ length: n }, (_, k) => Math.max(1, ...all.map(r => [...r[k]!].length)));
-  const longestWord = Array.from({ length: n }, (_, k) => Math.max(1, ...all.flatMap(r => r[k]!.split(/\s+/).map(w => [...w].length))));
+  // Measured as drawn: link and style marks take no room.
+  const natural = Array.from({ length: n }, (_, k) => Math.max(1, ...all.map(r => vwidth(r[k]!))));
+  const longestWord = Array.from({ length: n }, (_, k) => Math.max(1, ...all.flatMap(r => r[k]!.split(/\s+/).map(w => vwidth(w)))));
   const avail = Math.max(n * 3, W - (n + 1) - n * 2);
   let widths = natural.slice();
   if (widths.reduce((a, b) => a + b, 0) > avail) {

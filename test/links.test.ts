@@ -60,7 +60,8 @@ describe("link ranges: each rendered row stands alone (review of PIE-415)", () =
 
   test("a link wrapped in a table cell covers only its own cell's text, and a second link on the row doesn't cut it off", () => {
     const d = renderDoc(`| Job | Notes |\n| --- | --- |\n| ${tagged(0, "Stake the beans along the fence")} | ${tagged(1, "Garden plan")} |\n\nafter`, env(30));
-    expect(pieces(d)).toEqual({ 0: ["Stake the", "beans along", "the fence"], 1: ["Garden", "plan"] });
+    // Cells are measured as drawn (link tags take no room), so the column fits "Stake the beans" (PIE-444).
+    expect(pieces(d)).toEqual({ 0: ["Stake the beans", "along the fence"], 1: ["Garden", "plan"] });
   });
 
   test("a wrapped list item or callout body leaves out the indent and the frame", () => {

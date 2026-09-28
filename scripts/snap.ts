@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["showcase", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
+const wide = ["showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -48,7 +48,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "showcase" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+const scratch = scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -154,11 +154,34 @@ if (scenario === "board2") {
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
 }
+if (scenario === "rendering") {
+  // PIE-444: the showcase notebook's Formatting section in a desk reader (bold, italic, struck out, code,
+  // Markdown links, a labelled block ref, the status panel with the outliner's renderer installed) with
+  // the reader's element on its first Markdown link, then the same note in the BBS reader (To: its to::).
+  scratch!.installRenderers();
+  const { seedShowcase } = await import("../src/showcase/seed");
+  const seeded = await seedShowcase(board);
+  board.subscribe(e => app.event(e));
+  app.push(new MainMenu());
+  const desk = new Desk();
+  app.push(desk);
+  await Bun.sleep(600);
+  desk.openBlock(seeded.notes.notebook);
+  await Bun.sleep(1000);
+  const reader = () => [...(desk as any).panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === seeded.notes.notebook.id);
+  for (let i = 0; i < 40 && reader()?.surface.describe().elements?.current?.label !== "the allotment society"; i++) { ch("]"); await Bun.sleep(40); }
+  await snap("1-reader", 1200);
+  const { Reader } = await import("../src/screens");
+  app.push(new Reader([seeded.notes.notebook], 0));
+  await snap("2-bbs", 1200);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
 if (scenario === "showcase") {
   // PIE-439: the showcase on its own seeded outline (src/showcase/seed.ts, fictional), one snapshot per
   // section, then a few interactions: a section's own keys, a click on the index, an agent's act.
   const { seedShowcase } = await import("../src/showcase/seed");
   const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
+  scratch!.installRenderers();                            // as scripts/try-it.sh --showcase installs it
   await seedShowcase(board);
   board.subscribe(e => app.event(e));
   const sc = new Showcase();

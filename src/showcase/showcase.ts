@@ -56,7 +56,7 @@ function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | un
 
 export const SECTIONS: Section[] = [
   {
-    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane)", files: "src/surface/note.ts, src/literal.ts",
+    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
     stage(n, show) {
       const r = new ReaderPane();
       const bbs = new ScreenPane(`${PARALLEL} · BBS Reader · src/screens.ts`, m => (m ? new Reader([m], 0) : null), true);

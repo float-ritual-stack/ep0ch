@@ -13,7 +13,9 @@ import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, SHADE } from "../embeds";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
+import { MD_LINK, PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
+import { ComponentCatalog } from "../components";
+import { destinationOf, external, externalOpenCommand } from "../open";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
@@ -55,7 +57,7 @@ export interface SurfaceHost {
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
-const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media;
+const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -86,7 +88,7 @@ interface Element {
 const verbOf = (e: Element, open: boolean) =>
   e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
-  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media ? "open" : "follow";
+  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media || e.link?.url ? "open" : "follow";
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
 
@@ -101,16 +103,20 @@ interface Mark { thread: string; open: boolean; row: number; rows: [number, numb
 /** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
 interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string }
 
-/** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
-const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
+/**
+ * The note's links in reading order: exact `((…))` (transclusions too), `[[…]]` and Markdown `[text](url)`,
+ * the service's syntax.
+ */
+const LINK = new RegExp(`${REF.source}|${PAGE.source}|${MD_LINK.source}`, "g");
 const linksOf = (m: Msg): Link[] => [...m.text.matchAll(LINK)].flatMap((x): Link[] => {
   if (x[1]) return x[3] !== undefined && !x[3].trim() ? [] : [{ block: x[1], ...(x[2] ? { fragment: x[2] } : {}), ...(x[3] !== undefined ? { label: x[3] } : {}) }];
-  return [{ page: x[4]!.trim(), ...(x[5] !== undefined ? { label: x[5] } : {}) }];
+  if (x[4] !== undefined) return [{ page: x[4].trim(), ...(x[5] !== undefined ? { label: x[5] } : {}) }];
+  return [{ url: x[7]!, label: x[6]! }];
 });
 /** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
 const linkText = (l: Link, text: string, src: Source | null) => l.block
   ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment, l.label))).text
-  : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.media?.split("/").pop() ?? "";
+  : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
 /**
  * The body a reader draws: the note without its subject line and without the lines that only hold block
@@ -206,6 +212,8 @@ export class NoteSurface {
     else if (this.foldSel !== null) this.cur = null;
   }
   private foldsOf: string | null = null;
+  /** The component renderers resolved for the note shown (src/components.ts): read once per note, not per render. */
+  private components: { for: string | null; catalog: ComponentCatalog } = { for: null, catalog: new ComponentCatalog() };
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[] } | null = null;
@@ -291,7 +299,7 @@ export class NoteSurface {
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
-    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
+    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     return `${extra}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
@@ -406,15 +414,17 @@ export class NoteSurface {
     }
     head.push(rule(w));
     const t = host?.ctx.t;
+    // Component renderers are resolved once per note shown, as Detail resolves them once per load.
+    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
     const env: DocEnv = {
       width: Math.max(1, w - 1), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!host?.ctx.graphics,
-      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold,
+      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold, components: this.components.catalog,
     };
     // Transclusions: the target drawn the way this reader draws a note, without expanding its own embeds.
     // An embedded note's literal regions are judged by its own text (PIE-422).
     const inner = (target: Msg, width: number) => {
       const r = readableSource(target, src);
-      return renderDoc(presentLinks(r.text, false, src, target.text), { ...env, width, graphics: false, literal: r.literal }).lines;
+      return renderDoc(presentLinks(r.text, false, src, target.text), { ...env, width, graphics: false, literal: r.literal, present: t => presentLinks(t, false, src, target.text) }).lines;
     };
     const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
     // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
@@ -425,6 +435,8 @@ export class NoteSurface {
     const drawn: Link[] = [];
     const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn), {
       ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn),
+      // A component's labels and values: links in them are links like the body's.
+      present: text => presentLinks(text, false, src, m.text, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
       literal,
       // A live figure's rows that stand for notes are links too (PIE-441).
@@ -1282,7 +1294,7 @@ export class NoteSurface {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
-      const id = `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? ""].join("|")}`;
+      const id = `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       return `${id}#${n}`;
@@ -1380,7 +1392,7 @@ export class NoteSurface {
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
-      ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
+      ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media ?? e.link.url } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
     }));
   }
 
@@ -1462,6 +1474,13 @@ export class NoteSurface {
   /** Open what a link names: media in the system viewer, blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
+    // A Markdown link: a web page opens in the browser; a pi-outliner:// block or page link opens here.
+    if (l.url !== undefined) {
+      const to = destinationOf(l.url);
+      if ("refused" in to) { host.ctx.flash(to.refused); return null; }
+      if ("web" in to) { external.run(externalOpenCommand(to.web)); host.ctx.flash(`opened ${to.web} in the browser`); return null; }
+      return this.followTarget(to.target, host, how);
+    }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
     else if (l.page) {

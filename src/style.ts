@@ -19,6 +19,37 @@ export function paint(s: string): string {
 
 const ANSI_RE = /\x1b\[[\d;]*m/g;
 
+// ── presentation marks: a link's colour (src/refs.ts) and inline Markdown styles (src/inline.ts) ──
+// Placed in read-mode text before it's wrapped, turned into colour and SGR styles after (colourBody), so
+// a bold span or a link that wraps keeps its style on every row. Like link tags they take no room.
+/** Every presentation mark: U+E000-U+E002 a link's colour, U+E003-U+E008 bold, italic and strike on/off. */
+export const MARKS = /[\uE000-\uE008]/g;
+export const stripMarks = (s: string) => s.replace(MARKS, "");
+/** Inline Markdown style marks, on and off, as Detail's styles: strong, emphasis, strikethrough. */
+export const STYLE = { bold: ["\uE003", "\uE004"], italic: ["\uE005", "\uE006"], strike: ["\uE007", "\uE008"] } as const;
+const SGR: Record<string, string> = { "\uE003": "\x1b[1m", "\uE004": "\x1b[22m", "\uE005": "\x1b[3m", "\uE006": "\x1b[23m", "\uE007": "\x1b[9m", "\uE008": "\x1b[29m" };
+/**
+ * Style marks as SGR. `bold: false` keeps the text's own weight (a heading, already bold), so a strong span
+ * inside it doesn't switch the rest of the heading off.
+ */
+export function styleMarks(s: string, { bold = true } = {}): string {
+  return s.replace(/[\uE003-\uE008]/g, m => (!bold && (m === "\uE003" || m === "\uE004") ? "" : SGR[m]!));
+}
+/**
+ * Rows cut from one marked text, each standing alone: a style still on at the end of a row is switched on
+ * again at the start of the next (each row is drawn, and reset, by itself). Link colours are redone by
+ * balanceTags' tags and by colourBody per row, so only the style marks are carried.
+ */
+export function balanceStyles(lines: string[]): string[] {
+  const on = new Set<string>();
+  const OFF: Record<string, string> = { "\uE004": "\uE003", "\uE006": "\uE005", "\uE008": "\uE007" };
+  return lines.map(l => {
+    const head = [...on].join("");
+    for (const ch of l) { if (ch === "\uE003" || ch === "\uE005" || ch === "\uE007") on.add(ch); else if (OFF[ch]) on.delete(OFF[ch]!); }
+    return head + l;
+  });
+}
+
 // ── link tags: where a rendered link is, carried through wrapping, padding and colour (PIE-415) ──
 // A link drawn in a reader is bracketed by an open tag naming it (its index in the renderer's link list)
 // and a close tag. They take no room (width, wrap and pad skip them) and extractLinks turns them into
@@ -31,7 +62,7 @@ export const LINK_END = String.fromCodePoint(TAG_END);
 export const stripTags = (s: string) => s.replace(TAGS, "");
 const isTag = (ch: string) => { const c = ch.codePointAt(0)!; return c >= TAG0 && c <= TAG_END; };
 
-export const visible = (s: string) => s.replace(ANSI_RE, "").replace(TAGS, "");
+export const visible = (s: string) => s.replace(ANSI_RE, "").replace(TAGS, "").replace(MARKS, "");
 export const width = (s: string) => [...visible(s)].length;
 
 /** Where a link is on screen: row `line`, columns `from` (inclusive) to `to` (exclusive), link `n`. */
@@ -115,7 +146,7 @@ export function pad(s: string, w: number): string {
     const chars = [...part];
     for (let i = 0; i < chars.length; i++) {
       const ch = chars[i]!;
-      if (isTag(ch)) { out += ch; continue; }
+      if (isTag(ch) || (ch >= "\uE000" && ch <= "\uE008")) { out += ch; continue; }
       // Cut here; link tags past the cut still close what they opened.
       if (seen >= w - 1) return out + "…" + RESET + tagsIn([...chars.slice(i), ...parts.slice(p + 1)].join(""));
       out += ch; seen++;
