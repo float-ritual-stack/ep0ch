@@ -126,6 +126,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     n.beans = await create(null, "Stake the beans\nCanes along the fence.");
     n.shed = await create(null, "Paint the shed\nTwo coats, green.");
     n.water = await create(null, "Water the seedlings [type::garden-job]");
+    await Bun.sleep(5);                                   // the figure sorts by creation time: no same-millisecond tie
     n.compost = await create(null, "Turn the compost [type::garden-job]");
     const figure = `::graph-check\n---\ntitle: Garden jobs\nquery: "type=garden-job"\nsort: created\ndirection: asc\n---\n::`;
     n.jobs = await create(null, `Weekend jobs [stage::queued] [related::((${n.plan.id}))]\nFirst ((${n.beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n\n${figure}\n\n!((${n.shed.id}))`);
