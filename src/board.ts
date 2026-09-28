@@ -11,6 +11,8 @@ export interface Msg {
   props: Record<string, string>;
   /** The service's revision of this text; a save names it so a stale draft is refused. */
   revision?: number;
+  /** Block-scope properties in order, repeats kept (`props` keeps only the last of a key). */
+  properties?: { key: string; value: string }[];
 }
 
 export interface Caller {

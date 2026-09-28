@@ -75,6 +75,37 @@ The last board per workspace is remembered.
   snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
 - Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
 
+## Moving cards
+
+A lane's query is a list of property clauses that must all hold, so a card moves by patching the
+properties the target lane names. Nothing else on the card changes.
+
+| Keys | Action |
+|---|---|
+| `H` / `L` | move the selected card into the lane to the left / right |
+| `m` | move picker: every lane with what moving there would patch, or why it can't |
+| drag a card onto a lane | the same; while dragging, the lane and the hint line say what the drop would do |
+
+- **Only what differs is patched.** Clauses the card already satisfies are left alone. A value the
+  card has is replaced in place; a missing one is appended to its metadata. Values compare
+  case-insensitively, like the outliner.
+- **Refused, with the reason and no write:**
+  - invalid lanes: `not`, `or` and `and` aren't in the query grammar, nor are `-key` or `key:value`;
+    lanes with no `query::` (sort-only, limit-only) are invalid too
+  - a bare word or `key` clause the card lacks: it asks for any value, and a move can't pick one
+  - two values for one key (`stage=a stage=b`)
+  - a card with two values for the key being changed: the door won't guess which one moves
+  - a lane that's still loading or failed to read
+- **Revision checks.** The move names the revision the board showed the card at. The door asks the
+  service for the card's property tokens (their `ordinal`s, at that revision) instead of re-parsing
+  the text, then sends one `properties.patch`. If anyone changed the card since the board loaded, it
+  isn't moved: the lanes reload and the card stays where it was.
+- **Open edits.** A card open as a draft isn't moved; save or close the edit first. Moving never
+  replaces text under an edit, and a draft whose card another client moved is refused on save.
+- After a move the lanes reload, the card is selected in its new lane, and the flash names the patch
+  (`moved to Review · stage queued -> review · track + door`), plus any other lane it still matches.
+  A collapsed target lane reopens.
+
 ## Editing notes
 
 Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
@@ -187,8 +218,12 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 `annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
 puts the door in `clients.list` until it exits.
 
-One write: `update`, only when you save an edit, always with `expectedRevision`. The service has no
-auth or read-only mode, so these limits are the door's own discipline.
+Two writes, both with `expectedRevision` and attributed `author: user`, `actorId: ep0ch-door`:
+
+- `update`, only when you save an edit
+- `properties.patch`, only when you move a card between lanes
+
+The service has no auth or read-only mode, so these limits are the door's own discipline.
 
 ## Checking it
 
@@ -200,11 +235,14 @@ auth or read-only mode, so these limits are the door's own discipline.
     bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card
 
-`test/edit.test.ts` saves and races real writes against a throwaway outliner service it starts itself
-(own state dir and workspace, Inbox agents off). Point `EP0CH_OUTLINER` at a pi-herdr-outliner checkout
-(default `../pi-herdr-outliner`); without one those tests skip. The `edit` snapshot writes too, so it
-refuses to run unless `EP0CH_SNAP_WRITES=1`: never point it at a real outline.
+`test/edit.test.ts` and `test/move.test.ts` save, move and race real writes against a throwaway outliner
+service they start themselves (own state dir and workspace, Inbox agents off). `test/move.test.ts` also
+checks the door's query parser against the outliner's `block-query.ts`, and every lane after the moves
+against the outliner's own `saved-view-read.ts`. Point `EP0CH_OUTLINER` at a pi-herdr-outliner checkout
+(default `../pi-herdr-outliner`); without one those tests skip. The `edit` and `move` snapshots write too,
+so they refuse to run unless `EP0CH_SNAP_WRITES=1`: never point them at a real outline.
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,
 Kitty upload, place, crop and delete) and composites them into a PNG.
