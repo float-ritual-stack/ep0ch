@@ -211,16 +211,8 @@ export class Brief extends Desk {
       try { this.go(day, opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
       return;
     }
-    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.beside(opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER);
+    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.readerBeside(this.reader, opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER);
     super.setCurrent(m, opts);
-  }
-
-  /** A reader beside the brief that follows the current note; one is split off when there is none. */
-  private beside(actor: Actor) {
-    if (this.readerPanes().some(r => r.pane !== this.reader && !r.pane.holding)) return;
-    const me = () => this.readerPanes().find(r => r.pane === this.reader)!.name;
-    this.splitPane(me(), "reader", "row", actor);
-    if (actor.kind !== "agent") this.focusOn(me());
   }
 
   /** `ep0ch open <id>`: a brief is stepped to; any other note opens beside it. */
