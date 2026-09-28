@@ -363,9 +363,22 @@ export class SocketBoard implements Board {
     return (await this.request<WireBlock[]>("children", { parentId: id })).map(b => toMsg(b));
   }
 
+  /**
+   * Blocks changed after `since`, newest first, as list rows. With `query.expression` (PIE-398) the
+   * service answers `updated > since` itself and sends titles and properties only, so New Scan reads
+   * what changed instead of the newest N whole notes. Older services: the newest N, filtered here.
+   */
   async changedSince(since: number, limit: number): Promise<Msg[]> {
+    const sort = { field: "updated", direction: "desc" };
+    if (this.supports("query.expression") === true) {
+      const where = since > 0 ? { expression: `updated>${new Date(since).toISOString()}` } : {};
+      const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+        query: { ...where, limit: Math.min(1000, limit), sort }, ...this.listFields(),
+      });
+      return r.blocks.map(b => toMsg(b));
+    }
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), sort: { field: "updated", direction: "desc" } },
+      query: { limit: Math.min(1000, limit), sort },
     });
     return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since);
   }
