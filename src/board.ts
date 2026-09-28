@@ -9,6 +9,8 @@ export interface Msg {
   updatedAt: number;
   author: string | null;
   props: Record<string, string>;
+  /** The service's revision of this text; a save names it so a stale draft is refused. */
+  revision?: number;
 }
 
 export interface Caller {

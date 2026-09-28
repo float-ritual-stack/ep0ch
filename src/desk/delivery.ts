@@ -146,6 +146,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.ctx.board.get(id).then(m => { if (m) { for (const r of this.readers()) r.refresh(m); this.redraw(); } }, () => {});
   }
 
+  unsaved() { return this.readers().some(r => r.draft?.dirty); }
+
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
 
   openBlock(m: Msg) { this.current = m; this.openDetail(m, false); }
@@ -161,6 +163,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg) },
       backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
       images: this.placed.length,
+      editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
     };
   }
 
@@ -486,6 +489,9 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   key(k: Key, ctx: Ctx) {
+    // An open edit takes every key, board shortcuts included, until it is saved or closed.
+    const editing = this.readerFor(this.focus)?.pane;
+    if (editing?.editing && k.kind !== "mouse") { editing.key(k, this); return; }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if (this.picker) {
       const P = this.picker;
@@ -561,6 +567,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     const n = l?.items?.length ?? 0;
     if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
     else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
+    else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
     else if (c === "c" && l) { this.collapsed.has(l.name) ? this.collapsed.delete(l.name) : this.collapsed.add(l.name); this.save(); return this.redraw(); }
     else if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) { this.collapsed.delete(l.name); this.save(); return this.redraw(); }
     else if (l && (k.kind === "down" || c === "j")) l.sel = Math.min(Math.max(0, n - 1), l.sel + 1);
@@ -686,3 +693,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.redraw();
   }
 }
+
+const draftState = (r: ReaderPane) => {
+  const d = r.draft!;
+  return { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy };
+};

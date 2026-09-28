@@ -25,6 +25,8 @@ export interface Ctx {
   redraw(): void;
   flash(msg: string): void;
   cycleVideo(): void;
+  /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
+  suspend(run: () => void): void;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
 }
@@ -38,6 +40,8 @@ export interface Screen {
   /** Called ~30×/s while it returns true (modem-speed reveals). */
   tick?(ctx: Ctx): boolean;
   onEvent?(e: OutlineEvent, ctx: Ctx): void;
+  /** True while the screen holds a draft that hasn't been saved; Ctrl+C then asks twice. */
+  unsaved?(): boolean;
   /** What this screen shows, for agents (`ep0ch-door peek`). */
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
@@ -51,6 +55,7 @@ export class App implements Ctx {
   private messageUntil = 0;
   private timer: Timer | null = null;
   private started = Date.now();
+  private quitArmed = 0;
   host = "";
   workspace = "";
   video: Video;
@@ -77,6 +82,15 @@ export class App implements Ctx {
     this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
     this.term.invalidate();
     this.flash(`video: ${this.video}`);
+  }
+
+  suspend(run: () => void) {
+    this.kitty.dispose();                  // images don't survive the screen switch; the next paint re-uploads
+    this.term.stop();
+    try { run(); } finally {
+      this.term.resume();
+      this.redraw();
+    }
   }
 
   event(e: OutlineEvent) {
@@ -110,7 +124,11 @@ export class App implements Ctx {
   }
 
   private key(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "c") return this.quit();
+    if (k.kind === "char" && k.ctrl && k.ch === "c") {
+      if (!this.stack.some(s => s.unsaved?.()) || Date.now() - this.quitArmed < 3000) return this.quit();
+      this.quitArmed = Date.now();
+      return this.flash("an edit isn't saved · ctrl+s saves it · ctrl+c again quits anyway");
+    }
     this.stack.at(-1)?.key(k, this);
   }
 

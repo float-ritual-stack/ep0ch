@@ -5,7 +5,11 @@ import type { Ctx } from "../app";
 import { subject, type Caller, type Msg } from "../board";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import type { Activity, Comment } from "../socket";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Draft } from "../edit";
+import { EditConflict, type Activity, type Comment } from "../socket";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, colourBody, rule, wrap } from "../text";
@@ -170,6 +174,8 @@ export class TreePane implements Pane {
 // ── reader ───────────────────────────────────────────────────────────────────
 
 const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
+const linksOf = (m: Msg): { block?: string; page?: string; media?: string }[] =>
+  [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! }));
 
 export class ReaderPane implements Pane {
   readonly kind = "reader";
@@ -180,20 +186,34 @@ export class ReaderPane implements Pane {
   private links: { block?: string; page?: string; media?: string }[] = [];
   private unfold = false;
   private link = -1;
-  title() { return this.pinned ? "reader · pinned" : "reader"; }
+  /** An open edit of `msg`. While it exists every key goes to it and the reader stays on its note. */
+  draft: Draft | null = null;
+  get editing() { return this.draft !== null; }
+  title() { return this.draft ? `reader · editing${this.draft.dirty ? " · unsaved" : ""}` : this.pinned ? "reader · pinned" : "reader"; }
   hint() {
+    if (this.draft) return "ctrl+s save · ctrl+e $EDITOR · ctrl+r reload · esc done";
     const l = this.links[this.link];
     return l ? `link ${this.link + 1}/${this.links.length} ${l.media ? `▣ ${l.media.split("/").pop()}` : l.block ? `((${l.block.slice(0, 8)}…))` : `[[${l.page}]]`} · ⏎ ${l.media ? "open" : "follow"}` : "p pin · [ ] links · z folds · u up";
   }
 
   select(m: Msg | null, desk: DeskApi) { if (!this.pinned) this.show(m, desk); }
 
-  /** Same note, new text: keep the scroll position and link selection. */
-  refresh(m: Msg) { if (this.msg?.id === m.id) this.msg = m; }
+  /**
+   * Same note, new text: keep the scroll position and link selection. An open draft is never replaced;
+   * it is marked "changed elsewhere" and the save's revision check decides.
+   */
+  refresh(m: Msg) {
+    if (this.msg?.id !== m.id) return;
+    const d = this.draft;
+    if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
+    this.msg = m;
+    if (!d) this.links = linksOf(m);
+  }
 
   show(m: Msg | null, desk: DeskApi) {
+    if (this.draft && m?.id !== this.draft.blockId) return;   // an edit keeps the reader on its note
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
-    this.links = m ? [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! })) : [];
+    this.links = m ? linksOf(m) : [];
     if (!m) return;
     desk.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
@@ -204,6 +224,7 @@ export class ReaderPane implements Pane {
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
     const m = this.msg;
     if (!m) return { lines: [dim("pick something in the outline")] };
+    if (this.draft) return this.renderDraft(this.draft, m, w, h);
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props.status ?? m.props.type, m.props["work-id"]].filter(Boolean).join(" · ");
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
@@ -235,8 +256,113 @@ export class ReaderPane implements Pane {
     return { lines: [...head, ...body.slice(this.scroll, this.scroll + room)], placements };
   }
 
+  private renderDraft(d: Draft, m: Msg, w: number, h: number): PaneView {
+    const state = d.conflict ? fg(C.lred) + `! ${d.conflict}`
+      : d.saving ? fg(C.grey) + "saving…"
+      : d.changedElsewhere ? fg(C.yellow) + "!! changed elsewhere · saving checks it first"
+      : d.dirty ? fg(C.yellow) + "unsaved" : fg(C.dark) + "no changes";
+    const head = [
+      fg(C.yellow) + pad(`» editing · ${subject(m)}`, w) + RESET,
+      fg(C.brown) + `rev ${d.base} · ` + pad(state, Math.max(1, w - `rev ${d.base} · `.length)) + RESET,
+      fg(C.cyan) + pad(d.note || "whole text: subject, body and [key::value] properties", w) + RESET,
+      rule(w),
+    ];
+    return { lines: [...head, ...d.render(w - 2, Math.max(1, h - head.length)).map(l => " " + l)] };
+  }
+
+  /** Open a draft on the block as the service has it now, not as this reader last drew it. */
+  async edit(desk: DeskApi, external = false): Promise<void> {
+    const m = this.msg;
+    if (!m || this.draft) return;
+    const fresh = await desk.ctx.board.get(m.id);
+    if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
+    if (this.msg?.id !== m.id || this.draft) return;
+    this.msg = fresh;
+    this.draft = new Draft(fresh.id, fresh.revision, fresh.text);
+    desk.redraw();
+    if (external) this.external(desk);
+  }
+
+  private draftKey(k: Key, desk: DeskApi): boolean {
+    const d = this.draft!;
+    if (d.saving) return true;
+    const a = d.key(k);
+    if (a === "save") void this.save(desk);
+    else if (a === "editor") this.external(desk);
+    else if (a === "reload") void this.reload(desk);
+    else if (a === "close") { this.draft = null; if (this.msg) this.links = linksOf(this.msg); }
+    desk.redraw();
+    return true;
+  }
+
+  /** Whole-text update from the draft's base revision. A refusal keeps the draft and copies it to disk. */
+  async save(desk: DeskApi): Promise<void> {
+    const d = this.draft;
+    if (!d) return;
+    if (!d.dirty) { this.draft = null; desk.ctx.flash("nothing changed"); desk.redraw(); return; }
+    d.saving = true; d.note = "saving…"; desk.redraw();
+    try {
+      const m = await desk.ctx.board.update(d.blockId, d.text, d.base);
+      if (this.draft === d) this.draft = null;
+      this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
+      this.links = linksOf(this.msg);
+      desk.ctx.flash(`saved · revision ${m.revision}`);
+    } catch (e) {
+      d.saving = false;
+      if (e instanceof EditConflict) {
+        d.conflict = "changed elsewhere since you started · not saved";
+        d.note = `your draft is kept and copied to ${d.copyOut()} · ctrl+r loads the current text`;
+      } else {
+        d.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    desk.redraw();
+  }
+
+  /** Drop the draft for the block's current text. Typed work is copied to disk first. */
+  private async reload(desk: DeskApi) {
+    const d = this.draft!;
+    if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
+    const copy = d.dirty ? d.copyOut() : d.savedCopy;
+    const m = await desk.ctx.board.get(d.blockId);
+    if (this.draft !== d) return;
+    if (!m) { d.note = "the note is gone from the outline"; desk.redraw(); return; }
+    this.msg = m;
+    d.rebase(m);
+    if (copy) d.note = `loaded revision ${d.base} · your earlier draft is at ${copy}`;
+    desk.redraw();
+  }
+
+  /** Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back as the draft. */
+  private external(desk: DeskApi) {
+    const d = this.draft;
+    if (!d) return;
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-edit-"));
+    const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
+    writeFileSync(path, d.text + "\n");
+    const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+    let code: number | null = null;
+    try {
+      desk.ctx.suspend(() => {
+        code = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], { stdio: ["inherit", "inherit", "inherit"] }).exitCode;
+      });
+      if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
+      else {
+        const before = d.text;
+        d.replace(readFileSync(path, "utf8"));
+        d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    desk.redraw();
+  }
+
   key(k: Key, desk: DeskApi): boolean {
+    if (this.draft) return this.draftKey(k, desk);
     const c = ch(k);
+    if (c === "e" && this.msg) { void this.edit(desk); return true; }
+    if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(desk, true); return true; }
     if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 1); desk.redraw(); return true; }
     if (isDown(k)) { this.scroll++; desk.redraw(); return true; }
     if (k.kind === "pgdn" || c === " ") { this.scroll += 15; desk.redraw(); return true; }

@@ -1,7 +1,7 @@
 # ep0ch-door
 
-A read-only BBS door into a pi-herdr-outliner outline. It talks straight to the
-outliner service's Unix socket (protocol 80) and is not part of the outliner.
+A BBS door into a pi-herdr-outliner outline: it reads everything and edits notes in place. It talks
+straight to the outliner service's Unix socket (protocol 80 or newer) and is not part of the outliner.
 
 The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art packs:
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
@@ -74,6 +74,29 @@ The last board per workspace is remembered.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
   snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
 - Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
+
+## Editing notes
+
+Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
+On a board lane, `e` edits the selected card in the preview. The river stays read-only.
+
+| Keys | Action |
+|---|---|
+| `e` | edit in place; the draft is the note's whole text: subject line, body and `[key::value]` properties |
+| `Ctrl+E` | hand the draft to `$VISUAL` / `$EDITOR` (then `vi`); what comes back replaces the draft |
+| `Ctrl+S` | save |
+| `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
+| `Esc` | close; with unsaved changes it asks for a second `Esc` |
+
+- **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
+  else saved since, and the door never retries it over their text: the draft stays open, is copied to
+  `~/.local/state/ep0ch-door/drafts/`, and `Ctrl+R` starts over from the current revision.
+- **While a draft is open** the reader stays on its note, takes every key (board and window shortcuts
+  included), and marks "changed elsewhere" when an outline event says the note moved on, instead of
+  replacing what you typed. `Ctrl+C` asks twice when an edit is unsaved.
+- **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door`, like the
+  outliner's own Detail.
+- `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
 
 ## Reading notes
 
@@ -158,11 +181,14 @@ A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door u
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
 `open` flashes "an agent opened: …" so it's never silent.
 
-## Read-only
+## What the door sends
 
-The door only sends read actions (the service has no read-only mode or auth; this is the door's own discipline): `ping`, `children`, `blocks.context`,
-`blocks.query`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`. That
-registration is the one visible side effect: the door appears in `clients.list` until it exits.
+Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `references.backlinks`,
+`annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
+puts the door in `clients.list` until it exits.
+
+One write: `update`, only when you save an edit, always with `expectedRevision`. The service has no
+auth or read-only mode, so these limits are the door's own discipline.
 
 ## Checking it
 
@@ -173,6 +199,12 @@ registration is the one visible side effect: the door appears in `clients.list` 
     bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a pane, dock, search
     bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
+
+`test/edit.test.ts` saves and races real writes against a throwaway outliner service it starts itself
+(own state dir and workspace, Inbox agents off). Point `EP0CH_OUTLINER` at a pi-herdr-outliner checkout
+(default `../pi-herdr-outliner`); without one those tests skip. The `edit` snapshot writes too, so it
+refuses to run unless `EP0CH_SNAP_WRITES=1`: never point it at a real outline.
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,
 Kitty upload, place, crop and delete) and composites them into a PNG.
@@ -180,5 +212,5 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 ## Known limits
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
-- Input is decoded as Latin-1, so non-ASCII typing in Search is unreliable.
+- The editor counts one cell per character, so wide (CJK, some emoji) characters misplace the cursor.
 - The Herdr capability check reads a config file; a lasting version should ask Herdr.

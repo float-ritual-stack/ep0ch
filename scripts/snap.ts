@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -127,6 +127,36 @@ if (scenario === "board2") {
   press({ kind: "down" });
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
+}
+if (scenario === "edit") {
+  // Writes: seeds its own board, edits a card, and races a second writer. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("edit writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Scratch delivery board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Done [type::virtual-branch] [query::stage=done]");
+  const card = await mk(null, "EPD-001 scratch card [stage::queued]\nEdit me from any reader.\n\n- [ ] typed in the door\n- [ ] saved with a revision check");
+  await mk(null, "Already shipped [stage::done]\nA finished card.");
+  board.subscribe(e => app.event(e));   // readers learn about the other writer the way the real door does
+  app.push(new MainMenu()); app.push(new DeliveryBoard(hub.id));
+  await snap("1-lanes", 2500);
+  ch("e"); await Bun.sleep(500);
+  for (const c of " (edited in the door)") ch(c);
+  press({ kind: "down" }); press({ kind: "end" }); for (const c of " Typed here, in place.") ch(c);
+  await snap("2-editing", 800);
+  const other = new SocketBoard();
+  const now = (await other.request("blocks.context", { blockId: card.id })).selected;
+  await other.update(card.id, now.text.replace("Edit me", "Someone else edited me"), now.revision);
+  await snap("3-changed-elsewhere", 1500);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("4-refused", 1200);
+  press({ kind: "char", ch: "r", ctrl: true }); await Bun.sleep(600);
+  for (const c of " (second try)") ch(c);
+  press({ kind: "char", ch: "s", ctrl: true });
+  await snap("5-saved", 1500);
+  const final = (await other.request("blocks.context", { blockId: card.id })).selected;
+  console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  other.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {
   app.push(new MainMenu()); app.push(new DeliveryBoard());

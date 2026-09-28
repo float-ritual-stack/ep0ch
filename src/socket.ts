@@ -1,5 +1,6 @@
-// Read-only Board over the outliner's JSON-lines socket (protocol 80).
-// Only actions from the service's safe-read list are sent; nothing here mutates.
+// Board over the outliner's JSON-lines socket (protocol 80 or newer).
+// Reads use the service's safe-read actions. The one write is `update`, which names the revision it
+// started from, so the service refuses a stale draft instead of overwriting someone else's edit.
 import { connect, type Socket } from "node:net";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 
@@ -7,7 +8,7 @@ export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.
 const PROTOCOL = 80;
 
 interface WireBlock {
-  id: string; parentId: string | null; text: string; author: string; actorId?: string;
+  id: string; parentId: string | null; text: string; revision?: number; author: string; actorId?: string;
   createdAt: string; updatedAt: string; deletedAt?: string; effectiveDeletedRootId?: string;
   properties?: { key: string; value: string }[];
 }
@@ -34,7 +35,16 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   updatedAt: Date.parse(b.updatedAt),
   author: b.actorId ?? b.author ?? null,
   props: Object.fromEntries((b.properties ?? []).map(p => [p.key, p.value])),
+  revision: b.revision,
 });
+
+/** The block changed after the draft was read; the service kept the other writer's text. */
+export class EditConflict extends Error {
+  constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
+}
+
+/** How door edits are attributed: a person typing in the door, like the outliner's own Detail. */
+export const EDIT_MUTATION = { author: "user", actorId: "ep0ch-door" } as const;
 
 class Line {
   private buf = "";
@@ -197,6 +207,17 @@ export class SocketBoard implements Board {
       quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
       replies: (t.replies ?? []).map((r: any) => ({ author: who(r), body: text(r), at: when(r) })),
     })).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
+  }
+
+  /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */
+  async update(blockId: string, text: string, expectedRevision: number): Promise<Msg> {
+    try {
+      return toMsg(await this.request<WireBlock>("update", { blockId, text, expectedRevision, mutation: EDIT_MUTATION }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/changed since editing began/i.test(msg)) throw new EditConflict(blockId, msg);
+      throw e;
+    }
   }
 
   /** Register as an observer and stream events. The door then shows up in Who's Online, like any caller. */

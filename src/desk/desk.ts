@@ -89,11 +89,13 @@ export class Desk implements Screen, DeskApi {
 
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
 
+  unsaved() { return [...this.panes.values()].some(p => p instanceof ReaderPane && !!p.draft?.dirty); }
+
   describe() {
     const order = leaves(this.root);
     return {
       kind: "desk", current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
-      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined }; }),
+      panes: order.map((id, i) => { const p = this.panes.get(id)!; const r = this.placed.rects.get(id); return { n: i + 1, kind: p.kind, title: p.title(), focused: id === this.focus, rect: r, showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : undefined, editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined }; }),
     };
   }
 
@@ -149,6 +151,9 @@ export class Desk implements Screen, DeskApi {
       return this.redraw();
     }
     if (k.kind === "mouse") return this.mouse(k);
+    // An open edit takes every key, window commands included, until it is saved or closed.
+    const focused = this.panes.get(this.focus);
+    if (focused instanceof ReaderPane && focused.editing) { focused.key(k, this); return; }
     if (this.prefix) return this.command(k);
     if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }
     if (k.kind === "tab" || k.kind === "backtab") {
