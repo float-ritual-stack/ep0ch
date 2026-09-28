@@ -245,11 +245,21 @@ export class App implements Ctx {
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
     const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
-    const room = Math.max(0, cols - [...right.replace(/\x1b\[[\d;]*m/g, "")].length);
-    // A message outranks the location: in a narrow pane it replaces it rather than being cut off.
-    const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
-    return bg(C.blue) + fg(C.lcyan) + body + right + RESET;
+    return statusLine(left, middle, right, cols);
   }
+}
+
+/**
+ * The status bar's three parts in `cols` cells: the right part (video, uptime, clock) always shows whole,
+ * with a `│` between it and the rest, even when the rest fills its room exactly or is cut short. A
+ * message outranks the location: in a narrow pane it replaces it rather than being cut off.
+ */
+export function statusLine(left: string, middle: string, right: string, cols: number): string {
+  const sep = " │ ";
+  const room = Math.max(0, cols - width(right) - sep.length);
+  const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
+  // pad() ends a cut with RESET, so the bar's colours are set again before the separator.
+  return bg(C.blue) + fg(C.lcyan) + body + bg(C.blue) + fg(C.lcyan) + sep + right + RESET;
 }
 
 /**
