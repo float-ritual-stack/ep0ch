@@ -118,6 +118,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     for (let n = 0; B().mover && B().mover.sel !== to && n < 20; n++) ch(B().mover.sel < to ? "j" : "k");
     press({ kind: "enter" });
   };
+  /** The service reads OR / NOT (PIE-398): those lanes are ready, not invalid. */
+  const grammar = () => B().lanes[laneIndex("Either")].read.status === "ready";
   const selected = () => { const l = B().lanes[B().lane]; return { lane: l.name, id: l.items?.[l.sel]?.id }; };
 
   beforeAll(async () => {
@@ -185,7 +187,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     expect(now.revision).toBe(cards.one.revision + 1);
     expect(selected()).toEqual({ lane: "Doing", id: cards.one.id });
     expect(laneIds("Queued")).not.toContain(cards.one.id);
-    expect(flashes.at(-1)).toBe("moved to Doing · work-stage queued -> doing");
+    // Not done (`not work-stage=done`) still lists it, and the flash says so.
+    expect(flashes.at(-1)).toBe(`moved to Doing · work-stage queued -> doing${grammar() ? " · still in Not done too" : ""}`);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     const entry = log.entries.find((e: any) => e.block.id === cards.one.id);
     expect(entry?.actorId).toBe(ACTOR_ID);
@@ -210,7 +213,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     pick("Review");
     await settled();
     expect((await current(cards.one.id)).text).toBe(before.replace("[work-stage::doing]", "[work-stage::review]"));
-    expect(flashes.at(-1)).toBe("moved to Review · work-stage doing -> review");
+    expect(flashes.at(-1)).toBe(`moved to Review · work-stage doing -> review${grammar() ? " · still in Not done too" : ""}`);
 
     // Card three has no track: it is appended beside its metadata, where the service reads it as a property.
     await select("Queued", cards.three.id);
@@ -218,7 +221,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await settled();
     expect(await props(cards.three.id)).toEqual(["work-stage=review", "track=door"]);
     expect(laneIds("Review")).toContain(cards.three.id);
-    expect(flashes.at(-1)).toBe("moved to Review · work-stage queued -> review · track + door");
+    expect(flashes.at(-1)).toBe(`moved to Review · work-stage queued -> review · track + door${grammar() ? " · still in Not done too" : ""}`);
   });
 
   test("ordinals come from the service: code spans, hashtags, prose and fences are left alone", async () => {
@@ -247,7 +250,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     }
     expect(reasons).toEqual({
       ...(grammar ? {
-        "Either": "can't move to Either: Either's query uses OR; a move can't pick which side to satisfy",
+        "Either": "can't move to Either: Either needs (work-stage=blocked OR work-stage=waiting) and the card has work-stage=queued; a move sets only the plain clauses beside it",
         "Not done": "already in Not done · nothing to change",
       } : {
         "Either": "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator or is not supported",

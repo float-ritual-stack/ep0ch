@@ -13,7 +13,7 @@ import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent"].includes(scenario);
+const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -30,9 +30,9 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `journey` runs its own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>), so it can restart it.
-const scratch = scenario === "journey" ? await (async () => {
+const scratch = scenario === "journey" || scenario === "kanban" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
-  if (!outliner) { console.error("journey starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout"); process.exit(2); }
+  if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
 })() : null;
 const board = new SocketBoard(scratch ? await scratch.start() : undefined);
@@ -133,6 +133,68 @@ if (scenario === "board2") {
   press({ kind: "down" });
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
+}
+if (scenario === "kanban") {
+  // PIE-406 on an All-work-shaped board (its own scratch service, fictional cards): OR lanes, moving into
+  // them, a new card that must meet the group, checklist steps, trash and undo.
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const q = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
+  // Roadmap lanes create through the workboard's allocator: a Work-ID prefix and one work queue per project.
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  const queue = await mk(null, "Door work queue [type::work-queue] [project::ep0ch-door]");
+  await mk(null, "Outliner work queue [type::work-queue] [project::pi-outliner]");
+  const hub = await mk(null, "All work Delivery Flow");
+  await mk(hub.id, `Queued [type::virtual-branch] [query::${q("queued")}] [create::project=ep0ch-door]`);
+  for (const st of ["doing", "review", "done"]) await mk(hub.id, `${st[0]!.toUpperCase()}${st.slice(1)} [type::virtual-branch] [query::${q(st)}]`);
+  await mk(hub.id, "Everything [type::virtual-branch] [query::type=roadmap-item]");
+  const shelf = await mk(queue.id, "Level the shelf [type::roadmap-item] [project::pi-outliner] [work-stage::queued] [priority::high]\n\n- [ ] find the spirit level\n- [ ] loosen the brackets\n- [x] clear the books");
+  await mk(queue.id, "Descale the kettle [type::roadmap-item] [project::ep0ch-door] [work-stage::queued]");
+  await mk(queue.id, "Swap the porch bulb [type::roadmap-item] [project::pi-outliner] [work-stage::doing]");
+  const tap = await mk(queue.id, "Fix the dripping tap [type::roadmap-item] [project::ep0ch-door] [work-stage::review]");
+  await mk(tap.id, "Washer size is 1/2 inch.");
+  const club = await mk(null, "Plan the garden club rota [type::roadmap-item] [project::garden-club] [work-stage::queued]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(400); };
+  const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
+  const type = (t: string) => { for (const c of t) ch(c); };
+  const said = () => console.log(`  status: ${(app as any).message || "(none)"} · refreshes ${JSON.stringify(S.refreshes)}`);
+  const pick = (lane: string, id: string) => { S.focus = "lanes"; S.lane = S.lanes.findIndex((l: any) => l.name === lane); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === id); S.follow(); app.redraw(); };
+  const to = (lane: string) => { const t = S.lanes.findIndex((l: any) => l.name === lane); for (let i = 0; i < 10 && S.mover && S.mover.sel !== t; i++) ch(S.mover.sel < t ? "j" : "k"); };
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-or-lanes", 2500);
+  // A card outside the group: the picker says which term it doesn't meet.
+  pick("Everything", club.id); ch("m"); to("Doing");
+  await snap("2-or-refused", 600);
+  press({ kind: "esc" });
+  // A card in one of the projects: only work-stage is patched.
+  pick("Queued", shelf.id); ch("m"); to("Doing");
+  await snap("3-or-move-picker", 600);
+  press({ kind: "enter" }); await settle();
+  await snap("4-or-moved", 800); said();
+  // A new roadmap item in Doing: no create:: default, so the text must meet the group, and the
+  // allocator needs priority, arc and a track.
+  ch("n"); await Bun.sleep(400); type("Replace the doormat [priority::low] [arc::home] [track::doors]");
+  await snap("5-composer", 400);
+  ctrl("s"); await Bun.sleep(600);
+  await snap("6-composer-refused", 200); said();
+  type(" [project::ep0ch-door]"); ctrl("s"); await settle();
+  await snap("7-created", 800); said();
+  // Review takes no new roadmap items: create in Queued or Doing, then move.
+  pick("Review", tap.id); ch("n"); await Bun.sleep(200);
+  await snap("7b-review-refused", 200); said();
+  // Steps: check one off.
+  pick("Doing", shelf.id); ch("s"); await Bun.sleep(500); ch(" "); await Bun.sleep(700);
+  await snap("8-steps", 300); said();
+  press({ kind: "esc" });
+  // Trash with d d, then the banner offers u.
+  pick("Review", tap.id); ch("d"); await Bun.sleep(300);
+  await snap("9-trash-confirm", 200);
+  ch("d"); await settle();
+  await snap("10-trashed", 600); said();
+  ch("u"); await settle();
+  await snap("11-restored", 600); said();
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {
   // The integrated door, one pass: board → preview → edit with a property warning → move → comment →

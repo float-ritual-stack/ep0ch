@@ -31,6 +31,11 @@ interface WireBlock {
   createdAt?: string; updatedAt?: string; deletedAt?: string; effectiveDeletedRootId?: string;
   properties?: { key: string; value: string }[];
 }
+/** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
+export interface RoadmapItemInput {
+  title: string; body?: string; priority: string; workStage?: string; workBatchId?: string;
+  project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string;
+}
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 
@@ -110,6 +115,14 @@ export type PropertyPatch =
   | { op: "replace"; ordinal: number; value: string }
   | { op: "append"; key: string; value: string };
 
+export type StepStatus = "todo" | "done" | "waiting" | "problem";
+/** One checklist step as `checklist.query` reads it. */
+export interface ChecklistStep {
+  itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
+  span: { start: number; end: number; startLine: number; endLine: number }; depth: number; text: string;
+}
+export interface ChecklistRead { blockId: string; revision: number; title: string; items: ChecklistStep[]; completeness: { kind: string } }
+
 /** The block changed after the draft was read; the service kept the other writer's text. */
 export class EditConflict extends Error {
   constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
@@ -187,6 +200,8 @@ export class SocketBoard implements Board {
   capabilities: Set<string> | null = null;
   /** Actions this service answered "Unsupported action" to, this session. */
   private unsupported = new Set<string>();
+  /** The service's protocol, from the last `ping` (null until `info()`). */
+  protocol: number | null = null;
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
@@ -253,6 +268,7 @@ export class SocketBoard implements Board {
       throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${CLIENT_PROTOCOL}`);
     // A capability list is the service's word; without one, each feature is tried once (see optional()).
     this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
+    this.protocol = r.protocolVersion;
     this.unsupported.clear();
     return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null };
   }
@@ -600,6 +616,94 @@ export class SocketBoard implements Board {
     } catch (e) {
       return reset(`catch-up failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // ── creating, trashing, checklist steps (PIE-406) ─────────────────────────
+
+  /**
+   * A new block under `parentId` (null: top level). `create` carries no revision and no request id, so
+   * it is never retried: when the answer is lost, `findCreated` looks for it before anyone tries again.
+   * A person's block is `author: user` with no actor id (the service takes provenance only on agent
+   * blocks); an agent's, or one a person and an agent both typed, is `author: agent` naming them.
+   */
+  async createBlock(parentId: string | null, text: string, actor: Actor = USER): Promise<Msg> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
+  }
+
+  /** `properties.preview` with repeats kept, in order; null when this service can't preview. */
+  async previewPropertyList(text: string): Promise<{ key: string; value: string }[] | null> {
+    const r = await this.optional<{ properties: { key: string; value: string }[] }>("properties.preview", "properties.preview", { text });
+    return r && r.properties.map(p => ({ key: p.key, value: p.value }));
+  }
+
+  /** After a create whose answer was lost: a child of `parentId` with exactly `text`, created at or after `since`. */
+  async findCreated(parentId: string | null, text: string, since: number): Promise<Msg | null> {
+    const kids = parentId === null ? await this.roots() : await this.children(parentId);
+    return kids.filter(k => k.text === text && k.createdAt >= since - 1000).sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
+  }
+
+  /**
+   * Move a block and its subtree to Trash. The service's `delete` takes no revision and records no
+   * author, so the caller checks the revision it showed just before, and says who did it on screen.
+   */
+  async trash(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId })); }
+
+  /**
+   * Whether `blockId` is in Trash now (its own delete or an ancestor's): true, false, or null when the
+   * service can't say (no such block any more, or no answer). For a write whose answer was lost.
+   */
+  async isTrashed(blockId: string): Promise<boolean | null> {
+    try {
+      const ctx = await this.request<{ selected: WireBlock | null }>("blocks.context", { blockId });
+      return ctx.selected ? !!(ctx.selected.deletedAt || ctx.selected.effectiveDeletedRootId) : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Whether this service has the workboard's roadmap allocator (`roadmap.items.create`): true from
+   * protocol 82 (which every such service has, but doesn't list as a capability), false once it answered
+   * "Unsupported action", undefined before `info()`.
+   */
+  hasRoadmapAllocator(): boolean | undefined {
+    if (this.unsupported.has("roadmap.items.create")) return false;
+    return this.protocol === null ? undefined : this.protocol >= 82;
+  }
+
+  /**
+   * A roadmap item through the workboard's allocator (`roadmap.items.create`): the service issues its
+   * work-id and puts it under the project's one active work queue. Like `create`, it has no request id,
+   * so it is never retried. Null when this service has no allocator (it answered "Unsupported action").
+   */
+  async createRoadmapItem(input: RoadmapItemInput, actor: Actor = USER): Promise<{ workId: string; workQueueId: string; block: Msg } | null> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    try {
+      const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
+      return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
+    } catch (e) {
+      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add("roadmap.items.create"); return null; }
+      throw e;
+    }
+  }
+
+  /** Bring a Trash root (and its subtree) back where it was. */
+  async restore(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("trash.restore", { blockId })); }
+
+  /** A note's checklist steps (docs/CHECKLIST_ITEMS.md), in source order, at the revision the service read. */
+  async checklist(blockId: string, limit = 200): Promise<ChecklistRead> {
+    return this.request<ChecklistRead>("checklist.query", { blockId, query: { limit, nested: "include" } });
+  }
+
+  /**
+   * Set one step's status. The step is named by its id when it has a unique one, else by where it starts
+   * at the revision it was read (the service then gives it an id); either way `evidence` must still match.
+   */
+  async setStep(blockId: string, step: ChecklistStep, revision: number, status: StepStatus, actor: Actor = USER): Promise<{ block: Msg; item: ChecklistStep; changed: boolean }> {
+    const target = step.identity === "unique" && step.itemId ? { itemId: step.itemId } : { start: step.span.start, expectedRevision: revision };
+    const r = await this.request<{ block: WireBlock; item: ChecklistStep; changed: boolean }>("checklist.update", {
+      blockId, input: { target, expectedEvidence: step.evidence, change: { kind: "status", status } }, mutation: mutationFor(actor),
+    });
+    return { block: toMsg(r.block), item: r.item, changed: r.changed };
   }
 
   close(): void {
