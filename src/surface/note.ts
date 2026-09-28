@@ -12,7 +12,7 @@ import { CommentSession, type CommentEnv } from "../comment";
 import { renderDoc, type DocEnv } from "../doc";
 import { embedRegion } from "../embeds";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView } from "../refs";
+import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix } from "../refs";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
 import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment, type PropertyRecord } from "../socket";
@@ -277,7 +277,7 @@ export class NoteSurface {
   /** The panel's rows for `m`: the service's tokens once it has answered, the block properties until then. */
   rows(m: Msg, tokens: PropertyRecord[] | null = null): PropRow[] {
     const t = tokens ? { state: "ready", tokens } : tokensOf(m.text, this.src);
-    return propertyRows(m, t?.state === "ready" ? t.tokens : null);
+    return propertyRows(m, t?.state === "ready" ? t.tokens : null, workIdPrefix(this.src) ?? null);
   }
 
   /** Open (or switch to full) the property panel. */

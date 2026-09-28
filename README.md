@@ -313,7 +313,8 @@ printed; they are in the **property panel**, one key away.
 
 ### The property panel
 
-`i` in any reader (Detail's Props inspector); `I` fills the reader with it instead. It lists every
+`i` in any reader (Detail's Props inspector), and on the board from the lanes too (the preview takes
+focus with it open); `I` fills the reader with it instead. It lists every
 property token of the note: repeated keys stay separate rows, and line and inline scope are marked.
 `■` marks the keys the summary line shows. While it is open it takes the reader's keys, the board's and
 desk's own shortcuts (`Tab`, `o`, …) included.
@@ -322,7 +323,7 @@ desk's own shortcuts (`Tab`, `o`, …) included.
 |---|---|
 | `Tab` / `Shift+Tab`, `j k` | next / previous value |
 | `y` | copy the value, as authored, to the terminal's clipboard (OSC 52) |
-| `o` | follow a block (`related-to::<id>`, `((id))`), `[[page]]` or Work-ID value |
+| `o` | follow a block (`related-to::<id>`, `((id))`), `[[page]]` or Work-ID value (the workspace's own prefix) |
 | `Enter` / `e` | edit the value in place; `Enter` saves, `Esc` cancels |
 | `s` | show or hide this key in the summary line (your choice) |
 | `I`, `Esc` / `i` | full / inline; close |

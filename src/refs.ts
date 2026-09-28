@@ -49,6 +49,14 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
   return ask(refsBy, src, refsText, async b => new Map((await b.resolveReferences(refsText)).map(r => [refKey(r.blockId, r.fragmentId, r.label), r])))?.value ?? null;
 }
 
+const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
+/** The workspace's Work-ID prefix: a string, null when none is configured (or unknown), undefined until asked. */
+export function workIdPrefix(src: Source | null | undefined): string | null | undefined {
+  const c = ask(prefixBy, src, "prefix", b => b.workIdPrefix());
+  if (!c) return null;
+  return c.value !== null || !c.asking ? c.value : undefined;
+}
+
 /** What `[[address]]` points at; null while asking (or when it couldn't be asked). */
 export function pageOf(address: string, src: Source | null | undefined): PageResolution | null {
   return ask(pagesBy, src, address.trim().toLowerCase(), b => b.resolvePage(address.trim()))?.value ?? null;

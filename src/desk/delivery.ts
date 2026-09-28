@@ -1306,7 +1306,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.steps) return pad(paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read"), W);
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
         : "|08 |15tab|08 area · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
@@ -1417,6 +1417,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
     else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
     else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
+    else if ((c === "i" || c === "I") && this.preview.msg) { this.focus = "preview"; this.preview.surface.openPanel(c === "I"); return this.redraw(); }
     else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
     else if (c === "m") return this.openMover();
     else if (c === "n") return this.openCardComposer();

@@ -324,6 +324,11 @@ export class SocketBoard implements Board {
     return (await this.request<{ references: ReferenceResolution[] }>("references.resolve", { text })).references;
   }
 
+  /** The workspace's configured Work-ID prefix (`PIE`), or null when none is configured. */
+  async workIdPrefix(): Promise<string | null> {
+    return (await this.request<{ workIdPrefix?: string }>("references.resolve", { text: "" })).workIdPrefix ?? null;
+  }
+
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */
   async resolvePage(address: string): Promise<PageResolution> {
     const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });

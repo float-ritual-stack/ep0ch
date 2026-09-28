@@ -187,8 +187,11 @@ describe("the surface: summary, panel and embeds at any width", () => {
     expect(valueTarget("related-to", A)).toEqual({ block: A });
     expect(valueTarget("depends-on", `((${A}|the plan))`)).toEqual({ block: A });
     expect(valueTarget("see", "[[garden|the plot]]")).toEqual({ page: "garden" });
-    expect(valueTarget("issue", "GDN-12")).toEqual({ page: "GDN-12" });
-    expect(valueTarget("work-id", "GDN-12")).toBeNull();
+    expect(valueTarget("issue", "GDN-12", "GDN")).toEqual({ page: "GDN-12" });
+    expect(valueTarget("issue", "gdn-12", "GDN")).toEqual({ page: "gdn-12" });
+    // Only the workspace's own prefix is a Work ID; other letters-digits values are just text.
+    for (const [k, v] of [["sprint", "week-38"], ["encoding", "utf-8"], ["arc", "phase-2"], ["issue", "GDN-12"]]) expect(valueTarget(k!, v!, k === "issue" ? null : "GDN")).toBeNull();
+    expect(valueTarget("work-id", "GDN-12", "GDN")).toBeNull();
     expect(valueTarget("page", "garden")).toBeNull();
     expect(valueTarget("priority", "high")).toBeNull();
   });
@@ -297,8 +300,10 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   });
 
   test("the panel: every token with scope, by keys and by an agent; copy returns the value", async () => {
-    await act("focus", {}, "preview");
+    // One key from the lanes: the preview takes focus with its panel open.
+    await act("focus", {}, "lanes");
     key(char("i"));
+    expect([B().focus, !!B().preview.surface.panel]).toEqual(["preview", true]);
     const r = await act("props");
     expect(r.rows.map((x: any) => `${x.key}=${x.value}:${x.scope}`)).toEqual([
       "type=roadmap-item:block", "priority=high:block", "work-stage=doing:block", "project=garden:block", "track=soil:block", "track=tools:block",

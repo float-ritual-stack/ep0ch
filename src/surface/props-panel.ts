@@ -21,10 +21,11 @@ export interface PropRow {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const WORK_ID = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
-
-/** Where a value points, when it names something: a block id or `((id))`, a `[[page]]`, a Work ID. */
-export function valueTarget(key: string, value: string): PropRow["target"] {
+/**
+ * Where a value points, when it names something: a block id or `((id))`, a `[[page]]`, or a Work ID in
+ * the workspace's own prefix (`PIE-409` when the prefix is PIE; `week-38` or `utf-8` are just text).
+ */
+export function valueTarget(key: string, value: string, workIdPrefix: string | null = null): PropRow["target"] {
   const v = value.trim();
   const ref = v.match(/^\(\(([A-Za-z0-9_-]{8,})(?:\^[A-Za-z0-9][A-Za-z0-9_-]*)?(?:\|[^)]*)?\)\)$/);
   if (ref) return { block: ref[1]! };
@@ -33,7 +34,8 @@ export function valueTarget(key: string, value: string): PropRow["target"] {
   if (page) return { page: page[1]!.trim() };
   // `work-id` and `page` declare this note's own addresses; they don't point anywhere else.
   if (key === "work-id" || key === "page") return null;
-  if (WORK_ID.test(v)) return { page: v };
+  const [prefix, n] = [v.slice(0, v.lastIndexOf("-")), v.slice(v.lastIndexOf("-") + 1)];
+  if (workIdPrefix && prefix.toLowerCase() === workIdPrefix.toLowerCase() && /^\d+$/.test(n)) return { page: v };
   return null;
 }
 
@@ -41,11 +43,11 @@ export function valueTarget(key: string, value: string): PropRow["target"] {
  * The panel's rows: the service's tokens for the note's text when it offers them (`properties.preview`),
  * otherwise the block properties the note was read with (no line/inline scope, no ordinals).
  */
-export function propertyRows(m: Msg, tokens: PropertyRecord[] | null): PropRow[] {
+export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPrefix: string | null = null): PropRow[] {
   const src = tokens
     ? tokens.map(t => ({ key: t.key, value: t.value, scope: t.scope, placement: t.placement, syntax: t.syntax, line: t.line, ordinal: t.ordinal }))
     : (m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }))).map(p => ({ ...p, scope: "block" as const, ordinal: null }));
-  return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value) }));
+  return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) }));
 }
 
 /** How a row's value reads: a block value also shows the target's title, as a link would. */
