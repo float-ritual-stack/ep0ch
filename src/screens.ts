@@ -32,6 +32,88 @@ const nav = (k: Key, len: number, i: number, page: number) => {
 };
 const isBack = (k: Key) => k.kind === "esc" || (k.kind === "char" && (k.ch === "q" || k.ch === "Q"));
 
+type Mouse = Extract<Key, { kind: "mouse" }>;
+const char = (ch: string): Key => ({ kind: "char", ch });
+const ENTER: Key = { kind: "enter" };
+
+/**
+ * Something a BBS screen drew that the mouse can use: cells `x0`..`x1` (exclusive) of row `y`, the key a
+ * click on it sends, and the item it stands for (a menu entry, a list row) when it has one. `twice`: a
+ * list row, where the first click selects and a click on the selected row opens (the board's cards).
+ */
+interface Spot { y: number; x0: number; x1: number; key?: Key; index?: number; twice?: boolean }
+
+/**
+ * The mouse on a BBS screen (PIE-452). Each render records where its menu entries, list rows and hint
+ * keys are; a click sends the key the spot stands for back through the screen's own `key()`, so a click
+ * and its key are one path. A press on an item selects it; releasing on the same spot is the click (on a
+ * list row, only once it was already selected: ⏎). A drag with the button down moves the selection with
+ * the pointer (the hover the terminal reports: the door asks for button-event tracking, 1002, not motion
+ * without a button). The wheel moves a list's selection a row, as it moves a lane's on the board.
+ */
+class Pointer {
+  private spots: Spot[] = [];
+  private down: { spot: Spot; open: boolean } | null = null;
+  /** A new frame: what the last one drew is gone. */
+  frame() { this.spots = []; }
+  spot(s: Spot) { this.spots.push(s); }
+  /** A list row: the whole width of row `y` stands for item `index`. */
+  row(y: number, index: number, w: number) { this.spot({ y, x0: 0, x1: w, key: ENTER, index, twice: true }); }
+  at(x: number, y: number): Spot | undefined { return this.spots.find(s => s.y === y && x >= s.x0 && x < s.x1); }
+
+  /**
+   * Hand a mouse event to the spots. `select` moves the screen's selection; `send` runs a key through the
+   * screen's key handler. `count` (a list's length) lets the wheel move the selection.
+   */
+  mouse(k: Mouse, h: { sel: number; count?: number; select(i: number): void; send(k: Key): void }): void {
+    if (k.action === "wheel-up" || k.action === "wheel-down") {
+      if (h.count) h.select(Math.max(0, Math.min(h.count - 1, h.sel + (k.action === "wheel-down" ? 1 : -1))));
+      return;
+    }
+    const s = this.at(k.x, k.y);
+    if (k.action === "down") {
+      this.down = null;
+      if (!s) return;
+      const was = s.index !== undefined && s.index === h.sel;
+      if (s.index !== undefined) h.select(s.index);
+      this.down = { spot: s, open: !s.twice || was };
+      return;
+    }
+    if (k.action === "drag") {
+      const d = this.down;
+      if (d && !d.spot.twice && s?.index !== undefined && d.spot.index !== undefined) { h.select(s.index); d.spot = s; d.open = true; }
+      return;
+    }
+    // Released: a click, when it lands where it went down (an up with no press here is someone else's).
+    const d = this.down;
+    this.down = null;
+    if (d?.open && s && s.y === d.spot.y && s.x0 === d.spot.x0 && s.key) h.send(s.key);
+  }
+}
+
+/**
+ * One row of text with clickable parts, `x` cells in (or centred in `w`): each part is text in `paint`'s
+ * `|NN` colours, or [text, key] for one a click sends `key` from. The parts are recorded in `p` as row `y`.
+ */
+/** The mouse over a BBS list: its rows and hint keys (see Pointer), then a repaint unless a key already made one. */
+function listMouse(p: Pointer, k: Mouse, ctx: Ctx, sel: number, count: number, select: (i: number) => void, send: (k: Key) => void) {
+  let sent = false;
+  p.mouse(k, { sel, count, select, send: key => { sent = true; send(key); } });
+  if (!sent) ctx.redraw();
+}
+
+function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key, number?])[], opts: { centre?: boolean; x?: number } = {}): string {
+  const text = parts.map(q => (typeof q === "string" ? q : q[0])).join("");
+  let x = opts.centre ? Math.max(0, Math.floor((w - width(paint(text))) / 2)) : opts.x ?? 0;
+  const out = " ".repeat(x) + paint(text);
+  for (const q of parts) {
+    const n = width(paint(typeof q === "string" ? q : q[0]));
+    if (typeof q !== "string") p.spot({ y, x0: x, x1: x + n, key: q[1], index: q[2] });
+    x += n;
+  }
+  return out;
+}
+
 const artCache = new Map<string, Art | null>();
 function screenArt(file: string): Art | null {
   if (!artCache.has(file)) {
@@ -106,7 +188,14 @@ export class Logon implements Screen {
     void rows;
     return { lines, placements };
   }
+  /** A click anywhere is ⏎ (it hurries the modem, then logs on); the release is the click. */
+  private pressed = false;
   key(k: Key, ctx: Ctx) {
+    if (k.kind === "mouse") {
+      if (k.action === "down") this.pressed = true;
+      else if (k.action === "up" && this.pressed) { this.pressed = false; this.key(ENTER, ctx); }
+      return;
+    }
     if (isBack(k)) return ctx.push(new Goodbye());
     if (k.kind === "enter" || k.kind === "char") {
       const total = this.script.join("\n").length + 40;
@@ -143,9 +232,11 @@ const ITEMS: MenuItem[] = [
 export class MainMenu implements Screen {
   title = "main menu";
   private sel = 0;
+  private readonly ptr = new Pointer();
   render(ctx: Ctx): Frame {
+    this.ptr.frame();
     const art = screenArt("SHY-EMNU.ANS");
-    if (!art) return new Help().render(ctx);
+    if (!art) return new Help().render(ctx, this.ptr);
     const slots = locate(art.rows, "Menu Cmd").sort((a, b) => a.row - b.row || a.col - b.col);
     // Read the slots column by column, the way the eye scans a three-column menu.
     const ordered = [...slots].sort((a, b) => a.col - b.col || a.row - b.row);
@@ -164,14 +255,38 @@ export class MainMenu implements Screen {
     });
     // Two overlays on the same cells: keep the highlight letter by merging into one run per slot.
     const merged = mergeOverlays(overlays);
-    const { lines, frame } = artWithText(ctx, "menu", art, merged);
+    const { lines, frame, rows } = artWithText(ctx, "menu", art, merged);
+    // Each slot the art shows is its item's place for the mouse (a short pane cuts the art, and its slots).
+    const left = Math.max(0, Math.floor((ctx.t.cols - art.width) / 2));
+    ordered.forEach((s, i) => { const item = ITEMS[i]; if (item && s.row < rows) this.ptr.spot({ y: s.row, x0: left + s.col, x1: left + s.col + 8, key: char(item.key), index: i }); });
     const item = ITEMS[this.sel]!;
+    const slotted = Math.min(ordered.length, ITEMS.length);
     lines.push("");
-    lines.push(center(paint(`|09[|15ep0ch|09] |11main menu |08(|07${ITEMS.map(i => i.key).join("")}|08) |07: |15${item.label}`), ctx.t.cols));
+    // The key line: every key, each one clickable; the items without a slot in the art (the showcase and
+    // today's brief) are named there, and lit when they're the one selected.
+    lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [
+      "|09[|15ep0ch|09] |11main menu |08(",
+      ...ITEMS.slice(0, slotted).map((i, n): [string, Key, number] => [`${n === this.sel ? "|15" : "|07"}${i.key}`, char(i.key), n]),
+      "|08)",
+      ...ITEMS.slice(slotted).flatMap((i, j): (string | [string, Key, number])[] => {
+        const n = slotted + j, on = n === this.sel;
+        return [" |08· ", [on ? `${bg(C.magenta)}|15${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
+      }),
+      // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
+      ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`,
+    ], { centre: true }));
     lines.push(center(paint(`|08${ctx.events ? `|14${ctx.events} change(s) on the outline since you logged on · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
     return { lines, placements: frame };
   }
-  key(k: Key, ctx: Ctx) {
+  key(k: Key, ctx: Ctx): void {
+    if (k.kind === "mouse") {
+      // The wheel is ↑ ↓; a click on an item is its key (see Pointer).
+      if (k.action === "wheel-up" || k.action === "wheel-down") return this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, ctx);
+      let sent = false;
+      this.ptr.mouse(k, { sel: this.sel, select: i => { this.sel = i; }, send: key => { sent = true; this.key(key, ctx); } });
+      if (!sent) ctx.redraw();
+      return;
+    }
     if (k.kind === "left") this.sel = (this.sel + ITEMS.length - 4) % ITEMS.length;
     else if (k.kind === "right") this.sel = (this.sel + 4) % ITEMS.length;
     else if (k.kind === "up") this.sel = (this.sel + ITEMS.length - 1) % ITEMS.length;
@@ -186,10 +301,14 @@ export class MainMenu implements Screen {
     }
     ctx.redraw();
   }
-  private open(item: MenuItem, ctx: Ctx) {
-    const s = item.open(ctx);
-    if (s) ctx.push(s); else ctx.redraw();
-  }
+  private open(item: MenuItem, ctx: Ctx) { openItem(item, ctx); }
+  describe() { return { kind: "main menu", selected: ITEMS[this.sel]!.key, items: ITEMS.map(i => `${i.key} ${i.label}`) }; }
+}
+
+/** Open a menu item's screen over the current one. */
+function openItem(item: MenuItem, ctx: Ctx) {
+  const s = item.open(ctx);
+  if (s) ctx.push(s); else ctx.redraw();
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
@@ -216,6 +335,7 @@ export class MessageList implements Screen {
   private error = "";
   private sel = 0;
   private receiving: { started: number; limit: number } | null = null;
+  private readonly ptr = new Pointer();
   /** `paged` loaders take a limit: a quick first page, then the full scan behind it. */
   constructor(readonly title: string, private readonly load: (limit: number) => Promise<Msg[]>, private readonly caption = "", private readonly paged = true) {}
   enter(ctx: Ctx) {
@@ -231,6 +351,7 @@ export class MessageList implements Screen {
   tick() { return this.receiving !== null; }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;
+    this.ptr.frame();
     const lines = [
       center(paint(`|09─=|11[ |15${this.title.toUpperCase()} |11]|09=─`), w),
       center(paint(`|08${this.items ? `${this.items.length} message(s)` : "scanning…"}${this.caption ? ` · ${this.caption}` : ""}${this.receiving ? ` · |14receiving up to ${this.receiving.limit} ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.receiving.started) / 1000).toFixed(1)}s` : ""}`), w),
@@ -245,16 +366,18 @@ export class MessageList implements Screen {
     const start = Math.max(0, Math.min(this.sel - Math.floor(page / 2), list.length - page));
     list.slice(start, start + page).forEach((m, i) => {
       const n = start + i;
+      this.ptr.row(lines.length, n, w);
       const num = (m.props["work-id"] ?? String(n + 1)).padStart(7).slice(-7);
       const row = ` ${num}  ${pad(m.author ?? "?", 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
       lines.push(n === this.sel ? bg(C.blue) + fg(C.white) + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(m.author ?? "?", 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(paint("|08  ↑↓ select · |15ENTER|08 read · |15T|08 thread · |15Q|08 back"));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
     const list = this.items ?? [];
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => { this.sel = i; }, key => this.key(key, ctx));
     if (isBack(k)) return ctx.pop();
     if (!list.length) return;
     if (k.kind === "enter") return ctx.push(new MessageReader(list, this.sel));
@@ -488,20 +611,25 @@ export class Conferences implements Screen {
   title = "join conference";
   private confs: Msg[] | null = null;
   private sel = 0;
+  private readonly ptr = new Pointer();
   enter(ctx: Ctx) { ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
+    this.ptr.frame();
     const lines = [center(paint("|09─=|11[ |15CONFERENCES |11]|09=─"), w), center(paint("|08top-level blocks on the board"), w), ""];
     (this.confs ?? []).forEach((c, i) => {
+      this.ptr.row(lines.length, i, w);
       const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${c.props.type ?? ""}`;
       lines.push(i === this.sel ? bg(C.blue) + fg(C.white) + pad(label, w) + RESET : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
+    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
-    if (isBack(k)) return ctx.pop();
     const list = this.confs ?? [];
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => { this.sel = i; }, key => this.key(key, ctx));
+    if (isBack(k)) return ctx.pop();
     if (k.kind === "enter" && list[this.sel]) {
       const c = list[this.sel]!;
       return ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
@@ -533,6 +661,7 @@ export class WhoOnline implements Screen {
   private callers: Caller[] | null = null;
   private subjects = new Map<string, string>();
   private asking = new Set<string>();
+  private readonly ptr = new Pointer();
   enter(ctx: Ctx) { this.load(ctx); }
   private load(ctx: Ctx) {
     ctx.board.callers().then(c => {
@@ -560,18 +689,25 @@ export class WhoOnline implements Screen {
     });
     if (!this.callers) lines.push(paint("|08  polling nodes…"));
     lines.push("", paint("|08  Every Tree, Detail and agent attached to the outline is a node. The door registers as an observer, so it's listed too."));
+    this.ptr.frame();
+    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ", ["|15R|08 refresh", char("r")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
-  key(k: Key, ctx: Ctx) { if (isBack(k) || k.kind === "enter") ctx.pop(); else if (k.kind === "char" && k.ch === "r") this.load(ctx); }
+  key(k: Key, ctx: Ctx) {
+    if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
+    if (isBack(k) || k.kind === "enter") ctx.pop(); else if (k.kind === "char" && k.ch === "r") this.load(ctx);
+  }
 }
 
 export class LastCallers implements Screen {
   title = "last callers";
   private rows: Activity[] | null = null;
   private sel = 0;
+  private readonly ptr = new Pointer();
   enter(ctx: Ctx) { ctx.board.activity(80).then(r => { this.rows = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;
+    this.ptr.frame();
     const rows = this.rows ?? [];
     const tally = new Map<string, number>();
     for (const r of rows) tally.set(r.actor, (tally.get(r.actor) ?? 0) + 1);
@@ -584,16 +720,18 @@ export class LastCallers implements Screen {
     const page = h - lines.length - 2;
     const start = Math.max(0, Math.min(this.sel - Math.floor(page / 2), rows.length - page));
     rows.slice(start, start + page).forEach((r, i) => {
+      this.ptr.row(lines.length, start + i, w);
       const row = ` ${ago(r.at).padStart(5)}  ${pad(r.actor, 21)} ${pad(r.kind === "properties" ? "props" : "edit", 6)} ${pad(subject(r.block), w - 40)}`;
       lines.push(start + i === this.sel ? bg(C.blue) + fg(C.white) + pad(row, w) + RESET
         : `${fg(C.dark)}${row.slice(0, 7)}${fg(r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan)}${row.slice(7, 30)}${fg(C.dark)}${row.slice(30, 37)}${fg(C.grey)}${row.slice(37)}${RESET}`);
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(paint("|08  |13agents|08 · |14you|08 · |03system|08 · ENTER read · Q back"));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  |13agents|08 · |14you|08 · |03system|08 · ", ["ENTER read", ENTER], " · ", ["Q back", char("q")]]));
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
     const rows = this.rows ?? [];
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, rows.length, i => { this.sel = i; }, key => this.key(key, ctx));
     if (isBack(k)) return ctx.pop();
     if (k.kind === "enter" && rows.length) return ctx.push(new MessageReader(rows.map(r => r.block), this.sel));
     this.sel = nav(k, rows.length, this.sel, ctx.t.rows - 10);
@@ -608,23 +746,29 @@ export class FileAreas implements Screen {
   private list = packs();
   private sel = 0;
   private diz = new Map<string, string[]>();
+  private readonly ptr = new Pointer();
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;
+    this.ptr.frame();
     const lines = [center(paint("|09─=|11[ |15FILE AREA 1 · WOE ART PACKS |11]|09=─"), w), "", paint("|09 Filename        Size  Date      Description"), rule(w)];
     this.list.forEach((p, i) => {
       if (!this.diz.has(p)) this.diz.set(p, readDiz(p));
       const size = Bun.file(p).size;
       const d = this.diz.get(p)!;
       const on = i === this.sel;
+      // The pack's row, and the description lines the selected pack shows under it, are its place for the mouse.
+      this.ptr.row(lines.length, i, w);
+      if (on) for (let j = 1; j <= Math.min(5, Math.max(0, d.length - 1)); j++) this.ptr.row(lines.length + j, i, w);
       const head = ` ${pad(basename(p).toUpperCase(), 14)} ${String(Math.round(size / 1024)).padStart(5)}k  ${pad(d[0] ?? "", w - 32)}`;
       lines.push(on ? bg(C.blue) + fg(C.white) + pad(head, w) + RESET : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
       if (on) for (const extra of d.slice(1, 6)) lines.push(`${" ".repeat(24)}${fg(C.dark)}${pad(extra, w - 25)}${RESET}`);
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(paint("|08  ↑↓ select · |15ENTER|08 browse pack · Q back"));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 browse pack", ENTER], " · ", ["Q back", char("q")]]));
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, this.list.length, i => { this.sel = i; }, key => this.key(key, ctx));
     if (isBack(k)) return ctx.pop();
     if (k.kind === "enter" && this.list[this.sel]) {
       const m = members(this.list[this.sel]!).filter(x => /\.(ans|asc)$/i.test(x.path));
@@ -652,6 +796,7 @@ export class ArtViewer implements Screen {
   private scroll = 0;
   private ice = false;
   private reveal = Infinity;
+  private readonly ptr = new Pointer();
   constructor(private readonly items: Member[], start?: string) {
     this.index = Math.max(0, start ? items.findIndex(m => basename(m.path).toLowerCase() === start.toLowerCase()) : 0);
     this.load();
@@ -687,10 +832,16 @@ export class ArtViewer implements Screen {
       ];
       panel.forEach((p, i) => { if (i < lines.length) lines[i] = pad(lines[i]!, w - side) + " " + p; });
     }
-    lines.push(paint(`|08  |15, .|08 prev/next · ↑↓ scroll · |15i|08 iCE · |15v|08 video (${ctx.video}) · |15Q|08 back`));
+    this.ptr.frame();
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ", ["|15,", char(",")], " ", ["|15.", char(".")], "|08 prev/next · ", ["↑", { kind: "up" }], ["↓", { kind: "down" }], " scroll · ", ["|15i|08 iCE", char("i")], " · ", [`|15v|08 video (${ctx.video})`, char("v")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines, placements };
   }
-  key(k: Key, ctx: Ctx) {
+  key(k: Key, ctx: Ctx): void {
+    // The wheel scrolls as ↑ ↓ do; a click on the hint's keys is those keys.
+    if (k.kind === "mouse") {
+      if (k.action === "wheel-up" || k.action === "wheel-down") return this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, ctx);
+      return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
+    }
     if (isBack(k)) return ctx.pop();
     const c = k.kind === "char" ? k.ch : "";
     if (c === "." || c === ">" || k.kind === "right") { this.index = (this.index + 1) % this.items.length; this.load(); }
@@ -711,11 +862,14 @@ export class ArtViewer implements Screen {
 export class Stats implements Screen {
   title = "board stats";
   private msgs: Msg[] | null = null;
+  private readonly ptr = new Pointer();
   enter(ctx: Ctx) { ctx.board.changedSince(0, 300).then(m => { this.msgs = m; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
+    this.ptr.frame();
     const lines = [center(paint("|09─=|11[ |15BOARD STATS |11]|09=─"), w), center(paint("|08when the last 300 messages were written · hour of day × day of week"), w), ""];
-    if (!this.msgs) return { lines: [...lines, paint("|08  counting…")] };
+    const back = (at: number) => hotLine(this.ptr, at, w, ["|08  ", ["|15Q|08 back", char("q")]]);
+    if (!this.msgs) return { lines: [...lines, paint("|08  counting…"), "", back(lines.length + 2)] };
     const hm = heatmap(this.msgs.map(m => m.updatedAt), ctx.t, ctx.graphics, { col: 6, row: lines.length + 1 });
     lines.push(paint(`|08      ${"0".padEnd(hm.hourWidth * 6)}${"6".padEnd(hm.hourWidth * 6)}${"12".padEnd(hm.hourWidth * 6)}${"18".padEnd(hm.hourWidth * 6)}23`));
     hm.lines.forEach((l, i) => lines.push(`${fg(C.dark)}${(hm.labels[i] ?? "").padEnd(6)}${RESET}${l}`));
@@ -728,26 +882,45 @@ export class Stats implements Screen {
       const bar = "█".repeat(Math.max(1, Math.round((n / max) * (w - 40))));
       lines.push(`  ${fg(C.yellow)}${pad(a, 22)}${fg(C.lcyan)}${String(n).padStart(5)} ${fg(C.blue)}${bar}${RESET}`);
     }
+    lines.push("", back(lines.length + 1));
     return { lines, placements: hm.placements };
   }
-  key(k: Key, ctx: Ctx) { if (isBack(k) || k.kind === "enter") ctx.pop(); }
+  key(k: Key, ctx: Ctx) {
+    if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
+    if (isBack(k) || k.kind === "enter") ctx.pop();
+  }
 }
 
 export class Help implements Screen {
   title = "help";
-  render(ctx: Ctx): Frame {
+  private readonly ptr = new Pointer();
+  /** `ptr`: where the item rows are recorded for the mouse (the main menu's own, when it draws this without its art). */
+  render(ctx: Ctx, ptr = this.ptr): Frame {
     const w = ctx.t.cols;
+    ptr.frame();
     return {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
-        ...ITEMS.map(i => paint(`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`)),
+        ...ITEMS.map((i, n) => hotLine(ptr, 2 + n, w, [[`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`, char(i.key), n]])),
         "", paint("|08   Kanban, Quay, Desk, Today, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
     };
   }
-  key(_: Key, ctx: Ctx) { ctx.pop(); }
+  /**
+   * Any key closes help. So does a click, except on an item's row: that closes help and opens the item, as
+   * its key does on the menu (a mouse path of its own: here the keys only close).
+   */
+  key(k: Key, ctx: Ctx) {
+    if (k.kind !== "mouse") return ctx.pop();
+    if (k.action === "down" && !this.ptr.at(k.x, k.y)) return ctx.pop();
+    this.ptr.mouse(k, { sel: -1, select() {}, send: key => {
+      const item = key.kind === "char" ? ITEMS.find(i => i.key === key.ch) : undefined;
+      ctx.pop();
+      if (item) openItem(item, ctx);
+    } });
+  }
 }
 const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",

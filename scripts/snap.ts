@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+// `bbs`, `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -1007,6 +1007,40 @@ if (scenario === "desk") {
   press({ kind: "enter" });
   await snap("7-after-search", 3000);
   board.close(); process.exit(0);
+}
+if (scenario === "bbs") {
+  // PIE-452: the main menu and the BBS lists by mouse, on the showcase outline (fictional): a press lights
+  // a slot and a drag moves the light, a release opens; the key line's T and X; a list row selected by one
+  // click and read by a second; the wheel.
+  const { seedShowcase } = await import("../src/showcase/seed");
+  await seedShowcase(board);
+  board.subscribe(e => app.event(e));
+  const menu = new MainMenu();
+  app.push(menu);
+  await Bun.sleep(300);
+  const find = (s: string) => { const t = emu.text(); const y = t.findIndex(l => l.includes(s)); if (y < 0) throw new Error(`"${s}" isn't drawn`); return { x: t[y]!.indexOf(s), y }; };
+  const mouse = (action: "down" | "up" | "drag" | "wheel-up" | "wheel-down", p: { x: number; y: number }) => press({ kind: "mouse", action, button: 0, x: p.x, y: p.y });
+  await snap("1-menu");
+  mouse("down", find("Newscan")); mouse("drag", find("Stats"));
+  await snap("2-drag-lights-stats", 300);
+  mouse("drag", find("Today"));
+  await snap("3-drag-lights-today", 300);
+  mouse("up", find("Today")); await Bun.sleep(300); ch("q");
+  mouse("down", find("Read")); mouse("up", find("Read"));
+  await snap("4-read-list", 1500);
+  const second = { x: 20, y: 6 };
+  mouse("down", second); mouse("up", second);
+  await snap("5-row-selected", 300);
+  mouse("down", second); mouse("up", second);
+  await snap("6-row-read", 1500);
+  ch("q");
+  for (let i = 0; i < 4; i++) mouse("wheel-down", second);
+  await snap("7-wheel", 300);
+  ch("q"); ch("?");
+  await snap("8-help", 300);
+  mouse("down", find("[J] Join")); mouse("up", find("[J] Join"));
+  await snap("9-help-join", 1200);
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 app.push(new Logon(app));
 await snap("1-logon", 3000);
