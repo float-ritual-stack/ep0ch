@@ -14,7 +14,7 @@ three pane models and four searches (§4).
 | render or read a note | `NoteSurface`, hosted through `SurfaceHost`; the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts` | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts` |
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
-| open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
+| open, split, zoom, close panes | the pane model: the layout tree (PIE-412), n-ary splits by weight with spines (`fixed`), minimums, drawers that slide over or pin (`over`), floats, borders that follow the pointer; the desk and the board are on it, the river's strip next (PIE-412 slice 2). Every operation is a `pane.*` action (split, close, resize, zoom, float, pin) | `src/desk/layout.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts` |
 | squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
 | show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents) | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
@@ -24,8 +24,8 @@ three pane models and four searches (§4).
 | select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
 
-- **Don't copy the parallel versions:** the BBS `Reader` and `colourBody` bodies (F1), the board's
-  and river's pane code (F2), the extra searches (F6), `WhoOnline` and `LastCallers` (F7).
+- **Don't copy the parallel versions:** the BBS `Reader` and `colourBody` bodies (F1), the river's
+  pane code (F2), the extra searches (F6), `WhoOnline` and `LastCallers` (F7).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, backlinks, what
   changed). A local fallback for an older service is parity-tested, like `src/views.ts`.
 - **If the part doesn't exist yet or doesn't fit:** extend it, or write down why not in the PR.
@@ -41,11 +41,12 @@ three pane models and four searches (§4).
 - **One reader, two renderers.** Board, desk and river host `NoteSurface`. The BBS `Reader`
   (`scr:256`) is a separate, older reader: its body is `renderDoc`'s (PIE-444), but it has no link
   navigation, props, folds, comments, edit or agent actions.
-- **Pane operations exist three times.** The desk has a layout tree and zoom. The board has
-  fixed fractions, floats and drawers. The river has a strip of columns. Keys differ between them
-  (`x`, `o`, `s`, `p`), and zoom exists only on the desk.
-- **Agents can't do layout.** Note actions are shared everywhere. The desk only exposes
-  `open`/`focus` to agents, the board has no layout actions, and BBS screens have none at all.
+- **Pane operations exist twice.** The desk and the board share one layout tree (PIE-412): the
+  board's lanes, readers, drawers and floats are panes in it. The river still has its strip of columns.
+  Keys differ between them (`x`, `o`, `s`, `p`), and zoom exists only on the desk.
+- **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `pane.*`
+  actions (split, close, resize, zoom, float, pin) are shared by the desk and the board. The river has
+  its own column actions, and BBS screens have none at all.
 - **Words collide.** "Reader", "pin", "preview", "detail", "region" and "spine" each mean two
   things, and the door's "detail" is the outliner's *Current*, not its *Detail*.
 - **Entity navigation is scattered.** Backlinks exist only on the board. Children appear in
@@ -99,14 +100,14 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 |---|---|---|---|
 | view | What a screen arranges: board, desk, river, BBS list | each `Screen` | Tree / Detail |
 | pane | A framed rectangle that takes focus | desk `Pane` `pan:28` | Herdr pane |
-| — alias: region | The board's word for its panes | `Region` `del:31` | *collides:* PreviewRegion |
+| — alias: region | The board's name for a pane's place (`preview`, `detail0`, `float0`); the pane itself is a leaf of the layout tree | `Region` `del:31` | *collides:* PreviewRegion |
 | — alias: column | A river strip; stacked panes inside | `Col` `riv:47` `PaneS` `riv:28` | none |
-| layout tree | Binary splits over pane ids | `LNode` `lay:5` (desk only) | none |
+| layout tree | Splits over pane ids, each kid by weight; drawers slide over it, floats above it | `LNode` `lay` (desk and board; river next) | none |
 | focus | Which pane gets the keys | `focus` in each screen | pane focus |
 | entered | You are *inside* a reader's edit, comment or panel | `Entered` `pan:287` | draft focus |
 | zoom | One pane fills the view | `dsk:326` (desk only) | Herdr zoom |
-| float | A reader popped out over the board | `popOut` `del:671` | none |
-| drawer | Slide-over pane: outline or backlinks | `del:1386`, `del:1414` | none |
+| float | A reader popped out over the board | `floatOrDock` `del`, `ScreenLayout.floats` `lay` | none |
+| drawer | Slide-over pane: outline or backlinks; in the tree, sliding over unless pinned | `drawer` `del`, `ScreenLayout.over` `lay` | none |
 | spine | A pane squeezed to a title strip | `drawSpine` (`src/spine.ts`); river `Cover` `riv:48`, board lanes and readers `c` | none |
 | lane | A saved view shown as a board column | `Lane` `del:30` | virtual branch |
 | card | One block in a lane | lane items | branch root row |
@@ -194,13 +195,13 @@ shell                                     App (app:72)
     └── [~] hint row
 pane operations
     ├── [~] focus (Tab, number, click)    every view, 3 implementations
-    ├── [~] zoom                          desk only (PIE-428)
-    ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s
-    ├── [~] close                         desk ^W x, board x, river x
-    ├── [~] resize                        desk drag/^W<>, board drag/{}<>
-    ├── [~] dock / move                   desk ^W HJKL, board float HJKL
+    ├── [~] zoom                          desk only (PIE-428); pane.zoom
+    ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s; pane.split
+    ├── [~] close                         desk ^W x, board x, river x; pane.close (desk, board)
+    ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; pane.resize
+    ├── [~] dock / move                   desk ^W HJKL, board float HJKL; pane.float, pane.pin
     ├── [~] squeeze (width tiers)         river full/peek/spine; board lanes, readers c · one spine part
-    └── [~] persist layout                desk.json, delivery.json, river.json
+    └── [~] persist layout                the tree to desk.json, delivery.json (same fields); river.json
 entity navigation
     ├── [~] children                      thread pane, river replies, BBS T
     ├── [x] up                            note surface u
@@ -262,16 +263,16 @@ BBS = News, Conference and the BBS `Reader` together.
 |---|---|---|---|---|
 | focus | R Tab `del:1540` kma | — | R Tab/1-9 `dsk:286` kma | R h l `riv:867` kma |
 | entered | S `Entered` | — | S `Entered` | R `isEntered` |
-| zoom | — | — | R `dsk:326` k·· | — |
-| open beside | R alt+⏎ detail kma | — | R `^W o` add k·· | R ⏎ column kma |
-| split | — | — | R `^W o` `lay:35` k·· | R `s` `riv:496` k·a |
-| close | R `x` `del:1565` k·· | — | R `^W x` k·· | R `x` k·a |
-| resize | R drag, `{ } < >` km· | — | R drag, `^W <>` km· | — (automatic) |
+| zoom | — (PIE-428) | — | S tree, `^W z`, `pane.zoom` k·a | — |
+| open beside | S tree, alt+⏎ detail kma | — | S tree, `^W o` add, `pane.split` k·a | R ⏎ column kma |
+| split | — (a detail opens with a note) | — | S tree, `^W o`, `pane.split` k·a | R `s` `riv:496` k·a |
+| close | S tree, `x`, `pane.close` k·a | — | S tree, `^W x`, `pane.close` k·a | R `x` k·a |
+| resize | S tree, drag, `{ } < >`, `pane.resize` kma | — | S tree, drag, `^W <>`, `pane.resize` kma | — (automatic) |
 | dock / move | R float HJKL, drag km· | — | R `^W HJKL` k·· | R `p` pin k·a |
-| float | R `o` `del:671` km· | — | — | — |
-| drawer | R `t b` `del:1414` km· | — | — | — |
+| float | S tree floats, `o`, `pane.float` kma | — | — | — |
+| drawer | S tree, `t b`, pin `T B` or `[ ] pin`, `pane.pin` kma | — | — | — |
 | squeeze | S spine: lane `c` km·, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
-| persist | R `delivery.json` | — | R `desk.json` | R `river.json` |
+| persist | S tree → `delivery.json` (its old fields) | — | S tree → `desk.json` | R `river.json` |
 
 ### Entity navigation
 
@@ -320,14 +321,20 @@ BBS = News, Conference and the BBS `Reader` together.
 - Zoom exists only on the desk, and there it swaps the rectangle map (`dsk:177`), not a tree op.
 - **Resolves:** PIE-412 (one layout tree), then PIE-428 (zoom everywhere) on top of it, PIE-413
   (tabs, drag-and-drop).
+- **PIE-412 slice 1 (done):** the board is on the desk's tree. Its lanes pane (columns are drawn inside
+  it), preview and details (the `readers` row), backlinks drawer (under the readers) and outline drawer
+  (beside everything) are leaves, the drawers sliding over (`over`) until pinned, floats above. The keys,
+  hints and `delivery.json` fields are unchanged. Slice 2 moves the river's strip onto it; slice 3 stores
+  the tree in the outline as screen notes.
 
 ### F3. Agents can read and edit, but not arrange
 
 - Every reader shares `NOTE_ACTIONS` (`note:1329`). Good.
-- Desk agent actions: `open`, `focus` only (`dsk:417`). No zoom, split, close, dock, add pane.
-- Board: no pop out, drawer, lane collapse or resize actions (`del:1799`). Readers collapse and expand
-  by action since PIE-440 (`reader.collapse`, `reader.expand`). River: no filter, `#` or
-  jump actions (`riv:976`).
+- Desk agent actions: `open`, `focus`, and since PIE-412 the shared `pane.*` actions (split, close,
+  resize, zoom). No dock or swap yet.
+- Board: `pane.*` since PIE-412 (close, resize, float, pin; split and zoom refuse with the reason). No lane
+  collapse action. Readers collapse and expand by action since PIE-440 (`reader.collapse`,
+  `reader.expand`). River: no filter, `#` or jump actions (`riv:976`).
 - BBS screens have no `act`, `openBlock` or `describe` (`app:163`, `app:183`).
 - **Resolves:** PIE-434 should make "every pane operation is an action" part of core. PIE-426
   brings BBS readers in.
@@ -411,7 +418,7 @@ BBS = News, Conference and the BBS `Reader` together.
 
 | Item | What it resolves here |
 |---|---|
-| PIE-412 | F2: one layout tree for board, desk, river |
+| PIE-412 | F2: one layout tree for board, desk, river (slice 1: the board and `pane.*`; slice 2: the river; slice 3: screens in the outline) |
 | PIE-413 | F2, F5: tabs, drag-and-drop, backlinks under details, two previews |
 | PIE-414 | bundles of readers: needs readers addressed the same way on every view |
 | PIE-417 | terminal panes: a new pane kind, not a `suspend` (`app:125`) |
