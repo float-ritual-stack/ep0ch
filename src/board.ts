@@ -1,4 +1,5 @@
 // What the door needs from the outline, independent of the wire protocol.
+import { literalLines } from "./literal";
 
 export interface Msg {
   id: string;
@@ -18,6 +19,8 @@ export interface Msg {
    * Readers fetch the whole note before showing, editing or commenting on it.
    */
   partial?: boolean;
+  /** In the Trash (it or an ancestor was deleted); still readable. */
+  deleted?: boolean;
 }
 
 export interface Caller {
@@ -43,4 +46,31 @@ export interface Board {
   close(): void;
 }
 
-export const subject = (m: Msg) => (m.text.split("\n").find(l => l.trim()) ?? "(empty)").replace(/\[[\w-]+::[^\]]*\]/g, "").trim() || "(untitled)";
+/**
+ * Where a note's title comes from, as the service picks it (`firstLineWithoutPropertyTokens`): the first
+ * line with text once its `[key::value]` tokens are taken out, skipping literal-region marker lines
+ * (PIE-422). Inside a region a token is text, so it stays. `line` is -1 when no line has text.
+ */
+export function titleLine(text: string): { line: number; text: string } {
+  const lines = text.split("\n");
+  const lit = text.includes("<!--") ? literalLines(text) : null;
+  let first = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lit?.markers.has(i)) continue;
+    const l = lines[i]!;
+    if (first < 0 && l.trim()) first = i;
+    const t = (lit?.inside.has(i) ? l : l.replace(/\[[\w-]+::[^\]]*\]/g, "")).trim();
+    if (t) return { line: i, text: t };
+  }
+  return { line: first, text: "" };
+}
+/**
+ * The lines after a note's title, for a digest (the river's cards, the desk's search preview): matched
+ * literal-region markers hidden, each line saying whether it's inside a region, where `[key::value]` is text.
+ */
+export function bodyLinesOf(text: string): { text: string; literal: boolean }[] {
+  const lit = text.includes("<!--") ? literalLines(text) : null;
+  const from = Math.max(0, titleLine(text).line) + 1;
+  return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
+}
+export const subject = (m: Msg) => { const t = titleLine(m.text); return t.text || (t.line < 0 ? "(empty)" : "(untitled)"); };

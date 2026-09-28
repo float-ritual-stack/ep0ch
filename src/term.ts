@@ -3,6 +3,8 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
+  /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
+  | { kind: "alt"; ch: string }
   | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
 
@@ -71,6 +73,17 @@ export class Term {
     if (out) this.write(out);
   }
 
+  /**
+   * Repaint one row alone (the status bar's clock, PIE-420): nothing else is written, so an edit, a
+   * selection, a drag or a Kitty placement elsewhere on screen is untouched, and the next paint's diff
+   * knows the row as it is now.
+   */
+  paintRow(r: number, line: string): void {
+    if (r < 0 || r >= this.info.rows || this.last[r] === line) return;
+    this.last[r] = line;
+    this.write(`\x1b[${r + 1};1H\x1b[0m\x1b[2K${line}\x1b[0m`);
+  }
+
   invalidate() { this.last = []; }
 
   private feed(s: string) {
@@ -110,6 +123,9 @@ export class Term {
       }
       if (hit) continue;
       if (p[0] === "\x1b" && (p[1] === "\r" || p[1] === "\n")) { this.pending = p.slice(2); this.keyHandler({ kind: "alt-enter" }); continue; }
+      // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
+      // sequences, so an ESC before one of them keeps its old meaning.
+      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         const k = p.match(/^\x1b\[[\d;?]*[ -\/]*[@-~]/);
         this.pending = p.slice(k ? k[0].length : 1);

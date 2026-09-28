@@ -1,21 +1,33 @@
 // River: Quay's model (niri placement, Andy-style compression, Twitter threads) in character cells.
 // Columns sit in one horizontal strip. Opening a note inserts a column beside its source; columns
 // compress full → peek → spine as they recede from focus. Replies expand in place.
-import { CP437_HIGH } from "../ansi";
+//
+// Every pane hosts the shared note surface (src/surface/note.ts) for its note: the note a block column
+// was opened on, or the selected one in the Library and a #tag column. Reading keeps the river's own
+// cards; editing, quoting and comment threads draw the surface in the column, with the same keys and
+// the same named actions as the board. Peek and spine columns stay read-only views.
 import type { Ctx, Frame, Screen } from "../app";
-import { subject, type Msg } from "../board";
+import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { IndexBlock, OutlineEvent } from "../socket";
+import type { Draft } from "../edit";
+import type { CommentSession } from "../comment";
+import type { Actor, IndexBlock, OutlineEvent } from "../socket";
+import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { NOTE_ACTIONS, NoteSurface, type Link, type SurfaceHost } from "../surface/note";
+import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
+import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
-import { bg, C, fg, pad, paint, RESET } from "../style";
+import { bg, C, extractLinks, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
-import { rasterize, rotateCW, type Rgba } from "../vga";
+import { drawSpine, SPINE } from "../spine";
 
 type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind: "tag"; key: string; value: string };
 interface Clause { key: string; value: string; exclude: boolean }
 interface PaneS {
+  /** Stable for the pane's life, whatever opens or closes around it: its reader name is `r<id>`. */
+  id: number;
   source: Source;
   root: Msg | null;
   items: Msg[] | null;
@@ -25,17 +37,30 @@ interface PaneS {
   top: number;
   filter: Clause[];
   error?: string;
+  /** The note surface for this pane's note: editing, quoting, comment threads, links. */
+  surface: NoteSurface;
+  /** The agents that acted in the surface's current edit or comment (`of`); stale once that ends. */
+  agents: { of: Draft | CommentSession | null; ids: Set<string> };
+  /** When the property notice or agent line now showing was first drawn. */
+  shown?: { key: string; at: number };
+  /** Every row the pane drew last (not just those in view), for selecting text (PIE-419). */
+  drawn?: { lines: string[]; w: number };
 }
 interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean }
 type Cover = "full" | "peek" | "spine";
 interface Row { m: Msg; depth: number }
-interface Hit { rect: Rect; col: number; pane: number; rows: { card: number; replies: boolean }[] }
+/** A row of a pane as drawn: its card, whether it's the replies toggle, and the links on it (PIE-415). */
+type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[] };
+interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[] }
 
-const SPINE = 3, PEEK = 24;
+const PEEK = 24;
+/** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
+export const BANNER_MS = 30_000;
+/** Note actions that start or continue an edit or a comment: positional addressing is checked for these. */
+const SESSION_ACTIONS = new Set(["edit", "edit.text", "edit.save", "edit.reload", "edit.close", "passage.select", "comment.write", "comment.send", "comment", "comment.close", "threads", "reply", "resolve"]);
 const SEL = bg(C.blue) + fg(C.white);
 const CHIP_COLOURS = [C.lgreen, C.lcyan, C.yellow, C.lmagenta, C.lred, C.lblue];
 const GLYPH: Record<string, string> = { hub: "◎", workboard: "▦", workspace: "▣", notes: "▤", "virtual-branch": "⑂", "roadmap-item": "◆", proof: "✓", synthesis: "✦", inbox: "✉", note: "·" };
-const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 
 // ── the index: counts, titles, instant search ────────────────────────────────
 
@@ -75,7 +100,8 @@ const chipColour = (key: string) => CHIP_COLOURS[[...key].reduce((h, c) => (h * 
 const chips = (props: Record<string, string>) =>
   ["type", "status", "stage", "project", "priority"].filter(k => props[k]).map(k => `${fg(chipColour(k))}#${props[k]}${RESET}`).join(" ");
 const glyph = (m: Msg) => GLYPH[m.props.type ?? ""] ?? "◇";
-const bodyLines = (m: Msg) => m.text.split("\n").slice(1).map(l => l.replace(/\[[\w-]+::[^\]]*\]/g, "").trimEnd()).filter(l => l.trim());
+// Properties are in the chips; inside a literal region (PIE-422) `[key::value]` is text, so it stays.
+const bodyLines = (m: Msg) => bodyLinesOf(m.text).map(l => (l.literal ? l.text : l.text.replace(/\[[\w-]+::[^\]]*\]/g, "")).trimEnd()).filter(l => l.trim());
 
 function parseFilter(s: string): Clause[] {
   return s.split(/\s+/).filter(Boolean).map(tok => {
@@ -93,18 +119,6 @@ function passes(m: Msg, f: Clause[]): boolean {
       : c.value === "*" ? v !== undefined : (v ?? "").toLowerCase() === c.value.toLowerCase();
     return c.exclude ? !hit : hit;
   });
-}
-
-const spineCache = new Map<string, Rgba>();
-function spineImage(title: string, colour: number): Rgba {
-  const key = `${colour}:${title}`;
-  let img = spineCache.get(key);
-  if (!img) {
-    const row = [...title].map(ch => ({ code: ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : toCp437.get(ch) ?? 63, fg: colour, bg: 0 }));
-    img = rotateCW(rasterize([row], 0, 0, row.length, 1, { clearBg: true }));
-    spineCache.set(key, img);
-  }
-  return img;
 }
 
 // ── the river ────────────────────────────────────────────────────────────────
@@ -129,6 +143,21 @@ export class River implements Screen {
   private hits: Hit[] = [];
   private colRects: { col: number; rect: Rect }[] = [];
   private reloads = new Map<PaneS, Timer>();
+  private pid = 1;
+  /**
+   * The pane whose edit or comment the person is in, and which one: only then do keys go to the surface.
+   * A session they started by key is entered; one an agent started, or one they come back to by moving
+   * focus, is entered with e or ⏎. Until then h l, tab and the rest keep navigating.
+   */
+  private entered: { p: PaneS; of: Draft | CommentSession } | null = null;
+  /**
+   * Text the person selected in a pane (PIE-419), in the pane's drawn rows: the same selection model as
+   * a reader's (src/surface/selection.ts). Only y copies it; selecting never does.
+   */
+  private sel: { p: PaneS; s: Selection } | null = null;
+  private gesture = new Gesture();
+  /** Where the mouse went down: the row and link it was on then (a release there is a click on them). */
+  private down: { p: PaneS; rect: Rect; row?: HitRow; link?: Link; same: boolean; dragging: boolean } | null = null;
 
   enter(ctx: Ctx) {
     this.ctx = ctx;
@@ -146,7 +175,7 @@ export class River implements Screen {
   }
 
   private pane(source: Source, filter: Clause[] = []): PaneS {
-    return { source, root: null, items: null, open: new Set(), kids: new Map(), sel: 0, top: 0, filter };
+    return { id: this.pid++, source, root: null, items: null, open: new Set(), kids: new Map(), sel: 0, top: 0, filter, surface: new NoteSurface(), agents: { of: null, ids: new Set() } };
   }
 
   private save() {
@@ -174,7 +203,8 @@ export class River implements Screen {
     else if (p.source.kind === "tag") b.byProp(p.source.key, p.source.value).then(done, fail);
     else {
       const id = p.source.id;
-      b.get(id).then(m => { p.root = m; this.ctx.redraw(); }, () => {});
+      // The column's surface gets the new text too; an open draft is only marked "changed elsewhere".
+      b.get(id).then(m => { p.root = m; if (m) p.surface.refresh(m); this.ctx.redraw(); }, () => {});
       b.children(id).then(done, fail);
     }
   }
@@ -200,6 +230,9 @@ export class River implements Screen {
   }
 
   private get col() { return this.cols[this.focus]; }
+  private panes(): PaneS[] { return this.cols.flatMap(c => c.panes); }
+  /** A column holding an edit or a comment: it resists compression, and can't be closed. */
+  private holds(c: Col) { return c.panes.some(p => p.surface.editing); }
   private get paneS() { const c = this.col; return c ? c.panes[c.pane] : undefined; }
   private selected(): Msg | undefined { const p = this.paneS; return p ? this.flat(p)[p.sel]?.m : undefined; }
 
@@ -214,8 +247,9 @@ export class River implements Screen {
     const cover = new Map<number, Cover>(visible.map(i => [i, "spine"]));
     let spare = W - visible.length * SPINE;
     const order = [...visible].sort((a, b) => {
-      const da = a === this.focus ? -1 : this.cols[a]!.pinned ? 0.5 : Math.abs(a - this.focus);
-      const db = b === this.focus ? -1 : this.cols[b]!.pinned ? 0.5 : Math.abs(b - this.focus);
+      const docked = (i: number) => this.cols[i]!.pinned || this.holds(this.cols[i]!);
+      const da = a === this.focus ? -1 : docked(a) ? 0.5 : Math.abs(a - this.focus);
+      const db = b === this.focus ? -1 : docked(b) ? 0.5 : Math.abs(b - this.focus);
       return da - db || b - a;
     });
     for (const i of order) {
@@ -247,9 +281,10 @@ export class River implements Screen {
       if (cover === "spine") { this.spine(canvas, placements, col, rect, focused, ctx); continue; }
       const p0 = col.panes[0]!;
       const count = p0.items ? ` ${fg(C.dark)}${this.flat(p0).length}` : "";
+      const state = col.panes.map(p => p.surface.state()).find(Boolean);
       canvas.box(rect, fg(focused ? C.lcyan : col.pinned ? C.cyan : C.blue),
-        `${col.pinned ? fg(C.yellow) + "⊙ " : ""}${fg(focused ? C.white : C.grey)}${this.titleOf(p0)}${count}`,
-        focused && cover === "full" ? fg(C.dark) + "space replies · ⏎ open · s split · f filter · # tags" : "");
+        `${col.pinned ? fg(C.yellow) + "⊙ " : ""}${fg(focused ? C.white : C.grey)}${this.titleOf(p0)}${count}${state ? ` ${fg(C.yellow)}· ${state}` : ""}`,
+        focused && cover === "full" && !this.paneS?.surface.editing ? fg(C.dark) + "space replies · ⏎ open · s split · f filter · # tags" : "");
       const inner: Rect = { col: rect.col + 1, row: rect.row + 1, cols: rect.cols - 2, rows: rect.rows - 2 };
       const n = col.panes.length;
       const each = Math.floor(inner.rows / n);
@@ -276,52 +311,51 @@ export class River implements Screen {
 
   private spine(canvas: Canvas, placements: Placement[], col: Col, r: Rect, focused: boolean, ctx: Ctx) {
     const colour = focused ? C.white : col.pinned ? C.yellow : C.lcyan;
-    for (let y = r.row; y < r.row + r.rows; y++) canvas.text(r.col + r.cols - 1, y, fg(C.blue) + "│" + RESET, 1);
-    canvas.text(r.col, r.row, fg(col.pinned ? C.yellow : C.dark) + (col.pinned ? "⊙" : "·") + RESET, 1);
-    const title = this.titleOf(col.panes[0]!);
-    const t = ctx.t;
-    if (ctx.graphics) {
-      // Rotated VGA text: 16px wide per glyph row, 9px per character down the spine.
-      const maxChars = Math.max(1, Math.floor(((r.rows - 2) * t.cellH * 16) / (2 * t.cellW * 9)));
-      const text = title.length > maxChars ? title.slice(0, maxChars - 1) + "…" : title;
-      const img = spineImage(text, colour);
-      const rowsNeeded = Math.max(1, Math.ceil((img.height * (2 * t.cellW / img.width)) / t.cellH));
-      placements.push({ key: `spine:${col.uid}`, image: img, col: r.col, row: r.row + 1, cols: 2, rows: Math.min(rowsNeeded, r.rows - 1), z: -1 });
-    } else {
-      [...title].slice(0, r.rows - 1).forEach((ch, i) => canvas.text(r.col, r.row + 1 + i, fg(colour) + ch + RESET, 1));
-    }
+    // A spine has no room for a draft: it says one is there, and the column resists compressing this far.
+    const mark = this.holds(col) ? fg(C.yellow) + "✎" + RESET : fg(col.pinned ? C.yellow : C.dark) + (col.pinned ? "⊙" : "·") + RESET;
+    const p = drawSpine(canvas, r, { key: `spine:${col.uid}`, title: this.titleOf(col.panes[0]!), colour, marks: [mark] }, ctx);
+    if (p) placements.push(p);
   }
 
   private peek(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
     const rows = this.flat(p);
     const lines: string[] = [], hit: Hit["rows"] = [];
     p.top = Math.max(0, Math.min(p.top, p.sel - Math.floor(r.rows / 2)));
-    rows.slice(p.top, p.top + r.rows).forEach((row, i) => {
-      const n = p.top + i;
+    const all = rows.map((row, n) => {
       const t = `${"  ".repeat(row.depth)}${glyph(row.m)} ${subject(row.m)}`;
-      lines.push(n === p.sel ? (active ? SEL : bg(C.dark) + fg(C.white)) + pad(t, r.cols) + RESET : fg(C.grey) + pad(t, r.cols) + RESET);
-      hit.push({ card: n, replies: false });
+      return n === p.sel ? (active ? SEL : bg(C.dark) + fg(C.white)) + pad(t, r.cols) + RESET : fg(C.grey) + pad(t, r.cols) + RESET;
     });
+    this.keepRows(p, all, r.cols);
+    all.slice(p.top, p.top + r.rows).forEach((l, i) => { lines.push(this.paintSel(p, l, p.top + i)); hit.push({ card: p.top + i, replies: false }); });
     if (!p.items) lines.push(fg(C.dark) + "…" + RESET);
     return { lines, rows: hit };
   }
 
   private full(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
     const w = r.cols;
-    const all: { text: string; card: number; replies: boolean }[] = [];
+    // Editing, quoting, the thread list: the shared surface, drawn in the column.
+    if (p.surface.editing && p.surface.msg) return { lines: p.surface.render(w, r.rows, this.hostFor(p)).lines, rows: [] };
+    const all: (HitRow & { text: string })[] = [];
     const push = (text: string, card = -1, replies = false) => all.push({ text, card, replies });
     if (p.error) push(fg(C.lred) + p.error + RESET);
-    if (p.source.kind === "block" && p.root) {
-      const m = p.root;
+    const root = this.rootOf(p);
+    if (p.source.kind === "block" && root) {
+      const m = root;
       push(fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, w) + RESET);
       push(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`);
-      const body = wrap(bodyLines(m).join("\n"), w - 1);
-      body.slice(0, 12).forEach(l => push(" " + colourBody(l)));
+      for (const l of this.banner(p, m, w)) push(l);
+      // Links read as Detail shows them (titles, not ids), and a click on one opens it beside (PIE-415).
+      const drawn: Link[] = [];
+      const body = wrap(presentLinks(bodyLines(m).join("\n"), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text, drawn), w - 1);
+      // bodyLines took the properties out, so a `[key::value]` still here is a literal region's text.
+      const shown = extractLinks(body.slice(0, 12).map(l => stripMarks(colourBody(l, true))));
+      shown.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: shown.ranges.filter(r => r.line === i && drawn[r.n]).map(r => ({ from: r.from + 1, to: r.to + 1, link: drawn[r.n]! })) }));
       if (body.length > 12) push(fg(C.dark) + ` … ${body.length - 12} more lines (open in the desk reader for all)` + RESET);
       const label = `── ${p.items ? this.flat(p).length : "…"} replies `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
     }
     const rows = this.flat(p);
+    if (p.source.kind !== "block" && rows[p.sel]) for (const l of this.banner(p, rows[p.sel]!.m, w)) push(l);
     rows.forEach((row, n) => {
       const m = row.m, on = n === p.sel;
       const rail = fg(C.blue) + "│ ".repeat(row.depth) + RESET;
@@ -344,11 +378,87 @@ export class River implements Screen {
       if (last >= p.top + r.rows) p.top = last - r.rows + 1;
     }
     p.top = Math.max(0, Math.min(p.top, Math.max(0, all.length - r.rows)));
+    this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
-    return { lines: view.map(l => l.text), rows: view.map(l => ({ card: l.card, replies: l.replies })) };
+    return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
+  }
+
+  /** A press and release on the same cell of a pane: what a click there always did. */
+  private clickPane(d: NonNullable<River["down"]>) {
+    const p = d.p;
+    if (this.sel?.p === p) this.sel = null;                 // a click lets go of the selection
+    if (d.link) {
+      this.gesture.forget();
+      // A link in the column's note: it opens beside, as [ ] then ⏎ on it would.
+      try { void this.ready(p).open(d.link, this.hostFor(p)); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+      if (this.entered && this.entered.p !== this.paneS) this.entered = null;
+      this.save();
+      return;
+    }
+    const row = d.row;
+    if (!row || row.card < 0) return;
+    const m = this.flat(p)[row.card]?.m;
+    if (m && row.replies) return this.toggle(p, m);
+    if (m && d.same) { this.open(m, false); this.entered = null; }
+  }
+
+  // ── selecting text (PIE-419) ───────────────────────────────────────────────
+
+  /** A pane's drawn rows; a selection made at another width no longer points at the same text. */
+  private keepRows(p: PaneS, lines: string[], w: number) {
+    p.drawn = { lines, w };
+    if (this.sel?.p === p && this.sel.s.w !== w) this.sel = null;
+  }
+
+  private paintSel(p: PaneS, line: string, row: number): string {
+    const span = this.sel?.p === p ? this.sel.s.span(row) : null;
+    return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
+  }
+
+  /** The pane cell under the pointer, clamped to the pane (the river keeps its own scroll while selecting). */
+  private posIn(d: { p: PaneS; rect: Rect }, x: number, y: number): Pos {
+    const r = d.rect;
+    return { row: d.p.top + Math.max(0, Math.min(r.rows - 1, y - r.row)), col: Math.max(0, Math.min(r.cols - 1, x - r.col)) };
+  }
+
+  /** v, y, Y, and while there's a selection esc and the keyboard mode's keys. True when the key was the selection's. */
+  private selectKey(k: Key, p: PaneS | undefined): boolean {
+    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const sel = this.sel;
+    if (!sel) {
+      if (c === "y" || c === "Y") { this.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
+      if (c !== "v" || !p?.drawn) return false;
+      const at = { row: p.top, col: 0 };
+      this.sel = { p, s: new Selection({ ...at }, { ...at }, true, p.drawn.w) };
+      this.ctx.redraw();
+      return true;
+    }
+    const rows = rowsOf(sel.p.drawn?.lines ?? []);
+    if (c === "y") {
+      const text = sel.s.text(rows);
+      if (!text.trim()) this.ctx.flash("nothing to copy: only blanks are selected");
+      else { this.ctx.copy?.(text); this.ctx.flash(`copied ${[...text].length} chars`); }
+      return true;
+    }
+    if (c === "Y") { this.ctx.flash("a river column draws a digest of the note, so its source isn't mapped here · y copies what's drawn; a reader's Y copies the source"); return true; }
+    if (!sel.s.keys) {
+      if (c === "v") { sel.s.keys = true; this.ctx.redraw(); return true; }
+      if (k.kind === "esc") { this.sel = null; this.ctx.redraw(); return true; }
+      return false;
+    }
+    const r = modeKey(k, sel.s, rows, 10);
+    if (r === null) return false;
+    if (r === "done") this.sel = null;
+    this.ctx.redraw();
+    return true;
   }
 
   private hints(W: number): string {
+    const sp = this.paneS;
+    const s = this.sel;
+    if (!this.mode && s) return pad(` ${fg(C.grey)}${selectionHint(s.s, [...s.s.text(rowsOf(s.p.drawn?.lines ?? []))].length).replace(" · Y source", "")}${RESET}`, W);
+    if (!this.mode && sp && sp.surface.editing && !sp.surface.panel && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
+    if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
     if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
     return pad(paint(`|08 h l columns · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15esc|08 menu${meter}`), W);
@@ -378,7 +488,7 @@ export class River implements Screen {
   }
 
   private drawHelp(canvas: Canvas, W: number, rows: number) {
-    const r = this.overlay(canvas, W, rows, 0.56, 0.7, "river · keys");
+    const r = this.overlay(canvas, W, rows, 0.6, 0.75, "river · keys");
     const help = [
       "h l / ← →      previous / next column",
       "j k / ↑ ↓      previous / next note",
@@ -392,7 +502,11 @@ export class River implements Screen {
       "f              filter this pane (type:hub -status:done author:x word)",
       "#              open a virtual branch from this note's properties",
       "/              jump: instant search over the whole index",
-      "q              quote (needs write access; the door is read-only)",
+      "e / ctrl+e     edit the column's note here / in $EDITOR",
+      "C              comment: pick a passage, write, ctrl+s sends",
+      "m              the note's comment threads (r reply · x resolve)",
+      "[ ] u          select a link (⏎ follows it beside) · the parent",
+      "               the column's note: the one it opened on; in the Library and a #tag, the selected one",
       "click          focus a spine, pick a note, open replies",
     ];
     help.forEach((l, i) => canvas.text(r.col + 1, r.row + i, fg(C.grey) + l + RESET, r.cols - 1));
@@ -400,18 +514,26 @@ export class River implements Screen {
 
   // ── actions ───────────────────────────────────────────────────────────────
 
-  private open(m: Msg, duplicate: boolean) {
+  /**
+   * A note as a column right after column `from` (default the focused one), or the column it already has.
+   * The person's ⏎ moves focus there; an agent's open (`focus` false) leaves the person's focus where it
+   * is, on the same column even when the new one is inserted before it. Returns the column's index.
+   */
+  private open(m: Msg, duplicate: boolean, from = this.focus, focus = true): number {
     if (!duplicate) {
       const at = this.cols.findIndex(c => c.panes[0]!.source.kind === "block" && (c.panes[0]!.source as { id: string }).id === m.id);
-      if (at >= 0) { this.focus = at; this.save(); return this.ctx.redraw(); }
+      if (at >= 0) { if (focus) this.focus = at; this.save(); this.ctx.redraw(); return at; }
     }
     const p = this.pane({ kind: "block", id: m.id });
     p.root = m;
-    this.cols.splice(this.focus + 1, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false });
-    this.focus += 1;
+    const at = Math.min(from + 1, this.cols.length);
+    this.cols.splice(at, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false });
+    if (focus) this.focus = at;
+    else if (at <= this.focus) this.focus += 1;
     this.load(p);
     this.save();
     this.ctx.redraw();
+    return at;
   }
 
   private openTag(key: string, value: string) {
@@ -431,6 +553,118 @@ export class River implements Screen {
     this.ctx.redraw();
   }
 
+  /** `s`: the selected note as its own stacked pane in the same column (the person's `s` moves to it; an agent's doesn't). */
+  private split(col: Col, m: Msg, focus = true): PaneS {
+    const np = this.pane({ kind: "block", id: m.id });
+    np.root = m; col.panes.push(np); if (focus) col.pane = col.panes.length - 1; this.load(np); this.save();
+    return np;
+  }
+
+  /** `x`: close the pane, or the column when it has one. A pane holding an edit or a comment isn't closed. */
+  private close(ci: number, pi: number): string | null {
+    const col = this.cols[ci];
+    if (!col) return "there is no such column";
+    const p = col.panes[pi]!;
+    if (p.surface.editing) return `it's ${p.surface.state()}; save or close that first`;
+    if (col.panes.length > 1) { col.panes.splice(pi, 1); if (pi <= col.pane) col.pane = Math.max(0, col.pane - 1); }
+    else if (this.cols.length > 1) { this.cols.splice(ci, 1); if (this.focus >= ci) this.focus = Math.max(0, this.focus - 1); }
+    else return "it's the last column";
+    if (this.sel?.p === p) this.sel = null;                 // its selected text went with it
+    this.save();
+    return null;
+  }
+
+  // ── the note surface in each pane ────────────────────────────────────────
+
+  /** A block column's note: the newer of what the column read and what its surface has (after a save). */
+  private rootOf(p: PaneS): Msg | null {
+    const s = p.surface.msg, r = p.root;
+    if (s && r && s.id === r.id && !s.partial && (s.revision ?? 0) > (r.revision ?? 0)) return s;
+    return r;
+  }
+
+  /** The note `e`, `c` and `m` act on: the one a block column opened on; in the Library and a #tag column, the selected one. */
+  private noteOf(p: PaneS): Msg | undefined {
+    if (p.surface.editing) return p.surface.msg ?? undefined;
+    return p.source.kind === "block" ? this.rootOf(p) ?? undefined : this.flat(p)[p.sel]?.m;
+  }
+
+  /**
+   * The surface's host: this door, and a followed link (or `u`) opening beside this pane's column. The
+   * person follows it there; an agent's follow opens the column and leaves the person's focus alone.
+   */
+  private hostFor(p: PaneS, actor?: Actor): SurfaceHost {
+    return {
+      ctx: this.ctx,
+      redraw: () => this.ctx.redraw(),
+      // alt+⏎ (PIE-441) opens it in a new column even when one shows it already.
+      navigate: (m, how) => {
+        const at = this.cols.findIndex(c => c.panes.includes(p));
+        if (actor?.kind === "agent" || how?.agent) { this.open(m, !!how?.fresh, at >= 0 ? at : this.focus, false); return; }
+        if (at >= 0) this.focus = at;
+        this.open(m, !!how?.fresh);
+      },
+    };
+  }
+
+  /** The edit or comment the pane's surface holds, if any. */
+  private sessionOf(p: PaneS): Draft | CommentSession | null { return p.surface.draft ?? p.surface.session ?? null; }
+  /** The agents that acted in the pane's current edit or comment. */
+  private agentsIn(p: PaneS): Set<string> { const s = this.sessionOf(p); return s && p.agents.of === s ? p.agents.ids : new Set(); }
+  private track(p: PaneS, actor: Actor) {
+    const s = this.sessionOf(p);
+    if (!s || actor.kind !== "agent") return;
+    if (p.agents.of !== s) p.agents = { of: s, ids: new Set() };
+    p.agents.ids.add(actor.id);
+  }
+  /** The person is in this pane's edit or comment: it's the focused pane and it's the session they entered. */
+  private isEntered(p: PaneS): boolean {
+    const e = this.entered;
+    return !!e && e.p === p && p === this.paneS && e.of === this.sessionOf(p);
+  }
+  /** "an agent's (x) edit", "your comment": for the hint and refusals on a session the person hasn't entered. */
+  private whose(p: PaneS): string {
+    const ids = [...this.agentsIn(p)];
+    const what = p.surface.draft ? "edit" : "comment";
+    return ids.length ? `an agent's (${ids.join(", ")}) ${what}` : `the ${what}`;
+  }
+
+  /** The person acted in `here`: its notice and agent line have been read; elsewhere they clear once shown BANNER_MS. */
+  private seen(here: PaneS | undefined) {
+    const now = Date.now();
+    for (const q of this.panes()) {
+      if (q !== here && !(q.shown && now - q.shown.at >= BANNER_MS)) continue;
+      q.surface.notice = ""; q.surface.agent = null; q.shown = undefined;
+    }
+  }
+
+  /** Point the pane's surface at its note (a no-op while it holds an edit or a comment). */
+  private ready(p: PaneS): NoteSurface {
+    const s = p.surface;
+    if (s.editing) return s;
+    const m = this.noteOf(p);
+    if (!m) throw new ActionRefused(p.source.kind === "block" ? "the column's note is still being read" : "nothing is selected in this column");
+    if (s.msg?.id !== m.id) s.show(m, this.hostFor(p));
+    return s;
+  }
+
+  /** A link is selected in the pane's note: ⏎ follows it instead of opening the selected card. */
+  private linked(p: PaneS): boolean {
+    return !!p.surface.msg && p.surface.msg.id === this.noteOf(p)?.id && p.surface.describe().links.some(l => l.selected);
+  }
+
+  /** In read mode, what the surface has to say under the note: a save that changed properties, what an agent did. */
+  private banner(p: PaneS, m: Msg, w: number): string[] {
+    const s = p.surface;
+    if (s.msg?.id !== m.id) return [];
+    const key = `${s.notice}|${s.agent?.at ?? ""}`;
+    if (key !== "|" && p.shown?.key !== key) p.shown = { key, at: Date.now() };
+    return [
+      ...(s.notice ? [fg(C.yellow) + pad(s.notice, w) + RESET] : []),
+      ...(s.agent ? [fg(C.lmagenta) + pad(`an agent (${s.agent.id}) ${s.agent.did}`, w) + RESET] : []),
+    ];
+  }
+
   tick() {
     if (this.indexing === null) return false;
     const now = Date.now();
@@ -442,10 +676,188 @@ export class River implements Screen {
   openBlock(m: Msg) { this.open(m, false); }
 
   describe() {
-    return { kind: "river", focus: this.focus, columns: this.cols.map((c, i) => ({ n: i + 1, pinned: c.pinned, focused: i === this.focus, panes: c.panes.map(p => ({ title: this.titleOf(p), source: p.source, filter: filterText(p.filter), selected: this.flat(p)[p.sel]?.m.id ?? null })) })) };
+    const covers = this.covers();
+    return {
+      kind: "river", focus: this.focus,
+      columns: this.cols.map((c, i) => ({
+        n: i + 1, pinned: c.pinned, focused: i === this.focus, cover: covers.get(i) ?? "off screen",
+        panes: c.panes.map((p, pi) => {
+          const note = this.noteOf(p);
+          return {
+            reader: this.readerId(p), at: this.readerName(i, pi), title: this.titleOf(p), source: p.source, filter: filterText(p.filter), selected: this.flat(p)[p.sel]?.m.id ?? null,
+            note: note ? { id: note.id, title: subject(note) } : null,
+            ...(p.surface.msg ? { surface: p.surface.describe() } : {}),
+          };
+        }),
+      })),
+    };
+  }
+
+  // ── draft safety: leaving the river or a signal copies unsaved text out ──
+
+  unsaved() { return this.panes().some(p => p.surface.unsaved()); }
+  keepDrafts() { return this.panes().flatMap(p => p.surface.keepDrafts()); }
+
+  // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
+
+  private covers(): Map<number, Cover> { return new Map(this.layout(this.ctx.t.cols).map(l => [l.col, l.cover])); }
+  /** Where a pane is now: "3", or "3.2" in a column of stacked panes. It moves as columns open and close. */
+  private readerName(ci: number, pi: number) { return this.cols[ci]!.panes.length > 1 ? `${ci + 1}.${pi + 1}` : `${ci + 1}`; }
+  /** Which pane it is: "r7", for as long as the pane is open. */
+  private readerId(p: PaneS) { return `r${p.id}`; }
+  private locate(p: PaneS): { ci: number; pi: number } | null {
+    for (let ci = 0; ci < this.cols.length; ci++) { const pi = this.cols[ci]!.panes.indexOf(p); if (pi >= 0) return { ci, pi }; }
+    return null;
+  }
+  private named(p: PaneS): { reader: string; at: string } {
+    const w = this.locate(p);
+    return { reader: this.readerId(p), at: w ? this.readerName(w.ci, w.pi) : "closed" };
+  }
+
+  actions() {
+    return {
+      actions: [...RIVER_ACTIONS.list(), ...NOTE_ACTIONS.list()],
+      readers: this.panes().map(p => this.readerId(p)),
+      at: Object.fromEntries(this.cols.flatMap((c, ci) => c.panes.map((p, pi) => [this.readerName(ci, pi), this.readerId(p)]))),
+    };
+  }
+
+  async act(req: ActRequest, actor: Actor): Promise<unknown> {
+    const args = { ...(req.args ?? {}) };
+    if (RIVER_ACTIONS.has(req.action)) return RIVER_ACTIONS.runUntyped(req.action, args, { r: this, reader: req.reader }, actor);
+    if (!NOTE_ACTIONS.has(req.action)) throw new ActionRefused(`no action ${req.action} in the river; \`actions\` lists them`);
+    const t = this.pick(req.reader, actor);
+    // A column number is a convenience: columns shift as others open and close. An edit or a comment
+    // an agent is in carries on only in the pane that holds it, whatever number that pane has now.
+    if (SESSION_ACTIONS.has(req.action) && actor.kind === "agent" && (t.by === "position" || t.by === "focused")) {
+      const mine = this.panes().filter(q => q.surface.editing && this.agentsIn(q).has(actor.id));
+      if (mine.length && !mine.includes(t.p)) {
+        const q = mine[0]!, n = this.named(q), note = q.surface.msg ? subject(q.surface.msg) : "its note";
+        throw new ActionRefused(`${t.by === "focused" ? "the focused pane" : `column ${t.at}`} isn't where your ${q.surface.draft ? "edit" : "comment"} is: that's reader ${n.reader} (column ${n.at} now, ${note}); columns move as others open and close, so name it reader=${n.reader}`);
+      }
+    }
+    // Peek and spine columns are read-only views; an edit or a comment already open in one still takes
+    // its actions (it draws when the column widens), so an agent can always finish or close its own.
+    if (!t.p.surface.editing) {
+      const cover = this.covers().get(t.ci);
+      if (cover !== "full") throw new ActionRefused(`column ${t.at} is ${cover === undefined ? "off screen" : `a ${cover}`}; a compressed column is a read-only view until it's full width · dock it (pin reader=${t.name}) to widen it without taking the person's keys`);
+    }
+    let out: unknown;
+    try { out = await this.ready(t.p).act(req.action, args, this.hostFor(t.p, actor), actor); }
+    finally { this.track(t.p, actor); }
+    return { ...this.named(t.p), ...(out && typeof out === "object" ? out : { result: out }) };
+  }
+
+  /**
+   * The pane an action names: "r7" (a pane's own id, stable while it's open), "3" (column 3's active
+   * pane), "3.2" (its second stacked pane), "focused", or a block id. No name: the focused pane.
+   * A block id prefers the pane holding the actor's own edit or comment on that note, then a full-width
+   * column opened on it, then any pane editing it, then a full-width list selecting it, then the rest.
+   */
+  pick(sel?: string, actor?: Actor): { name: string; at: string; ci: number; pi: number; p: PaneS; by: "focused" | "id" | "position" | "block" } {
+    let ci = this.focus, pi = this.cols[ci]?.pane ?? 0, by: "focused" | "id" | "position" | "block" = "focused";
+    if (sel && sel !== "focused") {
+      const n = riverPosition(sel), r = /^r(\d+)$/.exec(sel);
+      if (r) {
+        const p = this.panes().find(x => x.id === Number(r[1]));
+        if (!p) throw new ActionRefused(`there is no reader ${sel} in the river; it was closed (\`actions\` lists the open ones)`);
+        ({ ci, pi } = this.locate(p)!); by = "id";
+      } else if (n) {
+        by = "position";
+        ci = Number(n[1]) - 1;
+        const col = this.cols[ci];
+        if (!col) throw new ActionRefused(`there is no column ${n[1]}; the river has ${this.cols.length}`);
+        pi = n[2] ? Number(n[2]) - 1 : col.pane;
+        if (!col.panes[pi]) throw new ActionRefused(`column ${n[1]} has ${col.panes.length} pane${col.panes.length === 1 ? "" : "s"}`);
+      } else if (/^[0-9a-f-]{8,}$/.test(sel)) {
+        by = "block";
+        const covers = this.covers();
+        const rank = (x: { ci: number; p: PaneS }) => {
+          const full = covers.get(x.ci) === "full", ed = x.p.surface.editing;
+          if (ed && actor?.kind === "agent" && this.agentsIn(x.p).has(actor.id)) return 0;
+          if (full && x.p.source.kind === "block") return ed ? 2 : 1;
+          if (ed) return 3;
+          return full ? 4 : 5;
+        };
+        const showing = this.cols.flatMap((c, i) => c.panes.map((p, j) => ({ ci: i, pi: j, p })))
+          .filter(x => this.noteOf(x.p)?.id.startsWith(sel))
+          .sort((a, b) => rank(a) - rank(b) || Number(b.ci === this.focus) - Number(a.ci === this.focus));
+        const hit = showing[0];
+        if (!hit) throw new ActionRefused(`no column's note is ${sel}; open it first (open id=${sel})`);
+        ({ ci, pi } = hit);
+      } else throw new ActionRefused(`no reader ${sel} in the river; readers are pane ids (r7, from open or peek), column numbers (2, or 2.1 for a stacked pane), focused, or a block id`);
+    }
+    const col = this.cols[ci];
+    if (!col) throw new ActionRefused("the river has no columns");
+    const p = col.panes[pi]!;
+    return { name: this.readerId(p), at: this.readerName(ci, pi), ci, pi, p, by };
+  }
+
+  /** `open`: a note as a column beside `reader`'s column (default the focused one), or the column it already has. The person's focus stays put. */
+  async openById(id: string, reader: string | undefined, duplicate: boolean): Promise<{ reader: string; at: string; id: string }> {
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    const from = reader ? this.pick(reader).ci : this.focus;
+    const at = this.open(m, duplicate, from, false);
+    return { ...this.named(this.cols[at]!.panes[0]!), id: m.id };
+  }
+
+  focusOn(sel: string): { focus: string; at: string } {
+    const t = this.pick(sel);
+    const moved = this.focus !== t.ci || this.cols[t.ci]!.pane !== t.pi;
+    this.focus = t.ci; this.cols[t.ci]!.pane = t.pi;
+    if (moved) this.entered = null;          // the person comes back to an edit by moving: they enter it again
+    this.save(); this.ctx.redraw();
+    return { focus: t.name, at: t.at };
+  }
+
+  /** Select a note in the pane's list, as j k would (a block column's note stays its own). */
+  selectIn(id: string, sel?: string): { reader: string; at: string; selected: string } {
+    const t = this.pick(sel);
+    const i = this.flat(t.p).findIndex(r => r.m.id === id || (id.length >= 8 && r.m.id.startsWith(id)));
+    if (i < 0) throw new ActionRefused(`column ${t.at} doesn't list ${id}${t.p.filter.length ? " (it's filtered)" : ""}`);
+    t.p.sel = i;
+    if (!t.p.surface.editing) t.p.surface.clearLink();
+    this.save(); this.ctx.redraw();
+    return { reader: t.name, at: t.at, selected: this.flat(t.p)[i]!.m.id };
+  }
+
+  /** Show or hide a listed note's replies in place (space). */
+  repliesIn(sel: string | undefined, id: string | undefined, open: boolean | undefined): { reader: string; at: string; id: string; open: boolean } {
+    const t = this.pick(sel);
+    const m = id ? this.flat(t.p).find(r => r.m.id === id || (id.length >= 8 && r.m.id.startsWith(id)))?.m : this.flat(t.p)[t.p.sel]?.m;
+    if (!m) throw new ActionRefused(id ? `column ${t.at} doesn't list ${id}` : `nothing is selected in column ${t.at}`);
+    if (open === undefined || open !== t.p.open.has(m.id)) this.toggle(t.p, m);
+    return { reader: t.name, at: t.at, id: m.id, open: t.p.open.has(m.id) };
+  }
+
+  /** An agent's `s`: the new pane is stacked in the column; the column's active pane (the person's) stays. */
+  splitIn(sel?: string): { reader: string; at: string; id: string } {
+    const t = this.pick(sel);
+    const m = this.flat(t.p)[t.p.sel]?.m;
+    if (!m) throw new ActionRefused(`nothing is selected in column ${t.at}`);
+    const np = this.split(this.cols[t.ci]!, m, false);
+    this.ctx.redraw();
+    return { ...this.named(np), id: m.id };
+  }
+
+  dock(sel: string | undefined, docked: boolean | undefined): { reader: string; at: string; docked: boolean } {
+    const t = this.pick(sel), col = this.cols[t.ci]!;
+    col.pinned = docked ?? !col.pinned;
+    this.save(); this.ctx.redraw();
+    return { reader: t.name, at: t.at, docked: col.pinned };
+  }
+
+  closeIn(sel?: string): { closed: string; at: string } {
+    const t = this.pick(sel);
+    const why = this.close(t.ci, t.pi);
+    if (why) throw new ActionRefused(`column ${t.at} wasn't closed: ${why}`);
+    this.ctx.redraw();
+    return { closed: t.name, at: t.at };
   }
 
   onEvent(e: OutlineEvent) {
+    this.refreshSurfaces(e);
     if (e.action === "reset") {                        // reconnected without a catch-up: every pane again
       for (const c of this.cols) for (const p of c.panes) this.load(p);
       return this.refreshIndex();
@@ -460,11 +872,62 @@ export class River implements Screen {
     if (Date.now() - this.lastIndex > 60_000) this.refreshIndex();
   }
 
+  /**
+   * Each surface that shows a note re-reads it when the change is to that note (unless it already has
+   * that revision: its own save), and re-reads its comment threads (debounced; a comment's event names
+   * the comment, not the note). A draft is never replaced, only marked "changed elsewhere".
+   */
+  private refreshSurfaces(e: OutlineEvent) {
+    const id = e.blockId;
+    for (const p of this.panes()) {
+      const s = p.surface, m = s.msg;
+      if (!m) continue;
+      const host = this.hostFor(p);
+      if (e.action === "reconnected") s.retry(host);
+      s.onEvent(host);
+      const own = e.change?.revision !== undefined && m.revision === e.change.revision && !m.partial;
+      if (e.action === "reset" || (id === m.id && !own)) this.ctx.board.get(m.id).then(n => { if (n) { s.refresh(n); this.ctx.redraw(); } }, () => {});
+    }
+  }
+
   key(k: Key, ctx: Ctx) {
     if (this.mode) return this.modal(k);
     if (k.kind === "mouse") return this.mouse(k);
     const col = this.col, p = this.paneS;
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    this.seen(p);
+    // The property panel (and a value field in it) is only ever opened by the person's `i`, so it holds
+    // their keys first; Esc closes the field, then the panel.
+    if (p && p.surface.panel) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
+    const held = !!p?.surface.editing;
+    // An edit, a passage being picked, a comment being written, the thread list, that the person is in:
+    // every key is the surface's.
+    if (p && held && this.isEntered(p)) { p.surface.key(k, this.hostFor(p)); return; }
+    if (!held && this.selectKey(k, p)) return;
+    // One they aren't in (an agent's, or theirs after moving focus away and back): e or ⏎ enters it; the
+    // other keys keep navigating the river, so an agent's session never takes the person's keys.
+    if (p && held && (c === "e" || k.kind === "enter")) {
+      this.entered = { p, of: this.sessionOf(p)! };
+      ctx.flash(`in ${this.whose(p)} · ${p.surface.hint()}`);
+      return ctx.redraw();
+    }
+    // Reading: the surface's own keys act on the column's note (e C m i ctrl+e [ ] u, ⏎ or alt+⏎ on a
+    // selected link: without it, alt+⏎ would open the selected card in a new column instead, PIE-441).
+    const linked = !!p && !held && this.linked(p);
+    const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";
+    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && (k.kind === "enter" || k.kind === "alt-enter")))) {
+      if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
+      try {
+        const s = this.ready(p), host = this.hostFor(p);
+        // Starting an edit or a comment by key: the person is in it once it opens.
+        const start = c === "e" || ctrlE ? s.edit(host, ctrlE) : c === "C" ? s.comment(host, "select") : c === "m" ? s.comment(host, "threads") : null;
+        if (start) start.then(() => { const now = this.sessionOf(p); if (now && this.paneS === p) this.entered = { p, of: now }; ctx.redraw(); }, e => ctx.flash(e instanceof Error ? e.message : String(e)));
+        else if (!s.key(k, host)) ctx.flash(c === "u" ? "this note has no parent" : "nothing to do");
+      } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }
+      return ctx.redraw();
+    }
+    if (linked && k.kind === "esc") { p!.surface.clearLink(); return ctx.redraw(); }
+    if (p) p.surface.clearLink();
     const n = p ? this.flat(p).length : 0;
     if (k.kind === "left" || c === "h") this.focus = Math.max(0, this.focus - 1);
     else if (k.kind === "right" || c === "l") this.focus = Math.min(this.cols.length - 1, this.focus + 1);
@@ -475,26 +938,21 @@ export class River implements Screen {
     else if (p && k.kind === "home") p.sel = 0;
     else if (p && k.kind === "end") p.sel = Math.max(0, n - 1);
     else if (col && (k.kind === "tab" || k.kind === "backtab")) col.pane = (col.pane + (k.kind === "tab" ? 1 : col.panes.length - 1)) % col.panes.length;
-    else if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.selected(); if (m) return this.open(m, k.kind === "alt-enter"); }
+    else if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.selected(); if (m) return void this.open(m, k.kind === "alt-enter"); }
     else if (c === " ") { const m = this.selected(); if (p && m) return this.toggle(p, m); }
-    else if (c === "s" && col) {
-      const m = this.selected();
-      if (m) { const np = this.pane({ kind: "block", id: m.id }); np.root = m; col.panes.push(np); col.pane = col.panes.length - 1; this.load(np); this.save(); }
-    }
+    else if (c === "s" && col) { const m = this.selected(); if (m) this.split(col, m); }
     else if (c === "p" && col) { col.pinned = !col.pinned; this.save(); }
-    else if (c === "x" && col) {
-      if (col.panes.length > 1) { col.panes.splice(col.pane, 1); col.pane = Math.max(0, col.pane - 1); }
-      else if (this.cols.length > 1) { this.cols.splice(this.focus, 1); this.focus = Math.max(0, this.focus - 1); }
-      this.save();
-    }
+    else if (c === "x" && col) { const why = this.close(this.focus, col.pane); if (why && !why.startsWith("it's the last")) ctx.flash(`not closed: ${why}${held ? " · e or ⏎ enters it" : ""}`); }
     else if (c === "f" && p) { this.mode = "filter"; this.input = filterText(p.filter); }
     else if (c === "#") { const m = this.selected(); this.tagChoices = m ? Object.entries(m.props).filter(([key]) => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9) : []; this.mode = "tags"; }
     else if (c === "/") { this.mode = "palette"; this.input = ""; this.matches = this.idx.search(""); this.msel = 0; }
     else if (c === "?") this.mode = "help";
-    else if (c === "q") ctx.flash("quote writes a new note; this door is read-only");
+    else if (c === "c") ctx.flash("the river squeezes columns itself (p docks one) · C comments on a passage");
+    else if (c === "q") ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
     else if (c === "V") return ctx.cycleVideo();
     else if (k.kind === "esc") return ctx.pop();
     else return;
+    if (this.entered && this.entered.p !== this.paneS) this.entered = null;
     this.save();
     ctx.redraw();
   }
@@ -518,7 +976,7 @@ export class River implements Screen {
       if (this.mode === "filter") { const p = this.paneS; if (p) { p.filter = parseFilter(this.input); p.sel = 0; p.top = 0; this.save(); } }
       if (this.mode === "palette") {
         const b = this.matches[this.msel];
-        if (b) ctx.board.get(b.id).then(m => { if (m) this.open(m, k.kind === "alt-enter"); }, () => {});
+        if (b) ctx.board.get(b.id).then(m => { if (m) { this.open(m, k.kind === "alt-enter"); this.entered = null; } }, () => {});
       }
       this.mode = "";
       return ctx.redraw();
@@ -531,22 +989,54 @@ export class River implements Screen {
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const inside = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
+    if (k.action === "drag") {
+      const d = this.down;
+      if (!d || !this.gesture.drag(k.x, k.y) || !d.p.drawn) return;
+      // A drag off the pressed cell selects (PIE-419); from a link or a card it selects too, never opens.
+      if (!d.dragging) { d.dragging = true; const a = this.posIn(d, this.gesture.pressed!.x, this.gesture.pressed!.y); this.sel = { p: d.p, s: new Selection(a, { ...a }, false, d.p.drawn.w) }; }
+      if (this.sel?.p === d.p) this.sel.s.head = this.posIn(d, k.x, k.y);
+      return this.ctx.redraw();
+    }
+    if (k.action === "up") {
+      const d = this.down, r = this.gesture.release(k.x, k.y);
+      this.down = null;
+      if (d && r.click) this.clickPane(d);
+      return this.ctx.redraw();
+    }
     if (k.action === "down") {
       const h = this.hits.find(h => inside(h.rect));
       const cr = this.colRects.find(c => inside(c.rect));
       if (cr) this.focus = cr.col;
+      this.down = null;
       if (h) {
         const col = this.cols[h.col]!, p = col.panes[h.pane]!;
         col.pane = h.pane;
+        this.seen(p);
+        // A completion candidate in the edit the person is in: chosen and inserted (PIE-416).
+        if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) return this.ctx.redraw();
         const row = h.rows[k.y - h.rect.row];
-        if (row && row.card >= 0) {
-          const same = p.sel === row.card;
+        const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
+        const same = !!row && row.card >= 0 && p.sel === row.card;
+        if (row && row.card >= 0 && !(link && !p.surface.editing)) {
           p.sel = row.card;
-          const m = this.flat(p)[row.card]?.m;
-          if (m && row.replies) return this.toggle(p, m);
-          if (m && same) return this.open(m, false);
+          // The clicked card is what ⏎ opens now, not a link selected in the note before.
+          if (!p.surface.editing) p.surface.clearLink();
+        }
+        // What the click does (open a link or the card, show replies) waits for the release: a drag selects instead.
+        this.down = { p, rect: h.rect, row, link: link && !p.surface.editing ? link.link : undefined, same, dragging: false };
+        // On a card's row a second click opens it, as it always did; double and triple clicks select in the note's text.
+        if (row && row.card >= 0) this.gesture.forget();
+        const n = this.gesture.press(k.x, k.y);
+        const rows = p.drawn && rowsOf(p.drawn.lines);
+        if (n > 1 && rows && !p.surface.editing) {
+          const at = this.posIn(this.down, k.x, k.y);
+          this.sel = { p, s: n === 2 ? wordAt(rows, at) : lineAt(rows, at.row) };
+          this.sel.s.w = p.drawn!.w;
         }
       }
+      // A press anywhere else lets go of the selection (a click in its own pane does, on release).
+      if (this.sel && this.sel.p !== this.down?.p) this.sel = null;
+      if (this.entered && this.entered.p !== this.paneS) this.entered = null;
       this.save();
       return this.ctx.redraw();
     }
@@ -554,8 +1044,77 @@ export class River implements Screen {
       const h = this.hits.find(h => inside(h.rect));
       if (!h) return;
       const p = this.cols[h.col]!.panes[h.pane]!;
+      // In an edit the wheel is the surface's (it moves a completion popup's choice, or the cursor).
+      if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
+      this.seen(p);
       p.sel = Math.max(0, Math.min(this.flat(p).length - 1, p.sel + (k.action === "wheel-down" ? 1 : -1)));
+      p.surface.clearLink();
       this.ctx.redraw();
     }
   }
 }
+
+interface RiverOn { r: River; reader?: string }
+
+
+/** What the river adds to a column's note actions: which note is a column, which has the keys, and the threads. */
+export const RIVER_ACTIONS = new ActionSet<{
+  "open": { id: string; duplicate?: boolean };
+  "focus": Record<string, never>;
+  "select": { id: string };
+  "replies": { id?: string; open?: boolean };
+  "split": Record<string, never>;
+  "pin": { docked?: boolean };
+  "close": Record<string, never>;
+}, RiverOn>("river", {
+  "open": {
+    summary: "open a note as a column beside reader= (default the focused column), or find the column it has; returns its stable reader id (r7). The person's focus stays where it is", keys: "enter, alt+enter, / jump",
+    args: { id: { type: "string", about: "the block id" }, duplicate: { type: "boolean", optional: true, about: "a second column even if it has one (alt+enter)" } },
+    async run({ id, duplicate }, { r, reader }, actor) {
+      const out = await r.openById(id, reader, !!duplicate);
+      r.ctx.flash(`${agentLabel(actor)} opened a note in column ${out.at}`);
+      return out;
+    },
+  },
+  "focus": {
+    summary: "give the person's keys to reader= (r7, a column, or <column>.<pane>); a compressed column widens. Only when the person asked: it moves their focus", keys: "h l, tab, click",
+    args: {},
+    run(_, { r, reader }, actor) {
+      if (!reader) throw new ActionRefused("focus needs reader=<r7 or a column number>");
+      const out = r.focusOn(reader);
+      r.ctx.flash(`${agentLabel(actor)} gave the keys to column ${out.at}`);
+      return out;
+    },
+  },
+  "select": {
+    summary: "select a note listed in the column (in the Library and a #tag column, that's the note e and c act on)", keys: "j k, click",
+    args: { id: { type: "string", about: "the note's block id (or its first 8+ characters)" } },
+    run: ({ id }, { r, reader }) => r.selectIn(id, reader),
+  },
+  "replies": {
+    summary: "show or hide a listed note's replies in place (the selected one, or id=)", keys: "space",
+    args: { id: { type: "string", optional: true, about: "which listed note; default the selected one" }, open: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
+    run: ({ id, open }, { r, reader }) => r.repliesIn(reader, id, open),
+  },
+  "split": {
+    summary: "stack the selected note as its own pane in the same column; returns its reader id (the column's active pane stays)", keys: "s",
+    args: {},
+    run: (_, { r, reader }) => r.splitIn(reader),
+  },
+  "pin": {
+    summary: "dock the column so it resists compression, widening a peek or spine without moving the person's focus (docked=false undocks; default toggles)", keys: "p",
+    args: { docked: { type: "boolean", optional: true, about: "dock or undock" } },
+    run: ({ docked }, { r, reader }) => r.dock(reader, docked),
+  },
+  "close": {
+    summary: "close the pane, or the column when it has one; refused while it holds an edit or a comment", keys: "x",
+    args: {},
+    run: (_, { r, reader }) => r.closeIn(reader),
+  },
+});
+
+/**
+ * A reader named by position: "3" (column 3) or "3.2" (its second stacked pane). At most three digits
+ * each, so a block id that happens to start with eight digits ("12345678") is still read as a block id.
+ */
+export function riverPosition(sel: string): RegExpExecArray | null { return /^(\d{1,3})(?:\.(\d{1,3}))?$/.exec(sel); }

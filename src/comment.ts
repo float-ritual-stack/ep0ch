@@ -4,7 +4,9 @@
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import type { Msg } from "./board";
 import { Draft } from "./edit";
-import { Refused, type Comment, type CommentPassage, type SocketBoard } from "./socket";
+import { editHint, renderEditor, writtenBy } from "./surface/editor";
+import { completionKey, type Completer } from "./surface/completer";
+import { Refused, USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { bg, C, fg, pad, RESET } from "./style";
 import type { Key } from "./term";
 import { ago, rule, wrap } from "./text";
@@ -40,6 +42,20 @@ export class Passage {
   }
 
   get quote() { return this.text.slice(this.from, this.to); }
+
+  /**
+   * Select an exact quote of the source text, the way an agent picks a passage: the occurrence nearest
+   * `near` (an offset), or the first. Returns why not when the words aren't there, or match only blanks.
+   */
+  selectText(quote: string, near?: number): string | null {
+    if (!quote.trim()) return "the quote is empty";
+    const hits: number[] = [];
+    for (let i = this.text.indexOf(quote); i >= 0; i = this.text.indexOf(quote, i + 1)) hits.push(i);
+    if (!hits.length) return `"${quote.length > 40 ? quote.slice(0, 39) + "…" : quote}" isn't in the note's current text`;
+    const at = near === undefined ? hits[0]! : hits.reduce((a, b) => (Math.abs(b - near) < Math.abs(a - near) ? b : a));
+    this.from = at; this.to = at + quote.length;
+    return null;
+  }
   get passage(): CommentPassage { return { quote: this.quote, start: this.from }; }
   get firstLine() { return this.lineOf(this.from); }
   get lastLine() { return this.lineOf(Math.max(this.from, this.to - 1)); }
@@ -162,6 +178,10 @@ export interface CommentEnv {
   setMsg(m: Msg): void;
   reloadComments(): Promise<Comment[]>;
   external(d: Draft): void;
+  /** The composer's reference completion, when the connection can look references up. */
+  complete?(d: Draft): Completer | null;
+  /** Who sends what this session writes: the person at the keys unless an agent is acting. */
+  actor?: Actor;
   flash(msg: string): void;
   redraw(): void;
 }
@@ -191,6 +211,13 @@ export class CommentSession {
   private back: CommentMode = "threads";
   /** The mode the session opened in; Esc there closes it. */
   private readonly origin: CommentMode;
+  /**
+   * A reply started from a thread expanded in the reader (PIE-420's Reply control): Esc from the composer
+   * closes the session, and so does a reply that landed, so the person is back reading the note, the thread
+   * still open under its passage. `finished` says the reply landed; the reader lets the session go.
+   */
+  inline = false;
+  finished = false;
 
   constructor(public msg: Msg, public threads: Comment[], mode: "select" | "threads") {
     this.mode = this.origin = mode;
@@ -204,8 +231,8 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
-    if (this.mode === "compose") return `ctrl+s send · ctrl+e $EDITOR${this.stale ? " · ctrl+r find quote" : ""} · esc ${this.dirty ? "twice discards" : "back"}`;
-    return "j k thread · r reply · x resolve/reopen · c comment on a passage · esc done";
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: "back" });
+    return "j k thread · r reply · x resolve/reopen · C comment on a passage · esc done";
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
@@ -215,21 +242,18 @@ export class CommentSession {
       if (a === "close") {
         if (this.origin === "select" && !this.composer) return "close";
         this.passage = null; this.mode = this.composer ? "compose" : "threads";
-      } else if (a === "compose") {
-        this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: this.passage!.passage };
-        this.composer ??= new Draft("comment", 0, "");
-        this.back = "select"; this.mode = "compose"; this.error = null; this.stale = false;
-      }
+      } else if (a === "compose") this.write();
       return "keep";
     }
     if (this.mode === "compose") {
       const d = this.composer!;
-      const a = d.key(k);
+      const a = completionKey(d, k, env.complete?.(d) ?? null);
       if (a === "save") void this.send(env);
       else if (a === "editor") env.external(d);
       else if (a === "reload") void this.relocate(env);
       else if (a === "close") {
         this.composer = null; this.target = null; this.error = null; this.note = ""; this.out.done(); this.confirmNew = false;
+        if (this.inline) return "close";
         if (this.back === "select" && this.passage) this.mode = "select";
         else if (this.origin === "select" && !this.threads.length) return "close";
         else this.mode = "threads";
@@ -242,13 +266,32 @@ export class CommentSession {
     if (k.kind === "esc") return "close";
     if (k.kind === "down" || c === "j") this.sel = Math.min(Math.max(0, n - 1), this.sel + 1);
     else if (k.kind === "up" || c === "k") this.sel = Math.max(0, this.sel - 1);
-    else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) {
-      this.target = { kind: "reply", thread: this.threads[this.sel]! };
-      this.composer = new Draft("reply", 0, "");
-      this.back = "threads"; this.mode = "compose"; this.note = "";
-    } else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
-    else if (c === "c") void this.pick(env);
+    else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
+    else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
+    else if (c === "C") void this.pick(env);
     return "keep";
+  }
+
+  /** Enter on a picked passage: write the comment under it. The comment's text carries over from an earlier pick. */
+  write(): string | null {
+    const p = this.passage;
+    if (this.mode !== "select" || !p) return "no passage is being picked";
+    if (!p.quote.trim()) return "nothing selected";
+    this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: p.passage };
+    this.composer ??= new Draft("comment", 0, "");
+    this.back = "select"; this.mode = "compose"; this.error = null; this.stale = false;
+    return null;
+  }
+
+  /** `r` on a thread: write a reply to it. */
+  replyTo(i: number): string | null {
+    const t = this.threads[i];
+    if (!t) return "no such thread";
+    this.sel = i;
+    this.target = { kind: "reply", thread: t };
+    this.composer = new Draft("reply", 0, "");
+    this.back = "threads"; this.mode = "compose"; this.note = "";
+    return null;
   }
 
   /** Select a passage on the note as the service has it now. */
@@ -280,14 +323,18 @@ export class CommentSession {
     }
     this.confirmNew = false;
     const requestId = this.out.begin(key);
+    // Recorded as whoever wrote the text, not only whoever pressed send (see Draft.recordAs).
+    const by = d.recordAs(env.actor ?? USER);
     this.busy = t.kind === "quote" ? "sending the comment..." : "sending the reply..."; this.error = null; env.redraw();
     try {
       const r = t.kind === "quote"
-        ? await env.board.comment(requestId, t.blockId, t.revision, body, t.passage)
-        : await env.board.reply(requestId, t.thread.id, body);
+        ? await env.board.comment(requestId, t.blockId, t.revision, body, t.passage, by)
+        : await env.board.reply(requestId, t.thread.id, body, by);
       this.out.done();
       this.composer = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
       this.mode = "threads"; this.busy = "loading the thread...";
+      // From an expanded thread: straight back to reading (the reader shows the reloaded thread there).
+      if (this.inline) this.finished = true;
       env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
       this.threads = await env.reloadComments();
       this.busy = null;
@@ -343,7 +390,7 @@ export class CommentSession {
     const to = t.open ? "resolved" : "open";
     this.busy = t.open ? "resolving..." : "reopening..."; env.redraw();
     try {
-      await env.board.setLifecycle(t.id, to);
+      await env.board.setLifecycle(t.id, to, env.actor ?? USER);
       env.flash(to === "resolved" ? "resolved" : "reopened");
       this.busy = null;
       this.threads = await env.reloadComments();
@@ -377,21 +424,20 @@ export class CommentSession {
     if (this.mode === "compose" && this.composer && this.target) {
       const d = this.composer, t = this.target;
       const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
-      const head = [
-        fg(C.yellow) + pad(t.kind === "quote" ? `» comment · ${title}` : `» reply to ${t.thread.author} · ${title}`, w) + RESET,
-        state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark),
-      ];
       const q = quote ? wrap(quote.replace(/\s+/g, " "), w - 4).slice(0, 3).map(l => fg(C.green) + "  " + MARK + " " + l + RESET) : [];
       if (t.kind === "reply") q.push(...wrap(t.thread.body, w - 4).slice(0, 2).map(l => fg(C.grey) + "    " + l + RESET));
-      const top = [...head, ...q, rule(w)];
-      return [...top, ...d.render(w - 2, Math.max(1, h - top.length)).map(l => " " + l)];
+      return renderEditor(d, {
+        title: t.kind === "quote" ? `comment · ${title}` : `reply to ${t.thread.author} · ${title}`,
+        status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+        context: q, by: writtenBy(d, "send"),
+      }, w, h);
     }
     // threads
     const open = this.threads.filter(t => t.open).length;
     const head = [
       fg(C.yellow) + pad(`» comments · ${title}`, w) + RESET,
       fg(C.brown) + pad(`${open} open · ${this.threads.length - open} resolved`, w) + RESET,
-      state ?? status(this.note || (this.threads.length ? "" : "no comments yet · c comments on a passage"), C.cyan),
+      state ?? status(this.note || (this.threads.length ? "" : "no comments yet · C comments on a passage"), C.cyan),
       rule(w),
     ];
     const lines: string[] = [];

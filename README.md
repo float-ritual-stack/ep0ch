@@ -8,6 +8,12 @@ The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art p
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
+The words used here for screens, panes, readers and actions are defined in the
+[UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
+Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
+[AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
+verification and the review checklist.
+
 ## Try it
 
     scripts/try-it.sh --ws /home/evan/test
@@ -27,11 +33,49 @@ A journey to try, whichever service it is:
 2. `e` edits the card in the preview. Type after a `[key::value]` on the subject line, `Ctrl+S`: the door
    says which properties the save would change and writes nothing; `Ctrl+S` again saves. `Esc` closes.
 3. `m` picks a lane to move the card to, showing the property patch (or why a lane can't take it); `Enter`.
-4. `Tab` to the preview, `c`, pick a passage (`j k h l`), `Enter`, write, `Ctrl+S`; `m` lists the threads.
+4. `C` (from the lanes, or in the preview), pick a passage (`j k h l`), `Enter`, write, `Ctrl+S`; `m` lists the threads.
 5. With another client (Detail, the CLI), edit the note while it's open with `e`: the draft says
    "changed elsewhere" and a save is refused, never overwriting. Change a card's stage elsewhere: its lanes
    update by themselves.
 6. Restart the service: the status bar says `offline`, then `reconnected · caught up N changes`.
+
+## The showcase
+
+    scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
+    scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
+
+opens the showcase (PIE-439): the shared door parts, live, in ten sections, one per row of the reuse map
+([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
+elements and reading-ruler row (PIE-441) has no section yet. It runs on an
+outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
+unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
+door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
+
+- **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
+  a kitchen, bikes), written through the service API (`create`, `work-ids.configure`,
+  `roadmap.items.create`, `properties.patch`, `annotations.*`), not into SQLite. It has a board hub with a
+  lane per work stage and cards in each, callouts, links and soft links (`HOME-001`), folds, a literal
+  region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
+  a saved view, and one of every `::graph-*` kind, live ones included.
+- **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
+  deletes that state and reseeds. Its service is the process `service.pid` names only when that process
+  is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
+  whatever process has that pid now is left alone. `--prepare` sets it up (or resets it) and exits without opening the door.
+- **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` or a click picks one; `⏎`, `→`, `Tab`
+  or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
+  section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
+  nothing saved to your `desk.json`) or the real board. A parallel version still in the code (the BBS
+  `Reader`, `WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
+  consolidate"; ones that can't be framed alone are named on the section's third line.
+- **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
+  the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
+  writes nothing.
+- **Agents:** `ep0ch-door act section name=<1-10|key>` shows a section (your keys go back to the list);
+  every other action is the section's own (a reader's note actions, the desk's, the board's).
+  `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
+
+Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
+content it needs; the review checklist's "The map" item covers both.
 
 ## Run
 
@@ -54,7 +98,7 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 | Pane | What it shows |
 |---|---|
 | outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow, `u` parent |
+| reader | the current block; follows the selection unless held (`p hold`, `p` again follows); `[ ]` step through its elements, `⏎` act on one (or click it), `alt+⏎` a link in a new reader, `u` parent, `( ) f F` fold |
 | thread | the current block's children as replies, and its comment threads with quoted passages |
 | last callers · live | `activity.recent`, refreshed on outline events |
 | who's online | `clients.list`, with what each client is reading |
@@ -92,22 +136,39 @@ The last board per workspace is remembered.
   reason instead of looking empty. The two agree on all 34 saved views of the pi-outliner outline
   (`scripts/parity.ts` on a copy), and on all 8 of float-hub's before `views.read` existed.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
-- **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
+- **`c`** collapses what has focus to a spine: a lane, or the preview or a detail. A reader's spine shows its
+  note's title (rotated under Kitty graphics, stacked letters in cells) and marks what it holds: `✎` an
+  edit, `¶` a comment, `≡` the property panel, `■` comments that arrived while it was collapsed. The freed
+  width goes to its neighbours. `c`, `⏎` or a click on a spine opens it; `alt+c` opens everything collapsed.
+  A collapsed reader keeps its edit, comment or property panel exactly: nothing is saved, sent or dropped,
+  `Ctrl+C` still asks twice, and opening it returns to it (`e` enters it again). Its own keys don't reach
+  it while collapsed. A note opened into a collapsed reader (`⏎`, `open`) opens it. Floats don't collapse.
+- **Agents** collapse and open readers with `reader.collapse reader=detail1` and `reader.expand`
+  (`reader=all` is `alt+c`). Both are flashed with the agent's id and shown by `peek` (`collapsedBy`). An
+  agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
+  a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
   Keys: `{ }` lane height, `< >` width of the focused lane or reader.
 - **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
   to nudge, `o` again to dock it back as a detail, `x` to close.
-- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`); `S` moves it
+- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`, or click `[ ] pin` in its top border: pinned, it becomes part of the layout); `S` moves it
   to the other side so it doesn't cover the preview.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
-  snippet; `B` pins it; ⏎ / alt+⏎ opens a source in a detail.
-- Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
+  snippet; `B` or a click on its `[ ] pin` pins it into the layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
+  preview opens in a detail too.
+- Layout, pins, collapsed lanes, a collapsed preview and drawer side are saved to `delivery.json`. Details
+  aren't saved, so neither is their collapse.
 
 ## Moving cards
 
 A lane's query is usually a list of property clauses that must all hold, so a card moves by patching the
-properties the target lane names. Nothing else on the card changes. Lanes whose query needs more than a
-patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as targets.
+properties the target lane names. Nothing else on the card changes. When the query also has an OR or NOT
+group, parentheses or a `created`/`updated` range (services with PIE-398), its plain top-level clauses are
+still what a move patches, and everything else must already hold for the card: on a lane
+`type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=doing` a card in either project
+moves by patching `work-stage` alone, and any other card is refused with the term it doesn't meet. The door
+reads that grammar with a port of the outliner's parser and evaluator (`src/query.ts`, parity-tested) and
+judges the whole query on the card as the patch would leave it, so a patch can't break a group it mentions.
 
 | Keys | Action |
 |---|---|
@@ -119,9 +180,10 @@ patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as
   card has is replaced in place; a missing one is appended to its metadata. Values compare
   case-insensitively, like the outliner.
 - **Refused, with the reason and no write:**
-  - lanes whose query uses OR, NOT, parentheses or a `created`/`updated` range (services with PIE-398
-    read them): the reason names the construct, e.g. `Stuck's query uses OR; a move can't pick which side
-    to satisfy`. A card the service already lists in such a lane is "already there", not refused.
+  - a group, NOT or range the card doesn't meet (a move never picks a side of an OR, removes a property for
+    a NOT or changes when a card was created): the reason names the term and what the card has, e.g.
+    `Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden-club; a move
+    sets only the plain clauses beside it`. A card the service already lists in a lane is "already there".
   - invalid lanes: on older services `not`, `or` and `and` aren't in the query grammar, nor are `-key` or
     `key:value`; lanes with no `query::` (sort-only, limit-only) are invalid too
   - a bare word or `key` clause the card lacks: it asks for any value, and a move can't pick one
@@ -139,10 +201,85 @@ patch can give (OR, NOT, parentheses, `created`/`updated` ranges) are refused as
   (`moved to Review · stage queued -> review · track + door`), plus any other lane it still matches.
   A collapsed target lane reopens.
 
+## Writing on the board
+
+| Keys | Action |
+|---|---|
+| `n` | a new card in the focused lane |
+| `N` | a note under the selected card |
+| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `w` waiting, `!` problem |
+| `d` `d` | trash the selected card (and the notes under it); `u` restores it |
+
+- **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
+  note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice discards). The first line is the
+  title. The lane's plain clauses are appended to the first line as `[key::value]` tokens, unless the text
+  already says so; a typed value that contradicts one is refused. The lane's `[create::key=value]` is a
+  default, not a requirement: it's added only when the text doesn't set that key, so typing
+  `[area::garden]` in a lane that reads `(area=kitchen OR area=garden)` with `[create::area=kitchen]` makes a
+  garden card. An OR group the defaults don't settle has to be met by the text; the composer says so, and
+  before anything is written the door asks the service how it will read the text
+  (`properties.preview`) and checks the lane's whole query against that. A lane that can't define a card
+  (loading or invalid, two values for one key, a `created < …` range) refuses `n` with the reason.
+- **Where it goes:** the lane's `[create-parent::<block id>]`; else the parent most of the lane's cards
+  share, else most of the board's; a board spread across parents is refused with how to name one. The
+  composer shows the parent and why.
+- **Created once.** `create` carries no revision or request id, so a create whose answer was lost is never
+  retried: the door looks under the parent for exactly that text and says whether it landed. A refused or
+  unknown create keeps the composer's text (and copies it to `drafts/`). The new card reaches its lane
+  through the change feed, which asks only the lanes that could hold it. Your own new card is selected; an
+  agent's (`card.create`, `card.restore`) never moves your selection, focus or collapsed lanes.
+
+### Creating on roadmap boards
+
+A lane whose query has a plain `type=roadmap-item` (the workboard's stage views, the All-work board) lists
+roadmap items, and those are made only by the workboard's allocator (`roadmap.items.create`), never by a
+plain create. The allocator issues the item's work-id and files it under its project's one active work
+queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is refused).
+
+- **Fields.** Each comes from the typed text's `[key::value]` token, else the lane's plain clause, else its
+  `[create::]` default: `project`, `work-stage` and `work-batch` usually from the lane (or the OR group the
+  text picks), `priority` (`high|medium|low`), `arc` and one or more `track` from the text. A missing
+  field is refused with all of them named: `Queued makes roadmap items through the workboard's allocator,
+  which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text`.
+  `depends-on`, `related-to` and `source-block` tokens become the item's relationships. The tokens come out
+  of the title and body (the allocator writes them itself); other tokens stay.
+- **Stages.** Items are created in Queued or Doing (or the allocator's default, `unprioritized`, in a
+  lane with no stage), then moved. `n` in a Review, Validate, Done or Superseded lane is refused (`Review is
+  a review lane: roadmap items are created in Queued or Doing, then moved`), and so is a typed late stage.
+- **Checked first.** The item as the allocator will write it is checked against the lane's whole query
+  before the call, so a project outside the lane's OR group is refused with what it has.
+- **After.** The flash names the work-id: `created HOME-012 in Queued · Oil the hinges · priority=medium
+  arc=home track=doors project=ep0ch-door`; `card.create` returns `workId`. The allocator needs a Work-ID
+  prefix and exactly one active `type=work-queue` block for the project; otherwise its refusal is shown
+  as it is (`Expected exactly one active work queue for project …`). A service without the allocator
+  (older than protocol 82, or one that answers "Unsupported action") refuses roadmap lanes' `n` rather
+  than falling back. A lost answer is looked for among the project's newest items, never retried.
+
+- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
+  `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
+  as it was read: a step reworded since is refused and the list read again. A step without an id is named
+  by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
+  The open steps list reads the note again when it changes. A key acts on the step the list showed;
+  `step.set step=N` (or `^id`) always reads the steps fresh, so it means the note's step N as it is now.
+- **Trash** asks twice: the first `d` says what goes (`d again trashes "Fix the dripping tap" and the 3
+  notes under it`), any other key keeps it. The card must still be at the revision the board showed, and
+  not open for editing or commenting. A red `TRASHED … · u restores` banner stays on the hint line until you
+  restore it or trash another. The service's `delete` takes no revision and records no author, so the
+  door checks the revision just before and says on screen who did it. If the delete's answer is lost, the
+  door asks whether the card is in Trash: if it is, it's reported as trashed (banner and `u` included);
+  if not, or if the outline can't say, it says so.
+- The same guard as moving: a card held by an open edit or comment isn't moved, stepped or trashed.
+
 ## Editing notes
 
 Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
-On a board lane, `e` edits the selected card in the preview. The river stays read-only.
+On a board lane, `e` edits the selected card in the preview. The river stays read-only for now.
+
+Every reader is the same **note surface** (`src/surface/note.ts`): it draws the note, follows links, holds
+the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
+keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
+opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same
+frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Esc`, twice when unsaved).
 
 | Keys | Action |
 |---|---|
@@ -151,13 +288,36 @@ On a board lane, `e` edits the selected card in the preview. The river stays rea
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
 | `Esc` | close; with unsaved changes it asks for a second `Esc` |
+| `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
 
+- **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
+  Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
+  aliases and Work IDs (`pages.complete`), `((` blocks by text (`blocks.query`), `((note#heading` or
+  `((note^id` their fragments, and `[file::` workspace paths (`files.complete`). The selected candidate
+  shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
+  `[[WORK-ID]]` when the title holds link delimiters), a page or alias `[[address]]`, a block
+  `((id))`, a fragment `((id^fragment))`, a folder `[file::dir/` (its entries come next) and a file
+  `[file::path]`. Choosing checks the target still answers first. A heading in the note being edited
+  gets its `^anchor` in the draft when chosen; headings without one in other notes aren't offered (that
+  would write to them). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
+  token indents. A service without a lookup says so in the popup, and typing carries on.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
   else saved since, and the door never retries it over their text: the draft stays open, is copied to
   `~/.local/state/ep0ch-door/drafts/`, and `Ctrl+R` starts over from the current revision.
 - **While a draft is open** the reader stays on its note, takes every key (board and window shortcuts
   included), and marks "changed elsewhere" when an outline event says the note moved on, instead of
   replacing what you typed. `Ctrl+C` asks twice when an edit is unsaved.
+- **Keys follow the editor** (board and desk): only the focused reader's edit, comment or property panel
+  takes keys, and only one you are in. One you open by key (`e`, `C`, `m`, `i`, from the lanes too) is
+  yours as it opens, and focus moves to it; if you press `Esc` or move away before the note has been
+  read, it doesn't open. One an agent opened, or yours after you moved to another area, doesn't take
+  your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the reader,
+  `x` refuses to close one holding an edit or a comment, and `e` or `⏎` enters it. The frame title
+  and the hint row say which it is (`editing (e enters)`). The mouse wheel always scrolls whatever is
+  under the pointer.
+- **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
+  border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.
 - **Properties:** the service decides which `[key::value]` tokens are properties (one followed by more
   text on its line is plain text). When the service offers `properties.preview` (pi-herdr-outliner
   PIE-401), the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
@@ -168,17 +328,18 @@ On a board lane, `e` edits the selected card in the preview. The river stays rea
 
 ## Commenting
 
-The same readers comment on the note they show. On the board, Tab to the preview (or a detail) first:
-`c` on a lane still collapses it.
+The same readers comment on the note they show, with `C` (`c` collapses on the board). On the board, `C`
+in the lanes comments in the preview.
 
 | Keys | Action |
 |---|---|
-| `c` | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
+| `C` | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
 | `j k` | move to the next / previous line with text (the whole line, without its indent) |
 | `J K` | extend / shrink the passage by a line |
 | `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
 | `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
-| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `c` a new comment |
+| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
+| `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it |
 | `Esc` | back a step; with unsent text it asks for a second `Esc` |
 
 - **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
@@ -198,11 +359,183 @@ The same readers comment on the note they show. On the board, Tab to the preview
   screen ask twice when a comment is unsent, and copy it to `drafts/` if you go ahead.
 - **Attribution:** comments and replies are `author: user`, like the outliner's own Detail (the service
   takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
+  An agent's comments and replies (below) are `author: agent` with the agent's actor id, and so is one
+  you and an agent both wrote (see "Who a write is recorded as").
 - The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
+
+### Threads inline (PIE-420)
+
+A comment mark in a reader's margin (`▐`, yellow while open, dim once resolved) expands its thread under
+the passage it quotes, by `⏎` on it (it's one of the `[ ]` elements) or a click. The thread shows who
+and when, open or resolved, the comment and its replies, and three controls: **Select**, **Reply**, and
+**Resolve** (**Reopen** once resolved). The quoted lines are highlighted while it's open. `⏎` or a click
+on the mark again collapses it. Open threads stay open as the note refreshes; another note starts with
+none open.
+
+- **The controls** are elements too: `[ ]` steps to them and `⏎` uses one, or click it. No new keys.
+- **Select** selects the quoted words as the reader's text selection (their whole lines when the words
+  read differently in the reader), so `y` or `Y` copies them.
+- **Reply** opens the thread list as your session with the reply started, the same composer as `m`, `r`:
+  `Ctrl+S` sends it and you're back reading, the thread still open with your reply in it; `Esc` comes back
+  without sending.
+- **Resolve** / **Reopen** sets the thread's lifecycle, as `x` in the list does.
+- **Agents** use `threads`, `reply` and `resolve` on an expanded thread as on any other. Which threads are
+  expanded is your reading state: `thread.toggle` is yours only, an agent's `element.open` on a mark opens
+  its own thread list without expanding anything, and on a control it's refused with the action to use.
 
 ## Reading notes
 
-Every reader (board, desk) renders bodies with `src/doc.ts`:
+Every reader (board, desk) shows a note the way the outliner's Detail does: the title, a one-line
+**summary** of chosen properties, then the body. The block's `[key::value]` metadata lines aren't
+printed; they are in the **property panel**, one key away.
+
+- **Summary line.** Keys come from, in order: the saved view the note is shown from (a board lane's
+  `[summary-properties::priority,track]`), your own choice (`s` in the panel, or `act props.summary`,
+  kept in `properties.json` in the door's state), `OUTLINER_PROPERTY_SUMMARY_KEYS` (Detail's variable;
+  empty hides the line), then `status,work-stage,priority,track`. As in Detail, `work-stage` reads
+  `stage`, repeated values are joined (`track soil, tools`), and a roadmap item's `status` is left out.
+- **Which lines are metadata** is the service's call: `properties.preview` (PIE-401) says which tokens
+  are block-scope metadata lines. Bare `key:: value` lines (line scope) and inline tokens stay in the body.
+  An older service gets the documented rule (the first run of property-only lines after the subject).
+- **Links** read as Detail shows them: `((id))` as the target's title, `((id|label))` as its label,
+  `[[page]]` as written, without delimiters. Titles, trash state and fragments come from
+  `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
+  target reads `label · Missing target`; a trashed one `title · Trash`; a missing fragment says so.
+  Code keeps its text, and edit mode, comments and storage keep the raw syntax.
+- **Clicking a link opens it**, where `[ ]` then ⏎ on it would (in place in a board detail or float, in a
+  detail from the board's preview, the desk's reader, a column beside in the river), and it becomes the
+  current element: `((…))`, `[[page]]`,
+  `[[Work ID]]`, an embed's title and an embedded view's results, and in the summary line and the
+  property panel a value that names a block, a page or a Work ID (a click on a panel row selects it).
+  Clicks find links where they are drawn, so scrolling and wrapping move them with the text. A missing
+  target says so and nothing opens.
+- **Transclusions.** `!((id))` shows the target note, read-only, in a shaded region. A virtual-branch
+  target shows its results (`views.read`), with the view's `[summary-properties::]`, its count and
+  `TRUNCATED at N`, or `EMPTY`, `CONFIG ERROR`, `QUERY FAILED`. `!((id^fragment))` checks the fragment
+  with the service and shows the whole note with "fragment slices need PIE-404": the service doesn't
+  serve slices yet and the door doesn't re-derive the fragment rules. Missing and trashed targets,
+  missing or duplicate fragments, failed reads and the 17th embed (`EMBED LIMIT · maximum 16`) each say
+  what they are. Embeds refresh when their target changes (an embedded view: when anything does) and
+  are never recursive: an embed's own `!((…))` reads `!title · embed not expanded here`. `!((…))` in
+  inline code or a code fence stays code. A note's embed targets are read together (`blocks.read`), and
+  its links and block-valued properties resolve in one `references.resolve`, asked again only when a
+  change record names one of those blocks.
+- **Literal regions** (PIE-422). Between a `<!-- literal -->` line and a `<!-- /literal -->` line the
+  service doesn't read properties, so the reader draws `[key::value]` there as text; links and Markdown
+  work as anywhere else. The marker lines aren't drawn (edit mode shows them), and a title skips them, as
+  in Detail. An opener without a closer protects nothing, and the reader says so under its header. Where
+  a region is follows the service's rules exactly (markers only outside code fences, no nesting, up to
+  three leading spaces): `src/literal.ts` mirrors them, and `test/literal.test.ts` checks it against the
+  service's own parser. The river's cards and the desk's search preview draw regions the same way.
+
+### Folding
+
+Readers fold headings and nested lists the way Detail does (PIE-386). A heading folds everything through
+the next heading of the same or a higher level; a list item folds its nested items and continuation
+lines, keeping its own line. Each one shows its disclosure, `▾` open and `▸` folded
+(`▸ ## Beds · 7 lines folded`), and a click on it folds or unfolds. Folding is this reader's
+reading state: the note's text never changes, another reader can show the same note unfolded, and
+folds stay through live refreshes and edits elsewhere in the note. A fold whose heading or item is
+reworded or removed is dropped, so it never hides a different section; a heading with an anchor
+(`## Beds ^beds`) keeps its fold by the anchor, and a step keeps its fold when it's ticked. Repeated
+headings (two `## Notes`) are told apart by their order. Showing another note in the reader starts it
+unfolded.
+`#` lines in a code fence or a figure are text, not headings.
+
+| Keys | Action |
+|---|---|
+| `(` / `)` | select the previous / next heading or list item that folds (`▾`, yellow); the hint names it |
+| `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
+| `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
+| `F` | fold every outermost section and list item; with anything folded, unfold everything |
+| click | a heading (anywhere on its line but a link, which opens), or a list item's `▾`/`▸`, folds or unfolds it; the frame and its scroll thumb don't |
+| `z` | unfold callouts that start folded (`[!x]-`); unchanged |
+
+Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
+`all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
+
+### Moving through a reader
+
+`[` and `]` step through everything a reader draws, in reading order (PIE-441): links (in the text, the
+summary line, an image or a video), headings and list items that fold, the rows of a live figure or an
+embedded view that stand for a note, embeds (their title), comment marks (`▐` in the margin beside the
+lines a comment quotes; yellow while it's open, dim once resolved), and the controls of a thread expanded
+under its passage. `( )` still jumps between folds only. The reader's footer
+names the current one (`[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new`), and the block it's in gets
+the reading ruler: a calm amber tint across the reader.
+
+| Keys | Action |
+|---|---|
+| `[` / `]` | the previous / next element (from the view when none is current, or it's scrolled away) |
+| `⏎` | a link follows it (in place in a detail; from the board's preview into a detail, as `⏎` on a card); a fold folds or unfolds; a row or an embed opens its note; a comment mark expands its thread inline, or collapses it; a thread's control does what it says (below) |
+| `alt+⏎` | a link, row or embed opens in a new reader: a new detail on the board, a new reader beside on the desk, a new column in the river |
+| click | the same as `⏎` on what's clicked, and it becomes the current element; a drag still selects text |
+| `esc`, scrolling, `u` | let go of the current element, so `⏎` means what it did before (the preview opens a detail); then `esc` takes away a focus mark |
+| `tab` | unchanged: it switches areas |
+
+An agent sees the same list with `elements` and acts on one with `element.open n=…` (a link, row or embed
+opens where the person's would; a fold toggles; a comment mark opens the thread list as its session, and
+leaves the person's expanded threads alone). The
+`[ ]` position is the person's: `element.select` is theirs only, and an agent's `element.open` leaves it
+where it was. Instead an agent sets a **focus mark** with `focus.set` (`block=`, `line=`/`to=`, or
+`quote=`/`near=`, the same passage shape as a comment): the marked lines get the ruler's tint, the header
+says `◆ focus · an agent (<id>) marked …`, and the reader scrolls to it if it isn't in view. The person's
+position, selection and keys don't move. `focus.clear` takes it away. The mark lives in this door's reader;
+sharing it through the service, so other clients see it too, is PIE-423's service part. A river column
+draws its own digest of the note, so there `[ ]` steps its links, and `⏎` or `alt+⏎` opens the selected one
+beside or in a new column.
+
+### Selecting and copying text
+
+The door keeps the terminal's mouse reporting on, so the terminal can't select; every reader does it
+itself (PIE-419): the board's preview, details, floats and drawer previews, the desk's readers, and river
+columns. Selecting never copies: only `y`, `Y` or the `[y copy]` control on the header's rule do, and the
+status bar says `copied N chars`. The clipboard is written with OSC 52, so it works over SSH and
+through a multiplexer that passes OSC 52 on.
+
+| Keys | Action |
+|---|---|
+| drag | select from where the button went down; past the top or bottom edge the note scrolls a row at a time. A drag that starts on a link, a heading or a figure selects; it doesn't follow or fold |
+| click | what it always did (follow a link, fold, pick a panel row), decided when the button comes up on the same cell; anywhere else it lets go of the selection |
+| double / triple click | a word / the drawn row, without its indent (a click on a link or a fold marker acts instead) |
+| `v` | the keyboard mode, from the first row in view (or taking over a mouse selection); `h j k l`, arrows, `PgUp PgDn`, `Home End` move its end; `v` or `esc` leaves |
+| `y` | copy what's drawn: links as their titles, rows as they're drawn |
+| `Y` | copy the source: exactly the selected words when they read the same in the note's text, else the whole source lines the selection covers (a link's `((…))`, `**bold**`) |
+| `esc` | let go of the selection |
+
+With text selected, `C` starts the comment's passage on it. An agent selects with `select` (`text=`, as
+drawn, or `line=`/`to=`, 1 is the subject) and gets the text from `select.copy` (`source=true` for the
+markup): its selection is its own, drawn in its own tint, and never replaces the person's or touches
+their clipboard. A river column draws a digest of the note, so there `Y` says it can't map the source;
+`y` copies what's drawn.
+
+### The property panel
+
+`i` in any reader (Detail's Props inspector), and on the board from the lanes too (the preview takes
+focus with it open); `I` fills the reader with it instead. It lists every
+property token of the note: repeated keys stay separate rows, and line and inline scope are marked.
+`■` marks the keys the summary line shows. While it is open it takes the reader's keys, the board's and
+desk's own shortcuts (`Tab`, `o`, …) included, except scrolling: `PgDn`, `PgUp` and `Space` still page
+the note (or the list, when it fills the reader). An agent's `props` actions never open it: the rows
+come back in the reply and the reader stays as the person left it.
+
+| Keys | Action |
+|---|---|
+| `Tab` / `Shift+Tab`, `j k` | next / previous value |
+| `y` | copy the value, as authored, to the terminal's clipboard (OSC 52); only your `y` does, an agent's `props.copy` just returns it |
+| `o` | follow a block (`related-to::<id>`, `((id))`), `[[page]]` or Work-ID value (the workspace's own prefix) |
+| `Enter` / `e` | edit the value in place; `Enter` saves, `Esc` cancels |
+| `s` | show or hide this key in the summary line (your choice) |
+| `I`, `Esc` / `i` | full / inline; close |
+
+- **An edit is one `properties.patch`** of that token (its `ordinal` from `properties.preview`), with the
+  revision the panel read. If anyone saved the note since, the service refuses it and the field says
+  "changed elsewhere · not saved"; nothing is retried over their change. Values are one line without
+  `]`, like the service's own rule; a `#hashtag` stays one word (edit the note to change its form).
+  While a value is being typed the reader stays on its note, like an edit.
+- Rich-document editing in place is PIE-404; the panel only edits property values.
+
+Bodies render with `src/doc.ts`:
 
 - **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
@@ -210,7 +543,7 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
-  `[!x]-` starts folded, `z` unfolds.
+  `[!x]-` starts folded, `z` unfolds. Headings and list items fold too (see Folding).
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
 - **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
@@ -223,7 +556,11 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
   - `stat`/`kpi`: each item takes its own `query`/`view`; the value is a live count
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
-  - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter.
+  - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
+    in the saved-view grammar: `OR`, `NOT`, parentheses and `created`/`updated` ranges go to the service as
+    `blocks.query` `expression` when it advertises `query.expression` (PIE-398). Older services take plain
+    clauses, and a query that needs more says so instead of being misread. `done:` and `now:` are matched
+    against each result in the door, so they stay plain clauses.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
@@ -233,12 +570,21 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
 `~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file:
 
 - **Placement (niri):** `⏎` inserts a column right after its source, or jumps to it if that note is already a column. `alt+⏎` forces a duplicate.
-- **Compression (Andy's notes):** columns get full, peek or spine width by distance from focus; docked (`p`) columns resist. Spine titles are rotated VGA text (Kitty) or stacked letters (cells).
+- **Compression (Andy's notes):** columns get full, peek or spine width by distance from focus; docked (`p`) columns resist. Spine titles are rotated VGA text (Kitty) or stacked letters (cells), drawn by the same spine part as the board's lanes and readers (`src/spine.ts`).
 - **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked pane in the same column; `tab` moves between stacked panes.
 - **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
-- **Quote** needs write access, so it's not here.
+- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `C` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
+- **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action.
+  - `reader=` is a pane id (`r7`: stable while the pane is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
+  - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the pane holding it: addressed by a number that now names another pane, it's refused with the pane's id.
+  - A block id prefers the pane holding the agent's own edit or comment on the note, then a full-width column opened on it, then any pane editing it, then a list selecting it.
+  - An agent never moves the person's focus: `open`, `split`, `up` and `link.follow` open beside and leave the keys where they are (`focus` is the explicit handover).
+  - Starting a note action in a compressed column is refused; `pin` docks the column so it widens without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
+- **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
+- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
+- **Quote** (a new note quoting this one) isn't here yet; `C` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
 cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
@@ -271,17 +617,105 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 `V` cycles Kitty+CRT → Kitty → cells. Under Herdr, graphics follow `[terminal] kitty_graphics` in
 `~/.config/herdr/config.toml` (older builds: `[experimental]`), because Herdr panes report `xterm-256color`.
 
-## Letting an agent see what you see
+## Letting an agent see what you see, and do what you do
 
 A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
 
-    bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, which block each reader shows
+    bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
     bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
+    bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
+    bun src/main.ts act <action> [reader=<reader>] [key=value…] [--as <actor-id>]
 
 `snap` comes from a mirror that receives every byte written to the terminal (`src/mirror.ts`, the same
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
 `open` flashes "an agent opened: …" so it's never silent.
+
+**Acting.** Almost everything you do in a reader, and on the board, is a named action with typed
+arguments (`src/surface/actions.ts`). Keys run them, and `act` runs the same code for an agent, so an
+agent's edit meets the same revision check, property warning and duplicate-safe comment sends as yours:
+
+| Action | Arguments | Keys it stands for |
+|---|---|---|
+| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
+| `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
+| `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |
+| `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
+| `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
+| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
+| `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
+| `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
+| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
+| `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
+| `comment` | `quote`, `body` (select, write and send in one) | |
+| `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
+| `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
+| `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
+| `elements`, `element.select`, `element.open` | `n` (from `elements`); `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `Enter`, `alt+Enter`, a click |
+| `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
+| `props` | `full=true` | `i`, `I` |
+| `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
+| `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
+| `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
+| `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
+| `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
+
+Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
+number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means
+the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
+stdin. For example:
+
+    export EP0CH_AGENT=claude-7                       # or --as claude-7 on each call
+    bun src/main.ts act open id=<card> reader=preview
+    bun src/main.ts act edit.text text=@draft.md      # replaces the draft; opens the edit if needed
+    bun src/main.ts act edit.save                     # a property change is reported first; act edit.save again saves
+    bun src/main.ts act complete text="see [[HOME-0"  # the candidates the popup would offer
+    bun src/main.ts act complete insert=1             # the first, at the open draft's cursor
+    bun src/main.ts act comment quote="the wind is strong there" body="Soft twine?"
+    bun src/main.ts act card.move lane=Doing
+    bun src/main.ts act card.create lane=Doing text="Replace the doormat [project::ep0ch-door]"
+    bun src/main.ts act step.set step=2                # toggles done
+    bun src/main.ts act card.trash card=<id> confirm=<id>
+    bun src/main.ts act card.restore
+    bun src/main.ts act props                         # every property token, with scope and ordinal
+    bun src/main.ts act props.edit key=priority value=low revision=7
+
+An action answers with JSON when it has landed (`{"saved":true,"revision":5}`), or fails with the reason
+the door would show you (a stale revision, a quote that isn't in the note, a lane whose query a move can't
+satisfy); nothing is half-done.
+
+**Provenance, not permission.** An agent needs no approval, but nothing it does is silent or passed off
+as yours: the status bar says `an agent (claude-7) · …` for every action and everything it makes the door
+say, the reader it touched says what it did (`an agent (claude-7) saved this note`) until it shows
+another note, a draft or comment it typed says so in its frame, and its writes are recorded as
+`author: agent`, `actorId: <its id>` (default `ep0ch-door:<hostname>:agent`). The `$EDITOR` handoff stays
+yours: it would take over your terminal. `peek` shows the last agent action per reader.
+
+**Nobody's text is lost.** Each draft and comment remembers who changed it last; every keystroke of yours
+makes that you. When an agent replaces text someone else changed last (your typing, however often it has
+typed there before, or another agent's), that text is copied to `drafts/` first, the draft says where, and
+the action answers `keptYourDraftAt`. While a save is checking properties or landing, or a comment is
+sending, the draft holds still: keys wait and an agent's `edit.text`, `edit.close`, `edit.reload` and
+`comment.write` are refused with the reason. An agent's `card.select` is its own: the card its
+`card.move`, `steps`, `step.set`, `note.create` and `card.trash` default to without `card=`, said in the
+status bar; your lane cursor, preview and keys stay put, and so do they for its `card.move`. Only `open`
+and `focus` move them, and they say so in the status bar. Readers in a
+shut drawer (`tree`, `backlinks`) are refused until the drawer is open, so nothing changes out of sight.
+
+**Who a write is recorded as.** A save or send is recorded as whoever wrote the text, not whoever
+pressed `Ctrl+S` or called `edit.save`:
+
+- One party changed it since the edit opened: theirs. You saving a draft only the agent typed records the
+  agent; the agent saving what only you typed records you (`author: user`, `actorId: ep0ch-door:<hostname>`).
+- Both did: the saver's, and the actor id names everyone, saver first, joined by `+`, e.g. `author: user`,
+  `actorId: ep0ch-door:<hostname>+claude-7`. A comment is the exception in form, not substance: the service
+  takes an actor id only on agent comments, so one you both wrote is `author: agent` with that same joined
+  actor id, rather than yours with the agent left out.
+
+The edit frame says which before you save (`an agent (claude-7) typed this · it saves as the agent's`,
+`an agent (claude-7) and you typed this · saved as whoever saves it, naming both`), the status bar says
+`recorded as …` whenever that isn't simply the saver, and `edit.save` answers with `recordedAs`.
 
 ## On the service platform
 
@@ -310,18 +744,28 @@ has it and has a fallback when it doesn't, so one door works against old and new
 ## What the door sends
 
 Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `references.backlinks`,
-`annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
-puts the door in `clients.list` until it exits. When the service has them: `views.read`, `blocks.read`,
-`properties.preview` and `changes.since`.
+`annotations.list`, `clients.list`, `activity.recent`, `references.resolve`, `pages.resolve`, plus
+`events.subscribe` as an `observer`, which puts the door in `clients.list` until it exits. When the service
+has them: `views.read`, `blocks.read`, `properties.preview` and `changes.since`, and `blocks.query`
+`expression` with `query.expression`. While a draft completes a reference: `pages.complete`, `files.complete`,
+`blocks.query` `text` and `blocks.context` (an "Unsupported action" is remembered for the session).
 
-Writes, only on an explicit key:
+Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):
 
 - `update` when you save an edit, with `expectedRevision`, attributed `author: user`, `actorId: ep0ch-door:<hostname>`.
-- `properties.patch` when you move a card between lanes, with `expectedRevision`, attributed the same way.
+- `properties.patch` when you move a card between lanes, or save a value in the property panel, with
+  `expectedRevision`, attributed the same way.
 - `annotations.batch` (one `block-comment` operation) when you send a comment: `expectedRevision`, the
   exact quote and its offset, and a `requestId`.
 - `annotations.reply` when you send a reply, with a `requestId`.
 - `annotations.lifecycle` when you resolve or reopen a thread.
+- `create` for a new card or a note under one: `author: user` for yours (the service takes an actor id
+  only on agent blocks), `author: agent` with `provenance.actorId` for an agent's. Never retried.
+- `checklist.update` when you set a step, with the step's evidence (and its read revision when it has no
+  id), attributed like an edit.
+- `delete` (to Trash) and `trash.restore`; the service records no author for either.
+
+Reads for those: `checklist.query`, and `properties.preview` before a create.
 
 The service has no auth or read-only mode, so these limits are the door's own discipline.
 
@@ -337,10 +781,17 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts agent     # an agent drives the board through the control socket: open, edit, save, comment, move
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts props     # a roadmap-like card: summary line, panel (inline, full, edit, a refused edit, follow), every embed state
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
-`test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
+`test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
+by keys and through the control socket, and checks `src/query.ts` against the outliner's parser and
+evaluator. `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
 writes against a throwaway outliner service they start themselves (own state dir and workspace, Inbox
 agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read` against the
 door's evaluator, which lanes a change asks again, a dropped connection's catch-up, a service restart
@@ -348,16 +799,20 @@ door's evaluator, which lanes a change asks again, a dropped connection's catch-
 and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks the door's query parser against the outliner's
 `block-query.ts`, and every lane after the moves against the outliner's own `saved-view-read.ts`. Point
 `EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
-skip. The `edit`, `move` and `comment` snapshots write too, so they refuse to run unless
-`EP0CH_SNAP_WRITES=1`: never point them at a real outline.
+skip. The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
+unless `EP0CH_SNAP_WRITES=1` and `EP0CH_SOCKET` is set explicitly to a socket under the temp dir whose
+service serves a workspace there too (a scratch service): they never fall back to the default socket.
 
 `scripts/snap.ts` runs a small emulator over the exact bytes the door writes (cursor moves, colour,
 Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
 
-- Live figures' ad-hoc `query:` still uses the clause grammar (no OR/NOT/dates); `view:` gets the full
-  grammar through `views.read`.
+- Live figures' `done:` and `now:` take plain clauses; `query:` needs `query.expression` for OR/NOT/dates.
+- Fragment transclusions show the whole target until the service serves fragment slices (PIE-404).
+- Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
+  embedded view's result rows aren't followable (follow the `!((…))` link itself); `!((…))` inside a
+  callout or a table stays a link.
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.

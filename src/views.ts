@@ -8,6 +8,7 @@
 // Either way the door also reads the query's shape for itself (`queryShape`), but only to plan a
 // card move and to decide which lanes a change could touch; it never decides membership with it.
 import type { Msg } from "./board";
+import { parseQuery, writableQuery, type WritableQuery } from "./query";
 import type { SocketBoard } from "./socket";
 
 export interface PropertyFilter { key: string; value?: string }
@@ -20,12 +21,12 @@ export interface ViewRead {
   /** The query as property clauses that must all hold, when it is only that: what a card must carry to be in this view. */
   filters: PropertyFilter[];
   /**
-   * Set when the query is more than a list of clauses (OR, NOT, a date range, parentheses): why a
-   * property patch can't be trusted to put a card in this view. `filters` is empty then.
+   * A query in the newer grammar (OR, NOT, parentheses, created/updated ranges): its plain top-level
+   * clauses, which a write may set, and the terms a card must already meet. `filters` is empty then.
    */
+  query?: WritableQuery;
+  /** Set when the door can't read the query at all: why a write can't be planned for this view. */
   unpatchable?: string;
-  /** For an unpatchable query that is still a plain AND: the clauses any member must carry (NOT and date terms left out). */
-  required?: PropertyFilter[];
   /** Every member, beyond the limit (views.read only). */
   total?: number;
   /** Who evaluated it: the service (views.read) or the door's own port (older services). */
@@ -99,51 +100,23 @@ function queryTokens(input: string): string[] {
 }
 
 /**
- * What kind of query this is, for moving cards: a plain list of clauses a property patch can
- * satisfy, or the reason it can't be. Newer services also accept `OR`, `NOT`, parentheses and
- * `created`/`updated` ranges (PIE-398); the door recognises those words only to refuse a move, and
- * leaves what they select to the service.
+ * What kind of query this is, for writing cards: a plain list of clauses (`filters`), a query in the
+ * newer grammar with OR, NOT, parentheses or created/updated ranges (PIE-398), split into the plain
+ * clauses a write sets and the terms that must already hold (`query`, src/query.ts), or the reason
+ * the door can't read it (`unpatchable`). What a view selects is still the service's answer.
  */
-export function queryShape(input: string): { filters: PropertyFilter[] } | { unpatchable: string; required?: PropertyFilter[] } {
-  let tokens: string[];
-  try { tokens = queryTokens(input); } catch (e) { return { unpatchable: `its query doesn't parse here (${(e as Error).message})` }; }
-  const bare = (t: string | undefined) => (t === undefined || t.startsWith('"') ? "" : t.toLowerCase());
-  const isTime = (t: string) => t === "created" || t === "updated";
-  const op = /^[<>]=?/;
-  // How many tokens a created/updated range at i takes (`updated >= -7d`, `updated>= -7d`, `updated>=-7d`), or 0.
-  const range = (i: number): number => {
-    const t = bare(tokens[i]), next = bare(tokens[i + 1]);
-    if (isTime(t) && op.test(next)) return next.replace(op, "") ? 2 : 3;
-    const m = t.match(/^(created|updated)\s*([<>]=?)(.*)$/);
-    return m ? (m[3] ? 1 : 2) : 0;
-  };
-  let why: string | null = null, grouped = false;
-  const clauses: string[] = [], required: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const t = bare(tokens[i]);
-    if (t === "or") { why ??= "uses OR; a move can't pick which side to satisfy"; grouped = true; continue; }
-    if (t.startsWith("(") || t.startsWith("not(")) { why ??= "groups clauses in parentheses; a move only satisfies a plain list of clauses"; grouped = true; continue; }
-    if (t === "not") {
-      why ??= "uses NOT; a move won't remove or invent properties to satisfy it";
-      // `NOT (a b)` negates a whole group: nothing inside it is a clause a member must carry.
-      if (bare(tokens[i + 1]).startsWith("(")) { grouped = true; continue; }
-      const n = range(i + 1);
-      i += n || 1;                                            // NOT applies to the next term only
-      continue;
-    }
-    const n = range(i);
-    if (n || op.test(t)) { why ??= "filters by when cards were created or updated; a move can't change that"; i += Math.max(0, n - 1); continue; }
-    if (t === "and") continue;              // an explicit AND means the same as the space between clauses
-    clauses.push(tokens[i]!);
+export function queryShape(input: string): { filters: PropertyFilter[] } | { query: WritableQuery } | { unpatchable: string } {
+  let parsed: ReturnType<typeof parseQuery>;
+  try { parsed = parseQuery(input); } catch (e) { return { unpatchable: `its query doesn't parse here (${(e as Error).message})` }; }
+  if (parsed.simple) {
+    let filters: PropertyFilter[];
+    try { filters = parseFilterExpression(input); }
+    catch (e) { return { unpatchable: `its query isn't a list of property clauses (${(e as Error).message})` }; }
+    // deleted=true is the service's Trash switch, not a property a write could set: a card gets there by trash.
+    if (filters.some(f => f.key === "deleted")) return { unpatchable: "selects Trash (deleted=true); a card goes there with d (card.trash), not a move" };
+    return { filters };
   }
-  if (why) {
-    // A plain AND of terms: its plain clauses must still hold for a card to be in the view. With OR or
-    // parentheses the door can't say even that.
-    if (grouped) return { unpatchable: why };
-    try { return { unpatchable: why, required: clauses.map(parseFilterClause) }; } catch { return { unpatchable: why }; }
-  }
-  try { return { filters: clauses.map(parseFilterClause) }; }
-  catch (e) { return { unpatchable: `its query isn't a list of property clauses (${(e as Error).message})` }; }
+  return { query: writableQuery(input) };
 }
 
 /** The outliner's matchesFilters over block-scope properties: every clause holds for some property. */
@@ -163,7 +136,8 @@ export async function readView(board: SocketBoard, def: Msg): Promise<ViewRead> 
     truncated: served.completeness?.kind === "truncated" || served.nextOffset !== undefined,
     errors: served.errors,
     filters: "filters" in shape ? shape.filters : [],
-    ...("unpatchable" in shape ? { unpatchable: shape.unpatchable, ...(shape.required ? { required: shape.required } : {}) } : {}),
+    ...("query" in shape ? { query: shape.query } : {}),
+    ...("unpatchable" in shape ? { unpatchable: shape.unpatchable } : {}),
     total: served.total,
     by: "service",
   };

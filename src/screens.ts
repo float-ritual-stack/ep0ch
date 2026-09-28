@@ -12,6 +12,7 @@ import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
 import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
+import { Showcase } from "./showcase/showcase";
 import { ago, bbsDate, colourBody, rule, wrap } from "./text";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -127,6 +128,8 @@ const ITEMS: MenuItem[] = [
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
   { key: "D", label: "Desk", open: () => new Desk() },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
+  // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
+  { key: "X", label: "Showcase", open: () => new Showcase() },
 ];
 
 export class MainMenu implements Screen {
@@ -565,7 +568,8 @@ export class Help implements Screen {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
         ...ITEMS.map(i => paint(`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`)),
-        "", paint("|08   Read-only. Nothing you do here writes to the outline."),
+        "", paint("|08   Kanban, Quay, Desk and Showcase write: edits, comments, card moves, trash and restore go to the outline,"),
+        paint("|08   recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
     };
@@ -576,7 +580,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live panes you tile yourself", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
 };
 
 export class Goodbye implements Screen {

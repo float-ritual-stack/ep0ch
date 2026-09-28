@@ -4,6 +4,7 @@
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
+import { actorIdOf, USER, type Actor } from "./socket";
 import { stateDir } from "./state";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
@@ -15,6 +16,8 @@ export class Draft {
   row = 0;
   col = 0;
   private top = 0;
+  /** The screen row of the cursor in the last render (the completion popup opens under it). */
+  cursorRow = 0;
   /** The text the draft started from, to tell whether anything changed. */
   private original: string;
   /** Another writer changed the block after the draft opened (seen through an outline event). */
@@ -24,10 +27,20 @@ export class Draft {
   /** Where the draft was copied when the service refused it. */
   savedCopy: string | null = null;
   saving = false;
+  /** A save is asking the service how it will read the draft's properties; the draft holds still meanwhile. */
+  previewing = false;
   /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
   propertyWarned: string | null = null;
   private discardArmed = false;
   note = "";
+
+  /**
+   * Who changed the text since the draft opened (each once, in the order they first did), and who changed
+   * it last: the person's keys and $EDITOR, or an agent's `edit.text` / `comment.write`. A save is recorded
+   * by who wrote it (`recordAs`), and an agent replacing someone else's typing copies it out first.
+   */
+  writers: Actor[] = [];
+  lastWriter: Actor | null = null;
 
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
@@ -42,6 +55,27 @@ export class Draft {
 
   get text() { return this.lines.join("\n"); }
   get dirty() { return this.text !== this.original; }
+  /** A save is under way (checking properties, or writing): nothing may change or close the draft. */
+  get busy() { return this.saving || this.previewing; }
+
+  /** `who` changed the text. */
+  wrote(who: Actor) {
+    const { with: _, ...me } = who;
+    this.lastWriter = me as Actor;
+    if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
+  }
+
+  /**
+   * Who a save by `saver` is recorded as. One party wrote every change since the draft opened: them,
+   * whoever presses save. Several did: the saver, naming the others (`with`), so neither is left out.
+   */
+  recordAs(saver: Actor): Actor {
+    if (this.writers.length === 1) return this.writers[0]!;
+    if (!this.writers.length) return saver;
+    const others = this.writers.filter(w => !sameParty(w, saver)).map(actorIdOf);
+    const { with: _, ...me } = saver;
+    return { ...(me as Actor), with: others };
+  }
 
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
@@ -53,14 +87,32 @@ export class Draft {
     this.col = Math.min(this.col, this.lines[this.row]!.length);
     this.changedElsewhere = false;
     this.conflict = null;
+    this.writers = []; this.lastWriter = null;
     this.note = "reloaded the current text";
   }
 
-  /** Replace the text wholesale ($EDITOR came back). The base revision stays: the service still judges it. */
-  replace(text: string) {
+  /** Replace the text wholesale ($EDITOR came back, or an agent sent it). The base revision stays: the service still judges it. */
+  replace(text: string, by: Actor = USER) {
+    const before = this.text;
     this.lines = text.replace(/\n$/, "").split("\n");
+    if (this.text !== before) this.wrote(by);
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
+  }
+
+  /**
+   * A chosen completion: `[start,end)` of the cursor's line becomes `text` and the cursor lands after it;
+   * `lines` first replaces other whole lines (a heading given a fragment anchor). One change, by `by`.
+   */
+  splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER) {
+    const before = this.text;
+    for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
+    const line = this.line;
+    this.lines[this.row] = line.slice(0, start) + text + line.slice(end);
+    this.col = start + text.length;
+    this.discardArmed = false;
+    this.note = "";
+    if (this.text !== before) this.wrote(by);
   }
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
@@ -83,7 +135,7 @@ export class Draft {
       if (k.ch === "e") return "editor";
       if (k.ch === "r") return "reload";
       if (k.ch === "a") { this.col = 0; return "keep"; }
-      if (k.ch === "k") { this.lines[this.row] = this.line.slice(0, this.col); return "keep"; }
+      if (k.ch === "k") { if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
       return "keep";
     }
     if (k.kind === "esc") {
@@ -93,7 +145,7 @@ export class Draft {
       return "keep";
     }
     this.note = "";
-    const L = this.lines;
+    const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
     switch (k.kind) {
       case "left":
         if (this.col > 0) this.col = stepBack(this.line, this.col);
@@ -135,6 +187,8 @@ export class Draft {
       case "tab": this.insert("  "); break;
       case "char": this.insert(k.ch); break;
     }
+    // Every keystroke that changes the text makes the person its last writer.
+    if (L.length !== len || L[r0] !== cur) this.wrote(USER);
     return "keep";
   }
 
@@ -172,9 +226,13 @@ export class Draft {
     if (cursorAt < this.top) this.top = cursorAt;
     if (cursorAt >= this.top + h) this.top = cursorAt - h + 1;
     this.top = Math.max(0, Math.min(this.top, Math.max(0, out.length - h)));
+    this.cursorRow = cursorAt - this.top;
     return out.slice(this.top, this.top + h);
   }
 }
+
+/** The same party: the person, or the same agent. */
+export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);
 
 const isLow = (s: string, i: number) => { const c = s.charCodeAt(i); return c >= 0xdc00 && c <= 0xdfff; };
 const stepBack = (s: string, i: number) => (i >= 2 && isLow(s, i - 1) ? i - 2 : i - 1);

@@ -1,6 +1,6 @@
 // A throwaway outliner service for tests: its own state, workspace and config dirs, background agents
 // off, Herdr unset. Never a real outline. `restart()` stops it and starts it again on the same state,
-// the way a deploy would.
+// the way a deploy would. `seedShowcase()` writes the showcase outline (src/showcase/seed.ts) into it.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,11 +15,17 @@ export const until = async (ok: () => boolean, what: string, ms = 5000) => {
 };
 
 export class Scratch {
-  readonly root = mkdtempSync(join(tmpdir(), "ep0ch-scratch-"));
+  readonly root: string;
   sock = "";
   private proc: Subprocess | null = null;
-  constructor() { for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d)); }
+  /** `root`: serve that directory's ws/state/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
+  constructor(root?: string) {
+    this.root = root ?? mkdtempSync(join(tmpdir(), "ep0ch-scratch-"));
+    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true });
+  }
   get workspace() { return join(this.root, "ws"); }
+  /** The service's process id, while it runs. */
+  get pid() { return this.proc?.pid; }
 
   async start(): Promise<string> {
     const env: Record<string, string> = {
@@ -57,6 +63,14 @@ export class Scratch {
 
   /** Stop and start on the same state. Resolves once the new service answers, with whether the stop was graceful. */
   async restart(): Promise<{ sock: string; graceful: boolean }> { const graceful = await this.stop(); return { sock: await this.start(), graceful }; }
+
+  /** Seed the showcase outline through the service, the way scripts/try-it.sh --showcase does. */
+  async seedShowcase() {
+    const { SocketBoard } = await import("../src/socket");
+    const { seedShowcase } = await import("../src/showcase/seed");
+    const b = new SocketBoard(this.sock);
+    try { await b.info(); return await seedShowcase(b); } finally { b.close(); }
+  }
 
   async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
 }

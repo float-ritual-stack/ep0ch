@@ -16,9 +16,10 @@ for (const def of defs) {
   if (theirs.by !== "service") { console.error("views.read isn't answering; stopping"); process.exit(2); }
   const shape = queryShape(def.props.query ?? "");
   if ("unpatchable" in shape) unpatchable++;
+  const newer = "query" in shape;
   tally.set(theirs.status, (tally.get(theirs.status) ?? 0) + 1);
   // Queries only the newer grammar can express: the door's port calls them invalid, by design.
-  if (mine.status === "invalid" && theirs.status === "ready" && "unpatchable" in shape) { serviceOnly++; continue; }
+  if (mine.status === "invalid" && theirs.status === "ready" && newer) { serviceOnly++; continue; }
   const a = JSON.stringify([theirs.status, theirs.items.map(m => m.id), theirs.truncated, theirs.limit]);
   const b = JSON.stringify([mine.status, mine.items.map(m => m.id), mine.truncated, mine.limit]);
   if (a === b) { same++; continue; }
@@ -27,6 +28,6 @@ for (const def of defs) {
 }
 console.log(`protocol ${info.protocol} · capabilities ${info.capabilities?.join(",") ?? "(none advertised)"}`);
 console.log(`${defs.length} saved views · statuses ${[...tally].map(([k, v]) => `${k} ${v}`).join(", ")}`);
-console.log(`identical ${same}/${defs.length - serviceOnly} · newer-grammar only ${serviceOnly} · differ ${differ} · refused as move targets ${unpatchable}`);
+console.log(`identical ${same}/${defs.length - serviceOnly} · newer-grammar only ${serviceOnly} · differ ${differ} · unreadable by the door ${unpatchable}`);
 board.close();
 process.exit(differ ? 1 : 0);

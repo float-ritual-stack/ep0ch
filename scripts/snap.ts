@@ -1,7 +1,9 @@
 // Drive the real door against the live outline and snapshot what a Kitty terminal would show.
 // src/mirror.ts consumes the exact bytes the door writes and composites them into a PNG.
 //   bun scripts/snap.ts [cells] → out/snap-*.png
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, sep } from "node:path";
 import { Mirror } from "../src/mirror";
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
@@ -12,8 +14,24 @@ import { SocketBoard } from "../src/socket";
 import type { Key, TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
+
+// Scenarios that write seed their own board and edit it. They only ever run against a scratch service:
+// an explicit EP0CH_SOCKET (never the default socket) under the temp dir, whose workspace is there too.
+const WRITES = ["edit", "props", "move", "comment", "agent"];
+const underTemp = (p: string) => {
+  const real = (x: string) => { try { return realpathSync(x); } catch { return resolve(x); } };
+  const r = real(p);
+  return [...new Set([tmpdir(), "/tmp"].map(real))].some(t => r === t || r.startsWith(t + sep));
+};
+const refuse = (why: string) => { console.error(`${scenario} writes to the outline: ${why}`); process.exit(2); };
+if (WRITES.includes(scenario)) {
+  const sock = process.env.EP0CH_SOCKET;
+  if (!sock) refuse("set EP0CH_SOCKET to a scratch service's socket (the default socket is never written to), and EP0CH_SNAP_WRITES=1");
+  else if (!underTemp(sock)) refuse(`EP0CH_SOCKET must be a scratch service's socket under the temp dir (${tmpdir()}), not ${sock}`);
+  else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
+}
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["desk", "river", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey"].includes(scenario);
+const wide = ["showcase", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -29,14 +47,15 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `journey` runs its own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>), so it can restart it.
-const scratch = scenario === "journey" ? await (async () => {
+// `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "showcase" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
-  if (!outliner) { console.error("journey starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout"); process.exit(2); }
+  if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
 })() : null;
 const board = new SocketBoard(scratch ? await scratch.start() : undefined);
 const info = await board.info();
+if (WRITES.includes(scenario) && !underTemp(info.workspace)) refuse(`the service at EP0CH_SOCKET serves ${info.workspace}, not a scratch workspace under the temp dir`);
 const app = new App(fakeTerm as any, board, Date.now() - 6 * 3600_000, () => {});
 app.host = info.host; app.workspace = info.workspace;
 mkdirSync("out", { recursive: true });
@@ -45,6 +64,7 @@ const snap = async (name: string, wait = 600) => {
   await Bun.sleep(wait);
   app.redraw();
   writeFileSync(`out/snap-${tag}-${name}.png`, emu.snapshot(fakeTerm.info));
+  writeFileSync(`out/snap-${tag}-${name}.txt`, emu.text().join("\n") + "\n");
   console.log(`${name}: ${bytes} bytes written so far, ${emu.placements.size} placement(s), ${emu.images.size} image(s)`);
 };
 const press = (k: Key) => keyFn(k);
@@ -134,6 +154,319 @@ if (scenario === "board2") {
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
 }
+if (scenario === "showcase") {
+  // PIE-439: the showcase on its own seeded outline (src/showcase/seed.ts, fictional), one snapshot per
+  // section, then a few interactions: a section's own keys, a click on the index, an agent's act.
+  const { seedShowcase } = await import("../src/showcase/seed");
+  const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
+  await seedShowcase(board);
+  board.subscribe(e => app.event(e));
+  const sc = new Showcase();
+  app.push(new MainMenu()); app.push(sc);
+  await Bun.sleep(800);
+  for (let i = 0; i < SECTIONS.length; i++) {
+    ch(i === 9 ? "0" : String(i + 1));
+    await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 4 || i === 7 ? 2500 : 1200);
+  }
+  ch("5"); press({ kind: "enter" }); ch("c");                                           // the board: collapse a lane to a spine
+  await snap("11-board-spine", 1000);
+  press({ kind: "esc" });                                                               // the board's own back key
+  ch("3"); press({ kind: "enter" }); ch("e"); await Bun.sleep(600); for (const c of " [[Bike") ch(c);  // edit, and complete a page
+  await snap("12-edit-complete", 1500);
+  press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200); press({ kind: "esc" }); ch("q");
+  press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 8 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 8 * 2 });   // click section 9
+  await snap("13-clicked-selection", 800);
+  await app.act({ action: "section", args: { name: "service" }, as: "snap-agent" });
+  await snap("14-agent-section", 1500);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "spines") {
+  // PIE-440 (its own scratch service, fictional cards): a lane, a detail holding an agent's draft and the
+  // preview collapsed to spines, their titles rotated under Kitty graphics.
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Allotment board");
+  for (const [lane, q] of [["Queued", "stage=queued"], ["Doing", "stage=doing"], ["Done", "stage=done"]]) await mk(hub.id, `${lane} [type::virtual-branch] [query::${q}]`);
+  for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"], ["Paint the shed", "done"]])
+    await mk(null, `${t} [stage::${st}]\n${t}: the rake leans on the shed, the hose runs along the fence.`);
+  const b = new DeliveryBoard(hub.id);
+  app.push(new MainMenu()); app.push(b);
+  await Bun.sleep(2500);
+  press({ kind: "down" }); press({ kind: "enter" }); await Bun.sleep(800);             // a detail
+  press({ kind: "esc" }); press({ kind: "right" }); press({ kind: "right" }); ch("c");  // collapse Done
+  press({ kind: "left" }); press({ kind: "left" });
+  const held = (b as any).details[0].msg;
+  await app.act({ action: "edit.text", args: { text: `${held.text}\nOil the hinge before the frost.` }, reader: "detail1", as: "snap-agent" });
+  await snap("1-open", 800);
+  press({ kind: "tab" }); press({ kind: "tab" }); ch("c");                              // the detail, holding the agent's draft
+  await snap("2-detail-spine", 800);
+  press({ kind: "backtab" }); ch("c");                                                  // the preview
+  await snap("3-preview-spine", 800);
+  console.log(JSON.stringify((b as any).placed.map((x: any) => x.p.key)), JSON.stringify((app.describe() as any).state.collapsedReaders));
+  press({ kind: "alt", ch: "c" });
+  await snap("4-all-open", 800);
+  await app.act({ action: "edit.close", args: { discard: true }, reader: "detail1", as: "snap-agent" });
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "kanban") {
+  // PIE-406 on an All-work-shaped board (its own scratch service, fictional cards): OR lanes, moving into
+  // them, a new card that must meet the group, checklist steps, trash and undo.
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const q = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
+  // Roadmap lanes create through the workboard's allocator: a Work-ID prefix and one work queue per project.
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  const queue = await mk(null, "Door work queue [type::work-queue] [project::ep0ch-door]");
+  await mk(null, "Outliner work queue [type::work-queue] [project::pi-outliner]");
+  const hub = await mk(null, "All work Delivery Flow");
+  await mk(hub.id, `Queued [type::virtual-branch] [query::${q("queued")}] [create::project=ep0ch-door]`);
+  for (const st of ["doing", "review", "done"]) await mk(hub.id, `${st[0]!.toUpperCase()}${st.slice(1)} [type::virtual-branch] [query::${q(st)}]`);
+  await mk(hub.id, "Everything [type::virtual-branch] [query::type=roadmap-item]");
+  const shelf = await mk(queue.id, "Level the shelf [type::roadmap-item] [project::pi-outliner] [work-stage::queued] [priority::high]\n\n- [ ] find the spirit level\n- [ ] loosen the brackets\n- [x] clear the books");
+  await mk(queue.id, "Descale the kettle [type::roadmap-item] [project::ep0ch-door] [work-stage::queued]");
+  await mk(queue.id, "Swap the porch bulb [type::roadmap-item] [project::pi-outliner] [work-stage::doing]");
+  const tap = await mk(queue.id, "Fix the dripping tap [type::roadmap-item] [project::ep0ch-door] [work-stage::review]");
+  await mk(tap.id, "Washer size is 1/2 inch.");
+  const club = await mk(null, "Plan the garden club rota [type::roadmap-item] [project::garden-club] [work-stage::queued]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(400); };
+  const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
+  const type = (t: string) => { for (const c of t) ch(c); };
+  const said = () => console.log(`  status: ${(app as any).message || "(none)"} · refreshes ${JSON.stringify(S.refreshes)}`);
+  const pick = (lane: string, id: string) => { S.focus = "lanes"; S.lane = S.lanes.findIndex((l: any) => l.name === lane); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === id); S.follow(); app.redraw(); };
+  const to = (lane: string) => { const t = S.lanes.findIndex((l: any) => l.name === lane); for (let i = 0; i < 10 && S.mover && S.mover.sel !== t; i++) ch(S.mover.sel < t ? "j" : "k"); };
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-or-lanes", 2500);
+  // A card outside the group: the picker says which term it doesn't meet.
+  pick("Everything", club.id); ch("m"); to("Doing");
+  await snap("2-or-refused", 600);
+  press({ kind: "esc" });
+  // A card in one of the projects: only work-stage is patched.
+  pick("Queued", shelf.id); ch("m"); to("Doing");
+  await snap("3-or-move-picker", 600);
+  press({ kind: "enter" }); await settle();
+  await snap("4-or-moved", 800); said();
+  // A new roadmap item in Doing: no create:: default, so the text must meet the group, and the
+  // allocator needs priority, arc and a track.
+  ch("n"); await Bun.sleep(400); type("Replace the doormat [priority::low] [arc::home] [track::doors]");
+  await snap("5-composer", 400);
+  ctrl("s"); await Bun.sleep(600);
+  await snap("6-composer-refused", 200); said();
+  type(" [project::ep0ch-door]"); ctrl("s"); await settle();
+  await snap("7-created", 800); said();
+  // Review takes no new roadmap items: create in Queued or Doing, then move.
+  pick("Review", tap.id); ch("n"); await Bun.sleep(200);
+  await snap("7b-review-refused", 200); said();
+  // Steps: check one off.
+  pick("Doing", shelf.id); ch("s"); await Bun.sleep(500); ch(" "); await Bun.sleep(700);
+  await snap("8-steps", 300); said();
+  press({ kind: "esc" });
+  // Trash with d d, then the banner offers u.
+  pick("Review", tap.id); ch("d"); await Bun.sleep(300);
+  await snap("9-trash-confirm", 200);
+  ch("d"); await settle();
+  await snap("10-trashed", 600); said();
+  ch("u"); await settle();
+  await snap("11-restored", 600); said();
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "scroll") {
+  // PIE-411 on its own scratch service (fictional long notes): scroll indicators on docked readers, a
+  // float and the desk; a comment session opened by m shows in the frame and hints; an agent's edit
+  // doesn't take the person's keys until they enter it.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const long = (t: string, st: string) => `${t} [stage::${st}]\n${Array.from({ length: 90 }, (_, i) => `${i % 12 === 0 ? `## Part ${i / 12 + 1}\n` : ""}${t} line ${i + 1}: the hose runs along the fence past the shed.`).join("\n")}`;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"]] as const) await mk(null, long(t, st));
+  const gate = (await board.query("stage=doing", 5))[0]!;
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const wheelAt = (region: string, n: number) => { const r = S.rects.get(region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-board", 2500);
+  press({ kind: "enter" }); await Bun.sleep(600);
+  press({ kind: "pgdn" }); press({ kind: "pgdn" }); wheelAt("preview", 4);
+  await snap("2-scrolled", 600);
+  ch("m"); await Bun.sleep(600);
+  await snap("3-comments-mode", 400);
+  wheelAt("preview", 6);
+  await snap("4-wheel-while-commenting", 400);
+  press({ kind: "esc" }); press({ kind: "esc" });
+  await agent("edit", "preview");
+  ch("j"); ch("j");
+  await snap("5-agent-edit-lanes-keep-keys", 600);
+  press({ kind: "tab" });
+  await snap("6-agent-edit-focused", 400);
+  await agent("edit.close", "preview", { discard: true });
+  press({ kind: "esc" });
+  await agent("open", "float", { id: gate.id }); await Bun.sleep(600);
+  for (let i = 0; i < 3; i++) press({ kind: "pgdn" });
+  await snap("7-float", 600);
+  app.pop(); app.push(new Desk());
+  await agent("open", "", { id: gate.id }); await Bun.sleep(800);
+  press({ kind: "pgdn" }); press({ kind: "pgdn" });
+  await snap("8-desk", 800);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "complete") {
+  // PIE-416 on its own scratch service (fictional notes): [[, (( and [file:: completion in the preview's
+  // editor, and in a comment composer.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const { mkdirSync: md, writeFileSync: wf } = await import("node:fs");
+  md(`${info.workspace}/notes/beds`, { recursive: true }); wf(`${info.workspace}/notes/plan.md`, "the plan\n"); wf(`${info.workspace}/notes/seeds.md`, "beans\n");
+  await board.request("work-ids.configure", { prefix: "HOME" });
+  await mk(null, "Door work queue [type::work-queue] [project::garden]");
+  for (const t of ["Oil the hinges", "Hang the shed door", "Fix the gate latch"]) await board.createRoadmapItem({ title: t, priority: "medium", project: "garden", arc: "home", tracks: ["doors"] });
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  await mk(null, "Seed list [page::seeds]\nWhat to sow this spring.\n## Beans ^beans\nrunner beans");
+  await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.\n## Beds\nfour of them");
+  await mk(null, "Turn the compost [stage::doing]\nEvery two weeks, bucket by the shed.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id);
+  const type = (s: string) => { for (const c of s) ch(c); };
+  app.push(new MainMenu()); app.push(B);
+  await Bun.sleep(2500);
+  ch("e"); await Bun.sleep(600);
+  press({ kind: "end" }); press({ kind: "down" }); press({ kind: "end" }); press({ kind: "enter" });
+  type("see [[HOME");
+  await snap("1-work-ids", 800);
+  press({ kind: "down" }); await snap("2-chosen", 500);
+  // The mouse: the wheel over the popup moves the choice back, a click on the last candidate inserts it.
+  const rowOf = (t: string) => emu.text().findIndex(l => l.includes(t));
+  press({ kind: "mouse", action: "wheel-up", button: 0, x: 20, y: rowOf("references") });
+  press({ kind: "mouse", action: "down", button: 0, x: 20, y: rowOf("Fix the gate latch") });
+  press({ kind: "mouse", action: "up", button: 0, x: 20, y: rowOf("Fix the gate latch") });
+  await Bun.sleep(500);
+  type(" and ((compo");
+  await snap("3-blocks", 800);
+  press({ kind: "enter" }); await Bun.sleep(500);
+  type(" ((#be");
+  await snap("4-own-heading", 800);
+  press({ kind: "esc" }); await snap("5-dismissed", 300);
+  press({ kind: "enter" }); type("[file::notes/");
+  await snap("6-files", 800);
+  press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "select") {
+  // PIE-419 on its own scratch service (a fictional planting note): a drag selects (the copy control
+  // appears), the keyboard mode, an agent's selection in its own tint beside the person's, and the same
+  // in cells video.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  const beans = await mk(null, "Stake the beans\nCanes along the fence.");
+  const plan = await mk(null, `Plan the allotment [stage::queued]\nSow peas early, see ((${beans.id})) for the canes.\n\n## Water\nThe hose runs along the fence past the shed; **water the seedlings** every morning.\n\n- dig the bed\n- buy canes\n\n> [!note] Frost\n> Nothing out before mid May.`);
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const at = (region: string, words: string) => {
+    const r = S.rects.get(region), rows = emu.text();
+    const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
+    if (y < 0) throw new Error(`no "${words}" in ${region}`);
+    return { x: [...rows[y]!].join("").indexOf(words, r.col), y };
+  };
+  const mouse = (action: "down" | "drag" | "up", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+  app.push(new MainMenu()); app.push(B);
+  await app.act({ action: "open", reader: "detail", args: { id: plan.id }, as: "snap-agent" });
+  await snap("1-open", 2000);
+  const a = at("detail0", "Sow peas"), z = at("detail0", "past the shed");
+  mouse("down", a.x, a.y); mouse("drag", a.x + 1, a.y); mouse("drag", z.x + 12, z.y); mouse("up", z.x + 12, z.y);
+  await snap("2-dragged", 300);
+  ch("y"); await snap("3-copied", 300);
+  press({ kind: "esc" });
+  ch("v"); ch("j"); ch("l"); ch("l"); ch("l");
+  await snap("4-keyboard-mode", 300);
+  press({ kind: "esc" });
+  const w = at("detail0", "dig the bed");
+  mouse("down", w.x, w.y); mouse("drag", w.x + 3, w.y); mouse("up", w.x + 3, w.y);
+  await app.act({ action: "select", reader: "detail", args: { text: "Nothing out before mid May" }, as: "snap-agent" });
+  await snap("5-agent-and-person", 400);
+  ch("V"); ch("V");
+  await snap("6-cells", 400);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "fold") {
+  // PIE-410 on its own scratch service (a fictional planting note): fold a section by keys, a list item
+  // by a click, and all sections at once; an edit elsewhere refreshes the reader and keeps the folds; an
+  // agent unfolds through the registry; the desk's reader folds the same way.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const beds = Array.from({ length: 14 }, (_, i) => `- bed ${i + 1}: beans, then squash\n  - edge it with boards\n  - two barrows of compost\n    well rotted, from the far heap`).join("\n");
+  const text = `Plan the allotment [stage::queued]\nWhat goes where this year.\n\n## Beds\n${beds}\n\n### Soil\nLoam, mostly; lime the brassica bed.\n\n## Water\nThe hose runs along the fence past the shed.\n\`\`\`\n# not a heading: code\n\`\`\`\n\n## Paths\n- woodchip between the beds\n- a wider one to the shed\n\n# Later\nMulch in autumn.`;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  const plan = await mk(null, text);
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const clickOn = (region: string, words: string, dx = 4) => {
+    const r = S.rects.get(region), rows = emu.text();
+    const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
+    if (y < 0) throw new Error(`no "${words}" in ${region}`);
+    press({ kind: "mouse", action: "down", button: 0, x: r.col + dx, y }); press({ kind: "mouse", action: "up", button: 0, x: r.col + dx, y });
+  };
+  app.push(new MainMenu()); app.push(B);
+  await agent("open", "detail", { id: plan.id });
+  await snap("1-unfolded", 2000);
+  ch(")"); await snap("2-selected", 300);
+  ch("f"); await snap("3-beds-folded", 300);
+  ch("f"); ch(")"); ch(")");
+  await snap("4-item-selected", 300);
+  clickOn("detail0", "bed 2:", 2);
+  await snap("5-item-clicked", 300);
+  ch("F"); await snap("6-all-cleared", 300);
+  ch("F"); await snap("7-all-folded", 300);
+  const cur = (await board.get(plan.id))!;
+  await board.update(plan.id, cur.text.replace("What goes where this year.", "What goes where this year (edited elsewhere)."), cur.revision!);
+  await snap("8-edited-elsewhere-folds-kept", 1000);
+  await agent("unfold", "detail", { text: "Water" });
+  await snap("9-agent-unfolds", 400);
+  app.pop(); app.push(new Desk());
+  await agent("open", "", { id: plan.id }); await Bun.sleep(800);
+  ch(")"); ch("f");
+  await snap("10-desk", 800);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "elements") {
+  // PIE-441 on its own scratch service (fictional garden notes): [ ] walk a note's elements in the
+  // preview with the reading ruler under the current one, ⏎ on a figure row opens a detail, the comment
+  // mark expands its thread inline with its controls (PIE-420), and an agent's focus mark in the detail is
+  // tinted and named. The note ends with a literal region (PIE-422): markers hidden, its token plain.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+  const beans = await mk(null, "Stake the beans\nCanes along the fence.");
+  const shed = await mk(null, "Paint the shed\nTwo coats, green.");
+  await mk(null, "Water the seedlings [type::garden-job]");
+  await mk(null, "Turn the compost [type::garden-job]");
+  const figure = `::graph-check\n---\ntitle: Garden jobs\nquery: "type=garden-job"\nsort: created\ndirection: asc\n---\n::`;
+  const jobs = await mk(null, `Weekend jobs [stage::queued]\nFirst ((${beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n  - two barrows of compost\n\n${figure}\n\n!((${shed.id}))\n\n## Water\nThe hose runs along the fence past the shed.\n<!-- literal -->\nWrite [stage::queued] on a card's subject line.\n<!-- /literal -->\nThe butt fills from the shed roof [level::half].`);
+  await board.comment(`snap-${crypto.randomUUID()}`, jobs.id, jobs.revision, "Use the long spade.", { quote: "dig the north bed", start: jobs.text.indexOf("dig the north bed") });
+  void plan;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-preview", 2000);
+  S.focus = "preview";
+  ch("]"); ch("]"); await snap("2-link-ruler", 300);
+  for (let i = 0; i < 5; i++) ch("]");
+  await snap("3-figure-row", 300);
+  press({ kind: "enter" }); await snap("4-row-opens-detail", 800);
+  S.focus = "preview";
+  ch("["); ch("["); ch("["); await snap("5-comment-mark", 300);
+  press({ kind: "enter" }); await snap("6-thread-inline", 600);
+  ch("]"); ch("]"); await snap("6b-reply-control", 300);
+  press({ kind: "esc" });
+  await app.act({ action: "open", reader: "detail", args: { id: jobs.id }, as: "snap-agent" });
+  await Bun.sleep(600);
+  await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
+  await snap("7-agent-focus", 400);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
 if (scenario === "journey") {
   // The integrated door, one pass: board → preview → edit with a property warning → move → comment →
   // another client edits → the service restarts. Its own scratch service and fictional notes only.
@@ -176,7 +509,7 @@ if (scenario === "journey") {
   await snap("6-moved", 600); said();
   // Comment on a passage from the preview.
   for (let i = 0; i < 6 && S.focus !== "preview"; i++) press({ kind: "tab" });
-  ch("c"); await Bun.sleep(600);
+  ch("C"); await Bun.sleep(600);
   ch("j"); await Bun.sleep(100);
   await snap("7-quoting", 500);
   press({ kind: "enter" }); for (const c of "Which green? The shed or the gate green?") ch(c);
@@ -235,6 +568,67 @@ if (scenario === "edit") {
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
   console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  other.close(); board.close(); process.exit(0);
+}
+if (scenario === "props") {
+  // Writes: seeds a board with a roadmap-like card, then the summary line, the property panel (inline,
+  // full, copy, edit, a refused edit, follow) and every kind of transclusion. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("props writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Scratch roadmap board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::type=roadmap-item work-stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
+  const plan = await mk(null, "Garden plan [page::garden]\nBeans along the fence, squash by the compost.\n\n## Beds ^beds\nTwo raised beds, one for herbs.");
+  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, author: "agent" });
+  const chores = await mk(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::priority]");
+  await mk(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
+  await mk(null, "Turn the compost [type::chore] [stage::queued] [priority::low]");
+  const batch = await mk(null, "Spring work batch [type::work-batch] [project::garden]");
+  const card = await mk(null, [
+    "GDN-12 — Build the compost bin",
+    "[type::roadmap-item] [priority::high] [work-stage::queued] [project::garden]",
+    `[arc::spring-beds] [track::soil] [track::tools] [work-batch::${batch.id}]`,
+    `[related-to::${plan.id}] [work-id::GDN-12]`,
+    "",
+    "## Outcome",
+    `A three-bay bin beside the beds in ((${plan.id})), sized for [[garden]]'s kitchen scraps. See ((${plan.id}^beds|the beds)) and [[GDN-99]].`,
+    "owner:: the allotment group",
+    "",
+    "## Embedded",
+    `!((${plan.id}))`,
+    `!((${plan.id}^beds))`,
+    `!((${chores.id}))`,
+    `!((${plan.id}^compost))`,
+    `!((${shed.id}))`,
+    "!((0badc0de-0000-4000-8000-000000000000))",
+  ].join("\n"));
+  await mk(null, "GDN-13 — Rain barrel [type::roadmap-item] [priority::low] [work-stage::doing] [track::water]\nCatch the shed roof.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  await Bun.sleep(2000);
+  ch("l");                                                            // the Queued lane: the compost card
+  await snap("1-summary", 1500);
+  press({ kind: "tab" }); ch("i");
+  await snap("2-panel", 1200);
+  for (let i = 0; i < 8; i++) press({ kind: "tab" });                // related-to: a block value, shown by its title
+  ch("I"); await snap("3-full", 800);
+  ch("I"); for (let i = 0; i < 7; i++) press({ kind: "backtab" });   // priority
+  press({ kind: "enter" }); for (let i = 0; i < 4; i++) press({ kind: "backspace" }); for (const c of "medium") ch(c);
+  await snap("4-editing", 500);
+  press({ kind: "enter" }); await snap("5-saved", 1500);
+  // A second writer changes the note while a value is being typed: the save is refused, nothing is overwritten.
+  press({ kind: "enter" }); for (const c of "-2") ch(c);
+  const other = new SocketBoard();
+  const now = (await other.request("blocks.context", { blockId: card.id })).selected;
+  await other.update(card.id, now.text.replace("three-bay", "four-bay"), now.revision);
+  await Bun.sleep(1200);
+  press({ kind: "enter" }); await snap("6-refused", 1500);
+  press({ kind: "esc" }); press({ kind: "esc" });
+  press({ kind: "enter" });                                           // the card in a detail, tall enough for its embeds
+  await snap("7-embeds", 2500);
+  ch("i"); for (let i = 0; i < 8; i++) press({ kind: "tab" });
+  ch("o"); await snap("8-followed", 1500);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "move") {
@@ -305,7 +699,7 @@ if (scenario === "comment") {
   app.push(new MainMenu()); app.push(screen);
   await snap("1-lanes", 2500);
   for (let i = 0; i < 6 && (screen as any).focus !== "preview"; i++) press({ kind: "tab" });
-  ch("c"); await Bun.sleep(500);
+  ch("C"); await Bun.sleep(500);
   ch("j"); ch("l"); for (let i = 0; i < 7; i++) ch("H");          // "release notes" on the second line that has it
   await snap("2-picking", 600);
   press({ kind: "enter" });
@@ -321,7 +715,7 @@ if (scenario === "comment") {
   press({ kind: "esc" });
   await snap("7-reader", 1500);
   // A second writer moves the note while a new comment is being written.
-  ch("c"); await Bun.sleep(500);
+  ch("C"); await Bun.sleep(500);
   press({ kind: "enter" }); for (const c of "Friday is tight.") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
@@ -335,6 +729,49 @@ if (scenario === "comment") {
   const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
   for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
+}
+if (scenario === "agent") {
+  // Writes: seeds its own board, then an agent drives it through the real control socket (the same JSON
+  // `ep0ch-door act` sends): open, edit, save, quote and comment, reply, move. Scratch outlines only.
+  if (process.env.EP0CH_SNAP_WRITES !== "1") { console.error("agent writes to the outline: point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1"); process.exit(2); }
+  const { startControl } = await import("../src/control");
+  const { connect } = await import("node:net");
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const hub = await mk(null, "Allotment board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  await mk(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+  await mk(hub.id, "Done [type::virtual-branch] [query::stage=done]");
+  const beans = await mk(null, "Stake the beans [stage::queued] [priority::high]\nCanes along the fence.\n\nTie them loosely; the wind is strong there.");
+  await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.");
+  await mk(null, "Fix the gate latch [stage::doing]\nIt swings open.");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/agent-door.sock");
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    let buf = "";
+    c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
+    c.on("error", rej);
+  });
+  await snap("1-board", 2500);
+  await act("open", { id: beans.id }, "preview");
+  await snap("2-opened", 1200);
+  await act("edit.text", { text: "Stake the beans [stage::queued] [priority::high]\nCanes along the fence, two per plant.\n\nTie them loosely; the wind is strong there." });
+  await snap("3-agent-typed", 500);
+  await act("edit.save");
+  await snap("4-agent-saved", 800);
+  await act("passage.select", { quote: "the wind is strong there" });
+  await snap("5-agent-quoting", 500);
+  await act("comment.write", { body: "Soft twine, or it cuts the stems." });
+  await act("comment.send");
+  await snap("6-agent-commented", 1200);
+  await act("comment.close");
+  await act("card.move", { lane: "Doing", card: beans.id });
+  await snap("7-agent-moved", 1500);
+  const log = await new SocketBoard(board.path).request("activity.recent", { author: "agent", limit: 10 });
+  for (const e of log.entries.filter((x: any) => x.block.id === beans.id)) console.log(`  service: ${e.kind} by ${e.author}/${e.actorId}`);
+  ctl.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {
   app.push(new MainMenu()); app.push(new DeliveryBoard());
@@ -366,6 +803,69 @@ if (scenario === "river") {
   press({ kind: "enter" });
   await snap("6-jumped", 3000);
   board.close(); process.exit(0);
+}
+if (scenario === "river-write") {
+  // The river's columns host the note surface: edit, quote and comment from a column by keys, then an
+  // agent does the same through the control socket, and another client edits under an open draft.
+  // Its own scratch service and fictional notes only.
+  const { startControl } = await import("../src/control");
+  const { connect } = await import("node:net");
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const plot = await mk(null, "Allotment plot 14 [type::hub]\nThe plot by the water tap.");
+  const beans = await mk(plot.id, "Stake the beans [stage::queued]\nCanes along the fence.\n\nTie them loosely; the wind is strong there.");
+  await mk(plot.id, "Plant the squash [stage::queued]\nBy the compost heap.");
+  await mk(plot.id, "Fix the gate latch [stage::doing]\nIt swings open.");
+  await mk(beans.id, "Canes bought\nTwenty, from the market.");
+  board.subscribe(e => app.event(e));
+  const R = new River(), S = R as any;
+  app.push(new MainMenu()); app.push(R);
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/river-door.sock");
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    let buf = "";
+    c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
+    c.on("error", rej);
+  });
+  const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
+  await snap("1-library", 2500);
+  await act("open", { id: plot.id });
+  const opened = await act("open", { id: beans.id }, "2");
+  const beansR = opened.result.reader;
+  await snap("2-columns", 1500);
+  // The agent's opens left the person in the Library; they walk over to the beans column.
+  ch("l"); ch("l");
+  ch("e"); await Bun.sleep(500);
+  press({ kind: "down" }); press({ kind: "end" }); for (const c of " Two per plant.") ch(c);
+  await snap("3-editing", 400);
+  ctrl("s");
+  await snap("4-saved", 1500);
+  ch("C"); await Bun.sleep(600);
+  ch("j"); ch("j"); ch("l"); for (let i = 0; i < 4; i++) ch("H");
+  await snap("5-quoting", 400);
+  press({ kind: "enter" }); for (const c of "Soft twine, or it cuts the stems.") ch(c);
+  await snap("6-writing", 400);
+  ctrl("s");
+  await snap("7-sent", 1500);
+  press({ kind: "esc" });
+  // An agent drives the same column by its reader id.
+  await act("comment", { quote: "Canes along the fence", body: "Hazel, not bamboo." }, beansR);
+  await snap("8-agent-commented", 1200);
+  await act("comment.close", {}, beansR);
+  // Another client edits the note while the column holds a draft: marked, not replaced.
+  await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, beansR);
+  const other = new SocketBoard(board.path);
+  const now = (await other.request("blocks.context", { blockId: beans.id })).selected;
+  await other.request("update", { blockId: beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await snap("9-changed-elsewhere", 1500);
+  // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
+  ch("h"); ch("h");
+  await snap("10-draft-kept-wide", 600);
+  console.log(`  unsaved: ${R.unsaved()} · columns: ${JSON.stringify(S.describe().columns.map((c: any) => [c.n, c.cover]))}`);
+  const kept = R.keepDrafts();
+  console.log(`  kept: ${kept.join(", ")}`);
+  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
+  for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
+  other.close(); ctl.close(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "desk") {
   app.push(new MainMenu()); app.push(new Desk());
