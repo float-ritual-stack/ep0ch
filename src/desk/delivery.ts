@@ -118,7 +118,8 @@ export class DeliveryBoard implements Screen, DeskApi {
   /** The last create, step change, trash or restore, for `peek` and tests. */
   private lastWrite: { what: string; id?: string; result: string; by?: string } | null = null;
 
-  constructor(private readonly hubId?: string) {
+  /** `persist: false`: layout, collapsed lanes and the remembered hub stay in memory (the showcase's board). */
+  constructor(private readonly hubId?: string, private readonly persist = true) {
     const s = readState<Partial<Saved>>("delivery.json");
     if (s) {
       this.treePinned = !!s.treePinned; this.treeOpen = !!s.treePinned; this.linksPinned = !!s.linksPinned;
@@ -129,6 +130,7 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   private save() {
+    if (!this.persist) return;
     for (const p of this.shut.keys()) if (this.regionOf(p) === null || this.regionOf(p)!.startsWith("float")) this.shut.delete(p);   // closed or floated
     const collapsedReaders = this.namedReaders().filter(r => this.shut.has(r.pane)).map(r => r.name);
     writeState("delivery.json", { ...this.lay, treePinned: this.treePinned, linksPinned: this.linksPinned, lane: this.lane, collapsed: [...this.collapsed], hubs: this.hubs, collapsedReaders } satisfies Saved);

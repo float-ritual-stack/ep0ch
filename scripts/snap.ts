@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
+const wide = ["showcase", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
+// `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "showcase" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -153,6 +153,32 @@ if (scenario === "board2") {
   press({ kind: "down" });
   await snap("4-backlink-preview", 5000);
   board.close(); process.exit(0);
+}
+if (scenario === "showcase") {
+  // PIE-439: the showcase on its own seeded outline (src/showcase/seed.ts, fictional), one snapshot per
+  // section, then a few interactions: a section's own keys, a click on the index, an agent's act.
+  const { seedShowcase } = await import("../src/showcase/seed");
+  const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
+  await seedShowcase(board);
+  board.subscribe(e => app.event(e));
+  const sc = new Showcase();
+  app.push(new MainMenu()); app.push(sc);
+  await Bun.sleep(800);
+  for (let i = 0; i < SECTIONS.length; i++) {
+    ch(i === 9 ? "0" : String(i + 1));
+    await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 4 || i === 7 ? 2500 : 1200);
+  }
+  ch("5"); press({ kind: "enter" }); ch("c");                                           // the board: collapse a lane to a spine
+  await snap("11-board-spine", 1000);
+  press({ kind: "esc" });                                                               // the board's own back key
+  ch("3"); press({ kind: "enter" }); ch("e"); await Bun.sleep(600); for (const c of " [[Bike") ch(c);  // edit, and complete a page
+  await snap("12-edit-complete", 1500);
+  press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200); press({ kind: "esc" }); ch("q");
+  press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 8 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 8 * 2 });   // click section 9
+  await snap("13-clicked-selection", 800);
+  await app.act({ action: "section", args: { name: "service" }, as: "snap-agent" });
+  await snap("14-agent-section", 1500);
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "spines") {
   // PIE-440 (its own scratch service, fictional cards): a lane, a detail holding an agent's draft and the

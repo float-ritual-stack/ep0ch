@@ -39,6 +39,41 @@ A journey to try, whichever service it is:
    update by themselves.
 6. Restart the service: the status bar says `offline`, then `reconnected · caught up N changes`.
 
+## The showcase
+
+    scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
+    scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
+
+opens the showcase (PIE-439): every shared door part, live, one section per row of the reuse map
+([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)), in the map's order. It runs on an
+outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
+unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
+door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
+
+- **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
+  a kitchen, bikes), written through the service API (`create`, `work-ids.configure`,
+  `roadmap.items.create`, `properties.patch`, `annotations.*`), not into SQLite. It has a board hub with a
+  lane per work stage and cards in each, callouts, links and soft links (`HOME-001`), folds, a literal
+  region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
+  a saved view, and one of every `::graph-*` kind, live ones included.
+- **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
+  deletes that state and reseeds. `--prepare` sets it up (or resets it) and exits without opening the door.
+- **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` or a click picks one; `⏎`, `→`, `Tab`
+  or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
+  section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
+  nothing saved to your `desk.json`) or the real board. A parallel version still in the code (the BBS
+  `Reader`, `WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
+  consolidate"; ones that can't be framed alone are named on the section's third line.
+- **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
+  the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
+  writes nothing.
+- **Agents:** `ep0ch-door act section name=<1-10|key>` shows a section (your keys go back to the list);
+  every other action is the section's own (a reader's note actions, the desk's, the board's).
+  `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
+
+Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
+content it needs; the review checklist's "The map" item covers both.
+
 ## Run
 
     bun install
@@ -682,6 +717,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts props     # a roadmap-like card: summary line, panel (inline, full, edit, a refused edit, follow), every embed state
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
@@ -709,6 +745,9 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
   embedded view's result rows aren't followable (follow the `!((…))` link itself); `!((…))` inside a
   callout or a table stays a link.
+- The door draws inside a literal region (`<!-- literal -->…<!-- /literal -->`) as ordinary text: its
+  `[[links]]` and `[key::value]` tokens look live, though the service treats them as text (the showcase's
+  notebook shows it).
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.

@@ -28,6 +28,10 @@ three pane models and four searches (§4).
   changed). A local fallback for an older service is parity-tested, like `src/views.ts`.
 - **If the part doesn't exist yet or doesn't fit:** extend it, or write down why not in the PR.
   A new shared part gets a row here in the same PR.
+- **Every row has a showcase section** (`scripts/try-it.sh --showcase`, PIE-439), in this table's
+  order: `SECTIONS` in `src/showcase/showcase.ts`, drawn by the part itself. A new row gets its section
+  and the seed content it needs (`src/showcase/seed.ts`) in the same PR, and a parallel version shown
+  beside it until consolidation removes it.
 - Name things with the glossary's canonical words (§1).
 
 ## TL;DR

@@ -147,6 +147,9 @@ const KINDS: Record<string, (p: Props, w: number) => string[]> = {
   },
 };
 
+/** Every `::graph-*` kind drawn here (the showcase seed has one of each). */
+export const GRAPH_KINDS: readonly string[] = Object.keys(KINDS);
+
 export function isGraphStart(line: string): string | null {
   const m = line.match(/^\s*::graph-([a-z-]+)\s*$/);
   return m ? m[1]! : null;
