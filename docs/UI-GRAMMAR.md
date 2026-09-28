@@ -16,7 +16,7 @@ three pane models and four searches (§4).
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the layout tree (PIE-412), n-ary splits by weight with spines (`fixed`), minimums, drawers that slide over or pin (`over`), floats, borders that follow the pointer; the desk and the board are on it, the river's strip next (PIE-412 slice 2). Every operation is a `pane.*` action (split, close, resize, zoom, float, pin) | `src/desk/layout.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts` |
 | squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
-| show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents) | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts` |
+| show children, outlinks, backlinks, resources, or go back and forward | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; history (PIE-453): each reader's back and forward in the surface (`track` records a follow, `u` or an open into it; `travel` restores the note, scroll and `[ ]` position; `back`/`forward` actions; alt+← alt+→, backspace, the mouse's side buttons, the `← back` row), or the view's own through `SurfaceHost.history` where a follow opens elsewhere; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents) | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
 | show a Resource's stored details in a note (a ticket under `jira::`, a ticket page) | resource projections (PIE-445): `projectionsOf` asks the service (`resources.projection.read`, capability `resources.projection`; nothing extra without it), `projectionLayout` is Detail's `resourceProjectionLayout` as drawn (parity-tested), the surface draws each region after its line through `DocEnv.after`, and `resource-catalog` events repaint the ones shown. The door never registers, refreshes or contacts a provider | `src/projection.ts`, `src/surface/note.ts`, `src/doc.ts` |
@@ -149,7 +149,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | backlinks | Notes that link here, grouped by kind with Detail's defaults (PIE-442) | board drawer `drawLinks`, `src/backlinks.ts` | **Backlinks** |
 | resources | `[file::]`, `img::`, media | completion, `src/media.ts` | **Resources** |
 | search | Find a block by text | 4 versions, see §4 | Goto search |
-| history | Back/forward through opened notes | none | Detail history |
+| history | Back/forward through what a reader showed: its note, scroll and `[ ]` position (PIE-453) | `track`, `travel`, `back` `forward` `note`; `SurfaceHost.history` | Detail history |
 
 ### Agents and presence
 
@@ -211,7 +211,7 @@ entity navigation
     ├── [~] backlinks                     board drawer only (Detail's view, PIE-442)
     ├── [ ] resources list                none (PIE-432)
     ├── [~] search / jump                 4 versions
-    └── [ ] history (back/forward)        none
+    └── [~] history (back/forward)        note surface (board, desk); BBS and river next (PIE-453)
 extensions
     ├── [x] properties (summary, panel)   note surface
     ├── [x] edit, comments, completion    note surface + ed
@@ -286,7 +286,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | — | — |
 | resources | S images, `[file::` | S (projections, images) | S | — |
 | search | R `g` boards only | R `scr:338` dead | R `/` `dsk:371` k·· | R `/` `riv:66` k·· |
-| history | — | — | — | — |
+| history | S alt+← alt+→ ⌫, `← back` row, `back` `forward` kma | — (next: the screen stack) | S kma | — (next: the columns) |
 
 ### Extensions
 

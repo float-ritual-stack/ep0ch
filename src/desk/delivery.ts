@@ -620,7 +620,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const keep = !!this.personIn();
     let shown: ReaderPane | null = null;
     if (where === "preview") {
-      if (!this.selectCard(m.id, false)) this.preview.show(m, this);
+      // Selecting its card is the lanes moving; shown without one, it's an open into the preview (PIE-453).
+      if (!this.selectCard(m.id, false)) this.preview.surface.track(() => this.preview.show(m, this));
       if (this.preview.msg?.id !== m.id) throw new ActionRefused("the preview is holding an edit or a comment on another note");
       if (!keep) this.focus = "preview";
       shown = this.preview;
@@ -635,7 +636,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       else this.focus = `float${this.floats.length - 1}`;
     } else {
       const r = this.pickReader(where);
-      if (!r.pane.show(m, this)) throw new ActionRefused(`${r.name} is holding an edit or a comment on another note`);
+      if (!r.pane.surface.track(() => r.pane.show(m, this))) throw new ActionRefused(`${r.name} is holding an edit or a comment on another note`);
       if (r.region && !keep) this.focus = r.region;
       shown = r.pane;
     }
@@ -778,6 +779,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
   startSession(pane: ReaderPane, kind: SessionKind) { this.start(pane, kind); }
+  /** The reader the person has focused; with the lanes focused, the preview following them (PIE-453). */
+  holdsFocus(pane: ReaderPane) { return pane === (this.focus === "lanes" ? this.preview : this.focusedReader()); }
 
   /** Show `m` in a detail; false (with a flash) when none could take it. `quiet`: an agent's, focus stays. */
   private openDetail(m: Msg, fresh: boolean, quiet = false): boolean {
@@ -799,7 +802,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       this.addDetail(new ReaderPane());
       this.active = this.details.length - 1;
     }
-    this.details[this.active]!.show(m, this);
+    // A detail is a reader opened on purpose: what it showed before is where back goes (PIE-453).
+    const d = this.details[this.active]!;
+    d.surface.track(() => d.show(m, this));
     if (this.shut.delete(this.details[this.active]!)) this.save();   // opening a note into a collapsed detail reopens it
     // Focus follows the note into its detail, unless the person is in an edit, comment or panel: it stays
     // on that reader, wherever the list moved it.

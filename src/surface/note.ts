@@ -58,6 +58,62 @@ export interface SurfaceHost {
    * focus mark and the property panel still follow it, and clicks and `[ ]` count its rows.
    */
   header?(m: Msg, w: number, info: HeaderInfo): string[];
+  /**
+   * Back and forward kept by the view instead of the surface (PIE-453), where a followed link doesn't open in
+   * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
+   */
+  history?: ReaderHistory;
+  /** This is the reader the person has focused: an agent's `back` and `forward` are refused here. */
+  focused?: boolean;
+}
+
+/** Back and forward where a view keeps them (SurfaceHost.history). */
+export interface ReaderHistory {
+  /** The title back (-1) or forward (1) goes to, or null when there's nowhere to go. */
+  peek(dir: -1 | 1): string | null;
+  /** Go there: null when it went, else why not. */
+  go(dir: -1 | 1): string | null;
+  /** Why an agent can't go back or forward here: it would move the person's screen or focus. */
+  agentRefusal: string;
+}
+
+/**
+ * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
+ * position (the current element and link), and the reading state kept per note (folds, expanded threads).
+ */
+interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[] }
+/** How many places back (and forward) a reader keeps. */
+const HISTORY = 50;
+
+/**
+ * A reader's history keys (PIE-453): alt+←, backspace or the mouse's back button go back; alt+→ or its forward
+ * button go forward. alt+b and alt+f too: some macOS terminals send them for option+← and option+→.
+ */
+export function historyKey(k: Key): -1 | 1 | 0 {
+  if (k.kind === "alt-left" || k.kind === "backspace" || k.kind === "back" || (k.kind === "alt" && k.ch === "b")) return -1;
+  if (k.kind === "alt-right" || k.kind === "forward" || (k.kind === "alt" && k.ch === "f")) return 1;
+  return 0;
+}
+
+/**
+ * The history row a reader draws last while it has somewhere to go (PIE-453): `← back · <title>` on the left,
+ * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
+ */
+export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: -1 | 1 }[] } | null {
+  if ((!back && !forward) || w < 12) return null;
+  const room = back && forward ? Math.floor((w - 3) / 2) : w - 2;
+  const fit = (s: string, n: number) => ([...s].length > n ? [...s].slice(0, Math.max(0, n - 1)).join("") + "…" : s);
+  const b = back ? fit(`← back · ${printable(back)}`, room) : "", f = forward ? fit(`${printable(forward)} · forward →`, room) : "";
+  const hits: { from: number; to: number; dir: -1 | 1 }[] = [];
+  let line = "";
+  if (b) { line += " " + fg(C.lcyan) + "← back" + fg(C.dark) + b.slice("← back".length) + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
+  if (f) {
+    const at = w - 1 - width(f), gap = at - (b ? 1 + width(b) : 0);
+    const arrow = f.endsWith("forward →") ? f.length - "forward →".length : f.length;
+    line += " ".repeat(Math.max(1, gap)) + fg(C.dark) + f.slice(0, arrow) + fg(C.lcyan) + f.slice(arrow) + RESET;
+    hits.push({ from: at, to: w, dir: 1 });
+  }
+  return { line, hits };
 }
 
 /** What a host's header can say that only the surface knows: where the note sits, its comments and properties. */
@@ -82,7 +138,8 @@ const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.f
 /** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
 /** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string });
+/** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string } | { history: -1 | 1 });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -263,8 +320,14 @@ export class NoteSurface {
   private viewKeys: readonly string[] | null = null;
   /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
   src: Source | null = null;
+  /** Back and forward (PIE-453): the places this reader showed before, nearest last, and those back came from. */
+  private backs: Place[] = [];
+  private aheads: Place[] = [];
+  /** The view's own history, from the last host seen (SurfaceHost.history), for `peek` and the hint. */
+  private kept: ReaderHistory | null = null;
+  private tracking = 0;
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) this.src = { board: host.ctx.board, redraw: () => host.redraw() };
+    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; }
     return this.src;
   }
 
@@ -319,7 +382,8 @@ export class NoteSurface {
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
-    return `${extra}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
+    const back = this.peek(-1) ? "alt← back · " : "";
+    return `${extra}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -400,6 +464,9 @@ export class NoteSurface {
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
+    // Back and forward (PIE-453): the reader's last row, while it has somewhere to go.
+    const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
+    if (foot) h -= 1;
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
     const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
     const open = this.comments?.filter(c => c.open).length ?? 0;
@@ -558,6 +625,11 @@ export class NoteSurface {
       const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
       return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
+    if (foot) {
+      while (lines.length < h) lines.push("");
+      lines.push(foot.line);
+      for (const x of foot.hits) this.hits.push({ row: h, from: x.from, to: x.to, history: x.dir });
+    }
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
@@ -646,7 +718,7 @@ export class NoteSurface {
     if (!target) { if (this.panel) this.panel.note = why; host.ctx.flash(why); host.redraw(); return null; }
     // The panel has done its job; the target opens to be read (in place or in another reader).
     this.panel = null;
-    host.navigate(target, how);
+    this.track(() => host.navigate(target, how));
     return target;
   }
 
@@ -965,6 +1037,9 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
+    // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
+    const dir = historyKey(k);
+    if (dir) { this.travelBy(dir, host); return true; }
     const c = ch(k);
     // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
     if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;
@@ -1489,8 +1564,9 @@ export class NoteSurface {
       return !!d && !d.busy && !!completerOf(d)?.click(y);
     }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    const h = at.find(h => "copy" in h || "link" in h || "thread" in h || ("follow" in h && h.follow)) ?? at[0];
+    const h = at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || ("follow" in h && h.follow)) ?? at[0];
     if (h && "copy" in h) { this.copySelection(h.copy === "source", host); host.redraw(); return true; }
+    if (h && "history" in h) { this.travelBy(h.history, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) { this.selection = null; host.redraw(); }
     if (!h) return this.clickFold(x, y, host);
@@ -1559,7 +1635,7 @@ export class NoteSurface {
         ?? hits.find(m => subject(m).toLowerCase().startsWith(p)) ?? null;
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
-    host.navigate(target, how);
+    this.track(() => host.navigate(target, how));
     return target;
   }
 
@@ -1568,8 +1644,81 @@ export class NoteSurface {
     const id = this.msg?.parentId;
     if (!id) return null;
     const p = await host.ctx.board.get(id).catch(() => null);
-    if (p) host.navigate(p);
+    if (p) this.track(() => host.navigate(p));
     return p;
+  }
+
+  // ── back and forward (PIE-453) ─────────────────────────────────────────────
+
+  /** Where the reader is now, as back would come back to it. */
+  private place(): Place | null {
+    const m = this.msg;
+    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded] } : null;
+  }
+
+  /**
+   * Run a navigation (a followed link, `u`, or a host opening a note into this reader on purpose: an agent's
+   * `open`, a card's ⏎ into a detail) so that, when it leaves this reader on another note, back comes here.
+   * A reader following a selection (the board's preview, a desk reader following the current note) isn't
+   * navigating, so the host shows it without this.
+   */
+  track<T>(open: () => T): T {
+    const from = this.place();
+    // A navigation inside a navigation (a host's open reached from a follow) is recorded once, by the outer one.
+    const outer = this.tracking++ === 0;
+    let out: T;
+    try { out = open(); } finally { this.tracking--; }
+    if (outer && from && this.msg && this.msg.id !== from.msg.id) {
+      this.backs.push(from);
+      if (this.backs.length > HISTORY) this.backs.shift();
+      this.aheads = [];
+    }
+    return out;
+  }
+
+  /** The title back (-1) or forward (1) would show, or null. */
+  peek(dir: -1 | 1): string | null {
+    if (this.kept) return this.kept.peek(dir);
+    const p = (dir < 0 ? this.backs : this.aheads).at(-1);
+    return p ? subject(p.msg) : null;
+  }
+
+  /**
+   * Back (-1) or forward (1): this reader shows the note it showed there, re-read, scrolled and with its `[ ]`
+   * position, folds and expanded threads as they were, so ⏎ and alt+⏎ act on the same element at once. Only
+   * this reader moves (in place, not through the host's navigate: nothing else follows it). Where the view
+   * keeps the history (SurfaceHost.history), the view goes. Null when it went, else why not.
+   */
+  async travel(dir: -1 | 1, host: SurfaceHost): Promise<string | null> {
+    this.use(host);
+    if (host.history) return host.history.go(dir);
+    const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
+    if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
+    if (this.editing) return `finish ${this.draft ? "the edit" : this.session ? "the comment" : "the property value"} first · ctrl+s saves · esc closes`;
+    const fresh = await host.ctx.board.get(to.msg.id).catch(() => null);
+    if (stack.at(-1) !== to) return "the reader moved meanwhile";
+    const here = this.place();
+    if (!this.show(fresh ?? to.msg, host)) return "the reader is holding an edit or a comment";
+    stack.pop();
+    if (here) (dir < 0 ? this.aheads : this.backs).push(here);
+    this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
+    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded);
+    // The element comes into view if the history row now under the note would hide it (only that far).
+    this.reveal = to.cur !== null;
+    host.redraw();
+    return null;
+  }
+
+  /** travel for a key or a click: what didn't go is said in the flash. */
+  private travelBy(dir: -1 | 1, host: SurfaceHost) {
+    void this.travel(dir, host).then(why => { if (why) host.ctx.flash(why); host.redraw(); }, (e: Error) => host.ctx.flash(e.message));
+  }
+
+  /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
+  describeHistory() {
+    if (this.kept) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
+    const titles = (ps: Place[]) => ps.map(p => ({ id: p.msg.id, title: subject(p.msg) })).reverse();
+    return { back: titles(this.backs), forward: titles(this.aheads) };
   }
 
   // ── selecting text (PIE-419) ───────────────────────────────────────────────
@@ -1885,6 +2034,7 @@ export class NoteSurface {
       } : null,
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
+      history: this.describeHistory(),
       agent: this.agent,
     };
   }
@@ -2122,6 +2272,8 @@ export interface NoteActionArgs {
   "focus.clear": Record<string, never>;
   "link.follow": { n?: number };
   "up": Record<string, never>;
+  "back": Record<string, never>;
+  "forward": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
   "comment.write": { body: string };
   "comment.send": Record<string, never>;
@@ -2263,7 +2415,25 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
   return { sent: kind === "reply" ? "reply" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })) };
 }
 
-export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteActionArgs, On>("note", {
+/**
+ * back, forward (PIE-453). An agent's never moves what the person is reading: refused on the reader they have
+ * focused, and where the view keeps the history (it would move their screen or focus).
+ */
+async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
+  const word = dir < 0 ? "back" : "forward";
+  if (actor.kind === "agent") {
+    if (host.focused) throw new ActionRefused(`this is the reader the person has focused; ${word} would move what they're reading · an agent goes ${word} only in another reader (name it with reader=)`);
+    if (host.history) throw new ActionRefused(host.history.agentRefusal);
+  }
+  const why = await surface.travel(dir, host);
+  if (why) throw new ActionRefused(why);
+  surface.noteAgent(actor, `went ${word} here`);
+  host.redraw();
+  const m = surface.msg;
+  return { went: word, showing: m ? { id: m.id, title: subject(m) } : null, history: surface.describeHistory() };
+}
+
+export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActionArgs, On>("note", {
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
@@ -2460,6 +2630,18 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       if (!m) throw new ActionRefused("the note has no parent");
       return { opened: m.id, title: subject(m) };
     },
+  },
+  "back": {
+    summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
+    keys: "alt+←, backspace, the mouse's back button, a click on ← back",
+    args: {},
+    run: (_, on, actor) => travelAction(-1, on, actor),
+  },
+  "forward": {
+    summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
+    keys: "alt+→, the mouse's forward button, a click on forward →",
+    args: {},
+    run: (_, on, actor) => travelAction(1, on, actor),
   },
   "passage.select": {
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",

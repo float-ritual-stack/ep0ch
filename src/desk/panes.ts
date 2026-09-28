@@ -26,6 +26,8 @@ export interface DeskApi {
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
   startSession?(pane: ReaderPane, kind: SessionKind): void;
+  /** `pane` is the reader the person has focused: an agent's back and forward are refused there (PIE-453). */
+  holdsFocus?(pane: ReaderPane): boolean;
 }
 
 export interface Pane {
@@ -224,6 +226,7 @@ export class ReaderPane implements Pane {
       navigate: (m, how) => { if (this.held && !how?.fresh) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
+      focused: desk.holdsFocus?.(this) ?? false,
     };
     return h;
   }
