@@ -110,6 +110,14 @@ export type PropertyPatch =
   | { op: "replace"; ordinal: number; value: string }
   | { op: "append"; key: string; value: string };
 
+export type StepStatus = "todo" | "done" | "waiting" | "problem";
+/** One checklist step as `checklist.query` reads it. */
+export interface ChecklistStep {
+  itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
+  span: { start: number; end: number; startLine: number; endLine: number }; depth: number; text: string;
+}
+export interface ChecklistRead { blockId: string; revision: number; title: string; items: ChecklistStep[]; completeness: { kind: string } }
+
 /** The block changed after the draft was read; the service kept the other writer's text. */
 export class EditConflict extends Error {
   constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
@@ -600,6 +608,57 @@ export class SocketBoard implements Board {
     } catch (e) {
       return reset(`catch-up failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // ── creating, trashing, checklist steps (PIE-406) ─────────────────────────
+
+  /**
+   * A new block under `parentId` (null: top level). `create` carries no revision and no request id, so
+   * it is never retried: when the answer is lost, `findCreated` looks for it before anyone tries again.
+   * A person's block is `author: user` with no actor id (the service takes provenance only on agent
+   * blocks); an agent's, or one a person and an agent both typed, is `author: agent` naming them.
+   */
+  async createBlock(parentId: string | null, text: string, actor: Actor = USER): Promise<Msg> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
+  }
+
+  /** `properties.preview` with repeats kept, in order; null when this service can't preview. */
+  async previewPropertyList(text: string): Promise<{ key: string; value: string }[] | null> {
+    const r = await this.optional<{ properties: { key: string; value: string }[] }>("properties.preview", "properties.preview", { text });
+    return r && r.properties.map(p => ({ key: p.key, value: p.value }));
+  }
+
+  /** After a create whose answer was lost: a child of `parentId` with exactly `text`, created at or after `since`. */
+  async findCreated(parentId: string | null, text: string, since: number): Promise<Msg | null> {
+    const kids = parentId === null ? await this.roots() : await this.children(parentId);
+    return kids.filter(k => k.text === text && k.createdAt >= since - 1000).sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
+  }
+
+  /**
+   * Move a block and its subtree to Trash. The service's `delete` takes no revision and records no
+   * author, so the caller checks the revision it showed just before, and says who did it on screen.
+   */
+  async trash(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId })); }
+
+  /** Bring a Trash root (and its subtree) back where it was. */
+  async restore(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("trash.restore", { blockId })); }
+
+  /** A note's checklist steps (docs/CHECKLIST_ITEMS.md), in source order, at the revision the service read. */
+  async checklist(blockId: string, limit = 200): Promise<ChecklistRead> {
+    return this.request<ChecklistRead>("checklist.query", { blockId, query: { limit, nested: "include" } });
+  }
+
+  /**
+   * Set one step's status. The step is named by its id when it has a unique one, else by where it starts
+   * at the revision it was read (the service then gives it an id); either way `evidence` must still match.
+   */
+  async setStep(blockId: string, step: ChecklistStep, revision: number, status: StepStatus, actor: Actor = USER): Promise<{ block: Msg; item: ChecklistStep; changed: boolean }> {
+    const target = step.identity === "unique" && step.itemId ? { itemId: step.itemId } : { start: step.span.start, expectedRevision: revision };
+    const r = await this.request<{ block: WireBlock; item: ChecklistStep; changed: boolean }>("checklist.update", {
+      blockId, input: { target, expectedEvidence: step.evidence, change: { kind: "status", status } }, mutation: mutationFor(actor),
+    });
+    return { block: toMsg(r.block), item: r.item, changed: r.changed };
   }
 
   close(): void {

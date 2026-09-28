@@ -16,9 +16,16 @@ import type { Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, planMove, type MovePlan } from "../move";
 import { matchesFilters, readView, type ViewRead } from "../views";
+import { holds } from "../query";
 import { ReaderPane, TreePane, type DeskApi, type Pane, type PaneKind } from "./panes";
+import { Draft } from "../edit";
+import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
+import { createMisses, planCreate } from "../move";
+import { showExpr } from "../query";
+import { Refused, type ChecklistRead, type StepStatus } from "../socket";
+import { composeCardText, pickParent, titleOf, type ParentPick } from "./writes";
 
-interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead; want?: string }
+interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead; want?: string; wantVerb?: string }
 interface Float { pane: ReaderPane; rect: Rect }
 type Region = "lanes" | "preview" | `detail${number}` | `float${number}` | "tree" | "backlinks";
 type Drag =
@@ -80,6 +87,16 @@ export class DeliveryBoard implements Screen, DeskApi {
   private refreshes = { full: 0, lanes: 0, readers: 0, skipped: 0 };
   /** Names of the lanes asked again, oldest first (tests and `peek`). */
   private asked: string[] = [];
+  /** A new card (`n`) or a note under a card (`N`) being written. Holds every key until created or closed. */
+  private composer: Composer | null = null;
+  /** The selected card's checklist steps (`s`): pick one and set its status. */
+  private steps: { card: Msg; read: ChecklistRead | null; sel: number; busy: boolean; note: string } | null = null;
+  /** The first `d` on a card: a second one within a few seconds trashes it. */
+  private trashArm: { id: string; at: number } | null = null;
+  /** The last card trashed from the board, until it is restored or another one is: `u` restores it. */
+  private trashed: { id: string; title: string; lane: string; children: number; by?: string } | null = null;
+  /** The last create, step change, trash or restore, for `peek` and tests. */
+  private lastWrite: { what: string; id?: string; result: string; by?: string } | null = null;
 
   constructor(private readonly hubId?: string) {
     const s = readState<Partial<Saved>>("delivery.json");
@@ -151,8 +168,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       l.items = items;
       const at = keep ? items.findIndex(m => m.id === keep) : -1;
       if (l.want) {
-        if (at < 0) this.ctx.flash(`moved, but ${l.name} doesn't list it${read.truncated ? ` (past its limit of ${read.limit})` : ""}`);
-        l.want = undefined;
+        if (at < 0) this.ctx.flash(`${l.wantVerb ?? "moved"}, but ${l.name} doesn't list it${read.truncated ? ` (past its limit of ${read.limit})` : ""}`);
+        l.want = undefined; l.wantVerb = undefined;
       }
       l.sel = Math.max(0, at >= 0 ? at : Math.min(l.sel, items.length - 1));
       if (l === this.lanes[this.lane]) this.follow();
@@ -266,8 +283,9 @@ export class DeliveryBoard implements Screen, DeskApi {
   private couldHold(l: Lane, m: Msg): boolean {
     const read = l.read;
     if (!read || read.status !== "ready") return false;             // an invalid lane stays invalid until its definition changes
-    // OR, NOT, dates: the service decides, but a plain AND still needs its plain clauses.
-    if (read.unpatchable) return !read.required || matchesFilters(m.properties ?? [], read.required);
+    // OR, NOT, dates: evaluated on its properties; a range the record can't tell (no timestamps) is a maybe.
+    if (read.query) return holds(read.query.expr, { properties: m.properties ?? [] }) !== false;
+    if (read.unpatchable) return true;
     return !read.filters.length || matchesFilters(m.properties ?? [], read.filters);
   }
 
@@ -282,8 +300,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     }, 150);
   }
 
-  unsaved() { return this.readers().some(r => r.unsaved()); }
-  keepDrafts() { return this.readers().flatMap(r => r.keepDrafts()); }
+  unsaved() { return this.readers().some(r => r.unsaved()) || !!this.composer?.draft.dirty; }
+  keepDrafts() {
+    const c = this.composer;
+    return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.copyOut(c.kind === "card" ? `new-card-${slug(c.lane.name)}` : `new-note-${c.parent.id.slice(0, 8)}`)] : [])];
+  }
 
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
 
@@ -426,6 +447,9 @@ export class DeliveryBoard implements Screen, DeskApi {
       backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
       images: this.placed.length,
       moving: this.moving, lastMove: this.lastMove,
+      composer: this.composer ? { kind: this.composer.kind, ...(this.composer.kind === "card" ? { lane: this.composer.lane.name, bornWith: this.composer.born, needs: this.composer.needs, parent: this.composer.parent } : { parent: brief(this.composer.parent) }), dirty: this.composer.draft.dirty, note: this.composer.draft.note || null } : null,
+      steps: this.steps ? { card: brief(this.steps.card), revision: this.steps.read?.revision ?? null, selected: this.steps.sel + 1, items: this.steps.read?.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), id: it.itemId ?? null })) ?? null, note: this.steps.note || null } : null,
+      trashArmed: this.trashArm?.id ?? null, trashed: this.trashed, lastWrite: this.lastWrite,
       refreshes: { ...this.refreshes },
       views: this.lanes[0]?.read?.by ?? null,
       mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
@@ -535,6 +559,9 @@ export class DeliveryBoard implements Screen, DeskApi {
     // it. Saving or closing the edit first lets the revision checks decide in order.
     const r = this.readers().find(p => p.draft?.blockId === card.id);
     if (r) return `it's open for editing${r.draft!.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
+    // A comment names the revision its passage was read at; a write under it would make the send fail.
+    const c = this.readers().find(p => p.session?.blockId === card.id);
+    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · send (ctrl+s) or close (esc) the comment first`;
     return null;
   }
 
@@ -560,7 +587,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     let landed = false;
     try {
       const m = await applyMove(this.ctx.board, card, plan.changes, actor);
-      const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters)).map(l => l.name);
+      const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && (l.read.query ? holds(l.read.query.expr, { properties: m.properties ?? [], createdAt: m.createdAt, updatedAt: m.updatedAt }) === true : l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters))).map(l => l.name);
       this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}`, ...by };
       ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
       for (const r of this.readers()) r.refresh({ ...m, childIds: r.msg?.id === m.id ? r.msg.childIds : m.childIds });
@@ -603,6 +630,288 @@ export class DeliveryBoard implements Screen, DeskApi {
       void this.moveTo(M.sel);
     }
     this.redraw();
+  }
+
+  // ── writing cards: create, check off steps, trash and restore (PIE-406) ──────
+
+  laneFor(name: string): Lane { return this.laneNamed(name); }
+  selectedCardId(): string { return this.cardFor().id; }
+  async listSteps(id?: string) {
+    const card = this.cardFor(id);
+    const r = await this.ctx.board.checklist(card.id);
+    return { card: card.id, title: titleOf(card), revision: r.revision, steps: r.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), depth: it.depth, id: it.itemId ?? null })) };
+  }
+  //
+  // Keys and agents (`ep0ch-door act card.create …`) go through the same methods. Every write says who
+  // did it: in the flash, in `lastWrite`, and to the service where it takes an author (create, steps).
+
+  private laneNamed(name: string): Lane {
+    const want = name.toLowerCase();
+    const l = this.lanes.find(x => x.name.toLowerCase() === want);
+    if (!l) throw new ActionRefused(`no lane ${name}; lanes: ${this.lanes.map(x => x.name).join(", ")}`);
+    return l;
+  }
+
+  /** A card by id (or its first 8+ characters) from the lanes, else the selected card. */
+  private cardFor(id?: string): Msg {
+    if (!id) { const c = this.card(); if (!c) throw new ActionRefused("no card is selected"); return c; }
+    for (const l of this.lanes) { const m = l.items?.find(x => x.id === id || (id.length >= 8 && x.id.startsWith(id))); if (m) return m; }
+    throw new ActionRefused(`no lane on the board lists ${id}`);
+  }
+
+  /** What a new card in `lane` is born with, and where it goes; the reason when the lane can't define one. */
+  private cardPlan(lane: Lane, parent?: string): { born: { key: string; value: string }[]; needs: string[]; parent: ParentPick } {
+    const plan = planCreate(lane);
+    if (plan.kind === "refused") throw new ActionRefused(plan.reason);
+    const where = parent ? { id: parent, why: "named by the caller" } : pickParent(lane.name, lane.def, lane.items ?? [], this.lanes.flatMap(l => l.items ?? []));
+    if ("refused" in where) throw new ActionRefused(where.refused);
+    return { born: plan.props, needs: plan.needs.map(t => showExpr(t, true)), parent: where };
+  }
+
+  /** `n`: a new card in the focused lane, written in a composer over the board. */
+  private async openCardComposer() {
+    const lane = this.lanes[this.lane];
+    if (!lane) return;
+    let plan: ReturnType<DeliveryBoard["cardPlan"]>;
+    try { plan = this.cardPlan(lane); } catch (e) { return this.ctx.flash(`can't create in ${lane.name}: ${(e as Error).message}`); }
+    const parent = await this.ctx.board.get(plan.parent.id).catch(() => null);
+    if (!parent) return this.ctx.flash(`can't create in ${lane.name}: its new cards would go under ${plan.parent.id.slice(0, 8)}, which isn't in the outline`);
+    if (this.composer) return;
+    this.composer = { kind: "card", lane, born: plan.born, needs: plan.needs, parent: { ...plan.parent, title: titleOf(parent) }, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    this.redraw();
+  }
+
+  /** `N`: a note under the selected card. */
+  private async openChildComposer() {
+    const card = this.card();
+    if (!card) return this.ctx.flash("select a card to add a note under");
+    const parent = await this.ctx.board.get(card.id).catch(() => null);
+    if (!parent) return this.ctx.flash("that card isn't in the outline any more");
+    if (this.composer) return;
+    this.composer = { kind: "child", parent, draft: new Draft(`new-under-${card.id.slice(0, 8)}`, 0, "") };
+    this.redraw();
+  }
+
+  private composerKey(k: Key) {
+    const C0 = this.composer!, d = C0.draft;
+    if (d.busy) return;
+    const a = d.key(k);
+    if (a === "save") void this.submitComposer();
+    else if (a === "editor") openInEditor(this.ctx, d);
+    else if (a === "close") this.composer = null;
+    this.redraw();
+  }
+
+  /** Ctrl+S in the composer: create it. A refusal keeps the text, says why, and copies it to disk. */
+  private async submitComposer() {
+    const C0 = this.composer;
+    if (!C0) return;
+    const d = C0.draft;
+    const by = d.recordAs(USER);
+    d.saving = true; d.note = "creating…"; this.redraw();
+    try {
+      if (C0.kind === "card") await this.createCard(C0.lane, d.text, by, C0.parent.id);
+      else await this.createNote(C0.parent.id, d.text, by);
+      if (this.composer === C0) this.composer = null;
+    } catch (e) {
+      d.saving = false;
+      const why = e instanceof Error ? e.message : String(e);
+      d.note = `not created: ${why}${d.dirty ? ` · your text is kept (and copied to ${d.copyOut(C0.kind === "card" ? `new-card-${slug(C0.lane.name)}` : `new-note-${C0.parent.id.slice(0, 8)}`)})` : ""}`;
+      this.ctx.flash(`not created: ${why}`);
+    } finally {
+      d.saving = false;
+      this.redraw();
+    }
+  }
+
+  /**
+   * A new card in `lane`: the text, with the properties the lane needs appended to its first line, is
+   * checked against the lane's whole query as the service would read it, then created under the lane's
+   * parent. `create` has no revision or request id, so a lost answer is looked for, never retried.
+   */
+  async createCard(lane: Lane, text: string, actor: Actor, parent?: string): Promise<{ id: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
+    const body = text.replace(/\s+$/, "");
+    if (!body.trim()) throw new ActionRefused("type the card's title first");
+    const plan = this.cardPlan(lane, parent);
+    const board = this.ctx.board;
+    const typed = await board.previewPropertyList(body);
+    const composed = composeCardText(body, plan.born, typed);
+    if ("refused" in composed) throw new ActionRefused(composed.refused);
+    const final = typed ? await board.previewPropertyList(composed.text) : null;
+    if (final) { const miss = createMisses(lane, final); if (miss) throw new ActionRefused(miss); }
+    else if (plan.needs.length) throw new ActionRefused(`${lane.name} needs ${plan.needs.join(" and ")}, and this service can't preview properties, so the door can't check the text meets it; give the lane a [create::key=value]`);
+    const m = await this.landCreate(plan.parent.id, composed.text, actor);
+    const ctx = asActor(this.ctx, actor);
+    const recordedAs = actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
+    this.lastWrite = { what: "create", id: m.id, result: `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    ctx.flash(`created in ${lane.name} · ${titleOf(m)}${plan.born.length ? ` · born with ${plan.born.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`);
+    // The create's change record asks the lanes that could hold it; without a feed, ask this one now.
+    lane.want = m.id; lane.wantVerb = "created";
+    if (actor.kind !== "agent") { this.lane = this.lanes.indexOf(lane); this.focus = "lanes"; }
+    if (this.collapsed.delete(lane.name)) this.save();
+    if (this.ctx.board.supports("changes.since") !== true) this.loadLanes([lane]);
+    this.redraw();
+    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: plan.born.map(p => `${p.key}=${p.value}`), recordedAs };
+  }
+
+  /** A note under `parentId` (a card's child), as it was typed. */
+  async createNote(parentId: string, text: string, actor: Actor): Promise<{ id: string; parent: string; text: string }> {
+    const body = text.replace(/\s+$/, "");
+    if (!body.trim()) throw new ActionRefused("type the note first");
+    const m = await this.landCreate(parentId, body, actor);
+    const parent = await this.ctx.board.get(parentId).catch(() => null);
+    if (parent) for (const r of this.readers()) r.refresh(parent);
+    asActor(this.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId.slice(0, 8)} · ${titleOf(m)}`);
+    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId.slice(0, 8)}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    for (const r of this.readers()) if (r.msg?.id === parentId) r.surface.noteAgent(actor, "added a note under this card");
+    this.redraw();
+    return { id: m.id, parent: parentId, text: m.text };
+  }
+
+  /** One `create`, never retried: a refusal is the service's reason; a lost answer is looked for. */
+  private async landCreate(parentId: string, text: string, actor: Actor): Promise<Msg> {
+    const since = Date.now();
+    try {
+      return await this.ctx.board.createBlock(parentId, text, actor);
+    } catch (e) {
+      if (e instanceof Refused) throw new ActionRefused(e.message);
+      const found = await this.ctx.board.findCreated(parentId, text, since).catch(() => null);
+      if (found) return found;
+      throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such block is there yet; the outcome is unknown, so look before creating it again`);
+    }
+  }
+
+  // ── checklist steps ──
+
+  /** `s`: the selected card's checklist steps, read from the service. */
+  private async openSteps(card = this.card()) {
+    if (!card) return this.ctx.flash("select a card to see its steps");
+    const S = { card, read: null as ChecklistRead | null, sel: 0, busy: true, note: "" };
+    this.steps = S; this.redraw();
+    try {
+      S.read = await this.ctx.board.checklist(card.id);
+      if (!S.read.items.length) { if (this.steps === S) this.steps = null; this.ctx.flash(`${titleOf(card)} has no checklist steps`); }
+    } catch (e) { if (this.steps === S) this.steps = null; this.ctx.flash(`couldn't read the steps: ${(e as Error).message}`); }
+    finally { S.busy = false; this.redraw(); }
+  }
+
+  private stepsKey(k: Key, c: string) {
+    const S = this.steps!;
+    const n = S.read?.items.length ?? 0;
+    if (k.kind === "esc" || c === "q" || c === "s") this.steps = null;
+    else if (k.kind === "down" || c === "j") S.sel = Math.min(Math.max(0, n - 1), S.sel + 1);
+    else if (k.kind === "up" || c === "k") S.sel = Math.max(0, S.sel - 1);
+    else if (!S.busy && S.read && (c === " " || k.kind === "enter" || c === "x" || c === "w" || c === "!")) {
+      const it = S.read.items[S.sel];
+      if (it) {
+        const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
+        void this.setStep(S.card.id, S.sel, status, USER).catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
+      }
+    }
+    this.redraw();
+  }
+
+  /**
+   * Set step `index` of the card's checklist (as `checklist.query` numbers them) to `status`, checked by
+   * the step's evidence: if the step changed since it was read, nothing is written and the steps are read
+   * again. A step without an id is named by where it starts at the read revision, and the service gives
+   * it one (the note's text gains `^task-…`).
+   */
+  async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string }> {
+    const card = this.cardFor(cardId);
+    const blocked = this.moveBlocked(card);
+    if (blocked) throw new ActionRefused(blocked.replace("another move is still landing", "a move is still landing"));
+    const S = this.steps?.card.id === card.id ? this.steps : null;
+    const read = S?.read && typeof index === "number" ? S.read : await this.ctx.board.checklist(card.id);
+    const i = typeof index === "number" ? index : read.items.findIndex(x => x.itemId === index || x.itemId === index.replace(/^\^/, ""));
+    const it = read.items[i];
+    if (!it) throw new ActionRefused(typeof index === "number" ? `there's no step ${index + 1}; ${titleOf(card)} has ${read.items.length}` : `no step ^${index} in ${titleOf(card)}`);
+    if (it.identity === "duplicate") throw new ActionRefused(`step ${i + 1} shares its id ^${it.itemId} with another step; fix it in the note's text first`);
+    const to: StepStatus = status ?? (it.status === "done" ? "todo" : "done");
+    if (S) { S.busy = true; S.note = "saving…"; this.redraw(); }
+    try {
+      const r = await this.ctx.board.setStep(card.id, it, read.revision, to, actor);
+      for (const x of this.readers()) { x.refresh(r.block); if (x.msg?.id === card.id) x.surface.noteAgent(actor, `set step ${i + 1} to ${to}`); }
+      const named = it.identity === "unassigned" && r.changed ? ` · the step now has an id (^${r.item.itemId})` : "";
+      const said = `${to === "done" ? "checked off" : `set to ${to}`}: ${stepText(it.text)} · ${titleOf(card)}${named}`;
+      asActor(this.ctx, actor).flash(r.changed ? said : `already ${to}: ${stepText(it.text)}`);
+      this.lastWrite = { what: "step", id: card.id, result: `step ${i + 1} ${it.status} -> ${to} · revision ${r.block.revision}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+      if (S) { S.note = r.changed ? said : ""; }
+      return { card: card.id, step: i + 1, status: to, changed: r.changed, revision: r.block.revision, id: r.item.itemId };
+    } catch (e) {
+      const why = e instanceof Refused ? `${e.message} · the steps were read again; nothing changed` : e instanceof Error ? e.message : String(e);
+      throw new ActionRefused(why);
+    } finally {
+      if (S && this.steps === S) {
+        S.read = await this.ctx.board.checklist(card.id).catch(() => S.read);
+        S.busy = false; this.redraw();
+      }
+    }
+  }
+
+  // ── trash ──
+
+  /** `d`: the first press arms, a second within five seconds trashes. */
+  private async armTrash() {
+    const card = this.card();
+    if (!card) return this.ctx.flash("select a card to trash");
+    if (this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000) {
+      this.trashArm = null;
+      return void this.trashCard(card.id, card.id, USER).catch(e => this.ctx.flash(`not trashed: ${(e as Error).message}`));
+    }
+    const blocked = this.moveBlocked(card);
+    if (blocked) return this.ctx.flash(`not trashed: ${blocked}`);
+    this.trashArm = { id: card.id, at: Date.now() };
+    const fresh = await this.ctx.board.get(card.id).catch(() => null);
+    const kids = fresh?.childIds.length ?? 0;
+    if (this.trashArm?.id === card.id) this.ctx.flash(`d again trashes “${titleOf(card)}”${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`);
+  }
+
+  /**
+   * Move a card (and its subtree) to Trash, if it is still at the revision the board showed. `confirm`
+   * must name the same card: the second `d`, or an agent's `confirm=<id>`. The service's delete records
+   * no author, so who did it is said on screen and in the result.
+   */
+  async trashCard(id: string, confirm: string, actor: Actor): Promise<{ trashed: string; title: string; lane: string; notesUnder: number; restore: string; recordedAs: string }> {
+    const card = this.cardFor(id);
+    if (!(confirm === card.id || (confirm.length >= 8 && card.id.startsWith(confirm))))
+      throw new ActionRefused(`confirm=${confirm} doesn't name ${card.id.slice(0, 8)} (“${titleOf(card)}”); pass that card's id to trash it`);
+    const blocked = this.moveBlocked(card);
+    if (blocked) throw new ActionRefused(blocked);
+    const fresh = await this.ctx.board.get(card.id);
+    if (!fresh) throw new ActionRefused("the card isn't in the outline any more");
+    if (card.revision !== undefined && fresh.revision !== card.revision)
+      throw new ActionRefused(`the card changed since the board showed it (revision ${card.revision} -> ${fresh.revision}) · look again before trashing`);
+    const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))?.name ?? "";
+    try { await this.ctx.board.trash(card.id); }
+    catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
+    const by = actor.kind === "agent" ? { by: actor.id } : {};
+    this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
+    this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
+    asActor(this.ctx, actor).flash(`trashed “${titleOf(card)}”${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it`);
+    if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
+    this.redraw();
+    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: "not recorded: the service's delete takes no author" };
+  }
+
+  /** `u`: bring back the card trashed last (or `id`), where it was. */
+  async restoreCard(id: string | undefined, actor: Actor): Promise<{ restored: string; title: string }> {
+    const target = id ?? this.trashed?.id;
+    if (!target) throw new ActionRefused("nothing was trashed from this board; pass id=<block id> to restore another");
+    let m: Msg;
+    try { m = await this.ctx.board.restore(target); }
+    catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
+    const title = titleOf(m);
+    if (this.trashed?.id === m.id) {
+      const lane = this.lanes.find(l => l.name === this.trashed!.lane);
+      if (lane) { lane.want = m.id; lane.wantVerb = "restored"; }
+      this.trashed = null;
+    }
+    this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    asActor(this.ctx, actor).flash(`restored “${title}”`);
+    if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
+    this.redraw();
+    return { restored: m.id, title };
   }
 
   // ── drawing ────────────────────────────────────────────────────────────────
@@ -659,6 +968,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     }
     if (this.picker) this.drawPicker(canvas, W, H);
     if (this.mover) this.drawMover(canvas, W, H);
+    if (this.steps) this.drawSteps(canvas, W, H);
+    if (this.composer) this.drawComposer(canvas, W, H);
     // Floating panes last, in z-order.
     this.floats.forEach((f, i) => { this.overlays.push({ r: { ...f.rect, cols: f.rect.cols + 1, rows: f.rect.rows + 1 }, layer: 3 + i }); this.drawFloat(canvas, f, i, W, H); });
 
@@ -767,6 +1078,48 @@ export class DeliveryBoard implements Screen, DeskApi {
     });
   }
 
+  private drawComposer(canvas: Canvas, W: number, H: number) {
+    const C0 = this.composer!, d = C0.draft;
+    const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
+    canvas.clear(r, bg(C.black));
+    const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${titleOf(C0.parent, 40)}`;
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc back");
+    const w = r.cols - 2;
+    const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
+    const status = C0.kind === "card" ? [
+      line(`born with ${C0.born.map(p => `${p.key}=${p.value}`).join(" ") || "nothing (the lane sets no values)"}`, C.lgreen),
+      ...(C0.needs.length ? [line(`the text must also meet ${C0.needs.join(" and ")} · e.g. type [${hintToken(C0.needs[0]!)}]`, C.yellow)] : []),
+      line(`under ${C0.parent.title} · ${C0.parent.why}`, C.cyan),
+      line(d.note || "the first line is the title; [key::value] tokens are properties", d.note.startsWith("not created") ? C.lred : C.dark),
+    ] : [
+      line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
+      line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
+    ];
+    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save") }, w, r.rows - 2);
+    lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
+  }
+
+  private drawSteps(canvas: Canvas, W: number, H: number) {
+    const S = this.steps!;
+    const items = S.read?.items ?? [];
+    const r: Rect = { col: Math.round(W * 0.2), row: Math.round(H * 0.12), cols: Math.round(W * 0.6), rows: Math.min(H - 4, Math.max(6, items.length + 4)) };
+    canvas.clear(r, bg(C.black));
+    const done = items.filter(i => i.status === "done").length;
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${items.length} done · rev ${S.read.revision}` : ""}`, fg(C.dark) + "space done · esc back");
+    const w = r.cols - 2;
+    if (!S.read) { canvas.text(r.col + 1, r.row + 1, fg(C.dark) + " reading the steps…" + RESET, w); return; }
+    const MARK: Record<StepStatus, string> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
+    const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred };
+    const room = r.rows - 3;
+    const top = Math.max(0, Math.min(S.sel - room + 1, items.length - room));
+    items.slice(top, top + room).forEach((it, j) => {
+      const i = top + j, sel = i === S.sel;
+      const text = `${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`;
+      canvas.text(r.col + 1, r.row + 1 + j, (sel ? SEL : fg(COLOR[it.status])) + pad(` ${text}`, w) + RESET, w);
+    });
+    canvas.text(r.col + 1, r.row + r.rows - 2, fg(S.busy ? C.grey : C.dark) + pad(` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}`, w) + RESET, w);
+  }
+
   private drawReader(canvas: Canvas, r: Rect, region: Region, pane: ReaderPane, label: string, hint = pane.hint(), layer = 0) {
     const inner = this.frame(canvas, r, region, label, hint);
     if (inner.cols < 4 || inner.rows < 1) return;
@@ -854,12 +1207,15 @@ export class DeliveryBoard implements Screen, DeskApi {
       return pad(paint(say), W);
     }
     if (this.mover) return pad(paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched"), W);
+    if (this.composer) return pad(fg(C.dark) + " " + editHint(this.composer.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET, W);
+    if (this.steps) return pad(paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read"), W);
+    const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED “${this.trashed.title}”${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15alt⏎|08 new detail · |15H L|08 move card · |15m|08 move to... · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15{ } < >|08 size · |15tab|08 area"
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
         : "|08 |15tab|08 area · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
-    return pad(paint(base + (this.status ? ` · |14${this.status}` : "")), W);
+    return pad(undo + paint(base + (this.status ? ` · |14${this.status}` : "")), W);
   }
 
   // ── input ──────────────────────────────────────────────────────────────────
@@ -881,6 +1237,13 @@ export class DeliveryBoard implements Screen, DeskApi {
       editing.key(k, this); return;
     }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    // A card or note being written holds every key, like an edit; a click can't take focus from it.
+    if (this.composer) {
+      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the new card first · ctrl+s creates · esc closes"); return; }
+      return this.composerKey(k);
+    }
+    if (this.steps && k.kind !== "mouse") return this.stepsKey(k, c);
+    if (this.trashArm && !(c === "d" && this.focus === "lanes")) this.trashArm = null;   // any other key keeps the card
     if (this.mover && k.kind !== "mouse") return this.moverKey(k, c);
     if (this.picker) {
       const P = this.picker;
@@ -959,6 +1322,11 @@ export class DeliveryBoard implements Screen, DeskApi {
     else if ((c === "e" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) { this.focus = "preview"; void this.preview.edit(this, c !== "e"); return this.redraw(); }
     else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
     else if (c === "m") return this.openMover();
+    else if (c === "n") return void this.openCardComposer();
+    else if (c === "N") return void this.openChildComposer();
+    else if (c === "s") return void this.openSteps();
+    else if (c === "d") return void this.armTrash();
+    else if (c === "u" && this.trashed) return void this.restoreCard(undefined, USER).catch(e => this.ctx.flash(`not restored: ${(e as Error).message}`));
     else if (c === "c" && l) { this.collapsed.has(l.name) ? this.collapsed.delete(l.name) : this.collapsed.add(l.name); this.save(); return this.redraw(); }
     else if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) { this.collapsed.delete(l.name); this.save(); return this.redraw(); }
     else if (l && (k.kind === "down" || c === "j")) l.sel = Math.min(Math.max(0, n - 1), l.sel + 1);
@@ -1101,6 +1469,16 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 }
 
+type Composer =
+  | { kind: "card"; lane: Lane; born: { key: string; value: string }[]; needs: string[]; parent: ParentPick & { title: string }; draft: Draft }
+  | { kind: "child"; parent: Msg; draft: Draft };
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
+/** A step's first line, without its list mark, checkbox and ^id. */
+const stepText = (t: string) => (t.split("\n")[0] ?? "").replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~!]\]\s*/, "").replace(/\s*\^[\w-]+\s*$/, "").trim();
+/** `(project=a OR project=b)` → `project::a`: a token the person could type to meet it. */
+const hintToken = (need: string) => { const m = need.match(/([A-Za-z][\w.-]*)=("[^"]*"|[^\s()]+)/); return m ? `${m[1]}::${m[2]!.replace(/^"|"$/g, "")}` : `${need.replace(/[()]/g, "")}::…`; };
+
 const draftState = (r: ReaderPane) => {
   const d = r.draft!;
   return { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy };
@@ -1114,6 +1492,12 @@ export const BOARD_ACTIONS = new ActionSet<{
   "focus": Record<string, never>;
   "card.select": { id: string };
   "card.move": { lane: string; card?: string };
+  "card.create": { lane: string; text: string; parent?: string };
+  "note.create": { text: string; parent?: string };
+  "steps": { card?: string };
+  "step.set": { step: string; status?: string; card?: string };
+  "card.trash": { confirm: string; card?: string };
+  "card.restore": { id?: string };
 }, BoardOn>("board", {
   "open": {
     summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "enter, alt+enter, o",
@@ -1144,5 +1528,51 @@ export const BOARD_ACTIONS = new ActionSet<{
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
+  },
+  "card.create": {
+    summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default), under the lane's create-parent or where its cards live; refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
+    args: {
+      lane: { type: "string", about: "the lane's name" },
+      text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
+      parent: { type: "string", optional: true, about: "the block to create it under, instead of the lane's default" },
+    },
+    run: ({ lane, text, parent }, { b }, actor) => b.createCard(b.laneFor(lane), text, actor, parent),
+  },
+  "note.create": {
+    summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
+    args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    run: ({ text, parent }, { b }, actor) => b.createNote(parent ?? b.selectedCardId(), text, actor),
+  },
+  "steps": {
+    summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
+    args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    run: ({ card }, { b }) => b.listSteps(card),
+  },
+  "step.set": {
+    summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s, j k, space x w !",
+    args: {
+      step: { type: "string", about: "the step's number in `steps` (from 1), or its ^id" },
+      status: { type: "string", optional: true, about: "todo, done, waiting or problem; default toggles done" },
+      card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
+    },
+    run({ step, status, card }, { b }, actor) {
+      if (status !== undefined && !["todo", "done", "waiting", "problem"].includes(status)) throw new ActionRefused(`status is todo, done, waiting or problem, not ${status}`);
+      const n = /^\d+$/.test(step) ? Number(step) - 1 : step;
+      if (typeof n === "number" && n < 0) throw new ActionRefused("steps are numbered from 1");
+      return b.setStep(card ?? b.selectedCardId(), n, status as StepStatus | undefined, actor);
+    },
+  },
+  "card.trash": {
+    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. The service records no author for this", keys: "d d",
+    args: {
+      confirm: { type: "string", about: "the card's id (or its first 8+ characters): the same card, said twice" },
+      card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
+    },
+    run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(), confirm, actor),
+  },
+  "card.restore": {
+    summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
+    args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
+    run: ({ id }, { b }, actor) => b.restoreCard(id, actor),
   },
 });
