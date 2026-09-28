@@ -27,7 +27,11 @@ export class Draft {
   private discardArmed = false;
   note = "";
 
-  constructor(readonly blockId: string, public base: number, text: string) {
+  /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
+  baseProps: Record<string, string>;
+
+  constructor(readonly blockId: string, public base: number, text: string, props: Record<string, string> = {}) {
+    this.baseProps = props;
     this.original = text;
     this.lines = text.split("\n");
     this.row = 0;
@@ -40,6 +44,7 @@ export class Draft {
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
     this.base = m.revision ?? this.base;
+    this.baseProps = m.props;
     this.original = m.text;
     this.lines = m.text.split("\n");
     this.row = Math.min(this.row, this.lines.length - 1);

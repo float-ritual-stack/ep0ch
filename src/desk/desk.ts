@@ -89,7 +89,9 @@ export class Desk implements Screen, DeskApi {
 
   openBlock(m: Msg) { this.setCurrent(m, { reveal: true }); this.focusKind("reader"); }
 
-  unsaved() { return [...this.panes.values()].some(p => p instanceof ReaderPane && !!p.draft?.dirty); }
+  unsaved() { return this.drafts().length > 0; }
+  keepDrafts() { return this.drafts().map(p => p.draft!.copyOut()); }
+  private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !!p.draft?.dirty); }
 
   describe() {
     const order = leaves(this.root);
@@ -150,10 +152,14 @@ export class Desk implements Screen, DeskApi {
       if (this.search.key(k, this) === "close") this.search = null;
       return this.redraw();
     }
-    if (k.kind === "mouse") return this.mouse(k);
-    // An open edit takes every key, window commands included, until it is saved or closed.
+    // An open edit takes every key, window commands included, until it is saved or closed,
+    // and clicks can't move focus off it.
     const focused = this.panes.get(this.focus);
-    if (focused instanceof ReaderPane && focused.editing) { focused.key(k, this); return; }
+    if (focused instanceof ReaderPane && focused.editing) {
+      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
+      focused.key(k, this); return;
+    }
+    if (k.kind === "mouse") return this.mouse(k);
     if (this.prefix) return this.command(k);
     if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }
     if (k.kind === "tab" || k.kind === "backtab") {

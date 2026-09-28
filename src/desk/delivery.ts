@@ -147,6 +147,7 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   unsaved() { return this.readers().some(r => r.draft?.dirty); }
+  keepDrafts() { return this.readers().filter(r => r.draft?.dirty).map(r => r.draft!.copyOut()); }
 
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
 
@@ -185,13 +186,18 @@ export class DeliveryBoard implements Screen, DeskApi {
   redraw() { this.ctx?.redraw(); }
 
   private openDetail(m: Msg, fresh: boolean) {
-    if (fresh || !this.details.length) {
-      if (this.details.length >= 2) this.details.shift();
+    // A detail holding an edit is never reused, dropped or left behind by focus.
+    if (fresh || !this.details.length || this.details[this.active]?.editing) {
+      if (this.details.length >= 2) {
+        const drop = this.details.findIndex(d => !d.editing);
+        if (drop < 0) return this.ctx.flash("both details hold edits · save or close one first");
+        this.details.splice(drop, 1);
+      }
       this.details.push(new ReaderPane());
       this.active = this.details.length - 1;
     }
     this.details[this.active]!.show(m, this);
-    this.focus = `detail${this.active}`;
+    if (!this.readerFor(this.focus)?.pane.editing) this.focus = `detail${this.active}`;
     if (!this.treePinned) this.treeOpen = false;
     this.redraw();
   }
@@ -491,7 +497,11 @@ export class DeliveryBoard implements Screen, DeskApi {
   key(k: Key, ctx: Ctx) {
     // An open edit takes every key, board shortcuts included, until it is saved or closed.
     const editing = this.readerFor(this.focus)?.pane;
-    if (editing?.editing && k.kind !== "mouse") { editing.key(k, this); return; }
+    if (editing?.editing) {
+      // Clicks can't move focus off an open edit; that would strand it where no key reaches it.
+      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
+      editing.key(k, this); return;
+    }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if (this.picker) {
       const P = this.picker;

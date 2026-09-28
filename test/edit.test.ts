@@ -5,7 +5,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
+import { App } from "../src/app";
+import { Desk } from "../src/desk/desk";
 import { Draft } from "../src/edit";
+import { MainMenu } from "../src/screens";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { SocketBoard } from "../src/socket";
 import { Term, type Key } from "../src/term";
@@ -125,17 +128,30 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
   test("e, type, ctrl+s: the service has the new text at the next revision, attributed to the door", async () => {
     const b = await create("Card [stage::queued]\nold body");
     const { pane, d } = await openReader(b.id);
-    type(pane, " edited", d);
     pane.key({ kind: "down" }, d); pane.key({ kind: "end" }, d); type(pane, ", then more", d);
     pane.key(ctrl("s"), d);
     await until(() => !pane.editing, "the save");
     const now = await current(b.id);
-    expect(now.text).toBe("Card [stage::queued] edited\nold body, then more");
+    expect(now.text).toBe("Card [stage::queued]\nold body, then more");
+    expect(now.properties).toEqual([{ key: "stage", value: "queued" }]);
     expect(now.revision).toBe(b.revision + 1);
     expect(pane.msg?.revision).toBe(now.revision);
     expect(flashes.at(-1)).toBe(`saved · revision ${now.revision}`);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     expect(log.entries.find((e: any) => e.block.id === b.id)?.actorId).toBe("ep0ch-door");
+  });
+
+  test("a save that turns a property into plain text says so", async () => {
+    // Found in a real terminal: typing after `[stage::queued]` on the subject line makes the service
+    // read it as text, and the card silently left its lane.
+    const b = await create("Card [stage::queued]\nbody");
+    const { pane, d } = await openReader(b.id);
+    type(pane, " (retry)", d);
+    pane.key(ctrl("s"), d);
+    await until(() => !pane.editing, "the save");
+    expect((await current(b.id)).properties).toEqual([]);
+    expect(flashes.at(-1)).toBe(`saved · revision ${b.revision + 1} · properties changed: -stage=queued`);
+    expect(pane.render(80, 20).lines.some(l => l.includes("properties changed: -stage=queued"))).toBe(true);
   });
 
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {
@@ -179,6 +195,36 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     pane.key({ kind: "esc" }, d);                       // clean draft: closes at once
     pane.show(elsewhere, d);
     expect(pane.msg?.id).toBe(elsewhere!.id);
+  });
+
+  test("in the app: clicks can't pull focus off an edit, and leaving asks twice and keeps the draft", async () => {
+    const b = await create("Guarded [stage::queued]\nbody");
+    let key: (k: Key) => void = () => {};
+    const term = { info: { cols: 160, rows: 45, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term as any, board, Date.now(), () => {});
+    const desk = new Desk();
+    app.push(new MainMenu()); app.push(desk);
+    desk.openBlock((await board.get(b.id))!);
+    const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
+    await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
+    key(char("e"));
+    await until(() => reader().editing, "the draft");
+    const draft = reader().draft!;
+    for (const c of " typed") key(char(c));
+    const focusBefore = (desk as any).focus;
+    key({ kind: "mouse", action: "down", button: 0, x: 1, y: 1 });      // a click on another pane
+    expect((desk as any).focus).toBe(focusBefore);
+    for (const k of [ctrl("w"), char("q"), char("1")]) key(k);          // window, menu and focus keys type instead
+    expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
+
+    app.pop();                                                          // e.g. Esc/q reaching the desk
+    expect((app.describe() as any).screen).toBe(desk.title);
+    expect(draft.savedCopy).toBeNull();
+    app.pop();                                                          // again within 3s: leave, draft copied out
+    expect((app.describe() as any).screen).not.toBe(desk.title);
+    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1\nbody\n");
+    expect((await current(b.id)).text).toBe("Guarded [stage::queued]\nbody");   // nothing was saved behind our back
+    app.quit();
   });
 
   test("ctrl+e hands the draft to $EDITOR and saves what comes back", async () => {

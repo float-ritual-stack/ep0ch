@@ -174,6 +174,13 @@ export class TreePane implements Pane {
 // ── reader ───────────────────────────────────────────────────────────────────
 
 const LINK = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})\)\)|\[\[([^\]]+)\]\]/g;
+/** `-stage=queued +stage=doing`, or "" when the property set is the same. */
+export function propertyChange(before: Record<string, string>, after: Record<string, string>): string {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(before)) if (after[k] !== v) out.push(`-${k}=${v}`);
+  for (const [k, v] of Object.entries(after)) if (before[k] !== v) out.push(`+${k}=${v}`);
+  return out.join(" ");
+}
 const linksOf = (m: Msg): { block?: string; page?: string; media?: string }[] =>
   [...m.text.matchAll(LINK)].map(x => (x[1] ? { block: x[1] } : { page: x[2]! }));
 
@@ -183,6 +190,8 @@ export class ReaderPane implements Pane {
   private pinned = false;
   private scroll = 0;
   private crumbs = "";
+  /** Shown under the header after a save that changed the note's properties, until the reader moves on. */
+  private notice = "";
   private links: { block?: string; page?: string; media?: string }[] = [];
   private unfold = false;
   private link = -1;
@@ -212,6 +221,7 @@ export class ReaderPane implements Pane {
 
   show(m: Msg | null, desk: DeskApi) {
     if (this.draft && m?.id !== this.draft.blockId) return;   // an edit keeps the reader on its note
+    if (m?.id !== this.msg?.id) this.notice = "";
     this.msg = m; this.scroll = 0; this.link = -1; this.crumbs = "…";
     this.links = m ? linksOf(m) : [];
     if (!m) return;
@@ -230,6 +240,7 @@ export class ReaderPane implements Pane {
       fg(C.white) + pad(subject(m), w) + RESET,
       fg(C.brown) + pad(meta, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
+      ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       rule(w),
     ];
     const t = desk?.ctx.t;
@@ -278,7 +289,7 @@ export class ReaderPane implements Pane {
     if (!fresh || fresh.revision === undefined) { desk.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
     if (this.msg?.id !== m.id || this.draft) return;
     this.msg = fresh;
-    this.draft = new Draft(fresh.id, fresh.revision, fresh.text);
+    this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
     desk.redraw();
     if (external) this.external(desk);
   }
@@ -306,7 +317,11 @@ export class ReaderPane implements Pane {
       if (this.draft === d) this.draft = null;
       this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
       this.links = linksOf(this.msg);
-      desk.ctx.flash(`saved · revision ${m.revision}`);
+      // The service decides which [key::value] tokens are properties (a token followed by more text on
+      // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
+      const change = propertyChange(d.baseProps, m.props);
+      this.notice = change ? `properties changed: ${change}` : "";
+      desk.ctx.flash(change ? `saved · revision ${m.revision} · properties changed: ${change}` : `saved · revision ${m.revision}`);
     } catch (e) {
       d.saving = false;
       if (e instanceof EditConflict) {
