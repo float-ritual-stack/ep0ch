@@ -7,7 +7,9 @@ import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
-import type { Backlink, Change, OutlineEvent } from "../socket";
+import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
+import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
+import { NOTE_ACTIONS } from "../surface/note";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -71,7 +73,7 @@ export class DeliveryBoard implements Screen, DeskApi {
   private mover: { card: Msg; from: number; plans: MovePlan[]; sel: number } | null = null;
   /** The card a move is patching right now; a second move waits for it. */
   private moving: string | null = null;
-  private lastMove: { card: string; to: string; result: string } | null = null;
+  private lastMove: { card: string; to: string; result: string; by?: string } | null = null;
   /** Lanes waiting to be asked again, gathered from change records and read together. */
   private dirtyLanes = new Set<Lane>();
   /** How the board has refreshed, for `peek` and tests: whole-board reloads vs lanes asked again. */
@@ -287,6 +289,122 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   openBlock(m: Msg) { this.current = m; this.openDetail(m, false); }
 
+  // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
+
+  actions() { return { actions: [...BOARD_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
+
+  async act(req: ActRequest, actor: Actor): Promise<unknown> {
+    const args = { ...(req.args ?? {}) };
+    if (BOARD_ACTIONS.has(req.action)) return BOARD_ACTIONS.runUntyped(req.action, args, { b: this, reader: req.reader }, actor);
+    const r = this.pickReader(req.reader);
+    const out = await r.pane.act(req.action, args, this, actor);
+    return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
+  }
+
+  /** Every reader by the name an agent uses: preview, detail1, detail2, float1…, tree (its preview), backlinks. */
+  private namedReaders(): { name: string; region: Region | null; pane: ReaderPane }[] {
+    return [
+      { name: "preview", region: "preview", pane: this.preview },
+      ...this.details.map((pane, i) => ({ name: `detail${i + 1}`, region: `detail${i}` as Region, pane })),
+      ...this.floats.map((f, i) => ({ name: `float${i + 1}`, region: `float${i}` as Region, pane: f.pane })),
+      { name: "tree", region: this.treeOpen ? "tree" : null, pane: this.treePreview },
+      { name: "backlinks", region: this.links ? "backlinks" : null, pane: this.linksPreview },
+    ];
+  }
+
+  /**
+   * The reader an action names: by name, "detail" (the one Enter opens into), "float" (the top one),
+   * "focused", or a block id (the reader showing that note, one that's editing it first). No name: the
+   * focused reader, or the preview when the lanes have focus.
+   */
+  private pickReader(sel?: string): { name: string; region: Region | null; pane: ReaderPane } {
+    const all = this.namedReaders();
+    if (!sel || sel === "focused") {
+      const f = this.focus === "lanes" ? null : all.find(r => r.region === this.focus);
+      return f ?? all[0]!;
+    }
+    if (sel === "detail") { const r = all.find(x => x.name === `detail${this.active + 1}`); if (r) return r; }
+    if (sel === "float") { const r = all.filter(x => x.name.startsWith("float")).at(-1); if (r) return r; }
+    const named = all.find(r => r.name === sel);
+    if (named) return named;
+    if (/^[0-9a-f-]{8,}$/.test(sel)) {
+      const showing = all.filter(r => r.pane.msg?.id.startsWith(sel));
+      const r = showing.find(x => x.pane.editing) ?? showing[0];
+      if (r) return r;
+      throw new ActionRefused(`no reader shows ${sel}; open it first (open id=${sel})`);
+    }
+    throw new ActionRefused(`no reader ${sel} on the board; readers: ${all.map(r => r.name).join(", ")}, focused, or a block id`);
+  }
+
+  /** `open`: put a note in a reader — the preview (selecting its card when a lane lists it), a detail, a new detail, or a new float. */
+  async openIn(id: string, where = "detail"): Promise<{ reader: string; id: string }> {
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    this.current = m;
+    if (where === "preview") {
+      if (!this.selectCard(m.id, false)) this.preview.show(m, this);
+      if (this.preview.msg?.id !== m.id) throw new ActionRefused("the preview is holding an edit or a comment on another note");
+      this.focus = "preview";
+    } else if (where === "detail" || where === "new-detail") {
+      this.openDetail(m, where === "new-detail");
+      if (this.details[this.active]?.msg?.id !== m.id) throw new ActionRefused("both details hold edits · save or close one first");
+    } else if (where === "float") {
+      const pane = new ReaderPane(); pane.show(m, this);
+      const W = this.ctx.t.cols, H = this.ctx.t.rows - 2, n = this.floats.length;
+      this.floats.push({ pane, rect: { col: Math.round(W * 0.22) + n * 3, row: Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) } });
+      this.focus = `float${this.floats.length - 1}`;
+    } else {
+      const r = this.pickReader(where);
+      if (!r.pane.show(m, this)) throw new ActionRefused(`${r.name} is holding an edit or a comment on another note`);
+      if (r.region) this.focus = r.region;
+    }
+    this.redraw();
+    const r = this.namedReaders().find(x => x.region === this.focus) ?? this.namedReaders().find(x => x.pane.msg?.id === m.id);
+    return { reader: r?.name ?? where, id: m.id };
+  }
+
+  /** `focus`: which area keys go to — "lanes" or a reader. */
+  focusOn(sel: string): { focus: string } {
+    if (sel === "lanes") this.focus = "lanes";
+    else {
+      const r = this.pickReader(sel);
+      if (!r.region) throw new ActionRefused(`${r.name} isn't open`);
+      this.focus = r.region;
+      if (r.region.startsWith("detail")) this.active = Number(r.region.slice(6));
+    }
+    this.redraw();
+    return { focus: sel === "lanes" ? "lanes" : this.pickReader(sel).name };
+  }
+
+  /** Select a card in the lanes (the preview follows). False when no loaded lane lists it. */
+  selectCard(id: string, focus = true): boolean {
+    const i = this.lanes.findIndex(l => l.items?.some(m => m.id === id || (id.length >= 8 && m.id.startsWith(id))));
+    if (i < 0) return false;
+    const l = this.lanes[i]!;
+    this.lane = i; l.sel = l.items!.findIndex(m => m.id === id || m.id.startsWith(id));
+    if (focus) this.focus = "lanes";
+    this.follow(); this.redraw();
+    return true;
+  }
+
+  /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
+  async moveCard(lane: string, card: string | undefined, actor: Actor) {
+    if (card && !this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+    const c = this.card();
+    if (!c) throw new ActionRefused("no card is selected");
+    const want = lane.toLowerCase();
+    const to = this.lanes.findIndex(l => l.name.toLowerCase() === want);
+    if (to < 0) throw new ActionRefused(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
+    if (to === this.lane) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
+    this.lastMove = null;
+    await this.moveTo(to, actor);
+    const r = this.lastMove as DeliveryBoard["lastMove"];
+    if (!r) throw new ActionRefused("not moved");
+    if (r.result.startsWith("refused")) throw new ActionRefused(r.result.replace(/^refused: /, ""));
+    for (const x of this.readers()) if (x.msg?.id === c.id) x.surface.noteAgent(actor, `moved this card to ${this.lanes[to]!.name}`);
+    return { card: c.id, lane: this.lanes[to]!.name, result: r.result };
+  }
+
   describe() {
     const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
     return {
@@ -302,6 +420,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       refreshes: { ...this.refreshes },
       views: this.lanes[0]?.read?.by ?? null,
       mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
+      readers: this.namedReaders().filter(r => r.pane.msg).map(r => ({ name: r.name, focused: r.region === this.focus, ...r.pane.describe() })),
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
       commenting: this.readers().filter(r => r.session).map(r => r.session!.describe()),
     };
@@ -410,25 +529,31 @@ export class DeliveryBoard implements Screen, DeskApi {
     return null;
   }
 
-  /** Move the selected card into lane `to` by patching the properties its query names. */
-  private async moveTo(to: number) {
+  /**
+   * Move the selected card into lane `to` by patching the properties its query names. Keys, the mouse
+   * and the `card.move` action all come here; `actor` is who the patch is recorded as.
+   */
+  private async moveTo(to: number, actor: Actor = USER) {
     const from = this.lane, card = this.card(), target = this.lanes[to];
     if (!card || !target || to === from) return;
+    const ctx = asActor(this.ctx, actor);
+    const by = actor.kind === "agent" ? { by: actor.id } : {};
     const blocked = this.moveBlocked(card);
-    if (blocked) return this.ctx.flash(`not moved: ${blocked}`);
+    if (blocked) { this.lastMove = { card: card.id, to: target.name, result: `refused: ${blocked}`, ...by }; return ctx.flash(`not moved: ${blocked}`); }
     const plan = planMove(card, target);
-    if (plan.kind === "refused") { this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}` }; return this.ctx.flash(`can't move to ${target.name}: ${plan.reason}`); }
+    if (plan.kind === "refused") { this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}`, ...by }; return ctx.flash(`can't move to ${target.name}: ${plan.reason}`); }
     if (plan.kind === "already") {
       this.lane = to; target.want = card.id; this.loadLanes();
-      return this.ctx.flash(`already in ${target.name} · nothing to change`);
+      this.lastMove = { card: card.id, to: target.name, result: "already there", ...by };
+      return ctx.flash(`already in ${target.name} · nothing to change`);
     }
-    this.moving = card.id; this.status = `moving to ${target.name}...`; this.redraw();
+    this.moving = card.id; this.status = `${actor.kind === "agent" ? `${agentLabel(actor)} is ` : ""}moving to ${target.name}...`; this.redraw();
     let landed = false;
     try {
-      const m = await applyMove(this.ctx.board, card, plan.changes);
+      const m = await applyMove(this.ctx.board, card, plan.changes, actor);
       const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters)).map(l => l.name);
-      this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}` };
-      this.ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
+      this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}`, ...by };
+      ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
       for (const r of this.readers()) r.refresh({ ...m, childIds: r.msg?.id === m.id ? r.msg.childIds : m.childIds });
       if (this.lane === from) this.lane = to;           // follow the card unless the user already went elsewhere
       target.want = card.id;
@@ -436,8 +561,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       landed = true;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
-      this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}` };
-      this.ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
+      this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}`, ...by };
+      ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
     } finally {
       this.moving = null; this.status = "";
       // Either way, show the lanes as the service has them now. After a move that landed, with a change
@@ -971,3 +1096,38 @@ const draftState = (r: ReaderPane) => {
   const d = r.draft!;
   return { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy };
 };
+
+interface BoardOn { b: DeliveryBoard; reader?: string }
+
+/** What the board adds to a reader's note actions: which note is where, and moving cards. */
+export const BOARD_ACTIONS = new ActionSet<{
+  "open": { id: string };
+  "focus": Record<string, never>;
+  "card.select": { id: string };
+  "card.move": { lane: string; card?: string };
+}, BoardOn>("board", {
+  "open": {
+    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "enter, alt+enter, o",
+    args: { id: { type: "string", about: "the block id" } },
+    async run({ id }, { b, reader }, actor) {
+      const r = await b.openIn(id, reader ?? "detail");
+      b.ctx.flash(`${agentLabel(actor)} opened a note in ${r.reader}`);
+      return r;
+    },
+  },
+  "focus": {
+    summary: "give keys to reader=<name> or reader=lanes", keys: "tab, click",
+    args: {},
+    run(_, { b, reader }) { if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)"); return b.focusOn(reader); },
+  },
+  "card.select": {
+    summary: "select a card in its lane; the preview follows", keys: "h l j k, click",
+    args: { id: { type: "string", about: "the card's block id (or its first 8+ characters)" } },
+    run({ id }, { b }) { if (!b.selectCard(id)) throw new ActionRefused(`no lane on the board lists ${id}`); return { selected: id }; },
+  },
+  "card.move": {
+    summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",
+    args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
+  },
+});

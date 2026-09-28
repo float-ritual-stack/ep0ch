@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// ep0ch-door: a read-only BBS door into a pi-herdr-outliner outline, over its socket.
+// ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -25,7 +25,7 @@ function writeLastCall(at: number) {
 }
 
 const args = process.argv.slice(2);
-if (["peek", "snap", "open"].includes(args[0] ?? "")) process.exit(await controlClient(args));
+if (["peek", "snap", "open", "actions", "act"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 const deskFirst = args.includes("--desk");
 const riverFirst = args.includes("--river");
 const boardAt = args.indexOf("--board");

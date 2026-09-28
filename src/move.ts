@@ -11,7 +11,7 @@
 // queryShape). A bare word is a presence clause (`urgent` means "has an urgent:: property"),
 // refused when the card lacks it, because a patch would have to invent the value.
 import type { Msg } from "./board";
-import { EditConflict, type PropertyPatch, type SocketBoard } from "./socket";
+import { EditConflict, USER, type Actor, type PropertyPatch, type SocketBoard } from "./socket";
 import { matchesFilters, type PropertyFilter, type ViewRead } from "./views";
 
 export interface Change { key: string; to: string; from: string | null }
@@ -69,7 +69,7 @@ export class MoveRefused extends Error {
  * Token ordinals come from the service at that same revision; if the card moved on in between,
  * nothing is written. Returns the card as the service now has it.
  */
-export async function applyMove(board: SocketBoard, card: Msg, changes: Change[]): Promise<Msg> {
+export async function applyMove(board: SocketBoard, card: Msg, changes: Change[], actor: Actor = USER): Promise<Msg> {
   const expected = card.revision;
   if (expected === undefined) throw new MoveRefused("the outline didn't say which revision this card is at");
   const operations: PropertyPatch[] = [];
@@ -83,7 +83,7 @@ export async function applyMove(board: SocketBoard, card: Msg, changes: Change[]
     operations.push(t ? { op: "replace", ordinal: t.ordinal, value: c.to } : { op: "append", key: c.key, value: c.to });
   }
   try {
-    return await board.patchProperties(card.id, expected, operations);
+    return await board.patchProperties(card.id, expected, operations, actor);
   } catch (e) {
     if (e instanceof EditConflict) throw new MoveRefused("the card changed elsewhere before the move landed · not moved", true);
     throw e;

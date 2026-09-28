@@ -136,6 +136,22 @@ export const EDIT_MUTATION = { author: "user", actorId: ACTOR_ID } as const;
  */
 export const COMMENT_AUTHOR = "user";
 
+/**
+ * Who a write is for: the person at the keys, or an agent driving the door through its control socket
+ * (`ep0ch-door act`). An agent's writes are recorded as `author: agent` with its own actor id, never as
+ * the person's, so the outline's activity and comment threads say honestly who did it.
+ */
+export type Actor = { kind: "user" } | { kind: "agent"; id: string };
+export const USER: Actor = { kind: "user" };
+/** The actor id an agent gets when it doesn't name itself: `ep0ch-door:<hostname>:agent`. */
+export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
+/** The `mutation` a write carries for `actor`. */
+export const mutationFor = (actor: Actor = USER) =>
+  actor.kind === "agent" ? { author: "agent" as const, actorId: actor.id } : EDIT_MUTATION;
+/** How a comment or reply is authored: a person's carries no actor id (the service allows one only on agent comments). */
+const annotationAuthor = (actor: Actor = USER) =>
+  actor.kind === "agent" ? { author: "agent", source: "agent", provenance: { actorId: actor.id } } : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
+
 class Line {
   private buf = "";
   constructor(private readonly onLine: (v: any) => void) {}
@@ -380,31 +396,33 @@ export class SocketBoard implements Board {
    * when the note is no longer at `expectedRevision` or the quote isn't where `start` says. `requestId`
    * must be the same on a retry of the same comment: the service then returns the saved one.
    */
-  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage): Promise<CommentReceipt> {
+  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER): Promise<CommentReceipt> {
+    const { source, ...who } = annotationAuthor(actor);
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
-      requestId, author: COMMENT_AUTHOR,
-      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source: COMMENT_AUTHOR, passage } }],
+      requestId, ...who,
+      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, passage } }],
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }
 
   /** A reply on a comment thread, idempotent by `requestId` like `comment`. */
-  async reply(requestId: string, annotationId: string, body: string): Promise<CommentReceipt> {
+  async reply(requestId: string, annotationId: string, body: string, actor: Actor = USER): Promise<CommentReceipt> {
+    const { source, ...who } = annotationAuthor(actor);
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.reply", {
-      requestId, author: COMMENT_AUTHOR, input: { annotationId, body, source: COMMENT_AUTHOR },
+      requestId, ...who, input: { annotationId, body, source },
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }
 
   /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */
-  async setLifecycle(annotationId: string, lifecycle: "open" | "resolved"): Promise<void> {
-    await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: EDIT_MUTATION });
+  async setLifecycle(annotationId: string, lifecycle: "open" | "resolved", actor: Actor = USER): Promise<void> {
+    await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: mutationFor(actor) });
   }
 
   /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */
-  async update(blockId: string, text: string, expectedRevision: number): Promise<Msg> {
+  async update(blockId: string, text: string, expectedRevision: number, actor: Actor = USER): Promise<Msg> {
     try {
-      return toMsg(await this.request<WireBlock>("update", { blockId, text, expectedRevision, mutation: EDIT_MUTATION }));
+      return toMsg(await this.request<WireBlock>("update", { blockId, text, expectedRevision, mutation: mutationFor(actor) }));
     } catch (e) {
       const { conflict, now } = await this.conflictCheck(blockId, expectedRevision, e);
       // No answer, yet the note now holds exactly this text: the save landed before the answer was lost.
@@ -453,9 +471,9 @@ export class SocketBoard implements Board {
   }
 
   /** Patch property tokens, if the block is still at `expectedRevision`. Throws EditConflict when it isn't. */
-  async patchProperties(blockId: string, expectedRevision: number, operations: PropertyPatch[]): Promise<Msg> {
+  async patchProperties(blockId: string, expectedRevision: number, operations: PropertyPatch[], actor: Actor = USER): Promise<Msg> {
     try {
-      return toMsg(await this.request<WireBlock>("properties.patch", { blockId, expectedRevision, operations, mutation: EDIT_MUTATION }));
+      return toMsg(await this.request<WireBlock>("properties.patch", { blockId, expectedRevision, operations, mutation: mutationFor(actor) }));
     } catch (e) {
       // Only a refusal can be called a conflict here: without an answer the patch may have landed.
       if (e instanceof Refused && (await this.conflictCheck(blockId, expectedRevision, e)).conflict) throw new EditConflict(blockId, e.message);

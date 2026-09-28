@@ -1,11 +1,13 @@
-// Let an agent see what you see: a local socket where `peek` returns the screen as text plus
-// structured state (which pane shows which block), `snap` composites exactly what the terminal
-// was sent into a PNG, and `open` puts a block in front of you.
-//   bun src/main.ts peek | snap [file.png] | open <block-id>
+// Let an agent see what you see, and do what you do: a local socket where `peek` returns the screen as
+// text plus structured state (which reader shows which block, what it's editing or commenting on),
+// `snap` composites exactly what the terminal was sent into a PNG, `open` puts a block in front of you,
+// `actions` lists what the current screen can do, and `act` does one of those things as the agent.
+//   bun src/main.ts peek | snap [file.png] | open <block-id> | actions | act <action> [key=value…] [--as <actor-id>]
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
 import type { App } from "./app";
+import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 
@@ -27,16 +29,22 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
     if (!req.id) throw new Error("open needs a block id");
     return { opened: await d.app.openBlock(String(req.id)) };
   }
-  throw new Error(`unknown command ${req.cmd}; try peek, snap or open`);
+  if (req.cmd === "actions") return d.app.actions();
+  if (req.cmd === "act") {
+    if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
+    const args = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
+    return d.app.act({ action: req.action, reader: typeof req.reader === "string" ? req.reader : undefined, args, as: typeof req.as === "string" ? req.as : undefined });
+  }
+  throw new Error(`unknown command ${req.cmd}; try peek, snap, open, actions or act`);
 }
 
 /** Serve on door.sock; if another live door already has it, use door-<pid>.sock. */
-export async function startControl(d: ControlDeps): Promise<{ path: string; close(): void }> {
-  mkdirSync(DIR, { recursive: true });
-  let path = CONTROL_SOCKET;
+export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise<{ path: string; close(): void }> {
+  mkdirSync(dirname(at), { recursive: true });
+  let path = at;
   if (existsSync(path)) {
     const live = await new Promise<boolean>(res => { const c = connect(path, () => { c.end(); res(true); }); c.on("error", () => res(false)); });
-    if (live) path = join(DIR, `door-${process.pid}.sock`);
+    if (live) path = join(dirname(at), `door-${process.pid}.sock`);
     else unlinkSync(path);
   }
   const server: Server = createServer(sock => {
@@ -59,7 +67,13 @@ export async function startControl(d: ControlDeps): Promise<{ path: string; clos
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
   const [cmd, arg] = args;
-  const req = cmd === "snap" ? { cmd, path: arg } : cmd === "open" ? { cmd, id: arg } : { cmd };
+  let req: Record<string, unknown>;
+  try {
+    req = cmd === "snap" ? { cmd, path: arg } : cmd === "open" ? { cmd, id: arg }
+      : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
+  } catch (e) { console.error((e as Error).message); return 1; }
+  // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act).
+  if (cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
   const path = process.env.EP0CH_CONTROL ?? CONTROL_SOCKET;
   return new Promise(res => {
     const c = connect(path, () => c.write(JSON.stringify(req) + "\n"));
@@ -72,6 +86,14 @@ export async function controlClient(args: string[]): Promise<number> {
       c.end();
       if (!r.ok) { console.error(r.error); return res(1); }
       if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
+      else if (cmd === "actions") {
+        const a = r.result;
+        console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.readers?.length ? ` · readers: ${a.readers.join(", ")}` : ""}`);
+        for (const x of a.actions) {
+          const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
+          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}`);
+        }
+      }
       else console.log(JSON.stringify(r.result));
       res(0);
     });
