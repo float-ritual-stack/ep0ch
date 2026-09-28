@@ -76,7 +76,9 @@ export class App implements Ctx {
   private message = "";
   private messageUntil = 0;
   private timer: Timer | null = null;
-  private started = Date.now();
+  private started: number;
+  /** The status bar's clock and uptime as last painted: a minute later, the bar alone is repainted. */
+  private shownTime = "";
   private quitArmed = 0;
   host = "";
   workspace = "";
@@ -85,7 +87,9 @@ export class App implements Ctx {
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
 
-  constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void) {
+  /** `now`: the clock the status bar reads (a test's fake one). */
+  constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
+    this.started = now();
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
@@ -224,6 +228,22 @@ export class App implements Ctx {
     const expired = this.message && Date.now() > this.messageUntil;
     if (expired) this.message = "";
     if (s?.tick?.(this) || expired) this.redraw();
+    // An idle door still keeps time: once the clock or the uptime turns over, the status bar alone is
+    // repainted (no screen render, no Kitty sync), so nothing being edited, selected or dragged moves.
+    else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
+  }
+
+  /** The status bar's time, as it would read now: the uptime and the clock. */
+  private timeShown(): string {
+    const now = this.now();
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}`;
+  }
+
+  /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
+  private paintStatus(s: Screen) {
+    const { cols, rows } = this.term.info;
+    if (this.term.paintRow) this.term.paintRow(rows - 1, this.statusBar(s, cols));
+    else this.redraw();
   }
 
   redraw() {
@@ -241,8 +261,8 @@ export class App implements Ctx {
   }
 
   private statusBar(s: Screen, cols: number): string {
-    const mins = Math.floor((Date.now() - this.started) / 60000);
-    const clock = new Date().toTimeString().slice(0, 5);
+    this.shownTime = this.timeShown();
+    const [mins, clock] = this.shownTime.split("|");
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
     const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";

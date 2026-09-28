@@ -1,7 +1,7 @@
 // The desk: the door owns the whole canvas. A tiling tree of panes, docking, zoom,
 // mouse-dragged dividers, and a floating search, all drawn by us rather than a multiplexer.
 import type { Ctx, Frame, Screen } from "../app";
-import { subject, type Msg } from "../board";
+import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Actor, OutlineEvent } from "../socket";
@@ -449,7 +449,7 @@ class SearchOverlay {
     const listW = Math.floor(w * 0.42);
     const lines = [paint(`|14/ |15${this.q}|07▁ ${this.busy ? "|08searching…" : `|08${this.hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET];
     const m = this.hits[this.sel];
-    const preview = m ? [fg(C.white) + subject(m) + RESET, ...wrap(m.text.split("\n").slice(1).join("\n").trim(), w - listW - 3).map(colourBody)] : [];
+    const preview = m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [];
     for (let i = 0; i < h - 2; i++) {
       const hit = this.hits[i];
       const left = hit ? (i === this.sel ? bg(C.blue) + fg(C.white) : fg(C.grey)) + pad(` ${hit.props["work-id"] && !subject(hit).startsWith(hit.props["work-id"]) ? hit.props["work-id"] + " " : ""}${subject(hit)}`, listW) + RESET : " ".repeat(listW);
@@ -483,3 +483,11 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string }; "focus": Rec
     },
   },
 });
+
+/** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
+function previewLines(m: Msg, w: number): string[] {
+  const body = bodyLinesOf(m.text);
+  while (body.length && !body[0]!.text.trim()) body.shift();
+  while (body.length && !body.at(-1)!.text.trim()) body.pop();
+  return body.flatMap(l => (l.text ? wrap(l.text, w) : [""]).map(x => colourBody(x, l.literal)));
+}

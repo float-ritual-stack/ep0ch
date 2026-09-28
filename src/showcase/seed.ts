@@ -85,7 +85,7 @@ function notebookText(whiteboardId: string, kettleId: string): string {
     "",
     "## A literal region",
     "<!-- literal -->",
-    "Typed as is: [[not a link]] and [mode::loud] stay text here.",
+    `Typed as is: [mode::loud] and #loud stay text here; links still work: [[${SEED.shed}]].`,
     "<!-- /literal -->",
     "",
     "## From the whiteboard",

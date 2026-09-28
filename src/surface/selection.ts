@@ -30,6 +30,8 @@ export const AGENT_BG = "\x1b[48;2;78;40;88m";
  * stay readable on it.
  */
 export const RULER_BG = "\x1b[48;2;58;50;26m";
+/** A comment thread's quoted passage while the thread is expanded under it (PIE-420): a quiet olive. */
+export const THREAD_BG = "\x1b[48;2;40;52;30m";
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;

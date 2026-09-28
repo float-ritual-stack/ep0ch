@@ -1,7 +1,7 @@
 // PIE-441: keyboard navigation through a reader. `[ ]` walk every element in reading order (links, folds,
 // figure rows, embeds, comment marks), ⏎ acts on the current one (a link follows, in place in a detail
 // and into a detail from the preview; a fold toggles; a row or an embed opens its note; a comment mark
-// its thread), alt+⏎ opens a link in a new reader, and a click does what ⏎ does and sets the position.
+// expands its thread inline, PIE-420), alt+⏎ opens a link in a new reader, and a click does what ⏎ does and sets the position.
 // The block the current element is in gets the reading ruler's tint, and an agent can set a focus mark
 // (the door side of PIE-423) that never moves the person's position, selection or keys. Tab still
 // switches areas. Fictional notes, against a throwaway outliner service only.
@@ -126,6 +126,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     n.beans = await create(null, "Stake the beans\nCanes along the fence.");
     n.shed = await create(null, "Paint the shed\nTwo coats, green.");
     n.water = await create(null, "Water the seedlings [type::garden-job]");
+    await Bun.sleep(5);                                   // the figure sorts by creation time: no same-millisecond tie
     n.compost = await create(null, "Turn the compost [type::garden-job]");
     const figure = `::graph-check\n---\ntitle: Garden jobs\nquery: "type=garden-job"\nsort: created\ndirection: asc\n---\n::`;
     n.jobs = await create(null, `Weekend jobs [stage::queued] [related::((${n.plan.id}))]\nFirst ((${n.beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n\n${figure}\n\n!((${n.shed.id}))`);
@@ -175,7 +176,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(current(p)).toMatchObject({ kind: "link", label: "Stake the beans" });
   }, 30_000);
 
-  test("⏎ in a detail: a link follows in place, a fold toggles, a row and an embed open their note in place, a comment mark its thread", async () => {
+  test("⏎ in a detail: a link follows in place, a fold toggles, a row and an embed open their note in place, a comment mark expands its thread", async () => {
     let d = await detail();
     stepTo(d, "Stake the beans");
     expect(frame().map(plain).some(l => l.includes("[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new"))).toBe(true);   // the reader's footer
@@ -198,14 +199,16 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     d = await detail();
     stepTo(d, "\"dig the north bed\"");
     key({ kind: "enter" });
-    await until(() => d.surface.session?.mode === "threads", "the thread list");
-    expect(B().entered.in(d)).toBe(true);                             // the person is in it: their next key is its
-    expect(d.surface.session!.threads[d.surface.session!.sel]!.quote).toBe("dig the north bed");
-    key({ kind: "esc" });
+    await shows("detail0", "Use the long spade.");                   // the thread, inline under its passage (PIE-420)
     expect(d.surface.session).toBeNull();
+    expect(d.surface.expanded.size).toBe(1);
+    key({ kind: "enter" });
+    frame();
+    expect(d.surface.expanded.size).toBe(0);
+    expect(current(d)!.kind).toBe("comment");
   }, 40_000);
 
-  test("⏎ in the preview: links, rows and embeds open in a detail and the preview stays; a fold toggles there; a comment mark opens its thread there", async () => {
+  test("⏎ in the preview: links, rows and embeds open in a detail and the preview stays; a fold toggles there; a comment mark expands its thread there", async () => {
     for (const [label, target] of [["Garden plan", "plan"], ["Water the seedlings", "water"], ["Embedded block", "shed"]] as const) {
       await fresh();
       const p = B().preview as ReaderPane;
@@ -224,9 +227,12 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(B().details.length).toBe(0);
     stepTo(p, "\"dig");
     key({ kind: "enter" });
-    await until(() => p.surface.session?.mode === "threads", "the thread list in the preview");
-    expect(B().entered.in(p)).toBe(true);
-    key({ kind: "esc" });
+    await shows("preview", "Use the long spade.");
+    expect(p.surface.session).toBeNull();
+    expect(B().details.length).toBe(0);
+    key({ kind: "enter" });
+    frame();
+    expect(p.surface.expanded.size).toBe(0);
     // With nothing current, ⏎ opens the preview's note in a detail, as before.
     key({ kind: "esc" });
     B().focus = "preview";
@@ -261,11 +267,11 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     const item = where(frame(), "dig the north bed", rect("preview"));
     const r = rect("preview");
     click({ x: r.col + 1, y: item.y });
-    await until(() => p.surface.session?.mode === "threads", "the thread from a click");
-    expect(B().entered.in(p)).toBe(true);
-    key({ kind: "esc" });
+    await shows("preview", "Use the long spade.");                     // expanded inline (PIE-420)
+    expect(current(p)!.kind).toBe("comment");                          // and it's the [ ] position
+    click({ x: r.col + 1, y: item.y });
     frame();
-    expect(current(p)!.kind).toBe("comment");                          // back to reading, on the mark
+    expect(p.surface.expanded.size).toBe(0);
     click(where(frame(), "Turn the compost", rect("preview")));
     await until(() => B().details[0]?.msg?.id === n.compost.id, "the row's note in a detail");
     expect(current(p)).toMatchObject({ kind: "row", label: "Turn the compost" });

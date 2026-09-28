@@ -11,7 +11,7 @@ three pane models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
-| render or read a note | `NoteSurface`, hosted through `SurfaceHost` | `src/surface/note.ts` |
+| render or read a note | `NoteSurface`, hosted through `SurfaceHost`; literal regions (PIE-422) found by `src/literal.ts`, the service's rules mirrored and parity-tested | `src/surface/note.ts`, `src/literal.ts` |
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the desk's layout tree (PIE-412 makes it the only one) | `src/desk/layout.ts`, `src/desk/panes.ts` |
@@ -19,7 +19,7 @@ three pane models and four searches (§4).
 | show children, outlinks, backlinks, resources | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks` | `src/surface/note.ts`, `src/socket.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
-| move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, comment marks), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow` | `src/surface/note.ts`, `src/surface/selection.ts` |
+| move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, comment marks, an expanded thread's controls), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; a comment mark expands its thread under the passage (PIE-420: `expanded`, the person's reading state like `folded`; drawn as body rows; its Select, Reply, Resolve controls act through `CommentSession`, the thread list's code); an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow` | `src/surface/note.ts`, `src/surface/selection.ts` |
 | select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
 
