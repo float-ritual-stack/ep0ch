@@ -136,6 +136,7 @@ export function createDefault(def: Msg | undefined): Prop | null {
   if (raw.length > 1) throw new Error("it has more than one create:: default");
   const { expr } = parseQuery(raw[0]!.value);
   if (expr.kind !== "property" || expr.value === undefined) throw new Error(`its create:: default must be one key=value, not ${raw[0]!.value}`);
+  if (expr.key === "deleted") throw new Error("create:: default can't be deleted=true: that selects Trash, it isn't a property to set");
   return { key: expr.key, value: expr.value };
 }
 

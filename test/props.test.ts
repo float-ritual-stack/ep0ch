@@ -529,6 +529,35 @@ describe("review: what the reader hides and expands", () => {
     await until(() => tokensOf("T\n[a::b]", src)?.state === "ready", "the retry");
     expect(asked).toBe(2);
   });
+
+  test("a read asked again isn't the one a full cache lets go: an action waits on it, not on a second read", async () => {
+    const { tokensOf, tokensFor, invalidatePropertyErrors } = await import("../src/props") as any;
+    const K = "Oldest\n[shelf::top]";
+    const asked: string[] = [];
+    let release = () => {};
+    const held = new Promise<void>(r => { release = r; });
+    let fail = true;
+    const src: Source = { board: { propertyRecords: async (t: string) => {
+      asked.push(t);
+      if (t !== K) return [];
+      if (fail) throw new Error("socket closed");
+      await held; return [];
+    } } as any, redraw() {} };
+    // K fails first, so it holds the oldest place; 299 more texts fill the cache.
+    tokensOf(K, src);
+    await until(() => tokensOf(K, src)?.state === "error", "the error");
+    for (let i = 0; i < 299; i++) tokensOf(`Jar ${i}\n[shelf::${i}]`, src);
+    await until(() => tokensOf("Jar 298\n[shelf::298]", src)?.state === "ready", "the jars");
+    fail = false;
+    invalidatePropertyErrors();
+    const waiting = tokensFor(K, src);                    // asked again, still in flight…
+    tokensOf("Newest\n[shelf::low]", src);               // …when one more text comes in
+    const again = tokensFor(K, src);
+    release();
+    expect((await waiting).state).toBe("ready");
+    expect((await again).state).toBe("ready");
+    expect(asked.filter(t => t === K)).toHaveLength(2);   // the failure and its one retry
+  });
 });
 
 describe("review: snapshot write scenarios are scratch-only", () => {

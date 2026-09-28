@@ -22,9 +22,9 @@ function cut(s: string, w: number): [string, string] {
   return [chars.slice(0, i).join(""), chars.slice(i).join("")];
 }
 
+/** `text` in rows of at most `w` visible characters. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
 export function wrap(text: string, w: number): string[] {
-  // A narrow pane can ask for no room at all; cut must still make progress.
-  w = Math.max(1, Math.floor(w));
+  w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];
   for (const raw of text.split("\n")) {
     if (!raw.length) { out.push(""); continue; }

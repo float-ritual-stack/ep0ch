@@ -60,6 +60,35 @@ describe("the query grammar, as the outliner reads it", () => {
   });
 });
 
+describe("deleted=true, the Trash switch", () => {
+  const PLAIN = ["deleted=true", "deleted=true type=card"], EXPRESSIONS = ["deleted=true OR a", "NOT deleted=true", "(deleted=true) a", "deleted=true updated > -7d"];
+
+  test("a plain clause list reads it; OR, NOT, groups and ranges refuse it", () => {
+    for (const q of PLAIN) expect(parseQuery(q).simple).toBe(true);
+    expect(parseQuery("deleted=true type=card").expr).toEqual({ kind: "and", operands: [{ kind: "property", key: "deleted", value: "true" }, { kind: "property", key: "type", value: "card" }] });
+    for (const q of EXPRESSIONS) expect(() => parseQuery(q)).toThrow("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges");
+  });
+
+  test.skipIf(!outliner)("the same queries the outliner's saved-query parser takes and refuses", async () => {
+    const theirs = await import(join(outliner!, "src/block-query.ts"));
+    for (const q of [...PLAIN, ...EXPRESSIONS]) {
+      let mine = "ok", ref = "ok";
+      try { parseQuery(q); } catch (e) { mine = (e as Error).message; }
+      try { theirs.parseSearchExpression(q); } catch (e) { ref = (e as Error).message; }
+      expect({ q, ok: mine === "ok" }).toEqual({ q, ok: ref === "ok" });
+    }
+  });
+
+  test("a Trash lane is read, and a write into it is refused with that reason, never a deleted:: property", () => {
+    const trash = lane("Trash", "deleted=true type=card");
+    expect(trash.read.unpatchable).toBe("selects Trash (deleted=true); a card goes there with d (card.trash), not a move");
+    const why = "Trash's query selects Trash (deleted=true); a card goes there with d (card.trash), not a move";
+    expect(planMove(card({ type: "card", stage: "doing" }), trash)).toEqual({ kind: "refused", reason: why });
+    expect(planCreate(trash)).toEqual({ kind: "refused", reason: why });
+    expect(planCreate(lane("Doing", "stage=doing", { create: "deleted=true" }))).toEqual({ kind: "refused", reason: "Doing's create:: default can't be deleted=true: that selects Trash, it isn't a property to set" });
+  });
+});
+
 describe("planning writes into a lane", () => {
   test("a new card is born with the plain clauses; an OR group is left for the text or the lane's create:: default", () => {
     expect(planCreate(lane("Doing", "stage=doing track=door"))).toEqual({ kind: "create", props: [{ key: "stage", value: "doing" }, { key: "track", value: "door" }], defaults: [], needs: [], roadmap: false });
@@ -440,8 +469,8 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "char", ch: " " });
     await until(() => !B().steps.busy && B().steps.read.items[0].status === "done", "the step to change");
     const t1 = (await current(cards.shelf.id)).text;
-    expect(t1).toMatch(/- \[x\] find the spirit level \^task-[\w-]+\n- \[ \] loosen the brackets\n- \[x\] clear the books \^books/);
-    expect(message()).toMatch(/^checked off: find the spirit level · Level the shelf · the step now has an id \(\^task-/);
+    expect(t1).toMatch(/- \[x\] find the spirit level \^t-[0-9a-f]+\n- \[ \] loosen the brackets\n- \[x\] clear the books \^books/);
+    expect(message()).toMatch(/^checked off: find the spirit level · Level the shelf · the step now has an id \(\^t-/);
     expect(await lastBy(cards.shelf.id, "user")).toEqual(["user", expect.stringMatching(/^ep0ch-door:/), "text"]);
     press({ kind: "esc" });
     expect(B().steps).toBeNull();
@@ -482,7 +511,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     B().steps.read = stale;
     expect(await act("step.set", { card: cards.pantry.id, step: "1" })).toMatchObject({ step: 1, status: "done", changed: true });
     const text = (await current(cards.pantry.id)).text;
-    expect(text).toMatch(/- \[x\] find the list \^task-[\w-]+\n- \[ \] buy rice\n- \[ \] buy beans/);
+    expect(text).toMatch(/- \[x\] find the list \^t-[0-9a-f]+\n- \[ \] buy rice\n- \[ \] buy beans/);
     press({ kind: "esc" });
   });
 

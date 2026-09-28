@@ -55,7 +55,14 @@ const inlineOf = (s: string, literal = false) => colourBody(s, literal).replace(
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
-const TASK_ID = / \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g;
+/** The fewest columns a list item's text keeps when its indentation would take the whole width. */
+const MIN_ITEM_TEXT = 8;
+/**
+ * A block anchor at the end of a line (`^books`, `^t-8a6d7f`, the older `^task-<uuid>`), hidden when a note is
+ * drawn, as Detail hides it. The id pattern is the service's (FRAGMENT_ID_SOURCE in pi-herdr-outliner's
+ * src/fragments.ts); the anchor stays in the source, so folds and links still find it.
+ */
+const TASK_ID = /(^|[ \t])\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/gm;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /**
@@ -309,7 +316,9 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false): str
     const indent = li[1]!.length, num = /\d/.test(li[2]!);
     // A folded bullet becomes its disclosure; a number keeps its place with the disclosure after it.
     const mark = num ? li[2]! + glyph : glyph || "∙";
-    const lead = " ".repeat(indent) + mark + " ";
+    // Deep indentation in a narrow reader keeps some room for the text: the indent gives way first.
+    const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
+    const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const rows = wrap(li[3]!, W - lead.length);
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;

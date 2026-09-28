@@ -44,8 +44,9 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): every shared door part, live, one section per row of the reuse map
-([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)), in the map's order. It runs on an
+opens the showcase (PIE-439): the shared door parts, live, in ten sections, one per row of the reuse map
+([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
+elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -57,7 +58,9 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
   a saved view, and one of every `::graph-*` kind, live ones included.
 - **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
-  deletes that state and reseeds. `--prepare` sets it up (or resets it) and exits without opening the door.
+  deletes that state and reseeds. Its service is the process `service.pid` names only when that process
+  is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
+  whatever process has that pid now is left alone. `--prepare` sets it up (or resets it) and exits without opening the door.
 - **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` or a click picks one; `⏎`, `→`, `Tab`
   or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
   section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
@@ -636,7 +639,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 |---|---|---|
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
-| `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card) | `j k`, `H L`, `m`, drag |
+| `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
@@ -694,8 +697,10 @@ makes that you. When an agent replaces text someone else changed last (your typi
 typed there before, or another agent's), that text is copied to `drafts/` first, the draft says where, and
 the action answers `keptYourDraftAt`. While a save is checking properties or landing, or a comment is
 sending, the draft holds still: keys wait and an agent's `edit.text`, `edit.close`, `edit.reload` and
-`comment.write` are refused with the reason. An agent's `card.select` and `card.move` move the lanes'
-cursor, never your keys; only `open` and `focus` move them, and they say so in the status bar. Readers in a
+`comment.write` are refused with the reason. An agent's `card.select` is its own: the card its
+`card.move`, `steps`, `step.set`, `note.create` and `card.trash` default to without `card=`, said in the
+status bar; your lane cursor, preview and keys stay put, and so do they for its `card.move`. Only `open`
+and `focus` move them, and they say so in the status bar. Readers in a
 shut drawer (`tree`, `backlinks`) are refused until the drawer is open, so nothing changes out of sight.
 
 **Who a write is recorded as.** A save or send is recorded as whoever wrote the text, not whoever

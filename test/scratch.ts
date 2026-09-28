@@ -24,6 +24,8 @@ export class Scratch {
     for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true });
   }
   get workspace() { return join(this.root, "ws"); }
+  /** The service's process id, while it runs. */
+  get pid() { return this.proc?.pid; }
 
   async start(): Promise<string> {
     const env: Record<string, string> = {
