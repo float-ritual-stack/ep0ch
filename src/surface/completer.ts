@@ -175,8 +175,9 @@ export class Completer {
     this.state = { target, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
     try {
-      if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => null);
-      const r = await lookupCompletion(this.board, target, this.prefix, this.own());
+      // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
+      if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
+      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own());
       if (!this.current(generation)) return;
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
       this.state = { ...r, target, index, loading: false, at: this.state!.at };
@@ -281,9 +282,16 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
     if (c.target()) { void c.refresh(); return "keep"; }
     if (k.kind !== "tab") { d.note = "completion works inside [[, (( or [file::"; return "keep"; }
   }
+  const before = d.text, open = c.state?.target;
   const a = d.key(k);
-  // The popup follows typing and the cursor; an Esc the draft took (arming discard) doesn't bring it back.
-  if (a === "keep" && k.kind !== "esc") void c.refresh(); else c.dismiss();
+  // The popup opens and refreshes only on typing. Moving the cursor never opens it (landing inside
+  // `[[garden]]` or after an unclosed `((` must not take the next Down or Enter): an open popup
+  // follows the cursor within its token and closes once the cursor leaves it. Tab or Ctrl+Space asks.
+  // An Esc the draft took (arming discard) doesn't bring it back.
+  if (a !== "keep" || k.kind === "esc") { c.dismiss(); return a; }
+  if (d.text !== before) { void c.refresh(); return a; }
+  const now = c.target();
+  if (open && now && now.kind === open.kind && now.start === open.start) void c.refresh(); else c.dismiss();
   return a;
 }
 

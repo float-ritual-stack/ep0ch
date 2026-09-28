@@ -1092,6 +1092,10 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
         target = completionTargetAtCursor(d.lines[d.row] ?? "", d.col);
         if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, (( or [file::`);
       }
+      // The draft as the target was read from it: typing during the lookups below moves the token, and a
+      // splice at the old span would land in the wrong place, so any change refuses the insert.
+      const at = d && { text: d.text, row: d.row, col: d.col };
+      const still = () => !!d && !!at && d.text === at.text && d.row === at.row && d.col === at.col;
       const own = surface.draft ? { blockId: surface.draft.blockId, text: surface.draft.text } : undefined;
       const prefix = await board.workIdPrefix().catch(() => null);
       const r = await lookupCompletion(board, target, prefix, own);
@@ -1103,9 +1107,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       const item = r.items[insert - 1];
       if (!item) throw new ActionRefused(`there is no candidate ${insert}; there are ${r.items.length}`);
       if (!d || d.busy) throw new ActionRefused(d ? "the save is still landing" : "nothing is being written here");
-      const at = { text: d.text, row: d.row, col: d.col };
-      const still = () => d.text === at.text && d.row === at.row && d.col === at.col;
       try {
+        if (!still()) throw new Error("the draft changed while the references were looked up; ask again");
         if (!await insertCompletion(board, d, target, item, own, still, actor)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
       surface.noteAgent(actor, `inserted ${item.insertion.slice(0, 60)}`);

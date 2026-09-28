@@ -55,6 +55,75 @@ describe("the pure half, as the outliner has it", () => {
   });
 });
 
+describe("the popup opens on typing, never on moving the cursor (a fake service)", () => {
+  const tick = () => new Promise(r => setTimeout(r, 15));
+  function fake(prefix: () => Promise<string | null> = async () => "HOME") {
+    const calls = { prefix: 0 };
+    const board = {
+      completePages: async () => ({ addresses: [{ address: "gardening", blockId: "b1", kind: "page", title: "Gardening" }], completeness: { kind: "complete" } }),
+      completeFiles: async () => [],
+      findBlocks: async () => ({ blocks: [{ id: "b2", text: "Xylophone lessons" }], truncated: null }),
+      blockContext: async (id: string) => ({ selected: { id, text: "Gardening" }, ancestors: [] }),
+      workIdPrefix: () => { calls.prefix++; return prefix(); },
+    };
+    return { board, calls };
+  }
+
+  test("arrows landing inside [[garden]] or after an unclosed (( don't open it; Down and Enter stay the draft's", async () => {
+    const { board } = fake();
+    const d = new Draft("x", 1, "see [[garden]] now\nand ((x more\nlast line");
+    const c = completerFor(d, board, () => {})!;
+    d.row = 2; d.col = 8;
+    completionKey(d, K("up"), c);                                         // into "and ((x m|ore": after an unclosed ((
+    completionKey(d, K("up"), c);                                         // into "see [[ga|rden]]"
+    await tick();
+    expect(c.state).toBeNull();
+    expect(completionOf(d)).toBeNull();
+    completionKey(d, K("down"), c);                                       // the cursor moves, nothing is chosen
+    expect(d.row).toBe(1);
+    completionKey(d, K("up"), c);
+    await tick();
+    completionKey(d, K("enter"), c);                                      // splits the line, as always
+    expect(d.lines).toEqual(["see [[ga", "rden]] now", "and ((x more", "last line"]);
+    await tick();
+    expect(d.lines[0]).toBe("see [[ga");                                  // nothing inserted later either
+  });
+
+  test("an open popup follows the cursor inside its token and closes when the cursor leaves it", async () => {
+    const { board } = fake();
+    const d = new Draft("x", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "go [[gar") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading, "the lookup");
+    completionKey(d, K("left"), c);
+    await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the popup at the new cursor");
+    expect(completionOf(d)!.target).toMatchObject({ start: 3, query: "ga" });
+    for (let i = 0; i < 3; i++) completionKey(d, K("left"), c);         // go [|[gar: out of the token
+    await tick();
+    expect(c.state).toBeNull();
+    completionKey(d, K("right"), c); completionKey(d, K("right"), c);    // back inside by moving: still closed
+    await tick();
+    expect(c.state).toBeNull();
+    completionKey(d, K("tab"), c);                                        // Tab asks
+    await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the asked lookup");
+    expect(completionOf(d)!.items[0]!.insertion).toBe("[[gardening]]");
+  });
+
+  test("a failed Work ID prefix lookup is asked again; an answer is kept for the draft", async () => {
+    let fail = true;
+    const { board, calls } = fake(async () => { if (fail) { fail = false; throw new Error("socket closed"); } return "HOME"; });
+    const d = new Draft("x", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    completionKey(d, char("["), c);
+    for (const ch of "[g") { completionKey(d, char(ch), c); await until(() => !!c.state && !c.state.loading, "the lookup"); }
+    // "[[" asks and fails, "[[g" asks again and gets it; nothing asks after that.
+    expect(calls.prefix).toBe(2);
+    completionKey(d, char("a"), c);
+    await until(() => !!c.state && !c.state.loading, "the lookup");
+    expect(calls.prefix).toBe(2);
+  });
+});
+
 describe.skipIf(!outliner)("completion in the editor, on a scratch service", () => {
   const scratch = new Scratch();
   let board: SocketBoard, workId = "", ids: Record<string, string> = {};
@@ -146,6 +215,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("sow from [[se]]");
     e.press(K("left")); e.press(K("left"));
+    expect(e.pop()).toBeNull();                                           // moving into a token doesn't open it
+    e.press(K("tab"));                                                    // Tab asks
     const p = await e.settled();
     expect(p.items[0]).toMatchObject({ address: "seeds", insertion: "[[seeds]]", kind: "page" });
     e.press(K("tab"));
@@ -307,6 +378,25 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.s.agent?.did).toStartWith("inserted [[");
     await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("isn't inside [[, (( or [file::");
   });
+
+  test("the complete action refuses to insert when the person typed while it looked the references up", async () => {
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("see [file::notes/pl");
+    await e.settled();
+    e.press(K("esc"));
+    // The person types at the start of the line while the agent's lookup is in flight.
+    const slow = new Proxy(board, {
+      get(t, p) {
+        if (p === "workIdPrefix") return async () => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.workIdPrefix(); };
+        const v = (t as any)[p];
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+    const h = { ...e.h, ctx: { ...e.h.ctx, board: slow } } as SurfaceHost;
+    await expect(e.s.act("complete", { insert: 1 }, h, AGENT)).rejects.toThrow("the draft changed");
+    expect(e.d.lines.at(-1)).toBe("so see [file::notes/pl");                // untouched: nothing spliced at the old span
+    expect(e.d.writers.map(w => w.kind)).not.toContain("agent");
+  });
 });
 
 describe.skipIf(!outliner)("a click on a candidate, through each host (board, desk, river)", () => {
@@ -356,6 +446,33 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
       key(char("e"));
       await clickSeeds(() => B.preview.draft);
+    } finally { app.pop(); }
+  });
+
+  test("the board's preview under a float: a click on the float's cells doesn't reach the popup", async () => {
+    const b = new DeliveryBoard(hub.id), B = b as any;
+    app.push(b);
+    try {
+      await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
+      key(char("e"));
+      await until(() => !!B.preview.draft, "the draft");
+      const draft: Draft = B.preview.draft;
+      key(K("down")); key(K("end")); key(K("enter"));
+      type("sow [[se");
+      await until(() => !!completionOf(draft) && !completionOf(draft)!.loading && completionOf(draft)!.items.length > 0, "the popup");
+      const lines = screen();
+      const y = lines.findIndex(l => l.includes("seeds · Seed list"));
+      const x = lines[y]!.indexOf("seeds · Seed list");
+      expect(y).toBeGreaterThan(0);
+      // A float drawn over the popup's rows (a note popped out earlier and dragged there).
+      const { ReaderPane } = await import("../src/desk/panes");
+      B.floats.push({ pane: new ReaderPane(), rect: { col: x - 5, row: y - 2, cols: 30, rows: 6 } });
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
+      await new Promise(r => setTimeout(r, 50));
+      expect(draft.lines.at(-1)).toBe("sow [[se");                          // the hidden candidate wasn't inserted
+      B.floats.pop();
+      key(K("esc")); key(K("esc")); key(K("esc"));
     } finally { app.pop(); }
   });
 
