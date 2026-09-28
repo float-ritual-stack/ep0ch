@@ -7,7 +7,12 @@ import { subject, type Msg } from "../board";
 import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
-import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
+import { USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import {
+  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkStatusParts, backlinkView,
+  DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
+  type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkSource, type BacklinkView, type BacklinkViewOptions,
+} from "../backlinks";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
 import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
@@ -76,8 +81,17 @@ export class DeliveryBoard implements Screen, DeskApi {
   private treeReady = false;
   private treeOpen = false;
   private treePinned = false;
-  private links: { target: Msg; from: string; items: Backlink[] | null; sel: number; top: number } | null = null;
+  /** The backlinks drawer (`b`): its note, the sources the service sent (null while asked), the selected row. */
+  private links: { target: Msg; from: string; data: BacklinkCollection | null; sel: number; top: number; ready?: Promise<void> } | null = null;
+  /**
+   * The person's view of the drawer (PIE-442): Detail's options and defaults, the kind groups they opened,
+   * and a filter being typed (`draft`, applied as it's typed; esc goes back to `filter`). Only the person
+   * changes it: an agent's `backlinks` reads a copy.
+   */
+  private linkView: { options: BacklinkViewOptions; expanded: Set<string>; draft: string | null } = { options: { ...DEFAULT_BACKLINK_VIEW_OPTIONS }, expanded: new Set(), draft: null };
   private linksPreview = new ReaderPane();
+  /** How many lines the drawer's status line took when last drawn: its rows start under them. */
+  private linkHead = 1;
   private linksPinned = false;
   private lay: Layout = { laneFrac: 0.42, previewFrac: 0.4, treeFrac: 0.3, linksFrac: 0.45, treeSide: "left", laneWeights: {}, readerWeights: [4, 3, 3] };
   private placed: { p: Placement; layer: number }[] = [];
@@ -526,7 +540,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       details: this.details.map((d, i) => ({ ...brief(d.msg), opensHere: i === this.active })),
       floats: this.floats.map(f => ({ ...brief(f.pane.msg), rect: f.rect })),
       tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg) },
-      backlinks: this.links ? { target: brief(this.links.target), from: this.links.from, count: this.links.items?.length ?? null, selected: this.links.items?.[this.links.sel]?.title ?? null, pinned: this.linksPinned } : null,
+      backlinks: this.links ? { from: this.links.from, pinned: this.linksPinned, ...this.describeLinks() } : null,
       images: this.placed.length,
       moving: this.moving, lastMove: this.lastMove,
       composer: this.composer ? { kind: this.composer.kind, ...(this.composer.kind === "card" ? { lane: this.composer.lane.name, bornWith: this.composer.born, needs: this.composer.needs, parent: this.composer.parent } : { parent: brief(this.composer.parent) }), dirty: this.composer.draft.dirty, note: this.composer.draft.note || null } : null,
@@ -686,12 +700,117 @@ export class DeliveryBoard implements Screen, DeskApi {
     const rd = this.readerFor(r) ?? this.readerFor("preview");
     const m = rd?.pane.msg;
     if (!rd || !m) return this.ctx.flash("nothing in that reader to find backlinks for");
-    const links: NonNullable<DeliveryBoard["links"]> = { target: m, from: rd.label, items: null, sel: 0, top: 0 };
+    this.openLinks(m, rd.label);
+  }
+
+  /** The drawer on `m`'s backlinks. Resolves once the service has answered. */
+  private openLinks(m: Msg, from: string): Promise<void> {
+    // Another note: its own filter, kind and open groups; sort, stage and the hide toggles stay (as Detail does).
+    if (this.links?.target.id !== m.id) this.linkView = { options: { ...this.linkView.options, filter: "", kind: null }, expanded: new Set(), draft: null };
+    const links: NonNullable<DeliveryBoard["links"]> = { target: m, from, data: null, sel: 0, top: 0 };
     this.links = links;
     this.linksPreview.show(null, this);
     this.focus = "backlinks";
-    this.ctx.board.backlinks(m.id).then(items => { links.items = items; this.previewLink(); this.redraw(); }, e => { links.items = []; this.ctx.flash(String(e.message)); });
+    const asked = this.ctx.board.backlinks(m.id).then(data => {
+      links.data = data;
+      // The first source drawn, not a group's header: ⏎ opens it, as it did before there were groups.
+      if (this.links === links) links.sel = Math.max(0, this.linkRows().findIndex(row => row.kind === "source"));
+      this.previewLink(); this.redraw();
+    }, e => { links.data = { targetBlockId: m.id, sources: [], completeness: { kind: "complete" } }; this.ctx.flash(String(e.message)); });
+    links.ready = asked;
     this.redraw();
+    return asked;
+  }
+
+  /** The drawer's view for `peek`: what the person sees, row by row. */
+  private describeLinks() {
+    const L = this.links!, o = this.linkOptions();
+    const brief = { id: L.target.id, title: subject(L.target) };
+    if (!L.data) return { target: brief, loading: true };
+    return { target: brief, ...describeBacklinkView(this.linkViewNow(), o, this.linkView.expanded, L.sel), typing: this.linkView.draft };
+  }
+
+  /**
+   * `backlinks` from the control socket. The person's (as=you) sets their drawer's options, opening it on
+   * `id` first, and so does what the keys and clicks do. An agent's reads the same view (the person's
+   * options, with its own on top) and changes nothing the person sees but the status bar saying so.
+   */
+  async readLinks(args: { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string }, actor: Actor) {
+    const { id, ...want } = args;
+    const same = !id || this.links?.target.id === id || (id.length >= 8 && !!this.links?.target.id.startsWith(id));
+    if (!id && !this.links) throw new ActionRefused("no backlinks drawer is open; id=<block id> reads a note's backlinks (b opens the drawer on a reader's note)");
+    const target = same ? this.links!.target : await this.ctx.board.get(id!);
+    if (!target) throw new ActionRefused(`no block ${id}`);
+    const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions) => backlinkView(data, { ...o, kind: null }).kinds;
+    const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base)); } catch (e) { throw new ActionRefused((e as Error).message); } };
+    if (actor.kind !== "agent") {
+      if (!same || !this.links) await this.openLinks(target, "act");
+      else if (!this.links.data) await this.links.ready;
+      const next = parse(this.linkView.options, this.links!.data);
+      this.linkView.draft = null;
+      this.changeLinks(() => { this.linkView.options = next; });
+      return { backlinks: this.describeLinks() };
+    }
+    const data = same && this.links?.data ? this.links.data : await this.ctx.board.backlinks(target.id);
+    // The person's options carry over only for the note they're looking at; another note starts as Detail's.
+    const base = same ? { ...this.linkOptions() } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: this.linkView.options.sortField, sortDirection: this.linkView.options.sortDirection };
+    const o = parse(base, data);
+    this.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
+    return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? this.linkView.expanded : new Set()) } };
+  }
+
+  /** The person's options, with a filter being typed applied as it's typed. */
+  private linkOptions(): BacklinkViewOptions {
+    const v = this.linkView;
+    return v.draft === null ? v.options : { ...v.options, filter: v.draft.trim() };
+  }
+  private linkViewNow(): BacklinkView { return backlinkView(this.links?.data ?? null, this.linkOptions()); }
+  private linkRows(): BacklinkRow[] { return this.links?.data ? backlinkRows(this.linkViewNow(), this.linkOptions(), this.linkView.expanded) : []; }
+  private linkRow(): BacklinkRow | undefined { return this.links ? this.linkRows()[this.links.sel] : undefined; }
+  private linkSource(): BacklinkSource | undefined { const r = this.linkRow(); return r?.kind === "source" ? r.source : undefined; }
+
+  /**
+   * Change the person's backlink view, keeping the selected row where it still shows (else the first
+   * source). Keys, clicks on the status line and group headers, and the person's own `backlinks` act all
+   * come here.
+   */
+  private changeLinks(change: () => string | void) {
+    const L = this.links;
+    const was = L ? rowKey(this.linkRows()[L.sel]) : undefined;
+    const said = change();
+    if (L) {
+      const rows = this.linkRows(), kept = rows.findIndex(r => rowKey(r) === was);
+      L.sel = kept >= 0 ? kept : Math.max(0, rows.findIndex(r => r.kind === "source"));
+      this.previewLink();
+    }
+    if (said) this.ctx.flash(said);
+    this.redraw();
+  }
+
+  /** One control: the same for its key, a click on it in the status line, and `backlinks` from the person. */
+  private linkControl(c: BacklinkControl) {
+    const o = this.linkView.options;
+    // A click on the filter being typed keeps what's typed; otherwise it starts from the kept filter.
+    if (c === "filter") { this.linkView.draft ??= o.filter; return this.redraw(); }
+    this.changeLinks(() => {
+      if (c === "sort") { [o.sortField, o.sortDirection] = nextBacklinkSort(o.sortField, o.sortDirection); return `backlinks sorted by ${o.sortField} ${o.sortDirection === "asc" ? "↑" : "↓"}`; }
+      if (c === "kind") {
+        const kinds = this.linkViewNow().kinds;
+        if (!this.linkViewNow().faceted) return "nothing to pick: this service sends no backlink kinds";
+        o.kind = nextBacklinkKindFilter(o.kind, kinds);
+        return o.kind ? `backlinks: only ${kinds.find(k => k.kind === o.kind)?.label ?? o.kind}` : "backlinks: every kind";
+      }
+      if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); return o.stage === "all" ? "backlinks: every stage" : `backlinks: only ${o.stage}`; }
+      if (c === "resolved") { o.showResolved = !o.showResolved; return o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
+      if (c === "related") { o.showRelated = !o.showRelated; return o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
+    });
+  }
+
+  /** Open or fold a kind group (its header's ⏎, . or click). A narrowing filter opens every group, as in Detail. */
+  private toggleLinkGroup(kind: string) {
+    const o = this.linkOptions();
+    if (o.filter !== "" || o.kind !== null || o.stage !== "all") return this.ctx.flash("every group is open while filtering · clear the filter, kind and stage to fold them");
+    this.changeLinks(() => { const e = this.linkView.expanded; if (e.has(kind)) e.delete(kind); else e.add(kind); });
   }
 
   /**
@@ -708,15 +827,15 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   /** The backlink source `id` in a detail (the list's click, like ⏎), read whole first. */
-  private openLink(id: string) {
-    this.ctx.board.get(id).then(m => { if (m) { this.current = m; this.openDetail(m, false); } else this.ctx.flash("that source isn't in the outline any more"); },
+  private openLink(id: string, fresh = false) {
+    this.ctx.board.get(id).then(m => { if (m) { this.current = m; this.openDetail(m, fresh); } else this.ctx.flash("that source isn't in the outline any more"); },
       (e: Error) => this.ctx.flash(`couldn't read the source: ${e.message}`));
   }
 
   private previewLink() {
-    const b = this.links?.items?.[this.links.sel];
-    if (!b || b.id === this.linksPreview.msg?.id) return;
-    this.ctx.board.get(b.id).then(m => { if (m && this.links?.items?.[this.links.sel]?.id === m.id) { this.linksPreview.show(m, this); this.redraw(); } }, () => {});
+    const b = this.linkSource();
+    if (!b || b.blockId === this.linksPreview.msg?.id) return;
+    this.ctx.board.get(b.blockId).then(m => { if (m && this.linkSource()?.blockId === m.id) { this.linksPreview.show(m, this); this.redraw(); } }, () => {});
   }
 
   /** Pop the focused reader out as a floating pane, or dock a floating one back as a detail. */
@@ -1539,31 +1658,75 @@ export class DeliveryBoard implements Screen, DeskApi {
       this.placed.push({ layer, p: { ...p, key: `${key}:${p.key}`, col: inner.col + p.col, row: inner.row + p.row, cols: Math.min(p.cols, inner.cols - p.col), rows: Math.min(p.rows, inner.rows - p.row) } });
   }
 
+  /**
+   * The backlinks drawer: a status line (the counts, and each toggle as a clickable control), then one
+   * line per row, kind groups with their stage counts and each source's dim breadcrumb and "Work ID ×N"
+   * (PIE-442, Detail's view through src/backlinks.ts). Beside it, a preview of the selected source.
+   */
   private drawLinks(canvas: Canvas, r: Rect) {
     const L = this.links!;
     if (!this.linksPinned) canvas.clear(r, bg(C.black));
-    const count = L.items ? `${L.items.length} source${L.items.length === 1 ? "" : "s"}` : "…";
+    const count = L.data ? `${L.data.sources.length} source${L.data.sources.length === 1 ? "" : "s"}` : "…";
     const listW = Math.round(r.cols * 0.5);
     const listR: Rect = { ...r, cols: listW };
-    const inner = this.frame(canvas, listR, "backlinks", `${pinBox(this.linksPinned)} · backlinks · ${subject(L.target).slice(0, 50)} · ${count} ${fg(C.dark)}(from ${L.from})`, `⏎ open · alt⏎ new detail · B ${this.linksPinned ? "unpin" : "pin"} · esc`);
+    const inner = this.frame(canvas, listR, "backlinks", `${pinBox(this.linksPinned)} · backlinks · ${subject(L.target).slice(0, 50)} · ${count} ${fg(C.dark)}(from ${L.from})`,
+      this.linkView.draft !== null ? "type to filter · ⏎ keep · esc undo" : `⏎ open · / filter · s K w h n · B ${this.linksPinned ? "unpin" : "pin"} · esc`);
     this.rects.set("pin:backlinks", pinRect(listR));
-    const items = L.items ?? [];
-    const fit = Math.max(1, Math.floor(inner.rows / 2));
+    for (const c of LINK_CONTROLS) this.rects.delete(`bl:${c}`);
+    const view = this.linkViewNow(), rows = this.linkRows(), o = this.linkOptions();
+    // The status line, wrapped between its parts so every control stays on screen (at most half of
+    // the drawer). While a filter is typed it shows the text with a cursor; its counts follow each key.
+    let x = inner.col, y0 = inner.row;
+    const end = inner.col + inner.cols, maxHead = Math.max(1, Math.floor(inner.rows / 2));
+    const put = (text: string, colour: string, control?: BacklinkControl) => {
+      const room = end - x;
+      if (room <= 0) return;
+      canvas.text(x, y0, colour + pad(text, Math.min(room, width(text))) + RESET, room);
+      if (control) this.rects.set(`bl:${control}`, { col: x, row: y0, cols: Math.min(room, width(text)), rows: 1 });
+      x += width(text);
+    };
+    if (L.data) {
+      const typing = this.linkView.draft;
+      const parts = backlinkStatusParts(view, o).filter(p => typing === null || p.control !== "filter");
+      if (typing !== null) parts.unshift({ text: `Filter: ${typing}▏`, control: "filter" });
+      if (L.data.completeness.kind === "truncated") parts.push({ text: `first ${L.data.completeness.limit ?? L.data.sources.length} sources` });
+      parts.forEach((p, i) => {
+        // A part that doesn't fit starts the next line (the separator stays at the end of this one).
+        if (i && x + 3 + width(p.text) > end && y0 + 1 < inner.row + maxHead) { if (x + 2 <= end) put(" ·", fg(C.dark)); x = inner.col; y0 += 1; }
+        else if (i) put(" · ", fg(C.dark));
+        put(p.text, typing !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey), p.control);
+      });
+    } else put("asking the service…", fg(C.dark));
+    // One line per row, under the status line.
+    const head = this.linkHead = y0 - inner.row + 1;
+    const fit = Math.max(1, inner.rows - head);
+    L.sel = clamp(L.sel, 0, Math.max(0, rows.length - 1));
     if (L.sel < L.top) L.top = L.sel;
     if (L.sel >= L.top + fit) L.top = L.sel - fit + 1;
-    items.slice(L.top, L.top + fit).forEach((b, j) => {
+    L.top = clamp(L.top, 0, Math.max(0, rows.length - fit));
+    const indent = view.faceted ? "   " : " ";
+    rows.slice(L.top, L.top + fit).forEach((row, j) => {
       const sel = L.top + j === L.sel;
-      const y = inner.row + j * 2;
-      canvas.text(inner.col, y, (sel ? (this.focus === "backlinks" ? SEL : bg(C.dark) + fg(C.white)) : fg(C.white)) + pad(` ${b.title}`, inner.cols) + RESET, inner.cols);
-      canvas.text(inner.col, y + 1, fg(C.dark) + pad(`   ${b.context} · ${b.kinds} · ${ago(b.updatedAt)}`, inner.cols) + RESET, inner.cols);
+      const y = inner.row + head + j;
+      const on = sel ? (this.focus === "backlinks" ? SEL : bg(C.dark) + fg(C.white)) : "";
+      if (row.kind === "group") {
+        const g = row.group;
+        const head = ` ${row.expanded ? "−" : "+"} ${g.label} ${g.sources.length}`;
+        canvas.text(inner.col, y, on + (sel ? "" : fg(C.yellow)) + head + (sel ? "" : fg(C.grey)) + pad(backlinkStageSummary(g), Math.max(0, inner.cols - width(head))) + RESET, inner.cols);
+        return;
+      }
+      const f = fitBacklinkRow(row.source.title, backlinkRowSuffix(row.source), inner.cols - indent.length);
+      const tail = f.suffix ? `${sel ? "" : fg(C.dark)} — ${f.suffix}` : "";
+      canvas.text(inner.col, y, on + (sel ? "" : fg(C.white)) + pad(`${indent}${f.title}${tail}`, inner.cols) + RESET, inner.cols);
     });
-    if (L.items && !items.length) canvas.text(inner.col + 1, inner.row, fg(C.dark) + "nothing links here" + RESET, inner.cols);
+    if (L.data && !L.data.sources.length) canvas.text(inner.col + 1, inner.row + head, fg(C.dark) + "nothing links here" + RESET, inner.cols - 1);
+    else if (L.data && !rows.length) canvas.text(inner.col + 1, inner.row + head, fg(C.dark) + "nothing matches · the status line's controls, / and esc change what shows" + RESET, inner.cols - 1);
     // Its own preview, following the selected source.
     const pr: Rect = { col: r.col + listW, row: r.row, cols: r.cols - listW, rows: r.rows };
     canvas.box(pr, fg(C.blue), fg(C.grey) + "backlink preview");
     this.rects.set("links-preview", pr);
     const pin = { col: pr.col + 1, row: pr.row + 1, cols: pr.cols - 2, rows: pr.rows - 2 };
-    const snip = items[L.sel]?.snippet;
+    const snip = String(this.linkSource()?.occurrences[0]?.snippet ?? "").replace(/\s+/g, " ").trim();
     if (snip) canvas.text(pin.col, pin.row, fg(C.green) + pad(`"${snip}"`, pin.cols) + RESET, pin.cols);
     this.paneInto(canvas, { ...pin, row: pin.row + 1, rows: pin.rows - 1 }, this.linksPreview, "links", this.linksPinned ? 0 : 1);
   }
@@ -1634,6 +1797,10 @@ export class DeliveryBoard implements Screen, DeskApi {
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
       ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
+      : this.focus === "backlinks"
+        ? this.linkView.draft !== null
+          ? "|08 type to filter the backlinks · |15⏎|08 keep · |15esc|08 undo · |15backspace ctrl+u|08 erase"
+          : "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15B|08 pin · |15tab|08 area · |15esc|08 close"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
         : "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
@@ -1689,6 +1856,10 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the new card first · ctrl+s creates · esc closes"); return; }
       return this.composerKey(k);
     }
+    // A backlinks filter being typed holds every key, board shortcuts included (t, b, g are letters in it).
+    // Leaving the drawer keeps what was typed.
+    if (this.linkView.draft !== null && (this.focus !== "backlinks" || !this.links)) { this.linkView.options.filter = this.linkView.draft.trim(); this.linkView.draft = null; }
+    if (this.linkView.draft !== null && k.kind !== "mouse") return this.linkFilterKey(k);
     if (this.steps && k.kind !== "mouse") return this.stepsKey(k, c);
     if (this.trashArm && !(c === "d" && this.focus === "lanes")) this.trashArm = null;   // any other key keeps the card
     if (this.mover && k.kind !== "mouse") return this.moverKey(k, c);
@@ -1804,17 +1975,48 @@ export class DeliveryBoard implements Screen, DeskApi {
     this.follow(); this.save(); this.redraw();
   }
 
+  /**
+   * The backlinks drawer's keys, Detail's where they don't clash with the board's: / filter, s sort,
+   * h resolved, n this note, . a group. Detail's k (kind) and t (stage) are the board's up and outline
+   * drawer, so kind is K and stage is w (the work stage).
+   */
   private linksKey(k: Key, c: string) {
-    const L = this.links!, n = L.items?.length ?? 0;
+    const L = this.links!, n = this.linkRows().length;
     if (k.kind === "down" || c === "j") { L.sel = Math.min(Math.max(0, n - 1), L.sel + 1); this.previewLink(); }
     else if (k.kind === "up" || c === "k") { L.sel = Math.max(0, L.sel - 1); this.previewLink(); }
+    else if (k.kind === "home") { L.sel = 0; this.previewLink(); }
+    else if (k.kind === "end") { L.sel = Math.max(0, n - 1); this.previewLink(); }
     else if (k.kind === "pgdn" || k.kind === "pgup") this.linksPreview.key(k, this);
-    else if (k.kind === "enter" || k.kind === "alt-enter") {
-      const m = this.linksPreview.msg;
-      if (m) { this.current = m; this.openDetail(m, k.kind === "alt-enter"); }
-      return;
-    }
+    else if (k.kind === "enter" || k.kind === "alt-enter") return this.enterLinkRow(k.kind === "alt-enter");
+    else if (c === "." || c === " ") { const r = this.linkRow(); const kind = r?.kind === "group" ? r.group.kind : r?.source.facets?.kind; if (kind) return this.toggleLinkGroup(kind); }
+    else if (c === "/") return this.linkControl("filter");
+    else if (c === "s") return this.linkControl("sort");
+    else if (c === "K") return this.linkControl("kind");
+    else if (c === "w") return this.linkControl("stage");
+    else if (c === "h") return this.linkControl("resolved");
+    else if (c === "n") return this.linkControl("related");
     this.redraw();
+  }
+
+  /** ⏎ on a row: a group opens or folds; a source opens in the detail (alt: a new one), as a click does. */
+  private enterLinkRow(fresh: boolean) {
+    const r = this.linkRow();
+    if (r?.kind === "group") return this.toggleLinkGroup(r.group.kind);
+    const m = this.linksPreview.msg;
+    if (r && m?.id === r.source.blockId) { this.current = m; this.openDetail(m, fresh); }
+    else if (r) this.openLink(r.source.blockId, fresh);
+  }
+
+  /** Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was. */
+  private linkFilterKey(k: Key) {
+    const v = this.linkView;
+    if (k.kind === "enter") { v.options.filter = (v.draft ?? "").trim(); v.draft = null; this.ctx.flash(v.options.filter ? `backlinks filtered by "${v.options.filter}"` : "backlink filter cleared"); }
+    else if (k.kind === "esc") v.draft = null;
+    else if (k.kind === "backspace") v.draft = (v.draft ?? "").slice(0, -1);
+    else if (k.kind === "char" && k.ctrl && k.ch === "u") v.draft = "";
+    else if (k.kind === "char" && !k.ctrl) v.draft = (v.draft ?? "") + k.ch;
+    else return;
+    this.changeLinks(() => {});
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
@@ -1885,13 +2087,20 @@ export class DeliveryBoard implements Screen, DeskApi {
         if (region.startsWith("detail")) this.active = Number(region.slice(6));
         if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
         if (region === "backlinks") {
-          // A source clicked in the list: its preview follows, and it opens in a detail, as ⏎ opens it.
-          // Only the rows drawn are sources: not the frame, nor the spare row an odd height leaves.
+          // The status line's controls do what their keys do; a group's header opens or folds it; a source
+          // clicked opens in a detail, as ⏎ opens it, and its preview follows. Only the rows drawn are rows:
+          // not the frame, nor the spare lines under the last one.
           const r = this.rects.get("backlinks")!, L = this.links!;
-          const j = Math.floor((k.y - r.row - 1) / 2), fit = Math.max(1, Math.floor((r.rows - 2) / 2));
-          const idx = L.top + j;
-          const drawn = k.y > r.row && k.y < r.row + r.rows - 1 && k.x > r.col && k.x < r.col + r.cols - 1 && j < fit;
-          if (L.items && drawn && idx < L.items.length) { L.sel = idx; this.previewLink(); this.openLink(L.items[idx]!.id); }
+          const control = LINK_CONTROLS.find(c => inside(this.rects.get(`bl:${c}`)));
+          if (control) { this.linkControl(control); return; }
+          const rows = this.linkRows(), j = k.y - r.row - 1 - this.linkHead, idx = L.top + j;
+          const drawn = j >= 0 && k.y < r.row + r.rows - 1 && k.x > r.col && k.x < r.col + r.cols - 1;
+          const row = drawn ? rows[idx] : undefined;
+          if (row) {
+            L.sel = idx;
+            if (row.kind === "group") { this.toggleLinkGroup(row.group.kind); return; }
+            this.previewLink(); this.openLink(row.source.blockId);
+          }
         }
         const rd = this.readerFor(region);
         if (region !== "tree" && region !== "backlinks" && rd) this.clickReader(rd.pane, this.rects.get(region)!, k);
@@ -1930,7 +2139,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (floatHit !== undefined) return this.floats[floatHit]!.pane.wheel(dir, this);
       if (this.treeOpen && inside(this.rects.get("tree"))) return this.tree.wheel(dir, this);
       if (this.treeOpen && inside(this.rects.get("tree-preview"))) return this.treePreview.wheel(dir, this);
-      if (this.links && inside(this.rects.get("backlinks"))) { const L = this.links; L.sel = clamp(L.sel + dir, 0, Math.max(0, (L.items?.length ?? 1) - 1)); this.previewLink(); return this.redraw(); }
+      if (this.links && inside(this.rects.get("backlinks"))) { const L = this.links; L.sel = clamp(L.sel + dir, 0, Math.max(0, this.linkRows().length - 1)); this.previewLink(); return this.redraw(); }
       if (this.links && inside(this.rects.get("links-preview"))) return this.linksPreview.wheel(dir, this);
       for (const r of ["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]) if (inside(this.rects.get(r))) return this.readerFor(r)!.pane.wheel(dir, this);
       const hit = this.laneRects.find(l => inside(l.rect));
@@ -2011,6 +2220,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "card.restore": { id?: string };
   "reader.collapse": Record<string, never>;
   "reader.expand": Record<string, never>;
+  "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
     summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "enter, alt+enter, o",
@@ -2098,12 +2308,31 @@ export const BOARD_ACTIONS = new ActionSet<{
     args: {},
     run: (_, { b, reader }, actor) => b.collapseReader(reader, false, actor),
   },
+  "backlinks": {
+    summary: "the backlinks drawer's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (as=you) opens the drawer on id and sets their options",
+    keys: "b, then / s K w h n . and clicks on the status line and group headers",
+    args: {
+      id: { type: "string", optional: true, about: "the note whose backlinks to read; default the drawer's" },
+      filter: { type: "string", optional: true, about: "text to match, as / filters" },
+      kind: { type: "string", optional: true, about: "one kind (its key or label), or all" },
+      stage: { type: "string", optional: true, about: "all, open, waiting, draft, active or done" },
+      resolved: { type: "boolean", optional: true, about: "show resolved comments" },
+      related: { type: "boolean", optional: true, about: "show this note and its descendants" },
+      sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },
+    },
+    run: (args, { b }, actor) => b.readLinks(args, actor),
+  },
   "card.restore": {
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
     run: ({ id }, { b }, actor) => b.restoreCard(id, actor),
   },
 });
+
+/** The backlinks status line's controls, each drawn at `bl:<control>` for clicks. */
+const LINK_CONTROLS: readonly BacklinkControl[] = ["filter", "kind", "stage", "resolved", "related", "sort"];
+/** A backlinks row's identity across a change of view: its group, or its source. */
+const rowKey = (r: BacklinkRow | undefined) => (r ? (r.kind === "group" ? `g:${r.group.kind}` : `s:${r.source.blockId}`) : undefined);
 
 /** A drawer's pin as it's drawn at the start of its title: checked when it's part of the layout. */
 function pinBox(pinned: boolean) { return pinned ? "[x] pin" : "[ ] pin"; }

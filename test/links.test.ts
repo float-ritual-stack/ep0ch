@@ -215,7 +215,9 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   test("a backlinks row opens its source in a detail, the preview follows it, and a link in that preview opens in a detail too", async () => {
     await fresh();
     key(char("b"));
-    await until(() => !!B().links?.items?.length, "the backlinks");
+    await until(() => !!B().links?.data?.sources.length, "the backlinks");
+    // Grouped as Detail groups them (PIE-442): a note isn't an open item, so its group opens first.
+    click(where(frame(), "+ Note 1", rect("backlinks")));
     click(where(frame(), "Sunday list", rect("backlinks")));
     await until(() => B().details[0]?.msg?.id === n.sunday.id, "the source in a detail");
     expect(B().focus).toBe("detail0");
@@ -229,25 +231,32 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
   }, 20_000);
 
-  test("only the backlinks rows drawn are clickable: not the frame, nor the spare row under the last source", async () => {
+  test("only the backlinks rows drawn are clickable: not the frame, the status line, nor the spare rows under the last source", async () => {
     await fresh();
     key(char("b"));
-    await until(() => !!B().links?.items?.length, "the backlinks");
-    const L = B().links, one = L.items[0];
-    L.items = Array.from({ length: 40 }, (_, i) => ({ ...one, title: `Source ${i}` }));   // more than fit
-    // An odd inner height leaves a spare row under the last pair.
-    for (let f = 0.4; f < 0.52 && (rect("backlinks").rows - 2) % 2 === 0; f += 0.01) B().lay.linksFrac = f;
-    const r = rect("backlinks"), fit = Math.floor((r.rows - 2) / 2);
-    expect((r.rows - 2) % 2).toBe(1);
-    for (const y of [r.row + r.rows - 2, r.row + r.rows - 1]) {               // the spare row, the bottom border
-      click({ x: r.col + 3, y });
-      await Bun.sleep(50);
-      expect(L.sel).toBe(0);
-      expect(B().details.length).toBe(0);
-    }
-    click({ x: r.col + 3, y: r.row + 1 + 2 * (fit - 1) });                   // the last source drawn still opens
+    await until(() => !!B().links?.data?.sources.length, "the backlinks");
+    const L = B().links, one = L.data.sources[0];
+    // More sources than fit, one line each (PIE-442), under the status line; without facets, so one flat list.
+    L.data = { ...L.data, sources: Array.from({ length: 40 }, (_, i) => ({ ...one, blockId: one.blockId, facets: undefined, title: `Source ${String(i).padStart(2, "0")}`, updatedAt: `2026-01-01T00:00:${String(59 - i).padStart(2, "0")}.000Z` })) };
+    L.sel = 0; L.top = 0;
+    const r = rect("backlinks"), head = B().linkHead, fit = r.rows - 2 - head;
+    expect(fit).toBeGreaterThan(3);
+    click({ x: r.col + 3, y: r.row + r.rows - 1 });                            // the bottom border
+    click({ x: r.col + 3, y: r.row + 1 });                                     // the status line's first part isn't a control
+    await Bun.sleep(50);
+    expect(L.sel).toBe(0);
+    expect(B().details.length).toBe(0);
+    click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn opens
     expect(L.sel).toBe(fit - 1);
-    await until(() => B().details[0]?.msg?.id === one.id, "the source in a detail");
+    await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
+    // A short list leaves spare rows under it: a click there does nothing.
+    L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };
+    B().focus = "backlinks"; L.sel = 0; L.top = 0;
+    const before = B().details.length;
+    click({ x: r.col + 3, y: r.row + head + 3 });
+    await Bun.sleep(50);
+    expect(L.sel).toBe(0);
+    expect(B().details.length).toBe(before);
   }, 20_000);
 
   test("a summary-line value follows as the panel's o does: no fuzzy search, and the panel closes", async () => {

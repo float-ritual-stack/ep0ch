@@ -155,7 +155,16 @@ The last board per workspace is remembered.
   to the other side so it doesn't cover the preview.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
   snippet; `B` or a click on its `[ ] pin` pins it into the layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
-  preview opens in a detail too.
+  preview opens in a detail too. It shows what Detail's Backlinks panel shows (PIE-442, the service's
+  `references.backlinks.facets`): this note and its descendants hidden, resolved comments hidden, sources
+  grouped by kind with stage counts (`+ Outbox item 10 (2 waiting · 1 draft · 7 done)`), open items first
+  and then by date, one line each with a dim breadcrumb and `Work ID ×N`. A group starts folded to its open
+  items. The status line keeps the counts adding up (`18 of 23 match · 3 this note hidden · 2 resolved
+  hidden · Kind: all · Stage: all · Sort: Updated ↓`); click any of its controls, or use Detail's keys:
+  `/` filter as you type (⏎ keeps it, esc undoes it), `s` sort (updated, created, title), `h` resolved,
+  `n` this note, `.` or space folds a group (⏎ or a click on its header too). Detail's `k` and `t` are the
+  board's up and outline drawer, so kind is **`K`** and stage is **`w`**. Against a service without facets
+  it's one flat list, and the status line says nothing is grouped.
 - Layout, pins, collapsed lanes, a collapsed preview and drawer side are saved to `delivery.json`. Details
   aren't saved, so neither is their collapse.
 
@@ -645,6 +654,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
+| `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |

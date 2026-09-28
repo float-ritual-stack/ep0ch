@@ -7,6 +7,7 @@
 import { connect, type Socket } from "node:net";
 import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
+import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
 /** Oldest service protocol the door reads (the actions it can't do without). */
@@ -19,7 +20,7 @@ const CLIENT_PROTOCOL = 82;
  * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
  * "Unsupported action" answer for the session.
  */
-export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since";
+export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets";
 
 /**
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
@@ -54,7 +55,7 @@ export interface IndexBlock {
   id: string; parentId: string | null; position: number; title: string; author: string;
   createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
 }
-export interface Backlink { id: string; title: string; context: string; updatedAt: number; kinds: string; snippet: string }
+export type { BacklinkCollection, BacklinkSource } from "./backlinks";
 /** The service's record of one committed change (PIE-399), on content events and from `changes.since`. */
 export interface Change {
   sequence: number; changeId: number; action: string;
@@ -457,14 +458,16 @@ export class SocketBoard implements Board {
     return this.optional<ChangePage>("changes.since", "changes.since", { sequence, limit });
   }
 
-  /** Blocks that point at this one, excluding itself. */
-  async backlinks(id: string, limit = 100): Promise<Backlink[]> {
-    const r = await this.request<{ sources: any[] }>("references.backlinks", { query: { targetBlockId: id, limit } });
-    return r.sources.filter(s => s.blockId !== id).map(s => ({
-      id: s.blockId, title: s.title, context: s.parentContext ?? "", updatedAt: Date.parse(s.updatedAt),
-      kinds: (s.referenceGroups ?? []).map((g: any) => `${g.kind}×${g.count}`).join(" "),
-      snippet: String(s.occurrences?.[0]?.snippet ?? "").replace(/\s+/g, " ").trim(),
-    }));
+  /**
+   * Blocks that point at this one, as the service sends them (PIE-442): with facets when it has
+   * `references.backlinks.facets`, read through src/backlinks.ts as Detail reads them. Without facets
+   * the note itself is left out, as the door always did; with them it stays, for the "this note" toggle.
+   */
+  async backlinks(id: string, limit = BACKLINK_QUERY_LIMIT): Promise<BacklinkCollection> {
+    const r = await this.request<BacklinkCollection>("references.backlinks", { query: { targetBlockId: id, limit } });
+    const sources = (r.sources ?? []).map(s => ({ ...s, parentContext: s.parentContext ?? "", referenceGroups: s.referenceGroups ?? [], occurrences: s.occurrences ?? [] }));
+    const faceted = sources.length > 0 && sources.every(s => s.facets !== undefined);
+    return { ...r, targetBlockId: r.targetBlockId ?? id, sources: faceted ? sources : sources.filter(s => s.blockId !== id), completeness: r.completeness ?? { kind: "complete" } };
   }
 
   /** Comment threads anchored on a block (open ones first). */
