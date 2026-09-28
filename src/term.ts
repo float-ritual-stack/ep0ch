@@ -73,6 +73,17 @@ export class Term {
     if (out) this.write(out);
   }
 
+  /**
+   * Repaint one row alone (the status bar's clock, PIE-420): nothing else is written, so an edit, a
+   * selection, a drag or a Kitty placement elsewhere on screen is untouched, and the next paint's diff
+   * knows the row as it is now.
+   */
+  paintRow(r: number, line: string): void {
+    if (r < 0 || r >= this.info.rows || this.last[r] === line) return;
+    this.last[r] = line;
+    this.write(`\x1b[${r + 1};1H\x1b[0m\x1b[2K${line}\x1b[0m`);
+  }
+
   invalidate() { this.last = []; }
 
   private feed(s: string) {

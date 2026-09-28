@@ -41,14 +41,15 @@ export function wrap(text: string, w: number): string[] {
 }
 
 /** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
-export function colourBody(line: string): string {
+/** `literal`: the line is in a literal region (PIE-422), where `[key::value]` is text, not a property. */
+export function colourBody(line: string, literal = false): string {
   if (/^#{1,6} /.test(line)) return fg(C.white) + line + RESET;
   if (/^> ?/.test(line)) return fg(C.lgreen) + line + RESET;
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
   return fg(C.grey) + line
     .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
-    .replace(/\[([\w-]+)::([^\]]*)\]/g, `${fg(C.dark)}[${fg(C.brown)}$1${fg(C.dark)}::${fg(C.yellow)}$2${fg(C.dark)}]${fg(C.grey)}`)
+    .replace(/\[([\w-]+)::([^\]]*)\]/g, (all, k: string, v: string) => literal ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey)) + RESET;

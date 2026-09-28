@@ -7,7 +7,7 @@
 // cards; editing, quoting and comment threads draw the surface in the column, with the same keys and
 // the same named actions as the board. Peek and spine columns stay read-only views.
 import type { Ctx, Frame, Screen } from "../app";
-import { subject, type Msg } from "../board";
+import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Draft } from "../edit";
@@ -100,7 +100,8 @@ const chipColour = (key: string) => CHIP_COLOURS[[...key].reduce((h, c) => (h * 
 const chips = (props: Record<string, string>) =>
   ["type", "status", "stage", "project", "priority"].filter(k => props[k]).map(k => `${fg(chipColour(k))}#${props[k]}${RESET}`).join(" ");
 const glyph = (m: Msg) => GLYPH[m.props.type ?? ""] ?? "◇";
-const bodyLines = (m: Msg) => m.text.split("\n").slice(1).map(l => l.replace(/\[[\w-]+::[^\]]*\]/g, "").trimEnd()).filter(l => l.trim());
+// Properties are in the chips; inside a literal region (PIE-422) `[key::value]` is text, so it stays.
+const bodyLines = (m: Msg) => bodyLinesOf(m.text).map(l => (l.literal ? l.text : l.text.replace(/\[[\w-]+::[^\]]*\]/g, "")).trimEnd()).filter(l => l.trim());
 
 function parseFilter(s: string): Clause[] {
   return s.split(/\s+/).filter(Boolean).map(tok => {
@@ -346,7 +347,8 @@ export class River implements Screen {
       // Links read as Detail shows them (titles, not ids), and a click on one opens it beside (PIE-415).
       const drawn: Link[] = [];
       const body = wrap(presentLinks(bodyLines(m).join("\n"), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text, drawn), w - 1);
-      const shown = extractLinks(body.slice(0, 12).map(l => stripMarks(colourBody(l))));
+      // bodyLines took the properties out, so a `[key::value]` still here is a literal region's text.
+      const shown = extractLinks(body.slice(0, 12).map(l => stripMarks(colourBody(l, true))));
       shown.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: shown.ranges.filter(r => r.line === i && drawn[r.n]).map(r => ({ from: r.from + 1, to: r.to + 1, link: drawn[r.n]! })) }));
       if (body.length > 12) push(fg(C.dark) + ` … ${body.length - 12} more lines (open in the desk reader for all)` + RESET);
       const label = `── ${p.items ? this.flat(p).length : "…"} replies `;

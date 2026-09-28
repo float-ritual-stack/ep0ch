@@ -24,6 +24,11 @@ export interface DocEnv {
    * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
    */
   link?: (block: string, text: string) => string;
+  /**
+   * The body lines (by index) inside a literal region (PIE-422): `[key::value]` there is text, drawn
+   * plain. Links and Markdown still render, as the service and Detail treat them.
+   */
+  literal?: ReadonlySet<number>;
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
@@ -46,7 +51,7 @@ export interface Doc { lines: string[]; images: DocImage[]; media: { path: strin
 export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
 
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
-const inline = (s: string) => colourBody(s).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
+const inlineOf = (s: string, literal = false) => colourBody(s, literal).replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${UNBOLD}`);
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
@@ -135,6 +140,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
+  const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
   const mark = () => { while (source.length < out.length) source.push(from); };
@@ -147,7 +153,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const fp = at.get(i);
     if (fp && env.folds) {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
-      const rows = prose(line, W, { folded, selected, hidden: fp.hidden });
+      const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i));
       heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
       if (folded) i = fp.end - 1;
@@ -208,8 +214,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // Callout: > [!type]± title, then > lines.
     const co = line.match(/^\s*>\s*\[!(\w+)\]([+-]?)\s*(.*)$/);
     if (co) {
-      const body: string[] = [];
-      for (i++; i < src.length && /^\s*>/.test(src[i]!); i++) body.push(src[i]!.replace(/^\s*> ?/, ""));
+      const body: string[] = [], bodyLit: boolean[] = [];
+      for (i++; i < src.length && /^\s*>/.test(src[i]!); i++) { body.push(src[i]!.replace(/^\s*> ?/, "")); bodyLit.push(lit(i)); }
       i--;
       const type = co[1]!.toLowerCase();
       const [icon, colour] = CALLOUT[type] ?? ["▌", C.cyan];
@@ -236,8 +242,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       } else {
         for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
         // A title-only callout is just the titled frame; no empty row inside.
-        for (const b of body) for (const l of b ? wrap(b, inner) : [""])
-          out.push(fg(colour) + "│ " + RESET + pad(inline(l), inner) + fg(colour) + " │" + RESET);
+        body.forEach((b, k) => { for (const l of b ? wrap(b, inner) : [""])
+          out.push(fg(colour) + "│ " + RESET + pad(inlineOf(l, bodyLit[k]), inner) + fg(colour) + " │" + RESET); });
       }
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);
       continue;
@@ -248,7 +254,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const rows: string[] = [line];
       for (i++; i < src.length && /^\s*\|/.test(src[i]!); i++) rows.push(src[i]!);
       i--;
-      out.push(...table(rows, W));
+      out.push(...table(rows, W, lit(i)));
       continue;
     }
 
@@ -270,12 +276,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         pieces.forEach((p, k) => {
           if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
           const t = k === 0 ? p.trimEnd() : p.trim();
-          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W));
+          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W, undefined, lit(i)));
         });
         continue;
       }
     }
-    out.push(...prose(line, W));
+    out.push(...prose(line, W, undefined, lit(i)));
   }
   mark();
   const { lines, ranges } = extractLinks(out.map(stripMarks));
@@ -290,8 +296,9 @@ interface Disclosure { folded: boolean; selected: boolean; hidden: number }
 const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidden === 1 ? "" : "s"} folded` + RESET;
 
 /** Blockquote, heading, list item or paragraph. */
-function prose(line: string, W: number, fold?: Disclosure): string[] {
+function prose(line: string, W: number, fold?: Disclosure, literal = false): string[] {
   const out: string[] = [];
+  const inline = (s: string) => inlineOf(s, literal);
   if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
@@ -334,7 +341,7 @@ function cells(row: string): string[] {
 }
 
 /** A real table: columns sized to fit, long cells wrap onto more lines instead of truncating. */
-export function table(rows: string[], W: number): string[] {
+export function table(rows: string[], W: number, literal = false): string[] {
   const head = cells(rows[0]!);
   const align = cells(rows[1]!).map(a => (a.startsWith(":") && a.endsWith(":") ? "c" : a.endsWith(":") ? "r" : "l"));
   const body = rows.slice(2).map(cells);
@@ -364,7 +371,7 @@ export function table(rows: string[], W: number): string[] {
     const h = Math.max(...wrapped.map(w => w.length));
     const out: string[] = [];
     for (let y = 0; y < h; y++)
-      out.push(B("│") + wrapped.map((w, k) => " " + fit(header ? BOLD + fg(C.white) + (w[y] ?? "") + RESET : inline(w[y] ?? ""), widths[k]!, align[k] ?? "l") + " ").join(B("│")) + B("│"));
+      out.push(B("│") + wrapped.map((w, k) => " " + fit(header ? BOLD + fg(C.white) + (w[y] ?? "") + RESET : inlineOf(w[y] ?? "", literal), widths[k]!, align[k] ?? "l") + " ").join(B("│")) + B("│"));
     return out;
   };
   const out = [rule("┌", "┬", "┐"), ...line(all[0]!, true), rule("╞", "╪", "╡").replace(/─/g, "═")];

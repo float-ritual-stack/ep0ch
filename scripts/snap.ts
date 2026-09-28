@@ -433,7 +433,8 @@ if (scenario === "fold") {
 if (scenario === "elements") {
   // PIE-441 on its own scratch service (fictional garden notes): [ ] walk a note's elements in the
   // preview with the reading ruler under the current one, ⏎ on a figure row opens a detail, the comment
-  // mark opens its thread, and an agent's focus mark in the detail is tinted and named.
+  // mark expands its thread inline with its controls (PIE-420), and an agent's focus mark in the detail is
+  // tinted and named. The note ends with a literal region (PIE-422): markers hidden, its token plain.
   const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
@@ -441,7 +442,7 @@ if (scenario === "elements") {
   await mk(null, "Water the seedlings [type::garden-job]");
   await mk(null, "Turn the compost [type::garden-job]");
   const figure = `::graph-check\n---\ntitle: Garden jobs\nquery: "type=garden-job"\nsort: created\ndirection: asc\n---\n::`;
-  const jobs = await mk(null, `Weekend jobs [stage::queued]\nFirst ((${beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n  - two barrows of compost\n\n${figure}\n\n!((${shed.id}))\n\n## Water\nThe hose runs along the fence past the shed.`);
+  const jobs = await mk(null, `Weekend jobs [stage::queued]\nFirst ((${beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n  - two barrows of compost\n\n${figure}\n\n!((${shed.id}))\n\n## Water\nThe hose runs along the fence past the shed.\n<!-- literal -->\nWrite [stage::queued] on a card's subject line.\n<!-- /literal -->\nThe butt fills from the shed roof [level::half].`);
   await board.comment(`snap-${crypto.randomUUID()}`, jobs.id, jobs.revision, "Use the long spade.", { quote: "dig the north bed", start: jobs.text.indexOf("dig the north bed") });
   void plan;
   const hub = await mk(null, "Garden board");
@@ -457,7 +458,8 @@ if (scenario === "elements") {
   press({ kind: "enter" }); await snap("4-row-opens-detail", 800);
   S.focus = "preview";
   ch("["); ch("["); ch("["); await snap("5-comment-mark", 300);
-  press({ kind: "enter" }); await snap("6-thread", 600);
+  press({ kind: "enter" }); await snap("6-thread-inline", 600);
+  ch("]"); ch("]"); await snap("6b-reply-control", 300);
   press({ kind: "esc" });
   await app.act({ action: "open", reader: "detail", args: { id: jobs.id }, as: "snap-agent" });
   await Bun.sleep(600);

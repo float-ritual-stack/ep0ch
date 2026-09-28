@@ -211,6 +211,13 @@ export class CommentSession {
   private back: CommentMode = "threads";
   /** The mode the session opened in; Esc there closes it. */
   private readonly origin: CommentMode;
+  /**
+   * A reply started from a thread expanded in the reader (PIE-420's Reply control): Esc from the composer
+   * closes the session, and so does a reply that landed, so the person is back reading the note, the thread
+   * still open under its passage. `finished` says the reply landed; the reader lets the session go.
+   */
+  inline = false;
+  finished = false;
 
   constructor(public msg: Msg, public threads: Comment[], mode: "select" | "threads") {
     this.mode = this.origin = mode;
@@ -246,6 +253,7 @@ export class CommentSession {
       else if (a === "reload") void this.relocate(env);
       else if (a === "close") {
         this.composer = null; this.target = null; this.error = null; this.note = ""; this.out.done(); this.confirmNew = false;
+        if (this.inline) return "close";
         if (this.back === "select" && this.passage) this.mode = "select";
         else if (this.origin === "select" && !this.threads.length) return "close";
         else this.mode = "threads";
@@ -332,6 +340,7 @@ export class CommentSession {
       this.sel = Math.max(0, this.threads.findIndex(x => x.id === root));
       // A comment on a checklist step gives the step a stable id, which changes the note.
       if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
+      if (this.inline) this.finished = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.busy = null;

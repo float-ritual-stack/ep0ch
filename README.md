@@ -336,6 +336,7 @@ in the lanes comments in the preview.
 | `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
 | `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
+| `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it |
 | `Esc` | back a step; with unsent text it asks for a second `Esc` |
 
 - **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
@@ -358,6 +359,26 @@ in the lanes comments in the preview.
   An agent's comments and replies (below) are `author: agent` with the agent's actor id, and so is one
   you and an agent both wrote (see "Who a write is recorded as").
 - The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
+
+### Threads inline (PIE-420)
+
+A comment mark in a reader's margin (`▐`, yellow while open, dim once resolved) expands its thread under
+the passage it quotes, by `⏎` on it (it's one of the `[ ]` elements) or a click. The thread shows who
+and when, open or resolved, the comment and its replies, and three controls: **Select**, **Reply**, and
+**Resolve** (**Reopen** once resolved). The quoted lines are highlighted while it's open. `⏎` or a click
+on the mark again collapses it. Open threads stay open as the note refreshes; another note starts with
+none open.
+
+- **The controls** are elements too: `[ ]` steps to them and `⏎` uses one, or click it. No new keys.
+- **Select** selects the quoted words as the reader's text selection (their whole lines when the words
+  read differently in the reader), so `y` or `Y` copies them.
+- **Reply** opens the thread list as your session with the reply started, the same composer as `m`, `r`:
+  `Ctrl+S` sends it and you're back reading, the thread still open with your reply in it; `Esc` comes back
+  without sending.
+- **Resolve** / **Reopen** sets the thread's lifecycle, as `x` in the list does.
+- **Agents** use `threads`, `reply` and `resolve` on an expanded thread as on any other. Which threads are
+  expanded is your reading state: `thread.toggle` is yours only, an agent's `element.open` on a mark opens
+  its own thread list without expanding anything, and on a control it's refused with the action to use.
 
 ## Reading notes
 
@@ -396,6 +417,13 @@ printed; they are in the **property panel**, one key away.
   inline code or a code fence stays code. A note's embed targets are read together (`blocks.read`), and
   its links and block-valued properties resolve in one `references.resolve`, asked again only when a
   change record names one of those blocks.
+- **Literal regions** (PIE-422). Between a `<!-- literal -->` line and a `<!-- /literal -->` line the
+  service doesn't read properties, so the reader draws `[key::value]` there as text; links and Markdown
+  work as anywhere else. The marker lines aren't drawn (edit mode shows them), and a title skips them, as
+  in Detail. An opener without a closer protects nothing, and the reader says so under its header. Where
+  a region is follows the service's rules exactly (markers only outside code fences, no nesting, up to
+  three leading spaces): `src/literal.ts` mirrors them, and `test/literal.test.ts` checks it against the
+  service's own parser. The river's cards and the desk's search preview draw regions the same way.
 
 ### Folding
 
@@ -427,22 +455,24 @@ Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text
 
 `[` and `]` step through everything a reader draws, in reading order (PIE-441): links (in the text, the
 summary line, an image or a video), headings and list items that fold, the rows of a live figure or an
-embedded view that stand for a note, embeds (their title), and comment marks (`▐` in the margin beside the
-lines a comment quotes; yellow while it's open). `( )` still jumps between folds only. The reader's footer
+embedded view that stand for a note, embeds (their title), comment marks (`▐` in the margin beside the
+lines a comment quotes; yellow while it's open, dim once resolved), and the controls of a thread expanded
+under its passage. `( )` still jumps between folds only. The reader's footer
 names the current one (`[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new`), and the block it's in gets
 the reading ruler: a calm amber tint across the reader.
 
 | Keys | Action |
 |---|---|
 | `[` / `]` | the previous / next element (from the view when none is current, or it's scrolled away) |
-| `⏎` | a link follows it (in place in a detail; from the board's preview into a detail, as `⏎` on a card); a fold folds or unfolds; a row or an embed opens its note; a comment mark opens its thread |
+| `⏎` | a link follows it (in place in a detail; from the board's preview into a detail, as `⏎` on a card); a fold folds or unfolds; a row or an embed opens its note; a comment mark expands its thread inline, or collapses it; a thread's control does what it says (below) |
 | `alt+⏎` | a link, row or embed opens in a new reader: a new detail on the board, a new reader beside on the desk, a new column in the river |
 | click | the same as `⏎` on what's clicked, and it becomes the current element; a drag still selects text |
 | `esc`, scrolling, `u` | let go of the current element, so `⏎` means what it did before (the preview opens a detail); then `esc` takes away a focus mark |
 | `tab` | unchanged: it switches areas |
 
 An agent sees the same list with `elements` and acts on one with `element.open n=…` (a link, row or embed
-opens where the person's would; a fold toggles; a comment mark opens the thread list as its session). The
+opens where the person's would; a fold toggles; a comment mark opens the thread list as its session, and
+leaves the person's expanded threads alone). The
 `[ ]` position is the person's: `element.select` is theirs only, and an agent's `element.open` leaves it
 where it was. Instead an agent sets a **focus mark** with `focus.set` (`block=`, `line=`/`to=`, or
 `quote=`/`near=`, the same passage shape as a comment): the marked lines get the ruler's tint, the header
@@ -616,7 +646,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
-| `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
+| `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
+| `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
 | `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
 | `elements`, `element.select`, `element.open` | `n` (from `elements`); `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `Enter`, `alt+Enter`, a click |
 | `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
@@ -777,9 +808,6 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
   embedded view's result rows aren't followable (follow the `!((…))` link itself); `!((…))` inside a
   callout or a table stays a link.
-- The door draws inside a literal region (`<!-- literal -->…<!-- /literal -->`) as ordinary text: its
-  `[[links]]` and `[key::value]` tokens look live, though the service treats them as text (the showcase's
-  notebook shows it).
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.

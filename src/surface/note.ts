@@ -7,7 +7,8 @@
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
 import type { Ctx } from "../app";
-import { subject, type Msg } from "../board";
+import { subject, titleLine, type Msg } from "../board";
+import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, SHADE } from "../embeds";
@@ -19,13 +20,13 @@ import type { Scroll } from "../canvas";
 import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment, type PropertyRecord } from "../socket";
 import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
-import { bbsDate, rule } from "../text";
+import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
 import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
 import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
-import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, wordAt, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -61,7 +62,7 @@ const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.f
  */
 /** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
 /** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
-/** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin. */
+/** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string });
 
 /**
@@ -69,7 +70,9 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * video), a fold point (a heading or a list item with lines under it), a row that stands for a note (a live
  * figure's row, an embedded view's result), an embed (its title), and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control";
+/** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
+export type ThreadControl = "select" | "reply" | "resolve";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -77,11 +80,13 @@ export type ElementKind = "link" | "fold" | "row" | "embed" | "comment";
  */
 interface Element {
   key: string; kind: ElementKind; row: number; from: number; to: number; ruler: [number, number]; label: string;
-  link?: Link; value?: string; fold?: string; thread?: string;
+  link?: Link; value?: string; fold?: string; thread?: string; control?: ThreadControl;
 }
-/** What ⏎ does on an element, for the hint. */
-const verbOf = (e: Element, folded: boolean) =>
-  e.kind === "fold" ? (folded ? "unfold" : "fold") : e.kind === "comment" ? "open its thread" : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media ? "open" : "follow";
+/** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
+const verbOf = (e: Element, open: boolean) =>
+  e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
+  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media ? "open" : "follow";
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
 
@@ -93,6 +98,8 @@ const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind ==
 export interface FocusSpec { block?: string; line?: number; to?: number; quote?: string; near?: number }
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
 interface Mark { thread: string; open: boolean; row: number; rows: [number, number]; label: string }
+/** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
+interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string }
 
 /** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
 const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
@@ -115,13 +122,18 @@ export function readableBody(m: Msg, embeds: boolean, src: Source | null, sink?:
 
 /**
  * The readable body before its links are presented, line for line: `lines[i]` is the note line (from 0,
- * the subject) body line i comes from, `anchors[i]` the fragment anchor read mode hid from it.
+ * the subject) body line i comes from, `anchors[i]` the fragment anchor read mode hid from it. Matched
+ * literal-region markers (PIE-422) are hidden, as Detail hides them; `literal` holds the body lines inside
+ * a region, where `[key::value]` is text, and `unterminated` the note line of an opener without a closer.
  */
-export function readableSource(m: Msg, src: Source | null): { text: string; lines: number[]; anchors: (string | undefined)[] } {
+export function readableSource(m: Msg, src: Source | null): { text: string; lines: number[]; anchors: (string | undefined)[]; literal: Set<number>; unterminated: number | null } {
   const tokens = tokensOf(m.text, src);
   const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
+  const lit = literalLines(m.text);
+  // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
+  const title = Math.max(0, titleLine(m.text).line);
   let fenced = false;
-  const rows = m.text.split("\n").map((l, i) => ({ l, i })).filter(({ i }) => i > 0 && !hidden.has(i))
+  const rows = m.text.split("\n").map((l, i) => ({ l, i })).filter(({ i }) => i > title && !hidden.has(i) && !lit.markers.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(({ l, i }) => {
       if (/^\s*```/.test(l)) { fenced = !fenced; return { l, i }; }
@@ -132,7 +144,9 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   let lead = 0;
   while (lead < rows.length - 1 && rows[lead]!.l === "") lead++;
   const kept = rows.slice(lead);
-  return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)) };
+  const literal = new Set<number>();
+  kept.forEach((r, k) => { if (lit.inside.has(r.i)) literal.add(k); });
+  return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)), literal, unterminated: lit.unterminated };
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
@@ -178,6 +192,13 @@ export class NoteSurface {
    * text. Kept while the note refreshes or is edited elsewhere; cleared when the reader shows another note.
    */
   folded = new Set<string>();
+  /**
+   * Comment threads expanded inline under their passage (PIE-420), by thread id: like `folded`, this
+   * reader's reading state and the person's alone (an agent's action never expands or collapses one).
+   */
+  expanded = new Set<string>();
+  /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
+  private replyOn: string | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
   private get foldSel(): string | null { return this.cur?.startsWith("fold:") ? this.cur.slice(5) : null; }
   private set foldSel(key: string | null) {
@@ -267,7 +288,7 @@ export class NoteSurface {
     const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
     if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, false)}${opens(e) ? " · alt⏎ new" : ""}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
@@ -302,7 +323,7 @@ export class NoteSurface {
     if (this.session && m?.id !== this.session.blockId) return false;
     if (this.panel?.field && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.focusMark = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -346,11 +367,14 @@ export class NoteSurface {
     this.drawn = null;
     if (!m) return { lines: [dim("pick something in the outline")] };
     if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
+    // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
+    if (this.session?.finished) this.session = null;
     if (this.session) return { lines: this.session.render(w, h, subject(m)) };
     if (m.partial) return { lines: [fg(C.white) + pad(subject(m), w) + RESET, this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
+    const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
@@ -363,6 +387,8 @@ export class NoteSurface {
       pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
+      // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
+      ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(`◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
@@ -385,20 +411,27 @@ export class NoteSurface {
       maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold,
     };
     // Transclusions: the target drawn the way this reader draws a note, without expanding its own embeds.
-    const inner = (target: Msg, width: number) => renderDoc(readableBody(target, false, src), { ...env, width, graphics: false }).lines;
-    const { text: source, points, lines: noteLines } = this.foldsIn(m);
+    // An embedded note's literal regions are judged by its own text (PIE-422).
+    const inner = (target: Msg, width: number) => {
+      const r = readableSource(target, src);
+      return renderDoc(presentLinks(r.text, false, src, target.text), { ...env, width, graphics: false, literal: r.literal }).lines;
+    };
+    const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
     // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
     const keys = new Set(points.map(p => p.key));
     for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
     if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
     // Every link drawn (the body's, an embed's title and results) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
-    const doc = renderDoc(presentLinks(source, true, src, m.text, drawn), {
+    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn), {
       ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
+      literal,
       // A live figure's rows that stand for notes are links too (PIE-441).
       link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
     });
+    // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body.
+    const { doc, controls } = this.threadPanels(m, rendered, noteLines, Math.max(1, w - 1));
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
     // section aren't drawn, so they aren't links until it's unfolded.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
@@ -413,7 +446,7 @@ export class NoteSurface {
     // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
     const marks = this.commentMarks(m, doc, noteLines);
     for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
-    this.elems = this.elementsOf(doc, drawn, marks, summary ? summaryLinks : [], points, top, head);
+    this.elems = this.elementsOf(doc, drawn, marks, controls, summary ? summaryLinks : [], points, top, head);
     if (this.cur && !this.elems.some(e => e.key === this.cur)) this.letGo();
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - top);
@@ -460,12 +493,20 @@ export class NoteSurface {
       const row = k.row - this.scroll;
       if (row >= 0 && row < room) this.hits.push({ row: top + row, from: 0, to: 1, thread: k.thread, elem: `comment:${k.thread}` });
     }
-    // The reading ruler: the current element's block, and a focus mark's, in one calm tint.
+    for (const c of controls) {
+      const row = c.row - this.scroll;
+      if (row >= 0 && row < room && c.from + 1 < w) this.hits.push({ row: top + row, from: c.from + 1, to: Math.min(w, c.to + 1), thread: c.thread, elem: controlKey(c.thread, c.control) });
+    }
+    // The reading ruler: the current element's block, and a focus mark's, in one calm tint. An expanded
+    // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const rulers = [current?.ruler, markRows].filter((r): r is [number, number] => !!r);
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
+    const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
+    const inQuote = (row: number) => quoted.some(([a, b]) => row >= a && row < b);
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
       const row = i < top ? i : i + this.scroll;
-      return this.paintSelection(ruled(row) ? paintRange(pad(l, w), 0, w, RULER_BG) : l, row);
+      const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
+      return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
@@ -791,6 +832,8 @@ export class NoteSurface {
       const c = await host.ctx.board.comments(id);
       if (this.msg?.id !== id) return;
       this.comments = c; this.commentsFor = id;
+      // A thread that's gone (deleted, or the note's comments re-read elsewhere) isn't kept expanded.
+      for (const t of this.expanded) if (!c.some(x => x.id === t)) this.expanded.delete(t);
       if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c;
       host.redraw();
     } catch { /* comments are extra; the note still reads */ }
@@ -824,6 +867,9 @@ export class NoteSurface {
    */
   async comment(host: SurfaceHost, mode: "select" | "threads", still?: () => boolean, mine = true): Promise<void> {
     const m = this.msg;
+    // A Reply control (PIE-420) asked for this: the list opens with the reply started, and goes when it's done.
+    const replyOn = mine && mode === "threads" ? this.replyOn : null;
+    this.replyOn = null;
     if (!m || this.editing) return;
     // Text selected in the reader is where the passage picker starts: the same text, as a quote.
     const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
@@ -839,6 +885,8 @@ export class NoteSurface {
     const on = mine && mode === "threads" && this.cur?.startsWith("comment:") ? this.cur.slice(8) : null;
     const t = on ? this.session.threads.findIndex(x => x.id === on) : -1;
     if (t >= 0) this.session.sel = t;
+    const r = replyOn ? this.session.threads.findIndex(x => x.id === replyOn) : -1;
+    if (r >= 0) { this.session.replyTo(r); this.session.inline = true; }
     const p = this.session.passage;
     if (p && picked && fresh.text === m.text && picked.to > picked.from) { p.from = picked.from; p.to = picked.to; this.selection = null; }
     host.redraw();
@@ -852,7 +900,7 @@ export class NoteSurface {
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
       const s = this.session, composer = s.composer;
-      if (s.key(k, this.commentEnv(host)) === "close") { this.session = null; }
+      if (s.key(k, this.commentEnv(host)) === "close" || s.finished) { this.session = null; }
       // A comment an agent was writing, closed by esc, esc: copied out first, like an edit.
       if (k.kind === "esc" && composer && s.composer !== composer) {
         const at = keepAgents(composer, () => composer.copyOut(`${s.blockId.slice(0, 8)}-comment`));
@@ -945,11 +993,11 @@ export class NoteSurface {
   // ── folds ──────────────────────────────────────────────────────────────────
 
   /** The note's readable source, the note line each of its lines comes from, and its fold points. */
-  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[] } {
+  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null } {
     const r = readableSource(m, this.src);
     const sig = r.text + "\0" + r.anchors.join("\0");
     if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
-    return { text: r.text, lines: r.lines, points: this.foldCache.points };
+    return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated };
   }
 
   /** The fold points drawn now: none inside a folded section or item. */
@@ -1129,7 +1177,9 @@ export class NoteSurface {
       host.redraw();
       return { folded: this.folded.has(p.key) };
     }
-    if (e.kind === "comment") { if (select) this.openThread(host); return { thread: e.thread }; }
+    // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
+    if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
+    if (e.kind === "control") return this.useControl(e, host);
     const how: OpenHow = { link: true, fresh };
     const l = e.link!;
     if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
@@ -1140,6 +1190,74 @@ export class NoteSurface {
   private openThread(host: SurfaceHost) {
     if (host.startSession) host.startSession("threads");
     else void this.comment(host, "threads");
+  }
+
+  // ── comment threads expanded inline (PIE-420) ─────────────────────────────
+
+  /** Expand a thread under its passage, or collapse it. The person's reading state, never an agent's. */
+  setExpanded(thread: string, on: boolean) {
+    if (on) this.expanded.add(thread); else this.expanded.delete(thread);
+    this.reveal = true;
+  }
+
+  /** A thread of the note shown, by id or its first 6+ characters. */
+  threadId(named: string): string {
+    const c = (this.comments ?? []).find(t => t.id === named || (named.length >= 6 && t.id.startsWith(named)));
+    if (!c) throw new ActionRefused(`no comment thread ${named} on this note; peek lists them under comments.threads`);
+    return c.id;
+  }
+
+  /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number): { doc: Doc; controls: Control[] } {
+    if (!this.expanded.size) return { doc, controls: [] };
+    const cs = this.comments ?? [];
+    const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
+      const c = this.expanded.has(k.thread) ? cs.find(x => x.id === k.thread) : undefined;
+      return c ? [{ at: k.rows[1], ...threadPanel(c, W, this.cur) }] : [];
+    });
+    if (!panels.length) return { doc, controls: [] };
+    const { doc: out, starts } = withRows(doc, panels);
+    return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[i]! + c.row }))) };
+  }
+
+  /**
+   * An expanded thread's control, by ⏎ or a click, through the comment code the thread list uses: Select
+   * selects its passage (the reader's text selection, PIE-419); Reply opens the thread list as the person's
+   * session with a reply to it started (Esc, or the reply landing, comes back here); Resolve or Reopen sets
+   * its lifecycle as `x` in the list does.
+   */
+  private async useControl(e: Element, host: SurfaceHost): Promise<unknown> {
+    const c = this.comments?.find(x => x.id === e.thread);
+    if (!c || !this.msg) return null;
+    if (e.control === "select") {
+      const sel = this.passageSelection(c);
+      if (!sel) { host.ctx.flash("its passage isn't drawn here (the quoted words moved, or they're folded away)"); return { selected: null }; }
+      this.selection = this.stamp(sel);
+      host.redraw();
+      return { selected: this.describeSelection(this.selection)?.text ?? null };
+    }
+    if (e.control === "reply") { this.replyOn = c.id; this.openThread(host); return { replying: c.id }; }
+    const s = new CommentSession(this.msg, this.comments ?? [], "threads");
+    s.sel = s.threads.findIndex(t => t.id === c.id);
+    await s.toggle(this.commentEnv(host));
+    if (s.error) host.ctx.flash(s.error);
+    host.redraw();
+    return { thread: c.id, lifecycle: this.comments?.find(x => x.id === c.id)?.open ? "open" : "resolved" };
+  }
+
+  /** The drawn text of a thread's quote, where it's drawn in its passage's rows; else the passage's whole lines. */
+  private passageSelection(c: Comment): Selection | null {
+    const d = this.drawn, m = this.msg;
+    if (!d || !m || c.start === null || c.end === null) return null;
+    const lineOf = lineAtOffset(m.text), lo = lineOf(c.start), hi = lineOf(Math.max(c.start, c.end - 1));
+    const rows = rowsOfLines(d.doc, d.lines, lo, hi);
+    if (!rows) return null;
+    for (let n = 1; n < 50; n++) {
+      let s: Selection;
+      try { s = this.selectBy({ text: c.quote, n }); } catch { break; }
+      if (s.start.row >= d.top + rows[0] && s.start.row < d.top + rows[1]) return s;
+    }
+    try { return this.selectBy({ line: lo + 1, to: hi + 1 }); } catch { return null; }
   }
 
   /** The comment threads placed in the note, each on the rows of the lines its quote spans. */
@@ -1160,7 +1278,7 @@ export class NoteSurface {
   }
 
   /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
-  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[]): Element[] {
+  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[]): Element[] {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
@@ -1199,6 +1317,8 @@ export class NoteSurface {
       if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: 1, to: hd.cols + 1, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
     }
     for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
+    const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
+    for (const c of controls) out.push({ key: controlKey(c.thread, c.control), kind: "control", row: top + c.row, from: c.from + 1, to: c.to + 1, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);
   }
 
@@ -1206,7 +1326,8 @@ export class NoteSurface {
   private focusRows(spec: FocusSpec, m: Msg, doc: Doc, noteLines: number[], top: number): [number, number] | null {
     const body = (lo: number, hi: number): [number, number] | null => {
       const r = rowsOfLines(doc, noteLines, lo, hi);
-      return r ? [top + r[0], top + r[1]] : lo === 0 ? [0, 1] : null;
+      const t = Math.max(0, titleLine(m.text).line);
+      return r ? [top + r[0], top + r[1]] : lo <= t && hi >= t ? [0, 1] : null;
     };
     if (spec.quote !== undefined) {
       const at = findQuote(m.text, spec.quote, spec.near);
@@ -1259,7 +1380,7 @@ export class NoteSurface {
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
-      ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media } : {}), ...(e.thread ? { thread: e.thread } : {}),
+      ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
     }));
   }
 
@@ -1554,7 +1675,7 @@ export class NoteSurface {
     if (!d || !m || !rows) return null;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
-      if (r === 0) lines.push(0);                               // the subject line
+      if (r === 0) lines.push(Math.max(0, titleLine(m.text).line));   // the subject line
       else if (r >= d.top) { const b = d.doc.source[r - d.top], l = b === undefined ? undefined : d.lines[b]; if (l !== undefined) lines.push(l); }
     }
     if (!lines.length) return null;
@@ -1659,7 +1780,7 @@ export class NoteSurface {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
       editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save") } : undefined,
       commenting: this.session ? this.session.describe() : undefined,
-      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length })) } : null,
+      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
@@ -1777,6 +1898,64 @@ export class NoteSurface {
   goUp(host: SurfaceHost) { return this.up(host); }
 }
 
+/** A thread control's element key: stable across renders while its thread stays expanded. */
+const controlKey = (thread: string, c: ThreadControl) => `ctl:${thread}:${c}`;
+
+/**
+ * A comment thread drawn under its passage (PIE-420), `W` cells wide: who and when, open or resolved, the
+ * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
+ * Controls' rows and columns are the panel's own (no margin).
+ */
+function threadPanel(c: Comment, W: number, cur: string | null): { lines: string[]; controls: Control[] } {
+  const edge = fg(c.open ? C.yellow : C.dark);
+  const inner = Math.max(4, W - 2);
+  const n = c.replies.length;
+  const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)} · ${c.open ? "open" : "resolved"}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
+  const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
+  const text = (s: string, w: number) => printable(s.replace(/\t/g, " ")).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
+  for (const l of text(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
+  if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
+  for (const r of c.replies) text(`${r.author} · ${ago(r.at)}: ${r.body}`, Math.max(2, inner - 2)).forEach((l, j) => lines.push(edge + "│ " + fg(C.cyan) + (j ? "  " : "└ ") + l + RESET));
+  const controls: Control[] = [];
+  let row = edge + "│ ", col = 2;
+  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"]] as const).forEach(([k, label], i) => {
+    if (i) { row += fg(C.dark) + " · "; col += 3; }
+    const shown = `[${label}]`, on = cur === controlKey(c.id, k);
+    row += (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
+    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label });
+    col += shown.length;
+  });
+  lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
+  return { lines, controls };
+}
+
+/**
+ * `doc` with rows put in: each insert's `lines` before body row `at` (in order, for the same `at`), drawn
+ * from no note line (source -1), so selection, focus and fold lookups pass over them. Links, images,
+ * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
+ */
+function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[] }[]): { doc: Doc; starts: number[] } {
+  const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
+  const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
+  let k = 0;
+  for (let r = 0; r <= doc.lines.length; r++) {
+    for (; k < order.length && order[k]!.at <= r; k++) { starts[order[k]!.i] = lines.length; for (const l of order[k]!.lines) { lines.push(l); source.push(-1); } }
+    if (r < doc.lines.length) { moved[r] = lines.length; lines.push(doc.lines[r]!); source.push(doc.source[r]!); }
+  }
+  const mv = (r: number) => (r < doc.lines.length ? moved[r]! : r + lines.length - doc.lines.length);
+  return {
+    doc: {
+      lines, source,
+      links: doc.links.map(l => ({ ...l, line: mv(l.line) })),
+      images: doc.images.map(im => ({ ...im, line: mv(im.line) })),
+      media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
+      heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
+    },
+    starts,
+  };
+}
+
 /** The note line (from 0, the subject) each offset of `text` is on. */
 const lineAtOffset = (text: string) => {
   const starts: number[] = [];
@@ -1855,6 +2034,7 @@ export interface NoteActionArgs {
   "comment": { quote: string; body: string; near?: number };
   "comment.close": { discard?: boolean };
   "threads": Record<string, never>;
+  "thread.toggle": { thread: string; expand?: boolean };
   "reply": { thread: string; body: string };
   "resolve": { thread: string; open?: boolean };
   "props": { full?: boolean };
@@ -2132,6 +2312,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       if (!i) throw new ActionRefused("no element is current; pass n");
       const e = surface.element(i);
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
+      // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
+      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on an expanded thread; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
       if (e.kind === "comment" && actor.kind === "agent") {
@@ -2256,6 +2438,21 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       const s = await surface.ensureSession(host, "threads");
       host.redraw();
       return { threads: s.threads.map(t => ({ id: t.id, open: t.open, author: t.author, quote: t.quote, body: t.body, replies: t.replies.length })) };
+    },
+  },
+  "thread.toggle": {
+    summary: "expand a comment thread inline under its passage (its comment, replies and Select, Reply, Resolve controls), or collapse it; expand=true or false sets it. The person's reading state: an agent's is refused (threads, reply and resolve act on a thread without changing their view)", keys: "enter or a click on a comment mark",
+    args: {
+      thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
+      expand: { type: "boolean", optional: true, about: "true expands, false collapses; left out, it toggles" },
+    },
+    async run({ thread, expand }, { surface, host }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("which threads are expanded is the person's reading state; threads, reply and resolve act on a thread without changing their view");
+      await surface.whole();
+      const id = surface.threadId(thread);
+      surface.setExpanded(id, expand ?? !surface.expanded.has(id));
+      host.redraw();
+      return { thread: id, expanded: surface.expanded.has(id) };
     },
   },
   "reply": {
