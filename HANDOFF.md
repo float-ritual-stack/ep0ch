@@ -48,6 +48,23 @@ It is **not** part of the outliner repo, on purpose.
    - The pi-outliner skill and the outliner's CONTRIBUTING ("Connecting to the running service") explain how to start one.
 4. **Register only as an `observer`.** Don't call `selection.set`, `browsing-context.publish` or `ui.command.send` unless a feature explicitly needs them.
 
+## Backend work (pi-herdr-outliner), authorized by Evan on 2026-09-27
+
+- You may change the outliner service itself, and manage its work in the pi-outliner outline
+  (your default workspace on float-box, `/home/evan/test`, PIE-NNN).
+- **Follow that outline's conventions.** Read its agent documentation guide and "How this workboard works" first.
+  Allocate tickets with the roadmap allocator; never hand-write Work IDs.
+- **Real work records belong there. Test data never does.** Door write tests still run against a scratch service.
+- **Best first candidates** (each one deletes client-side ports in the door):
+  - `views.read`, together with a richer query language (OR, NOT, date ranges). Evan has asked for the query language repeatedly.
+  - a change feed: parent, revision and actor on each event, plus `changes.since(sequence)`.
+  - batch get with field projection.
+  - Context: the review `((46ba739c-4929-40ff-97a9-7db98a34797c))`.
+- **Shared runtime:** the float-box service and Evan's laptop run whatever gets deployed.
+  Merging, deploying or restarting the live service is Evan's call. Ask first.
+- **Astra (codex, pane `wF:pC`) works the same repo and outline.** Its goal is paused.
+  Check open PIE items and branches before claiming work, so the two of you don't collide.
+
 ## Running it
 
     bun install
