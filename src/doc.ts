@@ -55,6 +55,8 @@ const inlineOf = (s: string, literal = false) => colourBody(s, literal).replace(
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
+/** The fewest columns a list item's text keeps when its indentation would take the whole width. */
+const MIN_ITEM_TEXT = 8;
 const TASK_ID = / \^task-[0-9a-f]{8}-[0-9a-f-]{27}(?=\s|$)/g;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
@@ -309,7 +311,9 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false): str
     const indent = li[1]!.length, num = /\d/.test(li[2]!);
     // A folded bullet becomes its disclosure; a number keeps its place with the disclosure after it.
     const mark = num ? li[2]! + glyph : glyph || "∙";
-    const lead = " ".repeat(indent) + mark + " ";
+    // Deep indentation in a narrow reader keeps some room for the text: the indent gives way first.
+    const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
+    const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const rows = wrap(li[3]!, W - lead.length);
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;

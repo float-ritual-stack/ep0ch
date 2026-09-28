@@ -115,6 +115,11 @@ export class DeliveryBoard implements Screen, DeskApi {
   private trashArm: { id: string; at: number } | null = null;
   /** The last card trashed from the board, until it is restored or another one is: `u` restores it. */
   private trashed: { id: string; title: string; lane: string; children: number; by?: string } | null = null;
+  /**
+   * Each agent's own selected card (`card.select`), by actor id: what its card actions default to when
+   * they name no card. The person's lane cursor, preview and keys are never an agent's to move.
+   */
+  private agentCards = new Map<string, string>();
   /** The last create, step change, trash or restore, for `peek` and tests. */
   private lastWrite: { what: string; id?: string; result: string; by?: string } | null = null;
 
@@ -472,8 +477,21 @@ export class DeliveryBoard implements Screen, DeskApi {
     return true;
   }
 
+  /**
+   * An agent's `card.select`: the card its later card actions default to (its own reference, beside the
+   * person's cursor). Nothing the person sees moves; the status bar says what it picked.
+   */
+  selectForAgent(id: string, actor: Extract<Actor, { kind: "agent" }>): { selected: string; lane: string } {
+    const card = this.cardFor(id);
+    const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))!;
+    this.agentCards.set(actor.id, card.id);
+    this.ctx.flash(`${agentLabel(actor)} selected "${titleOf(card)}" in ${lane.name} · your cursor stays`);
+    return { selected: card.id, lane: lane.name };
+  }
+
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
+    if (!card && actor.kind === "agent") card = this.cardFor(undefined, actor).id;   // its own selection, else the person's
     // An agent's move names its card without selecting it: the person's lane, selection, preview and
     // keys stay where they are. (The person's own card.move, through the socket as `you`, selects it.)
     let from = this.lane, c = this.card();
@@ -513,6 +531,7 @@ export class DeliveryBoard implements Screen, DeskApi {
       moving: this.moving, lastMove: this.lastMove,
       composer: this.composer ? { kind: this.composer.kind, ...(this.composer.kind === "card" ? { lane: this.composer.lane.name, bornWith: this.composer.born, needs: this.composer.needs, parent: this.composer.parent } : { parent: brief(this.composer.parent) }), dirty: this.composer.draft.dirty, note: this.composer.draft.note || null } : null,
       steps: this.steps ? { card: brief(this.steps.card), revision: this.steps.read?.revision ?? null, selected: this.steps.sel + 1, items: this.steps.read?.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), id: it.itemId ?? null })) ?? null, note: this.steps.note || null } : null,
+      agentSelected: Object.fromEntries(this.agentCards),
       trashArmed: this.trashArm?.id ?? null, trashed: this.trashed, lastWrite: this.lastWrite,
       refreshes: { ...this.refreshes },
       views: this.lanes[0]?.read?.by ?? null,
@@ -905,9 +924,10 @@ export class DeliveryBoard implements Screen, DeskApi {
   // ── writing cards: create, check off steps, trash and restore (PIE-406) ──────
 
   laneFor(name: string): Lane { return this.laneNamed(name); }
-  selectedCardId(): string { return this.cardFor().id; }
-  async listSteps(id?: string) {
-    const card = this.cardFor(id);
+  /** The card an action names no card for: an agent's own `card.select`, else the person's selected card. */
+  selectedCardId(actor?: Actor): string { return this.cardFor(undefined, actor).id; }
+  async listSteps(id?: string, actor?: Actor) {
+    const card = this.cardFor(id, actor);
     const r = await this.ctx.board.checklist(card.id);
     return { card: card.id, title: titleOf(card), revision: r.revision, steps: r.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), depth: it.depth, id: it.itemId ?? null })) };
   }
@@ -923,7 +943,14 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   /** A card by id (or its first 8+ characters) from the lanes, else the selected card. */
-  private cardFor(id?: string): Msg {
+  private cardFor(id?: string, actor?: Actor): Msg {
+    const agent = !id && actor?.kind === "agent" ? actor.id : null;
+    const own = agent ? this.agentCards.get(agent) : undefined;
+    if (agent && own) {
+      for (const l of this.lanes) { const m = l.items?.find(x => x.id === own); if (m) return m; }
+      this.agentCards.delete(agent);
+      throw new ActionRefused(`the card this agent selected (${own.slice(0, 8)}) isn't on the board any more; card.select another or pass card=<id>`);
+    }
     if (!id) { const c = this.card(); if (!c) throw new ActionRefused("no card is selected"); return c; }
     for (const l of this.lanes) { const m = l.items?.find(x => x.id === id || (id.length >= 8 && x.id.startsWith(id))); if (m) return m; }
     throw new ActionRefused(`no lane on the board lists ${id}`);
@@ -2005,10 +2032,15 @@ export const BOARD_ACTIONS = new ActionSet<{
     },
   },
   "card.select": {
-    summary: "select a card in its lane; the preview follows", keys: "h l j k, click",
+    summary: "select a card in its lane; the preview follows. An agent's selection is its own: what its card actions default to, leaving the person's cursor, preview and keys where they are", keys: "h l j k, click",
     args: { id: { type: "string", about: "the card's block id (or its first 8+ characters)" } },
-    // An agent's selection moves the lanes' cursor (and the preview with it), never the person's keys.
-    run({ id }, { b }, actor) { if (!b.selectCard(id, actor.kind !== "agent")) throw new ActionRefused(`no lane on the board lists ${id}`); return { selected: id }; },
+    // An agent's selection is its own (what its card actions default to): the person's lane cursor,
+    // preview and keys stay where they are. The person's own card.select, through the socket as `you`, moves them.
+    run({ id }, { b }, actor) {
+      if (actor.kind === "agent") return b.selectForAgent(id, actor);
+      if (!b.selectCard(id)) throw new ActionRefused(`no lane on the board lists ${id}`);
+      return { selected: id };
+    },
   },
   "card.move": {
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",
@@ -2027,12 +2059,12 @@ export const BOARD_ACTIONS = new ActionSet<{
   "note.create": {
     summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
-    run: ({ text, parent }, { b }, actor) => b.createNote(parent ?? b.selectedCardId(), text, actor),
+    run: ({ text, parent }, { b }, actor) => b.createNote(parent ?? b.selectedCardId(actor), text, actor),
   },
   "steps": {
     summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
-    run: ({ card }, { b }) => b.listSteps(card),
+    run: ({ card }, { b }, actor) => b.listSteps(card, actor),
   },
   "step.set": {
     summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s, j k, space x w !",
@@ -2045,7 +2077,7 @@ export const BOARD_ACTIONS = new ActionSet<{
       if (status !== undefined && !["todo", "done", "waiting", "problem"].includes(status)) throw new ActionRefused(`status is todo, done, waiting or problem, not ${status}`);
       const n = /^\d+$/.test(step) ? Number(step) - 1 : step;
       if (typeof n === "number" && n < 0) throw new ActionRefused("steps are numbered from 1");
-      return b.setStep(card ?? b.selectedCardId(), n, status as StepStatus | undefined, actor);
+      return b.setStep(card ?? b.selectedCardId(actor), n, status as StepStatus | undefined, actor);
     },
   },
   "card.trash": {
@@ -2054,7 +2086,7 @@ export const BOARD_ACTIONS = new ActionSet<{
       confirm: { type: "string", about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
-    run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(), confirm, actor),
+    run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(actor), confirm, actor),
   },
   "reader.collapse": {
     summary: "collapse reader=<name> (the preview or a detail) to a spine showing its note's title; a draft, comment or property panel in it is kept exactly. Refused for the reader the person has focused", keys: "c",

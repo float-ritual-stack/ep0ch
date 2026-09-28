@@ -111,7 +111,8 @@ function timeBound(value: string, now: number): { at: number } | { day: number }
 class Parser {
   private i = 0;
   private leaves = 0;
-  constructor(private readonly t: Tok[]) {}
+  /** `deleted` selects Trash: the service reads it only in a plain clause list (block-query.ts rejectDeleted). */
+  constructor(private readonly t: Tok[], private readonly rejectDeleted = true) {}
   parse(): QueryExpr {
     if (!this.t.length) throw new Error("Query cannot be empty");
     const e = this.or(0);
@@ -172,7 +173,7 @@ class Parser {
       return { kind: "time", field, op: cmp.op, value: v.text };
     }
     const clause = parseFilterClause(t.text);
-    if (clause.key === "deleted") throw new Error("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges");
+    if (this.rejectDeleted && clause.key === "deleted") throw new Error("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges");
     return { kind: "property", ...clause };
   }
 }
@@ -183,7 +184,7 @@ class Parser {
  */
 export function parseQuery(input: string): { expr: QueryExpr; simple: boolean } {
   const { tokens, simple } = lex(input);
-  return { expr: new Parser(tokens).parse(), simple };
+  return { expr: new Parser(tokens, !simple).parse(), simple };
 }
 
 /** The top-level AND's terms (one term when the query is a single clause or group). */

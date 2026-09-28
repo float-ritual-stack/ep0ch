@@ -83,6 +83,8 @@ export interface Source { board: SocketBoard; redraw(): void }
 
 interface Parsed { state: "loading" | "ready" | "unsupported" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed>; asked?: number }
 const parsedBy = new WeakMap<object, Map<string, Parsed>>();
+/** How many texts' answers are kept per connection. */
+const MAX_PARSED = 300;
 let outlineEvents = 0;
 /**
  * An outline event (or a reconnect) arrived: a read that failed is asked again on the next render. Not
@@ -96,30 +98,39 @@ export function invalidatePropertyErrors() { outlineEvents++; }
  * service, where the door falls back to the documented preamble rule and block properties only.
  */
 export function tokensOf(text: string, src: Source | null | undefined): Parsed | null {
+  const r = lookup(text, src);
+  return r.state === "loading" ? null : r;
+}
+
+/**
+ * The cached answer for `text`, or the pending entry of the read it starts. The entry itself is returned,
+ * so a caller that waits holds it even if the cache lets it go.
+ */
+function lookup(text: string, src: Source | null | undefined): Parsed {
   if (!src) return { state: "unsupported", tokens: [] };
   let parsed = parsedBy.get(src.board);
   if (!parsed) parsedBy.set(src.board, (parsed = new Map()));
   const hit = parsed.get(text);
-  if (hit && !(hit.state === "error" && (hit.asked ?? 0) < outlineEvents)) { parsed.delete(text); parsed.set(text, hit); return hit.state === "loading" ? null : hit; }
+  // Least recently used goes first: a hit, or a failed read asked again, moves to the end.
+  if (hit) parsed.delete(text);
+  if (hit && !(hit.state === "error" && (hit.asked ?? 0) < outlineEvents)) { parsed.set(text, hit); return hit; }
   const asked = outlineEvents;
   const entry: Parsed = { state: "loading", tokens: [] };
-  // Evict before inserting, so the entry just asked for is never the one dropped (tokensFor awaits it).
-  parsed.delete(text);
-  if (parsed.size >= 300) parsed.delete(parsed.keys().next().value!);
+  while (parsed.size >= MAX_PARSED) parsed.delete(parsed.keys().next().value!);   // room first, so the new read is never the one let go
   parsed.set(text, entry);
   const cache = parsed;
   entry.done = Promise.resolve().then(() => src.board.propertyRecords(text)).then(
     (t): Parsed => (t ? { state: "ready", tokens: t } : { state: "unsupported", tokens: [] }),
     (e: Error): Parsed => ({ state: "error", tokens: [], error: e.message, asked }),
   ).then(r => { if (cache.get(text) === entry) cache.set(text, r); src.redraw(); return r; });
-  return null;
+  return entry;
 }
 
 /** The same, waiting for the service's answer (for an action, which must act on what the service says). */
 export async function tokensFor(text: string, src: Source | null | undefined): Promise<Parsed> {
-  const now = tokensOf(text, src);
-  if (now) return now;
-  return parsedBy.get(src!.board)?.get(text)?.done ?? { state: "error", tokens: [], error: "the property read was dropped" };
+  const r = lookup(text, src);
+  if (r.state !== "loading") return r;
+  return r.done ?? { state: "error", tokens: [], error: "the property read was dropped" };
 }
 
 /**

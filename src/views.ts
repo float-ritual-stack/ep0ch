@@ -109,8 +109,12 @@ export function queryShape(input: string): { filters: PropertyFilter[] } | { que
   let parsed: ReturnType<typeof parseQuery>;
   try { parsed = parseQuery(input); } catch (e) { return { unpatchable: `its query doesn't parse here (${(e as Error).message})` }; }
   if (parsed.simple) {
-    try { return { filters: parseFilterExpression(input) }; }
+    let filters: PropertyFilter[];
+    try { filters = parseFilterExpression(input); }
     catch (e) { return { unpatchable: `its query isn't a list of property clauses (${(e as Error).message})` }; }
+    // deleted=true is the service's Trash switch, not a property a write could set: a card gets there by trash.
+    if (filters.some(f => f.key === "deleted")) return { unpatchable: "selects Trash (deleted=true); a card goes there with d (card.trash), not a move" };
+    return { filters };
   }
   return { query: writableQuery(input) };
 }

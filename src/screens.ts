@@ -568,7 +568,8 @@ export class Help implements Screen {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
         ...ITEMS.map(i => paint(`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`)),
-        "", paint("|08   Read-only. Nothing you do here writes to the outline."),
+        "", paint("|08   Kanban, Quay, Desk and Showcase write: edits, comments, card moves, trash and restore go to the outline,"),
+        paint("|08   recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
       ],
     };

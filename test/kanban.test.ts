@@ -60,6 +60,35 @@ describe("the query grammar, as the outliner reads it", () => {
   });
 });
 
+describe("deleted=true, the Trash switch", () => {
+  const PLAIN = ["deleted=true", "deleted=true type=card"], EXPRESSIONS = ["deleted=true OR a", "NOT deleted=true", "(deleted=true) a", "deleted=true updated > -7d"];
+
+  test("a plain clause list reads it; OR, NOT, groups and ranges refuse it", () => {
+    for (const q of PLAIN) expect(parseQuery(q).simple).toBe(true);
+    expect(parseQuery("deleted=true type=card").expr).toEqual({ kind: "and", operands: [{ kind: "property", key: "deleted", value: "true" }, { kind: "property", key: "type", value: "card" }] });
+    for (const q of EXPRESSIONS) expect(() => parseQuery(q)).toThrow("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges");
+  });
+
+  test.skipIf(!outliner)("the same queries the outliner's saved-query parser takes and refuses", async () => {
+    const theirs = await import(join(outliner!, "src/block-query.ts"));
+    for (const q of [...PLAIN, ...EXPRESSIONS]) {
+      let mine = "ok", ref = "ok";
+      try { parseQuery(q); } catch (e) { mine = (e as Error).message; }
+      try { theirs.parseSearchExpression(q); } catch (e) { ref = (e as Error).message; }
+      expect({ q, ok: mine === "ok" }).toEqual({ q, ok: ref === "ok" });
+    }
+  });
+
+  test("a Trash lane is read, and a write into it is refused with that reason, never a deleted:: property", () => {
+    const trash = lane("Trash", "deleted=true type=card");
+    expect(trash.read.unpatchable).toBe("selects Trash (deleted=true); a card goes there with d (card.trash), not a move");
+    const why = "Trash's query selects Trash (deleted=true); a card goes there with d (card.trash), not a move";
+    expect(planMove(card({ type: "card", stage: "doing" }), trash)).toEqual({ kind: "refused", reason: why });
+    expect(planCreate(trash)).toEqual({ kind: "refused", reason: why });
+    expect(planCreate(lane("Doing", "stage=doing", { create: "deleted=true" }))).toEqual({ kind: "refused", reason: "Doing's create:: default can't be deleted=true: that selects Trash, it isn't a property to set" });
+  });
+});
+
 describe("planning writes into a lane", () => {
   test("a new card is born with the plain clauses; an OR group is left for the text or the lane's create:: default", () => {
     expect(planCreate(lane("Doing", "stage=doing track=door"))).toEqual({ kind: "create", props: [{ key: "stage", value: "doing" }, { key: "track", value: "door" }], defaults: [], needs: [], roadmap: false });

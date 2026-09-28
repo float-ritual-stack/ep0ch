@@ -465,8 +465,21 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const { reader } = await openFresh("Label the seed trays\nBefore sowing.");
     const region = B().focus;
     expect(region).toStartWith("detail");
-    expect(await act("card.select", { id: cards.gate.id })).toEqual({ selected: cards.gate.id });
+    // The person's lane cursor and preview, before the agent picks a card of its own.
+    const was = { lane: B().lane, sels: B().lanes.map((l: any) => l.sel), preview: B().preview.msg?.id };
+    const mine = B().selectedCardId();
+    const other = (B().lanes as any[]).findIndex((l, i) => i !== was.lane && l.items?.length > 1);
+    const pick = B().lanes[other].items.find((m: any, j: number) => j !== was.sels[other] && m.id !== mine);
+    expect(pick).toBeDefined();
+    const picked: any = await act("card.select", { id: pick.id });
+    expect(picked).toMatchObject({ selected: pick.id });
     expect(B().focus).toBe(region);
+    expect({ lane: B().lane, sels: B().lanes.map((l: any) => l.sel), preview: B().preview.msg?.id }).toEqual(was);
+    expect(message()).toContain("an agent (test-agent-7) selected");
+    expect(B().describe().agentSelected).toMatchObject({ [AS]: pick.id });
+    // …and its card actions without card= act on its pick, not on the person's.
+    expect(((await act("steps", {})) as any).card).toBe(pick.id);
+    expect(B().selectedCardId()).toBe(mine);
     expect(await act("card.move", { lane: "Doing", card: cards.beans.id })).toMatchObject({ lane: "Doing" });
     expect(B().focus).toBe(region);
     // Giving the keys away is only ever an explicit action, and it says so.
