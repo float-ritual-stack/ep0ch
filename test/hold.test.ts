@@ -1,5 +1,5 @@
-// Pinning a reader: only readers that follow the view's current note (the desk's) offer `p`, and a
-// pinned reader says so in its title even while it holds an edit or a comment.
+// Holding a reader: only readers that follow the view's current note (the desk's) offer `p hold`, and a
+// held reader says so in its title even while it holds an edit or a comment. ("Pin" is for drawers.)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Msg } from "../src/board";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
@@ -9,7 +9,7 @@ import { outliner, Scratch } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 
-describe.skipIf(!outliner)("reader pinning", () => {
+describe.skipIf(!outliner)("holding a reader", () => {
   const scratch = new Scratch();
   let board: SocketBoard, one: Msg, two: Msg;
   const desk = (current: Msg | null) => ({
@@ -25,30 +25,30 @@ describe.skipIf(!outliner)("reader pinning", () => {
   });
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
-  test("a following reader pins to its note and follows again when unpinned", () => {
+  test("a following reader holds its note and follows again when let go", () => {
     const d = desk(one), pane = new ReaderPane(true);
     pane.select(one, d);
-    expect(pane.hint()).toContain("p pin");
+    expect(pane.hint()).toContain("p hold");
     expect(pane.key(char("p"), d)).toBe(true);
-    expect(pane.title()).toBe("reader · pinned");
-    expect(pane.hint()).toContain("p unpin");
+    expect(pane.title()).toBe("reader · held");
+    expect(pane.hint()).toContain("p follow");
 
     d.current = two;
     pane.select(two, d);
-    expect(pane.msg?.id).toBe(one.id);          // pinned: stays on its note
+    expect(pane.msg?.id).toBe(one.id);          // held: stays on its note
 
     pane.key(char("p"), d);
     expect(pane.title()).toBe("reader");
-    expect(pane.msg?.id).toBe(two.id);          // unpinned: catches up with the current note
+    expect(pane.msg?.id).toBe(two.id);          // let go: catches up with the current note
   });
 
-  test("a reader that never follows (the board's) doesn't offer pin, and p doesn't change what it shows", () => {
+  test("a reader that never follows (the board's) doesn't offer hold, and p doesn't change what it shows", () => {
     const d = desk(two), pane = new ReaderPane();
     pane.show(one, d);
-    expect(pane.hint()).not.toContain("pin");
+    expect(pane.hint()).not.toContain("p hold");
     pane.key(char("p"), d);
-    expect(pane.title()).not.toContain("pinned");
-    expect(pane.msg?.id).toBe(one.id);          // unpinning used to jump it to the selected card
-    expect(pane.describe().pinned).toBe(false);
+    expect(pane.title()).not.toContain("held");
+    expect(pane.msg?.id).toBe(one.id);          // letting go used to jump it to the selected card
+    expect(pane.describe().held).toBe(false);
   });
 });

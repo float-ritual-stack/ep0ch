@@ -60,7 +60,7 @@ a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
 | Pane | What it shows |
 |---|---|
 | outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless pinned (`p`); `[ ]` pick a link, `⏎` follow (or click it), `u` parent, `( ) f F` fold |
+| reader | the current block; follows the selection unless held (`p hold`, `p` again follows); `[ ]` pick a link, `⏎` follow (or click it), `u` parent, `( ) f F` fold |
 | thread | the current block's children as replies, and its comment threads with quoted passages |
 | last callers · live | `activity.recent`, refreshed on outline events |
 | who's online | `clients.list`, with what each client is reading |
@@ -103,10 +103,10 @@ The last board per workspace is remembered.
   Keys: `{ }` lane height, `< >` width of the focused lane or reader.
 - **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
   to nudge, `o` again to dock it back as a detail, `x` to close.
-- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`); `S` moves it
+- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`, or click `[ ] pin` in its top border: pinned, it becomes part of the layout); `S` moves it
   to the other side so it doesn't cover the preview.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
-  snippet; `B` pins it; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
+  snippet; `B` or a click on its `[ ] pin` pins it into the layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
   preview opens in a detail too.
 - Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
 
