@@ -20,6 +20,8 @@ export interface DeskApi {
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane }): void;
   focusKind(kind: PaneKind): void;
   redraw(): void;
+  /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
+  summaryKeys?(m: Msg): readonly string[] | null;
 }
 
 export interface Pane {
@@ -188,6 +190,8 @@ export class ReaderPane implements Pane {
   get comments() { return this.surface.comments; }
   get unread() { return this.surface.unread; }
   get editing() { return this.surface.editing; }
+  /** Every key goes to the surface first (an edit, or the property panel); hosts route to it before their own. */
+  get holdsKeys() { return this.surface.holdsKeys; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   title() {
@@ -202,6 +206,7 @@ export class ReaderPane implements Pane {
       ctx: desk.ctx,
       redraw: () => desk.redraw(),
       navigate: m => { if (this.pinned) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this }); },
+      summaryKeys: m => desk.summaryKeys?.(m),
     };
     return h;
   }

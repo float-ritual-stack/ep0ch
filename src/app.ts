@@ -7,6 +7,8 @@ import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
+import { invalidateEmbeds } from "./embeds";
+import { invalidateReferences } from "./refs";
 
 export interface Frame { lines: string[]; placements?: Placement[] }
 
@@ -25,6 +27,8 @@ export interface Ctx {
   quit(): void;
   redraw(): void;
   flash(msg: string): void;
+  /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on). */
+  copy?(text: string): void;
   cycleVideo(): void;
   /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
   suspend(run: () => void): void;
@@ -107,6 +111,7 @@ export class App implements Ctx {
     return false;
   }
   flash(msg: string) { this.message = msg; this.messageUntil = Date.now() + 4000; this.redraw(); }
+  copy(text: string) { this.term.write(`\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
     this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
@@ -125,7 +130,7 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) {
     if (!forScreens(e)) return;
-    if (e.change?.kind !== "draft") invalidateLive();
+    if (e.change?.kind !== "draft") { invalidateLive(); invalidateEmbeds(); invalidateReferences(); }
     if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();
@@ -135,7 +140,7 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     const b = this.board;
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
-      uses: (["views.read", "blocks.read", "changes.since", "properties.preview"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
+      uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, service, state: s?.describe?.() ?? null };
   }
 

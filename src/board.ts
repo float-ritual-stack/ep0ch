@@ -18,6 +18,8 @@ export interface Msg {
    * Readers fetch the whole note before showing, editing or commenting on it.
    */
   partial?: boolean;
+  /** In the Trash (it or an ancestor was deleted); still readable. */
+  deleted?: boolean;
 }
 
 export interface Caller {

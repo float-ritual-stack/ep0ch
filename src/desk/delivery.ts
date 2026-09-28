@@ -10,6 +10,7 @@ import { onMediaChange } from "../media";
 import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS } from "../surface/note";
+import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -315,6 +316,12 @@ export class DeliveryBoard implements Screen, DeskApi {
   }
 
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
+
+  /** A lane's `[summary-properties::…]` decides the summary for the cards it lists (the selected lane first). */
+  summaryKeys(m: Msg): readonly string[] | null {
+    const lane = [this.lanes[this.lane], ...this.lanes].find(l => l?.items?.some(x => x.id === m.id));
+    return viewSummaryKeys(lane?.def);
+  }
 
   openBlock(m: Msg) { this.current = m; this.openDetail(m, false); }
 
@@ -1324,6 +1331,8 @@ export class DeliveryBoard implements Screen, DeskApi {
       if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
       editing.key(k, this); return;
     }
+    // The property panel takes the keys it uses (Tab, y, o, e) before the board's own; clicks still pass.
+    if (editing?.holdsKeys && k.kind !== "mouse") { editing.key(k, this); return; }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     // A card or note being written holds every key, like an edit; a click can't take focus from it.
     if (this.composer) {

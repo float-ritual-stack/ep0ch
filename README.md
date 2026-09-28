@@ -285,7 +285,56 @@ The same readers comment on the note they show. On the board, Tab to the preview
 
 ## Reading notes
 
-Every reader (board, desk) renders bodies with `src/doc.ts`:
+Every reader (board, desk) shows a note the way the outliner's Detail does: the title, a one-line
+**summary** of chosen properties, then the body. The block's `[key::value]` metadata lines aren't
+printed; they are in the **property panel**, one key away.
+
+- **Summary line.** Keys come from, in order: the saved view the note is shown from (a board lane's
+  `[summary-properties::priority,track]`), your own choice (`s` in the panel, or `act props.summary`,
+  kept in `properties.json` in the door's state), `OUTLINER_PROPERTY_SUMMARY_KEYS` (Detail's variable;
+  empty hides the line), then `status,work-stage,priority,track`. As in Detail, `work-stage` reads
+  `stage`, repeated values are joined (`track soil, tools`), and a roadmap item's `status` is left out.
+- **Which lines are metadata** is the service's call: `properties.preview` (PIE-401) says which tokens
+  are block-scope metadata lines. Bare `key:: value` lines (line scope) and inline tokens stay in the body.
+  An older service gets the documented rule (the first run of property-only lines after the subject).
+- **Links** read as Detail shows them: `((id))` as the target's title, `((id|label))` as its label,
+  `[[page]]` as written, without delimiters. Titles, trash state and fragments come from
+  `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
+  target reads `label · Missing target`; a trashed one `title · Trash`; a missing fragment says so.
+  Code keeps its text, and edit mode, comments and storage keep the raw syntax.
+- **Transclusions.** `!((id))` shows the target note, read-only, in a shaded region. A virtual-branch
+  target shows its results (`views.read`), with the view's `[summary-properties::]`, its count and
+  `TRUNCATED at N`, or `EMPTY`, `CONFIG ERROR`, `QUERY FAILED`. `!((id^fragment))` checks the fragment
+  with the service and shows the whole note with "fragment slices need PIE-404": the service doesn't
+  serve slices yet and the door doesn't re-derive the fragment rules. Missing and trashed targets,
+  missing or duplicate fragments, failed reads and the 17th embed (`EMBED LIMIT · maximum 16`) each say
+  what they are. Embeds refresh when the outline changes and are never recursive: an embed's own
+  `!((…))` reads `!title · embed not expanded here`.
+
+### The property panel
+
+`i` in any reader (Detail's Props inspector); `I` fills the reader with it instead. It lists every
+property token of the note: repeated keys stay separate rows, and line and inline scope are marked.
+`■` marks the keys the summary line shows. While it is open it takes the reader's keys, the board's and
+desk's own shortcuts (`Tab`, `o`, …) included.
+
+| Keys | Action |
+|---|---|
+| `Tab` / `Shift+Tab`, `j k` | next / previous value |
+| `y` | copy the value, as authored, to the terminal's clipboard (OSC 52) |
+| `o` | follow a block (`related-to::<id>`, `((id))`), `[[page]]` or Work-ID value |
+| `Enter` / `e` | edit the value in place; `Enter` saves, `Esc` cancels |
+| `s` | show or hide this key in the summary line (your choice) |
+| `I`, `Esc` / `i` | full / inline; close |
+
+- **An edit is one `properties.patch`** of that token (its `ordinal` from `properties.preview`), with the
+  revision the panel read. If anyone saved the note since, the service refuses it and the field says
+  "changed elsewhere · not saved"; nothing is retried over their change. Values are one line without
+  `]`, like the service's own rule; a `#hashtag` stays one word (edit the note to change its form).
+  While a value is being typed the reader stays on its note, like an edit.
+- Rich-document editing in place is PIE-404; the panel only edits property values.
+
+Bodies render with `src/doc.ts`:
 
 - **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
@@ -306,7 +355,11 @@ Every reader (board, desk) renders bodies with `src/doc.ts`:
   - `stat`/`kpi`: each item takes its own `query`/`view`; the value is a live count
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
-  - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter.
+  - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
+    in the saved-view grammar: `OR`, `NOT`, parentheses and `created`/`updated` ranges go to the service as
+    `blocks.query` `expression` when it advertises `query.expression` (PIE-398). Older services take plain
+    clauses, and a query that needs more says so instead of being misread. `done:` and `now:` are matched
+    against each result in the door, so they stay plain clauses.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
@@ -386,6 +439,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
 | `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter`, `u` |
+| `props` | `full=true` | `i`, `I` |
+| `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
+| `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
+| `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board and by pane
 number on the desk; `reader=focused`, or a block id (the reader showing it) work too, and no reader means
@@ -402,6 +459,8 @@ stdin. For example:
     bun src/main.ts act step.set step=2                # toggles done
     bun src/main.ts act card.trash card=<id> confirm=<id>
     bun src/main.ts act card.restore
+    bun src/main.ts act props                         # every property token, with scope and ordinal
+    bun src/main.ts act props.edit key=priority value=low revision=7
 
 An action answers with JSON when it has landed (`{"saved":true,"revision":5}`), or fails with the reason
 the door would show you (a stale revision, a quote that isn't in the note, a lane whose query a move can't
@@ -464,14 +523,16 @@ has it and has a fallback when it doesn't, so one door works against old and new
 ## What the door sends
 
 Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `references.backlinks`,
-`annotations.list`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`, which
-puts the door in `clients.list` until it exits. When the service has them: `views.read`, `blocks.read`,
-`properties.preview` and `changes.since`.
+`annotations.list`, `clients.list`, `activity.recent`, `references.resolve`, `pages.resolve`, plus
+`events.subscribe` as an `observer`, which puts the door in `clients.list` until it exits. When the service
+has them: `views.read`, `blocks.read`, `properties.preview` and `changes.since`, and `blocks.query`
+`expression` with `query.expression`.
 
 Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):
 
 - `update` when you save an edit, with `expectedRevision`, attributed `author: user`, `actorId: ep0ch-door:<hostname>`.
-- `properties.patch` when you move a card between lanes, with `expectedRevision`, attributed the same way.
+- `properties.patch` when you move a card between lanes, or save a value in the property panel, with
+  `expectedRevision`, attributed the same way.
 - `annotations.batch` (one `block-comment` operation) when you send a comment: `expectedRevision`, the
   exact quote and its offset, and a `requestId`.
 - `annotations.reply` when you send a reply, with a `requestId`.
@@ -499,6 +560,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts agent     # an agent drives the board through the control socket: open, edit, save, comment, move
+    EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts props     # a roadmap-like card: summary line, panel (inline, full, edit, a refused edit, follow), every embed state
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
@@ -521,8 +583,11 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
 
-- Live figures' ad-hoc `query:` still uses the clause grammar (no OR/NOT/dates); `view:` gets the full
-  grammar through `views.read`.
+- Live figures' `done:` and `now:` take plain clauses; `query:` needs `query.expression` for OR/NOT/dates.
+- Fragment transclusions show the whole target until the service serves fragment slices (PIE-404).
+- Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
+  embedded view's result rows aren't followable (follow the `!((…))` link itself); `!((…))` inside a
+  callout or a table stays a link.
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.

@@ -218,6 +218,8 @@ export class Desk implements Screen, DeskApi {
       if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes"); return; }
       focused.key(k, this); return;
     }
+    // The property panel takes the keys it uses (Tab, y, o, e) before the desk's own; clicks still pass.
+    if (focused instanceof ReaderPane && focused.holdsKeys && k.kind !== "mouse") { focused.key(k, this); return; }
     if (k.kind === "mouse") return this.mouse(k);
     if (this.prefix) return this.command(k);
     if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }

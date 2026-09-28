@@ -38,7 +38,9 @@ export function colourBody(line: string): string {
     .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
     .replace(/\[([\w-]+)::([^\]]*)\]/g, `${fg(C.dark)}[${fg(C.brown)}$1${fg(C.dark)}::${fg(C.yellow)}$2${fg(C.dark)}]${fg(C.grey)}`)
-    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`) + RESET;
+    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
+    // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
+    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey)) + RESET;
 }
 
 export const rule = (w: number, label = "") => {
