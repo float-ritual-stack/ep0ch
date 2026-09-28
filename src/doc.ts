@@ -108,7 +108,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         out.push(fg(colour) + "│ " + fg(C.dark) + pad(`▸ ${body.length} line${body.length === 1 ? "" : "s"} folded · z unfolds`, inner) + fg(colour) + " │" + RESET);
       } else {
         for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
-        for (const b of body.length ? body : [""]) for (const l of b ? wrap(b, inner) : [""])
+        // A title-only callout is just the titled frame; no empty row inside.
+        for (const b of body) for (const l of b ? wrap(b, inner) : [""])
           out.push(fg(colour) + "│ " + RESET + pad(inline(l), inner) + fg(colour) + " │" + RESET);
       }
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);

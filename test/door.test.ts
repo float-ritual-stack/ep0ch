@@ -167,3 +167,9 @@ describe("live figures answer from the outline", () => {
     expect(redraws).toBeGreaterThanOrEqual(2);
   });
 });
+
+test("a title-only callout has no empty row inside its frame", () => {
+  const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  const doc = renderDoc("> [!note] Every item here uses existing actions", { width: 60, cellW: 9, cellH: 18, graphics: false, maxImageRows: 10, unfold: false });
+  expect(doc.lines.map(strip).filter(l => /[╭│╰]/.test(l))).toHaveLength(2);
+});
