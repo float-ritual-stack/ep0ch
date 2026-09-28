@@ -116,6 +116,20 @@ export interface MutationProvenance {
   taskId?: string;
 }
 
+/**
+ * What an activity entry records. `text` and `properties` are edits; `move`,
+ * `delete` (moved to Trash) and `restore` are structural changes, recorded only
+ * when the request declared who made them (capability `mutations.provenance`).
+ */
+export const BLOCK_ACTIVITY_KINDS = ["text", "properties", "move", "delete", "restore"] as const;
+export type BlockActivityKind = (typeof BLOCK_ACTIVITY_KINDS)[number];
+
+/** Edits: what `activity.recent` returns without `kinds`, and what "latest edit" readers count. */
+export const BLOCK_EDIT_ACTIVITY_KINDS = ["text", "properties"] as const satisfies readonly BlockActivityKind[];
+
+/** `kind IN (...)` for the edit kinds, for readers that must not count structural changes. */
+export const BLOCK_EDIT_ACTIVITY_KIND_SQL = `kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(kind => `'${kind}'`).join(", ")})`;
+
 export interface BlockEditActivity {
   cursor: number;
   block: Block;
@@ -123,7 +137,7 @@ export interface BlockEditActivity {
   actorId?: string;
   sessionId?: string;
   taskId?: string;
-  kind: "text" | "properties";
+  kind: BlockActivityKind;
   editedAt: string;
 }
 
@@ -1629,6 +1643,11 @@ export const OUTLINER_MIN_CLIENT_PROTOCOL = 82;
 export const OUTLINER_CAPABILITIES = [
   "blocks.read",
   "changes.since",
+  /**
+   * `move`, `delete` and `trash.restore` accept `mutation`, recorded in the
+   * change feed and activity like an update's; `activity.recent` accepts `kinds`.
+   */
+  "mutations.provenance",
   "properties.preview",
   "query.expression",
   "references.backlinks.facets",
@@ -2014,9 +2033,10 @@ export type OutlinerRequest =
   | { id: string; action: "checklist.query"; blockId: string; query: ChecklistQuery }
   | { id: string; action: "checklist.search"; query: ChecklistSearchQuery }
   | { id: string; action: "checklist.update"; blockId: string; input: ChecklistUpdateInput; mutation: MutationProvenance }
-  | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number }
-  | { id: string; action: "delete"; blockId: string }
-  | { id: string; action: "trash.restore"; blockId: string }
+  /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
+  | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number; mutation?: MutationProvenance }
+  | { id: string; action: "delete"; blockId: string; mutation?: MutationProvenance }
+  | { id: string; action: "trash.restore"; blockId: string; mutation?: MutationProvenance }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;
@@ -2071,6 +2091,8 @@ export type OutlinerRequest =
       since?: string;
       limit?: number;
       author?: BlockAuthor;
+      /** Capability `mutations.provenance`. Defaults to the edit kinds, `text` and `properties`. */
+      kinds?: BlockActivityKind[];
     }
   | {
       id: string;
