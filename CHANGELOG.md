@@ -4,6 +4,16 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Literal regions: text between `<!-- literal -->` and `<!-- /literal -->`
+  lines shows outline syntax as plain text. Bracket, bare `key::` and hashtag
+  properties inside are not stored, queried, indexed or previewed; links still
+  resolve. Detail hides the marker lines and warns about an opening marker with
+  no closer, which protects nothing. Titles skip marker lines. A property
+  appended to a note that starts with a region goes on a line before it, where
+  it is block metadata. Property parser version 4: the service
+  re-indexes existing notes on startup without changing their text, and
+  `properties.preview` reports `parserVersion` 4. PIE-422.
+
 - Tree's **Advanced property filter** accepts the query grammar: `OR`, `NOT`,
   parentheses and `created`/`updated` ranges, for example
   `status=open OR status=review` or `NOT status=done updated >= -7d`. Clause
