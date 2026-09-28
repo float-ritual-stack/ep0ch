@@ -44,7 +44,10 @@ serve() {
   sock="$1/state/$(hash_of "$2")/outliner.sock"
   i=0; while [ ! -S "$sock" ]; do
     i=$((i + 1))
-    if [ $i -gt 100 ] || ! kill -0 "$pid" 2>/dev/null; then echo "the private service didn't start; see $3" >&2; cat "$3" >&2; exit 1; fi
+    if [ $i -gt 100 ] || ! kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      echo "the private service didn't start; see $3" >&2; cat "$3" >&2; exit 1
+    fi
     sleep 0.2
   done
 }
@@ -56,7 +59,14 @@ if [ "$showcase" = 1 ]; then
   need_outliner --showcase
   base="${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch-door/showcase"
   pidfile="$base/service.pid"
-  running() { [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; }
+  # The pidfile outlives a crash or a reboot, and its pid may be reused: it is our service only if that
+  # process serves this state (checked where /proc shows a process's environment).
+  running() {
+    [ -f "$pidfile" ] || return 1
+    p=$(cat "$pidfile")
+    kill -0 "$p" 2>/dev/null || return 1
+    [ ! -d /proc ] || grep -qzxF "OUTLINER_STATE_DIR=$base/state" "/proc/$p/environ" 2>/dev/null
+  }
   if [ "$reset" = 1 ]; then
     if running; then
       old=$(cat "$pidfile"); kill "$old" 2>/dev/null || true

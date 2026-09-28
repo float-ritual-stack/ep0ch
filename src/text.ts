@@ -23,6 +23,8 @@ function cut(s: string, w: number): [string, string] {
 }
 
 export function wrap(text: string, w: number): string[] {
+  // A narrow pane can ask for no room at all; cut must still make progress.
+  w = Math.max(1, Math.floor(w));
   const out: string[] = [];
   for (const raw of text.split("\n")) {
     if (!raw.length) { out.push(""); continue; }

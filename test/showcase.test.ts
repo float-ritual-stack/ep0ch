@@ -116,10 +116,12 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     board.close(); await svc.stop();
     // --prepare leaves no service of its own running: no pidfile, and no process serving that state.
     expect(existsSync(join(base, "service.pid"))).toBe(false);
-    const serving = readdirSync("/proc").filter(p => /^\d+$/.test(p)).filter(p => {
-      try { return readFileSync(`/proc/${p}/environ`, "utf8").split("\0").includes(`OUTLINER_STATE_DIR=${base}/state`); } catch { return false; }
-    });
-    expect(serving).toEqual([]);
+    if (existsSync("/proc")) {
+      const serving = readdirSync("/proc").filter(p => /^\d+$/.test(p)).filter(p => {
+        try { return readFileSync(`/proc/${p}/environ`, "utf8").split("\0").includes(`OUTLINER_STATE_DIR=${base}/state`); } catch { return false; }
+      });
+      expect(serving).toEqual([]);
+    }
   }, 60_000);
 });
 

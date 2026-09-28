@@ -103,8 +103,10 @@ export function tokensOf(text: string, src: Source | null | undefined): Parsed |
   if (hit && !(hit.state === "error" && (hit.asked ?? 0) < outlineEvents)) { parsed.delete(text); parsed.set(text, hit); return hit.state === "loading" ? null : hit; }
   const asked = outlineEvents;
   const entry: Parsed = { state: "loading", tokens: [] };
+  // Evict before inserting, so the entry just asked for is never the one dropped (tokensFor awaits it).
+  parsed.delete(text);
+  if (parsed.size >= 300) parsed.delete(parsed.keys().next().value!);
   parsed.set(text, entry);
-  if (parsed.size > 300) parsed.delete(parsed.keys().next().value!);
   const cache = parsed;
   entry.done = Promise.resolve().then(() => src.board.propertyRecords(text)).then(
     (t): Parsed => (t ? { state: "ready", tokens: t } : { state: "unsupported", tokens: [] }),
