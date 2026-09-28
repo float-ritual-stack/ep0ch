@@ -87,7 +87,8 @@ export class SocketBoard implements Board {
 
   async info(): Promise<BoardInfo> {
     const r = await this.request<{ protocolVersion: number; location: { hostname: string; workspaceRoot: string } }>("ping");
-    if (r.protocolVersion !== PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door was written for ${PROTOCOL}`);
+    // Newer services add actions; the door only uses long-standing ones, so older is the only hard stop.
+    if (r.protocolVersion < PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door needs ${PROTOCOL} or newer`);
     return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null };
   }
 

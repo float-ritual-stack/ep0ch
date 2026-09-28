@@ -160,7 +160,7 @@ compositor the snapshot harness uses), so it shows what is actually on screen, n
 
 ## Read-only
 
-Only actions from the service's safe-read list are sent: `ping`, `children`, `blocks.context`,
+The door only sends read actions (the service has no read-only mode or auth; this is the door's own discipline): `ping`, `children`, `blocks.context`,
 `blocks.query`, `clients.list`, `activity.recent`, plus `events.subscribe` as an `observer`. That
 registration is the one visible side effect: the door appears in `clients.list` until it exits.
 
