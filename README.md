@@ -33,7 +33,7 @@ A journey to try, whichever service it is:
 2. `e` edits the card in the preview. Type after a `[key::value]` on the subject line, `Ctrl+S`: the door
    says which properties the save would change and writes nothing; `Ctrl+S` again saves. `Esc` closes.
 3. `m` picks a lane to move the card to, showing the property patch (or why a lane can't take it); `Enter`.
-4. `Tab` to the preview, `c`, pick a passage (`j k h l`), `Enter`, write, `Ctrl+S`; `m` lists the threads.
+4. `C` (from the lanes, or in the preview), pick a passage (`j k h l`), `Enter`, write, `Ctrl+S`; `m` lists the threads.
 5. With another client (Detail, the CLI), edit the note while it's open with `e`: the draft says
    "changed elsewhere" and a save is refused, never overwriting. Change a card's stage elsewhere: its lanes
    update by themselves.
@@ -98,7 +98,17 @@ The last board per workspace is remembered.
   reason instead of looking empty. The two agree on all 34 saved views of the pi-outliner outline
   (`scripts/parity.ts` on a copy), and on all 8 of float-hub's before `views.read` existed.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
-- **`c`** collapses a lane to a spine (click or ⏎ it to reopen; `C` reopens all).
+- **`c`** collapses what has focus to a spine: a lane, or the preview or a detail. A reader's spine shows its
+  note's title (rotated under Kitty graphics, stacked letters in cells) and marks what it holds: `✎` an
+  edit, `¶` a comment, `≡` the property panel, `■` comments that arrived while it was collapsed. The freed
+  width goes to its neighbours. `c`, `⏎` or a click on a spine opens it; `alt+c` opens everything collapsed.
+  A collapsed reader keeps its edit, comment or property panel exactly: nothing is saved, sent or dropped,
+  `Ctrl+C` still asks twice, and opening it returns to it (`e` enters it again). Its own keys don't reach
+  it while collapsed. A note opened into a collapsed reader (`⏎`, `open`) opens it. Floats don't collapse.
+- **Agents** collapse and open readers with `reader.collapse reader=detail1` and `reader.expand`
+  (`reader=all` is `alt+c`). Both are flashed with the agent's id and shown by `peek` (`collapsedBy`). An
+  agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
+  a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
   Keys: `{ }` lane height, `< >` width of the focused lane or reader.
 - **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
@@ -108,7 +118,8 @@ The last board per workspace is remembered.
 - **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
   snippet; `B` or a click on its `[ ] pin` pins it into the layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
   preview opens in a detail too.
-- Layout, pins, collapsed lanes and drawer side are saved to `delivery.json`.
+- Layout, pins, collapsed lanes, a collapsed preview and drawer side are saved to `delivery.json`. Details
+  aren't saved, so neither is their collapse.
 
 ## Moving cards
 
@@ -260,7 +271,7 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
   included), and marks "changed elsewhere" when an outline event says the note moved on, instead of
   replacing what you typed. `Ctrl+C` asks twice when an edit is unsaved.
 - **Keys follow the editor** (board and desk): only the focused reader's edit, comment or property panel
-  takes keys, and only one you are in. One you open by key (`e`, `c`, `m`, `i`, from the lanes too) is
+  takes keys, and only one you are in. One you open by key (`e`, `C`, `m`, `i`, from the lanes too) is
   yours as it opens, and focus moves to it; if you press `Esc` or move away before the note has been
   read, it doesn't open. One an agent opened, or yours after you moved to another area, doesn't take
   your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the reader,
@@ -279,17 +290,17 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
 
 ## Commenting
 
-The same readers comment on the note they show. On the board, Tab to the preview (or a detail) first:
-`c` on a lane still collapses it.
+The same readers comment on the note they show, with `C` (`c` collapses on the board). On the board, `C`
+in the lanes comments in the preview.
 
 | Keys | Action |
 |---|---|
-| `c` | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
+| `C` | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
 | `j k` | move to the next / previous line with text (the whole line, without its indent) |
 | `J K` | extend / shrink the passage by a line |
 | `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
 | `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
-| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `c` a new comment |
+| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
 | `Esc` | back a step; with unsent text it asks for a second `Esc` |
 
 - **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
@@ -437,12 +448,12 @@ Bodies render with `src/doc.ts`:
 `~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file:
 
 - **Placement (niri):** `⏎` inserts a column right after its source, or jumps to it if that note is already a column. `alt+⏎` forces a duplicate.
-- **Compression (Andy's notes):** columns get full, peek or spine width by distance from focus; docked (`p`) columns resist. Spine titles are rotated VGA text (Kitty) or stacked letters (cells).
+- **Compression (Andy's notes):** columns get full, peek or spine width by distance from focus; docked (`p`) columns resist. Spine titles are rotated VGA text (Kitty) or stacked letters (cells), drawn by the same spine part as the board's lanes and readers (`src/spine.ts`).
 - **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked pane in the same column; `tab` moves between stacked panes.
 - **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
-- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `c` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
+- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `C` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
 - **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `close`) and every note action.
   - `reader=` is a pane id (`r7`: stable while the pane is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
   - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the pane holding it: addressed by a number that now names another pane, it's refused with the pane's id.
@@ -451,7 +462,7 @@ Bodies render with `src/doc.ts`:
   - Starting a note action in a compressed column is refused; `pin` docks the column so it widens without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
 - **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
 - **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
-- **Quote** (a new note quoting this one) isn't here yet; `c` comments on a passage instead.
+- **Quote** (a new note quoting this one) isn't here yet; `C` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
 cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
@@ -511,9 +522,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
+| `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
-| `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `c`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
+| `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x` |
 | `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |

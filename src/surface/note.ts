@@ -196,7 +196,7 @@ export class NoteSurface {
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
     const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
     if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next`; }
-    return `${extra}[ ] links · ( ) f folds · i properties · z callouts · u up · c comment · m comments`;
+    return `${extra}[ ] links · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -741,7 +741,9 @@ export class NoteSurface {
     }
     const c = ch(k);
     if ((c === "i" || c === "I") && this.msg) { this.openPanel(c === "I"); host.redraw(); return true; }
-    if (c === "c" && this.msg) { void this.comment(host, "select"); return true; }
+    if (c === "C" && this.msg) { void this.comment(host, "select"); return true; }
+    // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
+    if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
@@ -1445,7 +1447,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     },
   },
   "passage.select": {
-    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "c, then j k J K h l H L",
+    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },

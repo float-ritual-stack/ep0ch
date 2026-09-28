@@ -255,12 +255,12 @@ export class ReaderPane implements Pane {
 
 // ── which reader session the person is in (PIE-411) ──────────────────────────
 
-/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, c quote, m threads, i / I properties. */
+/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote (c collapses), m threads, i / I properties. */
 export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
 export function sessionStart(k: Key): SessionKind | null {
   if (k.kind !== "char") return null;
   if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "e" ? "edit" : k.ch === "c" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+  return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
 
 /**

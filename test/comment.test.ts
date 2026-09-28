@@ -114,7 +114,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
   const create = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
-  const open = async (id: string, key: "c" | "m" = "c") => {
+  const open = async (id: string, key: "C" | "m" = "C") => {
     const pane = new ReaderPane(), d = desk(pane);
     pane.show(await board.get(id), d);
     pane.key(char(key), d);
@@ -152,7 +152,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     if (root) rmSync(root, { recursive: true, force: true });
   });
 
-  test("c, pick, write, ctrl+s: a block comment anchored on the exact passage, shown in the reader", async () => {
+  test("C, pick, write, ctrl+s: a block comment anchored on the exact passage, shown in the reader", async () => {
     const b = await create(NOTE);
     const { pane, d } = await open(b.id);
     expect(pane.session!.mode).toBe("select");
@@ -357,7 +357,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     desk.openBlock((await board.get(b.id))!);
     const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
     await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
-    key(char("c"));
+    key(char("C"));
     await until(() => !!reader().session, "the comment session");
     key({ kind: "enter" });
     for (const c of "unsent") key(char(c));

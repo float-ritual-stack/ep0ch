@@ -6,7 +6,6 @@
 // was opened on, or the selected one in the Library and a #tag column. Reading keeps the river's own
 // cards; editing, quoting and comment threads draw the surface in the column, with the same keys and
 // the same named actions as the board. Peek and spine columns stay read-only views.
-import { CP437_HIGH } from "../ansi";
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
@@ -21,7 +20,7 @@ import { readState, writeState } from "../state";
 import { bg, C, extractLinks, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
-import { rasterize, rotateCW, type Rgba } from "../vga";
+import { drawSpine, SPINE } from "../spine";
 
 type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind: "tag"; key: string; value: string };
 interface Clause { key: string; value: string; exclude: boolean }
@@ -51,7 +50,7 @@ interface Row { m: Msg; depth: number }
 type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[] };
 interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[] }
 
-const SPINE = 3, PEEK = 24;
+const PEEK = 24;
 /** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
 export const BANNER_MS = 30_000;
 /** Note actions that start or continue an edit or a comment: positional addressing is checked for these. */
@@ -59,7 +58,6 @@ const SESSION_ACTIONS = new Set(["edit", "edit.text", "edit.save", "edit.reload"
 const SEL = bg(C.blue) + fg(C.white);
 const CHIP_COLOURS = [C.lgreen, C.lcyan, C.yellow, C.lmagenta, C.lred, C.lblue];
 const GLYPH: Record<string, string> = { hub: "◎", workboard: "▦", workspace: "▣", notes: "▤", "virtual-branch": "⑂", "roadmap-item": "◆", proof: "✓", synthesis: "✦", inbox: "✉", note: "·" };
-const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 
 // ── the index: counts, titles, instant search ────────────────────────────────
 
@@ -117,18 +115,6 @@ function passes(m: Msg, f: Clause[]): boolean {
       : c.value === "*" ? v !== undefined : (v ?? "").toLowerCase() === c.value.toLowerCase();
     return c.exclude ? !hit : hit;
   });
-}
-
-const spineCache = new Map<string, Rgba>();
-function spineImage(title: string, colour: number): Rgba {
-  const key = `${colour}:${title}`;
-  let img = spineCache.get(key);
-  if (!img) {
-    const row = [...title].map(ch => ({ code: ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : toCp437.get(ch) ?? 63, fg: colour, bg: 0 }));
-    img = rotateCW(rasterize([row], 0, 0, row.length, 1, { clearBg: true }));
-    spineCache.set(key, img);
-  }
-  return img;
 }
 
 // ── the river ────────────────────────────────────────────────────────────────
@@ -313,21 +299,10 @@ export class River implements Screen {
 
   private spine(canvas: Canvas, placements: Placement[], col: Col, r: Rect, focused: boolean, ctx: Ctx) {
     const colour = focused ? C.white : col.pinned ? C.yellow : C.lcyan;
-    for (let y = r.row; y < r.row + r.rows; y++) canvas.text(r.col + r.cols - 1, y, fg(C.blue) + "│" + RESET, 1);
     // A spine has no room for a draft: it says one is there, and the column resists compressing this far.
-    canvas.text(r.col, r.row, this.holds(col) ? fg(C.yellow) + "✎" + RESET : fg(col.pinned ? C.yellow : C.dark) + (col.pinned ? "⊙" : "·") + RESET, 1);
-    const title = this.titleOf(col.panes[0]!);
-    const t = ctx.t;
-    if (ctx.graphics) {
-      // Rotated VGA text: 16px wide per glyph row, 9px per character down the spine.
-      const maxChars = Math.max(1, Math.floor(((r.rows - 2) * t.cellH * 16) / (2 * t.cellW * 9)));
-      const text = title.length > maxChars ? title.slice(0, maxChars - 1) + "…" : title;
-      const img = spineImage(text, colour);
-      const rowsNeeded = Math.max(1, Math.ceil((img.height * (2 * t.cellW / img.width)) / t.cellH));
-      placements.push({ key: `spine:${col.uid}`, image: img, col: r.col, row: r.row + 1, cols: 2, rows: Math.min(rowsNeeded, r.rows - 1), z: -1 });
-    } else {
-      [...title].slice(0, r.rows - 1).forEach((ch, i) => canvas.text(r.col, r.row + 1 + i, fg(colour) + ch + RESET, 1));
-    }
+    const mark = this.holds(col) ? fg(C.yellow) + "✎" + RESET : fg(col.pinned ? C.yellow : C.dark) + (col.pinned ? "⊙" : "·") + RESET;
+    const p = drawSpine(canvas, r, { key: `spine:${col.uid}`, title: this.titleOf(col.panes[0]!), colour, marks: [mark] }, ctx);
+    if (p) placements.push(p);
   }
 
   private peek(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
@@ -442,7 +417,7 @@ export class River implements Screen {
       "#              open a virtual branch from this note's properties",
       "/              jump: instant search over the whole index",
       "e / ctrl+e     edit the column's note here / in $EDITOR",
-      "c              comment: pick a passage, write, ctrl+s sends",
+      "C              comment: pick a passage, write, ctrl+s sends",
       "m              the note's comment threads (r reply · x resolve)",
       "[ ] u          select a link (⏎ follows it beside) · the parent",
       "               the column's note: the one it opened on; in the Library and a #tag, the selected one",
@@ -847,15 +822,15 @@ export class River implements Screen {
       ctx.flash(`in ${this.whose(p)} · ${p.surface.hint()}`);
       return ctx.redraw();
     }
-    // Reading: the surface's own keys act on the column's note (e c m i ctrl+e [ ] u, ⏎ on a selected link).
+    // Reading: the surface's own keys act on the column's note (e C m i ctrl+e [ ] u, ⏎ on a selected link).
     const linked = !!p && !held && this.linked(p);
     const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";
-    if (p && !held && (c === "e" || c === "c" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && k.kind === "enter"))) {
+    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && k.kind === "enter"))) {
       if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);
         // Starting an edit or a comment by key: the person is in it once it opens.
-        const start = c === "e" || ctrlE ? s.edit(host, ctrlE) : c === "c" ? s.comment(host, "select") : c === "m" ? s.comment(host, "threads") : null;
+        const start = c === "e" || ctrlE ? s.edit(host, ctrlE) : c === "C" ? s.comment(host, "select") : c === "m" ? s.comment(host, "threads") : null;
         if (start) start.then(() => { const now = this.sessionOf(p); if (now && this.paneS === p) this.entered = { p, of: now }; ctx.redraw(); }, e => ctx.flash(e instanceof Error ? e.message : String(e)));
         else if (!s.key(k, host)) ctx.flash(c === "u" ? "this note has no parent" : "nothing to do");
       } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }
@@ -882,7 +857,8 @@ export class River implements Screen {
     else if (c === "#") { const m = this.selected(); this.tagChoices = m ? Object.entries(m.props).filter(([key]) => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9) : []; this.mode = "tags"; }
     else if (c === "/") { this.mode = "palette"; this.input = ""; this.matches = this.idx.search(""); this.msel = 0; }
     else if (c === "?") this.mode = "help";
-    else if (c === "q") ctx.flash("quote (a new note quoting this one) isn't in the door yet; c comments on a passage");
+    else if (c === "c") ctx.flash("the river squeezes columns itself (p docks one) · C comments on a passage");
+    else if (c === "q") ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
     else if (c === "V") return ctx.cycleVideo();
     else if (k.kind === "esc") return ctx.pop();
     else return;
