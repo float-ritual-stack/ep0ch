@@ -26,7 +26,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
-  readonly kind: PaneKind;
+  /** "exhibit": a pane a view brings to a preset desk (the showcase's); it's never saved to desk.json. */
+  readonly kind: PaneKind | "exhibit";
   title(): string;
   hint(): string;
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView;

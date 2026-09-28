@@ -33,7 +33,8 @@ Every review goes through these sections in order.
 - **One grammar:** do keys, pane operations and terms match the glossary and the other screens?
 - **Service meaning:** does it re-derive what the service owns (view membership, property parsing,
   query evaluation, backlinks, what changed) instead of asking it?
-- **The map:** does a new or changed shared part need a row in the reuse map?
+- **The map:** does a new or changed shared part need a row in the reuse map, and with it a
+  showcase section and seed content (`src/showcase/`)?
 
 ### 2. Correctness
 

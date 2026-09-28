@@ -16,6 +16,8 @@ import { Entered, makePane, ReaderPane, sessionName, sessionStart, startSession,
 
 type Saved = { t: "leaf"; kind: PaneKind } | { t: "split"; dir: "row" | "col"; ratio: number; a: Saved; b: Saved };
 interface SavedDesk { root: Saved; focus: number }
+/** Panes a view puts on a desk of its own, and how they're laid out (default: side by side). */
+export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string }
 
 const ADD: Record<string, PaneKind> = { t: "tree", r: "reader", h: "thread", a: "activity", w: "who", b: "art" };
 const DOCK: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right" };
@@ -41,14 +43,27 @@ export class Desk implements Screen, DeskApi {
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
   private pending: { pane: ReaderPane } | null = null;
 
-  constructor() {
+  /**
+   * A desk with a `preset`: these panes in this layout (by their ids, in order), a title of its own, and
+   * nothing saved to desk.json, so a view built on the desk (the showcase) never moves the person's own
+   * layout. Without one, the saved layout or the default.
+   */
+  constructor(private readonly preset?: DeskPreset) {
+    if (preset) {
+      const ids = preset.panes.map(p => this.put(p));
+      this.root = preset.layout ? preset.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => ({ t: "split", dir: "row", ratio: 0.5, a, b: { t: "leaf", id } }), { t: "leaf", id: ids[0]! });
+      this.focus = ids[0]!;
+      if (preset.title) this.title = preset.title;
+      return;
+    }
     const saved = readState<SavedDesk>("desk.json");
     this.root = saved ? this.revive(saved.root) : this.defaultLayout();
     const ids = leaves(this.root);
     this.focus = ids[saved?.focus ?? 0] ?? ids[0]!;
   }
 
-  private add(kind: PaneKind): number { const id = this.nextId++; this.panes.set(id, makePane(kind)); return id; }
+  private add(kind: PaneKind): number { return this.put(makePane(kind)); }
+  private put(p: Pane): number { const id = this.nextId++; this.panes.set(id, p); return id; }
 
   private defaultLayout(): LNode {
     const tree = this.add("tree"), reader = this.add("reader"), thread = this.add("thread"), activity = this.add("activity");
@@ -64,7 +79,8 @@ export class Desk implements Screen, DeskApi {
   }
 
   private save() {
-    const ser = (n: LNode): Saved => n.t === "leaf" ? { t: "leaf", kind: this.panes.get(n.id)!.kind } : { t: "split", dir: n.dir, ratio: n.ratio, a: ser(n.a), b: ser(n.b) };
+    if (this.preset) return;
+    const ser = (n: LNode): Saved => n.t === "leaf" ? { t: "leaf", kind: this.panes.get(n.id)!.kind as PaneKind } : { t: "split", dir: n.dir, ratio: n.ratio, a: ser(n.a), b: ser(n.b) };
     writeState("desk.json", { root: ser(this.root), focus: leaves(this.root).indexOf(this.focus) } satisfies SavedDesk);
   }
 
