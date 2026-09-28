@@ -10,14 +10,14 @@ import type { Ctx } from "../app";
 import { subject, type Msg } from "../board";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
-import { embedRegion } from "../embeds";
+import { embedRegion, SHADE } from "../embeds";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { actorIdOf, EditConflict, mutationFor, recordedActorId, USER, type Actor, type Comment, type PropertyRecord } from "../socket";
-import { C, fg, pad, RESET, width } from "../style";
+import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { bbsDate, rule } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
@@ -25,16 +25,29 @@ import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./e
 import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
-import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, SELECT_BG, Selection, selectionHint, wordAt, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, wordAt, type Pos, type SelectRows } from "./selection";
+
+/**
+ * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
+ * (⏎ or a click; the board's preview opens it in a detail, as ⏎ on a card does); `fresh`, in a new reader
+ * (alt+⏎: a new detail, a new desk reader, a new river column); `agent`, an agent's, which never takes the
+ * person's focus. Neither link nor fresh: `u`, and whatever else opens.
+ */
+export interface OpenHow { link?: boolean; fresh?: boolean; agent?: boolean }
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
   ctx: Ctx;
   redraw(): void;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
-  navigate(m: Msg): void;
+  navigate(m: Msg, how?: OpenHow): void;
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
   summaryKeys?(m: Msg): readonly string[] | null | undefined;
+  /**
+   * Open the thread list as the person's `m` does, where the host keeps track of which session the person
+   * is in (⏎ or a click on a comment mark). Without it the surface opens it itself.
+   */
+  startSession?(kind: "threads"): void;
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
@@ -48,7 +61,38 @@ const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.f
  */
 /** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
 /** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" });
+/** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin. */
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string });
+
+/**
+ * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
+ * video), a fold point (a heading or a list item with lines under it), a row that stands for a note (a live
+ * figure's row, an embedded view's result), an embed (its title), and a comment mark (in the margin).
+ */
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment";
+/**
+ * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
+ * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
+ * which the reading ruler tints while it's current. `key` names it across renders.
+ */
+interface Element {
+  key: string; kind: ElementKind; row: number; from: number; to: number; ruler: [number, number]; label: string;
+  link?: Link; value?: string; fold?: string; thread?: string;
+}
+/** What ⏎ does on an element, for the hint. */
+const verbOf = (e: Element, folded: boolean) =>
+  e.kind === "fold" ? (folded ? "unfold" : "fold") : e.kind === "comment" ? "open its thread" : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.link?.media ? "open" : "follow";
+/** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
+const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
+
+/**
+ * An agent's (or the person's) focus mark in this reader (the door side of PIE-423): a block, and in it
+ * maybe a passage, drawn with the reading ruler's tint and the one who set it named in the header. Kept as
+ * what was named, and found again on each render, so a rewrap or a refresh keeps it on its text.
+ */
+export interface FocusSpec { block?: string; line?: number; to?: number; quote?: string; near?: number }
+/** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
+interface Mark { thread: string; open: boolean; row: number; rows: [number, number]; label: string }
 
 /** The note's links in reading order: exact `((…))` (transclusions too) and `[[…]]`, the service's syntax. */
 const LINK = new RegExp(`${REF.source}|${PAGE.source}`, "g");
@@ -118,16 +162,28 @@ export class NoteSurface {
   /** What the last render put where, for clicks (PIE-415). */
   private hits: Hit[] = [];
   private unfold = false;
+  /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
   private link = -1;
+  /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
+  private elems: Element[] = [];
+  /** The current element (its key): where `[ ]` is, what ⏎ acts on, what the ruler tints (PIE-441). */
+  private cur: string | null = null;
+  /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
+  private reveal = false;
+  /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
+  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number } | null = null;
+  private revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
    * text. Kept while the note refreshes or is edited elsewhere; cleared when the reader shows another note.
    */
   folded = new Set<string>();
-  /** The fold point `( )` selected (its key), which `f` and ⏎ fold or unfold. */
-  private foldSel: string | null = null;
-  /** Bring the selected fold point into view on the next render (after `( )` or a fold). */
-  private revealFold = false;
+  /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
+  private get foldSel(): string | null { return this.cur?.startsWith("fold:") ? this.cur.slice(5) : null; }
+  private set foldSel(key: string | null) {
+    if (key !== null) { this.cur = `fold:${key}`; this.link = -1; }
+    else if (this.foldSel !== null) this.cur = null;
+  }
   private foldsOf: string | null = null;
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
@@ -204,12 +260,18 @@ export class NoteSurface {
     if (this.draft) return editHint(this.draft, { save: "save", reload: this.draft.conflict || this.draft.changedElsewhere ? "reload" : null });
     const rows = this.selection && this.selRows();
     if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
-    const l = this.links[this.link];
-    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
     const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
-    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next`; }
-    return `${extra}[ ] links · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
+    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next · [ ] elements`; }
+    // The current element, named (PIE-441); one an agent's mark scrolled away is named, but ⏎ waits for it.
+    const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
+    if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
+    const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, false)}${opens(e) ? " · alt⏎ new" : ""}`;
+    // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
+    const l = !this.cur ? this.links[this.link] : undefined;
+    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media ? "open" : "follow"}`;
+    return `${extra}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -239,9 +301,9 @@ export class NoteSurface {
     if (this.draft && m?.id !== this.draft.blockId) return false;
     if (this.session && m?.id !== this.session.blockId) return false;
     if (this.panel?.field && m?.id !== this.msg?.id) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSel = null; this.foldsOf = m?.id ?? null; }
-    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.link = -1; this.crumbs = "…"; this.unread = "";
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.focusMark = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldsOf = m?.id ?? null; }
+    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
@@ -295,7 +357,6 @@ export class NoteSurface {
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
     const count = this.rows(m).length;
-    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key });
     const head = [
       fg(C.white) + pad(subject(m), w) + RESET,
       ...(summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : []),
@@ -303,6 +364,8 @@ export class NoteSurface {
       fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
+      // A focus mark says whose it is, in the ruler's own tint (PIE-423).
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(`◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     ];
     if (this.panel) {
       const rows = this.rows(m);
@@ -333,6 +396,8 @@ export class NoteSurface {
     const doc = renderDoc(presentLinks(source, true, src, m.text, drawn), {
       ...env, embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
+      // A live figure's rows that stand for notes are links too (PIE-441).
+      link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
     });
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
     // section aren't drawn, so they aren't links until it's unfolded.
@@ -344,13 +409,29 @@ export class NoteSurface {
     }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
+    const top = head.length;
+    // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
+    const marks = this.commentMarks(m, doc, noteLines);
+    for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
+    this.elems = this.elementsOf(doc, drawn, marks, summary ? summaryLinks : [], points, top, head);
+    if (this.cur && !this.elems.some(e => e.key === this.cur)) this.letGo();
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
-    const room = Math.max(0, h - head.length);
+    const room = Math.max(0, h - top);
     this.maxScroll = Math.max(0, body.length - Math.max(1, room));
-    // The fold point just selected or folded stays in view.
-    const sel = this.revealFold ? doc.heads.find(x => x.key === this.foldSel) : undefined;
-    this.revealFold = false;
-    if (sel && room > 0) { if (sel.row < this.scroll) this.scroll = sel.row; else if (sel.row >= this.scroll + room) this.scroll = sel.row - room + 1; }
+    // The element just stepped to, or the fold point just folded, comes into view; so does an agent's mark
+    // (only as far as needed: one already in view doesn't move the note).
+    const bringIn = (rows: [number, number]) => {
+      const a = rows[0] - top, b = rows[1] - top;
+      if (room <= 0 || b <= 0) return;
+      if (a < this.scroll) this.scroll = Math.max(0, a);
+      else if (b > this.scroll + room) this.scroll = Math.max(0, Math.min(a, b - room));
+    };
+    const current = this.elems.find(e => e.key === this.cur);
+    if (this.reveal && current) bringIn([current.row, current.row + 1]);
+    this.reveal = false;
+    const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
+    if (this.revealMark && markRows) bringIn(markRows);
+    this.revealMark = false;
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body };
     this.selectionControl(w);
@@ -365,12 +446,27 @@ export class NoteSurface {
       placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
     }
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
+    // Each is the element it is, so a click also puts `[ ]` there.
+    const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
+    if (summary) for (const l of summaryLinks) this.hits.push({ row: 1, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`1:${l.from}`) });
+    const firstOf = new Map<number, string>();
+    for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + 1}`) ?? "");
     for (const r of doc.links) {
       const row = r.line - this.scroll;
       const link = drawn[r.n];
-      if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: head.length + row, from: r.from + 1, to: Math.min(w, r.to + 1), link });
+      if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: top + row, from: r.from + 1, to: Math.min(w, r.to + 1), link, elem: firstOf.get(r.n) || undefined });
     }
-    const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => this.paintSelection(l, i < head.length ? i : i + this.scroll));
+    for (const k of marks) {
+      const row = k.row - this.scroll;
+      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: 0, to: 1, thread: k.thread, elem: `comment:${k.thread}` });
+    }
+    // The reading ruler: the current element's block, and a focus mark's, in one calm tint.
+    const rulers = [current?.ruler, markRows].filter((r): r is [number, number] => !!r);
+    const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
+    const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
+      const row = i < top ? i : i + this.scroll;
+      return this.paintSelection(ruled(row) ? paintRange(pad(l, w), 0, w, RULER_BG) : l, row);
+    });
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
@@ -440,7 +536,7 @@ export class NoteSurface {
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
-  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost): Promise<Msg | null> {
+  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     const t = r.target;
     let target: Msg | null = null, why = "";
     if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
@@ -453,7 +549,7 @@ export class NoteSurface {
     if (!target) { if (this.panel) this.panel.note = why; host.ctx.flash(why); host.redraw(); return null; }
     // The panel has done its job; the target opens to be read (in place or in another reader).
     this.panel = null;
-    host.navigate(target);
+    host.navigate(target, how);
     return target;
   }
 
@@ -739,6 +835,10 @@ export class NoteSurface {
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
+    // From a comment mark (⏎, a click, or `m` while on one): the list opens on its thread.
+    const on = mine && mode === "threads" && this.cur?.startsWith("comment:") ? this.cur.slice(8) : null;
+    const t = on ? this.session.threads.findIndex(x => x.id === on) : -1;
+    if (t >= 0) this.session.sel = t;
     const p = this.session.passage;
     if (p && picked && fresh.text === m.text && picked.to > picked.from) { p.from = picked.from; p.to = picked.to; this.selection = null; }
     host.redraw();
@@ -771,25 +871,35 @@ export class NoteSurface {
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
-    // A fold point selected with ( ) is let go by esc and by moving on (scrolling, [ ], following, u), so
-    // ⏎ has its usual meaning again (in the board's preview: open the note in a detail).
-    if (k.kind === "esc" && this.foldSel) { this.foldSel = null; host.redraw(); return true; }
-    if (isUp(k)) { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
-    if (isDown(k)) { this.foldSel = null; this.scroll++; host.redraw(); return true; }
-    if (k.kind === "pgdn" || c === " ") { this.foldSel = null; this.scroll += 15; host.redraw(); return true; }
-    if (k.kind === "pgup") { this.foldSel = null; this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
-    if (c === "]" || c === "[") { this.stepLink(c === "]" ? 1 : -1); this.foldSel = null; host.redraw(); return true; }
+    // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
+    // u), so ⏎ has its usual meaning again (in the board's preview: open the note in a detail). Then esc
+    // lets go of a focus mark someone set here.
+    if (k.kind === "esc" && (this.cur || this.link >= 0)) { this.letGo(); host.redraw(); return true; }
+    if (k.kind === "esc" && this.focusMark) { host.ctx.flash(`let go of the focus mark ${agentLabel(this.focusMark.by)} set`); this.focusMark = null; host.redraw(); return true; }
+    if (isUp(k)) { this.letGo(); this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
+    if (isDown(k)) { this.letGo(); this.scroll++; host.redraw(); return true; }
+    if (k.kind === "pgdn" || c === " ") { this.letGo(); this.scroll += 15; host.redraw(); return true; }
+    if (k.kind === "pgup") { this.letGo(); this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
+    // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
+    if (c === "]" || c === "[") { if (!this.step(c === "]" ? 1 : -1)) host.ctx.flash("nothing to step to: this note has no links, folds, figure rows, embeds or comments"); host.redraw(); return true; }
     if (c === "z") { this.unfold = !this.unfold; host.redraw(); return true; }
-    if (k.kind === "enter" && this.links[this.link]) { this.foldSel = null; void this.follow(this.link, host); return true; }
+    // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
+    // a fold toggles, a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a
+    // row or an embed in a new reader. Otherwise ⏎ isn't the reader's.
+    if (k.kind === "enter" || k.kind === "alt-enter") {
+      const fresh = k.kind === "alt-enter", e = this.inView();
+      if (e) { if (fresh && !opens(e)) return false; void this.enterElement(e, host, { fresh }); host.redraw(); return true; }
+      if (!this.cur && this.links[this.link]) { void this.follow(this.link, host, fresh); return true; }
+      return false;
+    }
     if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { if (!this.stepFold(c === ")" ? 1 : -1)) host.ctx.flash("this note has no headings or nested lists to fold"); host.redraw(); return true; }
-    // ⏎ folds only a fold point the person selected and can see; otherwise it isn't the reader's.
-    if ((c === "f" || (k.kind === "enter" && this.selectedFold())) && this.msg && !this.msg.partial) {
+    if (c === "f" && this.msg && !this.msg.partial) {
       const p = this.foldTargetAtKeys();
       if (p) this.setFold(p, !this.folded.has(p.key)); else host.ctx.flash("nothing to fold here · ( ) pick a heading or a list item");
       host.redraw(); return true;
     }
     if (c === "F" && this.msg && !this.msg.partial) { const n = this.foldAll(this.folded.size === 0); host.ctx.flash(n ? `${this.folded.size ? `folded ${n}` : `unfolded ${n}`}` : "this note has no headings or nested lists to fold"); host.redraw(); return true; }
-    if (c === "u" && this.msg?.parentId) { this.foldSel = null; void this.up(host); return true; }
+    if (c === "u" && this.msg?.parentId) { this.letGo(); void this.up(host); return true; }
     return false;
   }
 
@@ -805,7 +915,7 @@ export class NoteSurface {
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
     else if (this.session) return;
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
-    else { this.foldSel = null; this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
+    else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
     host.redraw();
   }
 
@@ -826,7 +936,7 @@ export class NoteSurface {
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : k.kind === "home" ? -1e9 : k.kind === "end" ? 1e9 : 0;
     if (!by) return false;
-    this.foldSel = null;
+    this.letGo();
     this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + by));
     host.redraw();
     return true;
@@ -860,7 +970,7 @@ export class NoteSurface {
    */
   setFold(p: FoldPoint, on: boolean, select = true) {
     if (on) this.folded.add(p.key); else this.folded.delete(p.key);
-    if (select) { this.foldSel = p.key; this.link = -1; this.revealFold = true; }
+    if (select) { this.foldSel = p.key; this.link = -1; this.reveal = true; }
   }
 
   /**
@@ -869,7 +979,7 @@ export class NoteSurface {
    * their selection and scroll where they were.
    */
   foldAll(on: boolean, select = true): number {
-    if (!on) { const n = this.folded.size; this.folded.clear(); if (select) this.revealFold = !!this.foldSel; return n; }
+    if (!on) { const n = this.folded.size; this.folded.clear(); if (select) this.reveal = !!this.foldSel; return n; }
     const all = this.msg ? this.foldsIn(this.msg).points : [];
     const outer = all.filter(p => !all.some(q => q.line < p.line && p.line < q.end));
     for (const p of outer) this.folded.add(p.key);
@@ -885,7 +995,7 @@ export class NoteSurface {
     const m = this.msg, d = this.drawn;
     if (!this.foldSel || !m || m.partial) return null;
     const p = this.visibleFolds(m).find(p => p.key === this.foldSel);
-    if (!p || this.revealFold) return p ?? null;
+    if (!p || this.reveal) return p ?? null;
     const row = d?.doc.heads.find(h => h.key === p.key)?.row;
     return d && row !== undefined && row >= d.scroll && row < d.scroll + d.room ? p : null;
   }
@@ -899,7 +1009,7 @@ export class NoteSurface {
     if (i >= 0) i = (i + d + vis.length) % vis.length;
     else if (d === 1) { i = vis.findIndex(p => rowOf(p) >= this.scroll); if (i < 0) i = 0; }
     else { const bottom = this.scroll + (this.drawn?.room ?? 0); i = vis.findLastIndex(p => rowOf(p) < bottom); if (i < 0) i = vis.length - 1; }
-    this.foldSel = vis[i]!.key; this.link = -1; this.revealFold = true;
+    this.foldSel = vis[i]!.key; this.link = -1; this.reveal = true;
     return true;
   }
 
@@ -960,10 +1070,216 @@ export class NoteSurface {
   }
 
   /** ⏎ on a selected link: media open in the system viewer, blocks and pages open through the host. */
-  private follow(i: number, host: SurfaceHost): Promise<Msg | null> {
+  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | null> {
     const l = this.links[i];
-    return l ? this.followTarget(l, host) : Promise.resolve(null);
+    return l ? this.followTarget(l, host, { link: true, fresh }) : Promise.resolve(null);
   }
+
+  // ── elements: what [ ] walks, ⏎ acts on and the ruler tints (PIE-441) ─────
+
+  /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
+  private letGo() { this.cur = null; this.link = -1; }
+
+  private setElem(e: Element) {
+    this.cur = e.key;
+    const l = e.link;
+    this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
+  }
+
+  /** The current element while the person can see it (or it's about to be brought into view). */
+  private inView(): Element | null {
+    const e = this.elems.find(x => x.key === this.cur), d = this.drawn;
+    if (!e || !d) return null;
+    if (this.reveal || e.row < d.top) return e;
+    const r = e.row - d.top;
+    return r >= d.scroll && r < d.scroll + d.room ? e : null;
+  }
+
+  /**
+   * `[ ]`: the previous or next element in reading order, from the current one, or from the view when none
+   * is current. Where nothing is drawn (the river draws its own body), the links.
+   * False when there's nothing to step to.
+   */
+  private step(d: 1 | -1): boolean {
+    const v = this.drawn, es = this.elems;
+    if (!v) { if (!this.links.length) return false; this.cur = null; this.stepLink(d); return true; }
+    const n = es.length;
+    if (!n) return false;
+    // From the current element even when it's out of view (an agent's focus mark scrolled the reader):
+    // only the person's own scrolling lets go of it.
+    let i = es.findIndex(e => e.key === this.cur);
+    if (i >= 0) i = (i + d + n) % n;
+    else if (d === 1) { const from = v.scroll ? v.top + v.scroll : 0; i = es.findIndex(e => e.row >= from); if (i < 0) i = 0; }
+    else { const bottom = v.top + v.scroll + v.room; i = es.findLastIndex(e => e.row < bottom); if (i < 0) i = n - 1; }
+    this.setElem(es[i]!);
+    this.reveal = true;
+    return true;
+  }
+
+  /**
+   * ⏎ (or a click) on an element. The person's (`select`, the default) becomes their `[ ]` position; an
+   * agent's leaves it where it was (a fold it toggles isn't selected, a thread list is its own session).
+   */
+  private async enterElement(e: Element, host: SurfaceHost, { fresh = false, select = true }: { fresh?: boolean; select?: boolean } = {}): Promise<unknown> {
+    if (select) this.setElem(e);
+    if (e.kind === "fold") {
+      const p = this.msg ? this.foldsIn(this.msg).points.find(p => `fold:${p.key}` === e.key) : undefined;
+      if (!p) return null;
+      this.setFold(p, !this.folded.has(p.key), select);
+      host.redraw();
+      return { folded: this.folded.has(p.key) };
+    }
+    if (e.kind === "comment") { if (select) this.openThread(host); return { thread: e.thread }; }
+    const how: OpenHow = { link: true, fresh };
+    const l = e.link!;
+    if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
+    return this.followTarget(l, host, how);
+  }
+
+  /** The thread list, on the current comment mark's thread, as the person's `m` opens it (their session). */
+  private openThread(host: SurfaceHost) {
+    if (host.startSession) host.startSession("threads");
+    else void this.comment(host, "threads");
+  }
+
+  /** The comment threads placed in the note, each on the rows of the lines its quote spans. */
+  private commentMarks(m: Msg, doc: Doc, noteLines: number[]): Mark[] {
+    const cs = this.commentsFor === m.id ? this.comments ?? [] : [];
+    if (!cs.length) return [];
+    const lineOf = lineAtOffset(m.text);
+    const out: Mark[] = [];
+    for (const c of cs) {
+      if (c.start === null || c.end === null) continue;
+      const lo = lineOf(c.start), hi = lineOf(Math.max(c.start, c.end - 1));
+      const rows = rowsOfLines(doc, noteLines, lo, hi);
+      if (!rows) continue;
+      const q = printable(c.quote).trim();
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${q.length > 40 ? q.slice(0, 39) + "…" : q}" · ${c.author}${c.open ? "" : " · resolved"}` });
+    }
+    return out;
+  }
+
+  /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
+  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[]): Element[] {
+    const out: Element[] = [];
+    const seen = new Map<string, number>();
+    const keyOf = (kind: string, l: Link) => {
+      const id = `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? ""].join("|")}`;
+      const n = seen.get(id) ?? 0;
+      seen.set(id, n + 1);
+      return `${id}#${n}`;
+    };
+    // The block a body row is in: the rows drawn from the same source line (a paragraph, a list item, a
+    // heading, a whole table, callout or figure).
+    const block = (r: number): [number, number] => {
+      const s = doc.source[r];
+      let a = r, b = r + 1;
+      while (a > 0 && doc.source[a - 1] === s) a--;
+      while (b < doc.source.length && doc.source[b] === s) b++;
+      return [top + a, top + b];
+    };
+    const text = (line: string, from: number, to: number) => cellsOf(line).slice(from, to).join("").trim();
+    const sum = head[1] ?? "";
+    for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: 1, from: l.from, to: l.to, ruler: [1, 2], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
+    const byN = new Map<number, typeof doc.links>();
+    for (const r of doc.links) { const g = byN.get(r.n); if (g) g.push(r); else byN.set(r.n, [r]); }
+    for (const [n, rs] of byN) {
+      const l = drawn[n], r = rs[0]!;
+      if (!l) continue;
+      const kind: ElementKind = l.role ?? "link";
+      // An embed's ruler is its shaded region; a row's is itself; a link's is the block it's in.
+      let ruler = block(r.line);
+      if (kind === "row") ruler = [top + r.line, top + r.line + 1];
+      else if (kind === "embed") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE)) b++; ruler = [top + r.line, top + b]; }
+      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label: rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" "), link: l });
+    }
+    for (const x of doc.media) out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path } });
+    for (const hd of doc.heads) {
+      const p = points.find(p => p.key === hd.key);
+      if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: 1, to: hd.cols + 1, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
+    }
+    for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
+    return out.sort((a, b) => a.row - b.row || a.from - b.from);
+  }
+
+  /** The content rows [from, to) a focus mark covers in this render, or null when it isn't drawn. */
+  private focusRows(spec: FocusSpec, m: Msg, doc: Doc, noteLines: number[], top: number): [number, number] | null {
+    const body = (lo: number, hi: number): [number, number] | null => {
+      const r = rowsOfLines(doc, noteLines, lo, hi);
+      return r ? [top + r[0], top + r[1]] : lo === 0 ? [0, 1] : null;
+    };
+    if (spec.quote !== undefined) {
+      const at = findQuote(m.text, spec.quote, spec.near);
+      if (at < 0) return null;
+      const lineOf = lineAtOffset(m.text);
+      return body(lineOf(at), lineOf(at + Math.max(0, spec.quote.length - 1)));
+    }
+    if (spec.line !== undefined) return body(spec.line - 1, (spec.to ?? spec.line) - 1);
+    if (spec.block !== undefined) {
+      if (sameId(spec.block, m.id)) return [0, 1];      // the note itself: its title
+      const e = this.elems.find(e => e.kind === "embed" && sameId(spec.block!, e.link!.block)) ?? this.elems.find(e => sameId(spec.block!, e.link?.block));
+      return e ? e.ruler : null;
+    }
+    return null;
+  }
+
+  /**
+   * Set a focus mark (PIE-423's door side): a block (the note, or one it embeds or links), note lines, or
+   * an exact passage of the note's text, checked against what this reader draws now. It's drawn in the
+   * ruler's tint, whoever set it named in the header, and scrolled into view when it isn't; the person's
+   * `[ ]` position, selection and keys stay theirs.
+   */
+  setFocus(spec: FocusSpec, by: Actor): { marked: string; rows: number } {
+    const m = this.msg, d = this.drawn;
+    if (!m || !d) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, showing the full property panel, or it's a river column's digest)");
+    // A block, and in it maybe a passage (lines or exact words): the passage is found in the note shown.
+    const within = [spec.line, spec.quote].filter(x => x !== undefined).length;
+    if (within > 1 || (!within && spec.block === undefined)) throw new ActionRefused("say what to mark: block= (this note, or one it embeds or links), and in this note maybe line= (with to= for a range; 1 is the subject) or quote= (its exact words; near= picks among repeats)");
+    if (within && spec.block !== undefined && !sameId(spec.block, m.id)) throw new ActionRefused(`a passage is found in the note this reader shows (${m.id.slice(0, 8)}); name it as block=, or leave block out`);
+    if (spec.to !== undefined && spec.line === undefined) throw new ActionRefused("to= goes with line=");
+    if (spec.near !== undefined && spec.quote === undefined) throw new ActionRefused("near= goes with quote=");
+    if (spec.line !== undefined && (spec.line < 1 || (spec.to ?? spec.line) < spec.line)) throw new ActionRefused("line is from 1 (the subject), and to isn't before it");
+    if (spec.quote !== undefined && !spec.quote.trim()) throw new ActionRefused("quote is empty");
+    if (spec.quote !== undefined && findQuote(m.text, spec.quote, spec.near) < 0) throw new ActionRefused(`"${spec.quote.length > 40 ? spec.quote.slice(0, 39) + "…" : spec.quote}" isn't in the note's current text`);
+    const rows = this.focusRows(spec, m, d.doc, d.lines, d.top);
+    if (!rows) {
+      if (spec.block !== undefined) throw new ActionRefused(`this note doesn't embed or link ${spec.block} where it's drawn; to mark another note, open it first`);
+      throw new ActionRefused("nothing of that is drawn here (past the end, only properties, or in a folded section; unfold it first)");
+    }
+    const q = spec.quote?.trim() ?? "";
+    const label = spec.quote !== undefined ? `"${q.length > 40 ? q.slice(0, 39) + "…" : q}"`
+      : spec.line !== undefined ? `line${spec.to && spec.to !== spec.line ? `s ${spec.line}–${spec.to}` : ` ${spec.line}`}`
+      : sameId(spec.block!, m.id) ? "this note" : (this.elems.find(e => sameId(spec.block!, e.link?.block))?.label ?? spec.block!).slice(0, 40);
+    this.focusMark = { by, spec, label, at: Date.now() };
+    this.revealMark = true;
+    return { marked: label, rows: rows[1] - rows[0] };
+  }
+
+  /** The elements as `peek` and the `elements` action list them. */
+  describeElements() {
+    return this.elems.map((e, i) => ({
+      n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
+      ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media } : {}), ...(e.thread ? { thread: e.thread } : {}),
+    }));
+  }
+
+  /** Refused unless the last render drew the note (the elements come from it). */
+  requireDrawn() {
+    if (!this.drawn) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
+  }
+
+  /** Element `n` (from 1) of the last render. */
+  element(n: number): Element {
+    this.requireDrawn();
+    const e = this.elems[n - 1];
+    if (!e) throw new ActionRefused(`there is no element ${n}; the reader draws ${this.elems.length} (elements lists them)`);
+    return e;
+  }
+
+  /** `element.select`: the person's `[ ]` position, brought into view. */
+  selectElement(e: Element) { this.setElem(e); this.reveal = true; }
+  /** `element.open`: ⏎ on element `e` (see enterElement). */
+  openElement(e: Element, host: SurfaceHost, fresh: boolean, select: boolean) { return this.enterElement(e, host, { fresh, select }); }
 
   /**
    * A click in the last render (`x`, `y` in the surface's cells). While an edit, a comment or a value
@@ -979,11 +1295,18 @@ export class NoteSurface {
       return !!d && !d.busy && !!completerOf(d)?.click(y);
     }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    const h = at.find(h => "copy" in h || "link" in h || ("follow" in h && h.follow)) ?? at[0];
+    const h = at.find(h => "copy" in h || "link" in h || "thread" in h || ("follow" in h && h.follow)) ?? at[0];
     if (h && "copy" in h) { this.copySelection(h.copy === "source", host); host.redraw(); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) { this.selection = null; host.redraw(); }
     if (!h) return this.clickFold(x, y, host);
+    // A comment mark: its thread opens, as ⏎ on it does, and it's the `[ ]` position (PIE-441).
+    if ("thread" in h) {
+      const e = this.elems.find(e => e.key === h.elem);
+      if (e) void this.enterElement(e, host);
+      host.redraw();
+      return !!e;
+    }
     if ("prop" in h) {
       const m = this.msg, r = m && this.panel ? this.rows(m)[h.prop - 1] : undefined;
       if (!r || !this.panel) return false;
@@ -992,15 +1315,15 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    if (h.value !== undefined) {
-      // A summary-line value: the same resolution as the panel's `o` (no fuzzy search; the panel closes).
-      const i = this.links.findIndex(x => sameLink(x, h.link));
-      if (i >= 0) this.link = i;
-      host.redraw();
-      void this.followValue({ key: h.value, target: h.link.block ? { block: h.link.block } : { page: h.link.page! } }, host);
-      return true;
-    }
-    void this.open(h.link, host);
+    // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
+    // it opens where ⏎ on it would.
+    const e = h.elem ? this.elems.find(e => e.key === h.elem) : undefined;
+    if (e) this.setElem(e);
+    else { const i = this.links.findIndex(x => sameLink(x, h.link)); if (i >= 0) { this.cur = null; this.link = i; } }
+    host.redraw();
+    // A summary-line value: the same resolution as the panel's `o` (no fuzzy search; the panel closes).
+    if (h.value !== undefined) void this.followValue({ key: h.value, target: h.link.block ? { block: h.link.block } : { page: h.link.page! } }, host, { link: true });
+    else void this.followTarget(h.link, host, { link: true });
     return true;
   }
 
@@ -1008,15 +1331,15 @@ export class NoteSurface {
    * Open a link the host drew itself (the river's note body): it becomes the selected `[ ]` link when
    * it is one of them, then opens where ⏎ on it would.
    */
-  open(l: Link, host: SurfaceHost): Promise<Msg | null> {
+  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | null> {
     const i = this.links.findIndex(x => sameLink(x, l));
-    if (i >= 0) this.link = i;
+    if (i >= 0) { this.cur = null; this.link = i; }
     host.redraw();
-    return this.followTarget(l, host);
+    return this.followTarget(l, host, { link: true, fresh });
   }
 
-  /** Open what a link names: media in the system viewer, blocks and pages through the host. */
-  private async followTarget(l: Link, host: SurfaceHost): Promise<Msg | null> {
+  /** Open what a link names: media in the system viewer, blocks and pages through the host (`how`, where). */
+  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
@@ -1033,7 +1356,7 @@ export class NoteSurface {
         ?? hits.find(m => subject(m).toLowerCase().startsWith(p)) ?? null;
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
-    host.navigate(target);
+    host.navigate(target, how);
     return target;
   }
 
@@ -1198,7 +1521,7 @@ export class NoteSurface {
       const d = this.drawn!, row = d.room > 0 && d.body.length ? d.top + this.scroll : 0;
       const at = { row, col: rows.margin?.(row) ?? 0 };
       this.selection = this.stamp(new Selection({ ...at }, { ...at }, true));
-      this.link = -1; this.foldSel = null;
+      this.letGo();
       host.redraw();
       return true;
     }
@@ -1325,7 +1648,7 @@ export class NoteSurface {
     // comment under it, where the panel would take the keys meant for the agent's session.
     if (actor.kind === "agent" && this.panel && !this.draft && !this.session && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
-    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: m => host.navigate(m) } : host;
+    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, agent: true }), startSession: undefined } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }
 
@@ -1340,6 +1663,8 @@ export class NoteSurface {
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
+      elements: this.drawn ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
+      focus: this.focusMark ? { by: this.focusMark.by.kind === "agent" ? this.focusMark.by.id : "you", marked: this.focusMark.label, ...this.focusMark.spec } : null,
       properties: this.panel && this.msg ? {
         open: this.panel.full ? "full" : "inline", selected: this.panel.sel + 1, note: this.panel.note || null,
         editing: this.panel.field ? { n: this.panel.field.row.n, key: this.panel.field.row.key, text: this.panel.field.text, revision: this.panel.field.revision, changedElsewhere: this.panel.field.changedElsewhere, note: this.panel.field.note || null } : null,
@@ -1441,10 +1766,42 @@ export class NoteSurface {
   env(host: SurfaceHost, actor: Actor) { return this.commentEnv(host, actor); }
   closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost) { return this.follow(i, host); }
-  clearLink() { this.link = -1; }
-  selectLink(i: number) { if (!this.links[i]) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`); this.link = i; }
+  clearLink() { this.letGo(); }
+  selectLink(i: number) {
+    const l = this.links[i];
+    if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
+    // The element it's drawn as becomes current (the ruler and ⏎ agree); none when it isn't drawn.
+    this.cur = this.elems.find(e => e.link && sameLink(e.link, l))?.key ?? null;
+    this.link = i;
+  }
   goUp(host: SurfaceHost) { return this.up(host); }
 }
+
+/** The note line (from 0, the subject) each offset of `text` is on. */
+const lineAtOffset = (text: string) => {
+  const starts: number[] = [];
+  let o = 0;
+  for (const l of text.split("\n")) { starts.push(o); o += l.length + 1; }
+  return (off: number) => Math.max(0, starts.findLastIndex(s => s <= off));
+};
+
+/** The body rows [from, to) drawn from note lines `lo` to `hi` (from 0, the subject), or null when none is drawn. */
+function rowsOfLines(doc: Doc, noteLines: number[], lo: number, hi: number): [number, number] | null {
+  let a = -1, b = -1;
+  doc.source.forEach((s, r) => { const l = noteLines[s]; if (l !== undefined && l >= lo && l <= hi) { if (a < 0) a = r; b = r; } });
+  return a < 0 ? null : [a, b + 1];
+}
+
+/** Where `quote` is in `text`: the occurrence nearest `near` (an offset), or the first; -1 when it isn't. */
+function findQuote(text: string, quote: string, near?: number): number {
+  const hits: number[] = [];
+  if (quote) for (let i = text.indexOf(quote); i >= 0; i = text.indexOf(quote, i + 1)) hits.push(i);
+  if (!hits.length) return -1;
+  return near === undefined ? hits[0]! : hits.reduce((a, b) => (Math.abs(b - near) < Math.abs(a - near) ? b : a));
+}
+
+/** A block id as an agent names it: the whole id, or its first 8+ characters. */
+const sameId = (named: string, id: string | undefined) => !!id && (named === id || (named.length >= 8 && id.startsWith(named)));
 
 /** `## Beds`, `- dig the bed`: a fold point as the hint, `peek` and the fold actions name it. */
 const foldLabel = (p: FoldPoint) => `${p.kind === "heading" ? "#".repeat(p.level) : "-"} ${printable(p.text)}`;
@@ -1485,6 +1842,11 @@ export interface NoteActionArgs {
   "edit.reload": Record<string, never>;
   "edit.close": { discard?: boolean };
   "link.select": { n: number };
+  "elements": Record<string, never>;
+  "element.select": { n: number };
+  "element.open": { n?: number; fresh?: boolean };
+  "focus.set": FocusSpec;
+  "focus.clear": Record<string, never>;
   "link.follow": { n?: number };
   "up": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
@@ -1719,7 +2081,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
     run({ discard }, { surface, host }) { const r = surface.closeDraftAction(!!discard); host.redraw(); return r; },
   },
   "link.select": {
-    summary: "select the note's nth link (1 is the first)", keys: "[ ]",
+    summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",
     args: { n: { type: "number", about: "which link, from 1" } },
     run({ n }, { surface, host }) { surface.requireNote(); surface.selectLink(n - 1); host.redraw(); return surface.describe().links[n - 1]; },
   },
@@ -1734,6 +2096,84 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> = new ActionSet<NoteAct
       const m = await surface.followLink(i, host);
       if (m) surface.noteAgent(actor, `followed a link to ${subject(m).slice(0, 40)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
+    },
+  },
+  "elements": {
+    summary: "list what [ ] steps through in this reader, in reading order: links, folds, figure rows, embeds, comment marks (the current one marked)",
+    args: {},
+    async run(_, { surface }) {
+      await surface.whole();
+      surface.requireDrawn();
+      return { elements: surface.describeElements() };
+    },
+  },
+  "element.select": {
+    summary: "put the person's [ ] position on the nth element (elements lists them); the reading ruler follows. An agent's is refused: the position is the person's (focus.set marks something for them)", keys: "[ ], a click",
+    args: { n: { type: "number", about: "which element, from 1, as elements lists them" } },
+    async run({ n }, { surface, host }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("the [ ] position is the person's; focus.set marks a block for them without moving it");
+      await surface.whole();
+      surface.selectElement(surface.element(n));
+      host.redraw();
+      return surface.describeElements()[n - 1];
+    },
+  },
+  "element.open": {
+    summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone", keys: "enter, alt+enter, a click",
+    args: {
+      n: { type: "number", optional: true, about: "which element, from 1 (elements lists them); default the current one (the person's own only)" },
+      fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
+    },
+    async run({ n, fresh }, on, actor) {
+      const { surface, host } = on;
+      await surface.whole();
+      if (n === undefined && actor.kind === "agent") throw new ActionRefused("say which element: n (elements lists them); the current one is the person's");
+      const i = n ?? (surface.describeElements().findIndex(e => e.current) + 1);
+      if (!i) throw new ActionRefused("no element is current; pass n");
+      const e = surface.element(i);
+      if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
+      // An agent's comment mark opens the thread list as its own session, on that thread (never under the
+      // person's property panel, which would take the keys meant for it).
+      if (e.kind === "comment" && actor.kind === "agent") {
+        if (surface.panel && !surface.draft && !surface.session) throw new ActionRefused("the person has the property panel open on this note; try again once they close it");
+        const r = await NOTE_ACTIONS.run("threads", {}, on, actor) as { threads: { id: string }[] };
+        const s = surface.session;
+        const t = s ? s.threads.findIndex(x => x.id === e.thread) : -1;
+        if (s && t >= 0) s.sel = t;
+        host.redraw();
+        return { thread: e.thread, ...r };
+      }
+      const r = await surface.openElement(e, host, !!fresh, actor.kind === "user");
+      if (actor.kind === "agent") surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label.slice(0, 40)}`);
+      host.redraw();
+      return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
+    },
+  },
+  "focus.set": {
+    summary: "set a focus mark: a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
+    args: {
+      block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
+      line: { type: "number", optional: true, about: "a note line (1 is the subject)" },
+      to: { type: "number", optional: true, about: "with line: the last note line" },
+      quote: { type: "string", optional: true, about: "the note's exact words, as stored (the same shape as a comment's quote)" },
+      near: { type: "number", optional: true, about: "with quote, when the words occur more than once: the offset to be nearest" },
+    },
+    async run(spec, { surface, host }, actor) {
+      await surface.whole();
+      const r = surface.setFocus(spec, actor);
+      host.ctx.flash(`${agentLabel(actor)} marked ${r.marked}`);
+      host.redraw();
+      return { ...r, by: actor.kind === "agent" ? actor.id : "you" };
+    },
+  },
+  "focus.clear": {
+    summary: "take away the focus mark in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
+    args: {},
+    run(_, { surface, host }) {
+      const had = surface.focusMark;
+      surface.focusMark = null;
+      host.redraw();
+      return { cleared: !!had, ...(had ? { by: had.by.kind === "agent" ? had.by.id : "you" } : {}) };
     },
   },
   "up": {

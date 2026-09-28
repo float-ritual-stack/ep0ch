@@ -113,10 +113,11 @@ export function shade(s: string, w: number): string {
  */
 export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: (m: Msg, width: number) => string[], sink?: LinkTarget[]): string[] {
   // With a sink, the title (and a view's results) are tagged as links, so a click opens them (PIE-415).
+  // Each says what it is (PIE-441): the title stands for the embed, a view's result for its note.
   const link = (to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
   const ref = `!((${id.length > 12 ? id.slice(0, 8) + "…" : id}${fragment ? `^${fragment}` : ""}))`;
   const S = (line: string) => shade(line, w);
-  const head = (text: string, colour: number = C.lcyan) => S(fg(colour) + "\x1b[1m" + link({ block: id, ...(fragment ? { fragment } : {}) }, text) + "\x1b[22m" + RESET);
+  const head = (text: string, colour: number = C.lcyan) => S(fg(colour) + "\x1b[1m" + link({ block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + "\x1b[22m" + RESET);
   const fail = (what: string) => [S(fg(C.lred) + `${ref} · ${what}` + RESET)];
   if (n >= MAX_EMBEDS) return fail(`EMBED LIMIT · maximum ${MAX_EMBEDS} per note`);
   const st = embedState(id, fragment, src);
@@ -143,7 +144,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
       const keys = viewSummaryKeys(st.target) ?? [];
       return [head(`Embedded view · ${title} · ${count}`), ...v.items.map(m => {
         const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
-        return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + link({ block: m.id }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
+        return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + link({ block: m.id, role: "row" }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
       })];
     }
   }

@@ -7,7 +7,7 @@ import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import type { Activity, Actor, Comment } from "../socket";
-import { NoteSurface, propertyChange, type SurfaceHost } from "../surface/note";
+import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
@@ -18,11 +18,14 @@ export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: 
 export interface DeskApi {
   ctx: Ctx;
   current: Msg | null;
-  setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane }): void;
+  /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
+  setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;
   focusKind(kind: PaneKind): void;
   redraw(): void;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
+  /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
+  startSession?(pane: ReaderPane, kind: SessionKind): void;
 }
 
 export interface Pane {
@@ -200,6 +203,8 @@ export class ReaderPane implements Pane {
   get editing() { return this.surface.editing; }
   /** Every key goes to the surface first (an edit, or the property panel); hosts route to it before their own. */
   get holdsKeys() { return this.surface.holdsKeys; }
+  /** Hold `m` (a desk reader opened by alt+⏎ on a link): it keeps its note as the current one changes. */
+  hold(m: Msg, desk: DeskApi) { this.held = this.follows; this.show(m, desk); }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   title() {
@@ -213,8 +218,10 @@ export class ReaderPane implements Pane {
     const h: SurfaceHost = {
       ctx: desk.ctx,
       redraw: () => desk.redraw(),
-      navigate: m => { if (this.held) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this }); },
+      // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
+      navigate: (m, how) => { if (this.held && !how?.fresh) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
+      startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
     };
     return h;
   }
@@ -248,7 +255,7 @@ export class ReaderPane implements Pane {
    * would, or through `open` when the host says otherwise), a property row is picked, a heading or a
    * list item's mark folds or unfolds.
    */
-  click(x: number, y: number, desk: DeskApi, open?: (m: Msg) => void): boolean {
+  click(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
     const h = this.host(desk);
     return this.surface.click(x, y, open ? { ...h, navigate: open } : h);
   }
@@ -258,7 +265,7 @@ export class ReaderPane implements Pane {
    */
   press(x: number, y: number, desk: DeskApi) { this.surface.press(x, y, this.host(desk)); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
-  release(x: number, y: number, desk: DeskApi, open?: (m: Msg) => void): boolean {
+  release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
     const h = this.host(desk);
     return this.surface.release(x, y, open ? { ...h, navigate: open } : h);
   }

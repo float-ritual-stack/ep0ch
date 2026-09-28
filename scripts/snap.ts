@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["showcase", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold"].includes(scenario);
+const wide = ["showcase", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete` and `fold` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "showcase" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" ? await (async () => {
+// `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "showcase" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -428,6 +428,41 @@ if (scenario === "fold") {
   await agent("open", "", { id: plan.id }); await Bun.sleep(800);
   ch(")"); ch("f");
   await snap("10-desk", 800);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "elements") {
+  // PIE-441 on its own scratch service (fictional garden notes): [ ] walk a note's elements in the
+  // preview with the reading ruler under the current one, ⏎ on a figure row opens a detail, the comment
+  // mark opens its thread, and an agent's focus mark in the detail is tinted and named.
+  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+  const beans = await mk(null, "Stake the beans\nCanes along the fence.");
+  const shed = await mk(null, "Paint the shed\nTwo coats, green.");
+  await mk(null, "Water the seedlings [type::garden-job]");
+  await mk(null, "Turn the compost [type::garden-job]");
+  const figure = `::graph-check\n---\ntitle: Garden jobs\nquery: "type=garden-job"\nsort: created\ndirection: asc\n---\n::`;
+  const jobs = await mk(null, `Weekend jobs [stage::queued]\nFirst ((${beans.id})), then [[Garden plan]].\n\n## Beds\n- dig the north bed\n  - edge it with boards\n  - two barrows of compost\n\n${figure}\n\n!((${shed.id}))\n\n## Water\nThe hose runs along the fence past the shed.`);
+  await board.comment(`snap-${crypto.randomUUID()}`, jobs.id, jobs.revision, "Use the long spade.", { quote: "dig the north bed", start: jobs.text.indexOf("dig the north bed") });
+  void plan;
+  const hub = await mk(null, "Garden board");
+  await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+  board.subscribe(e => app.event(e));
+  const B = new DeliveryBoard(hub.id), S = B as any;
+  app.push(new MainMenu()); app.push(B);
+  await snap("1-preview", 2000);
+  S.focus = "preview";
+  ch("]"); ch("]"); await snap("2-link-ruler", 300);
+  for (let i = 0; i < 5; i++) ch("]");
+  await snap("3-figure-row", 300);
+  press({ kind: "enter" }); await snap("4-row-opens-detail", 800);
+  S.focus = "preview";
+  ch("["); ch("["); ch("["); await snap("5-comment-mark", 300);
+  press({ kind: "enter" }); await snap("6-thread", 600);
+  press({ kind: "esc" });
+  await app.act({ action: "open", reader: "detail", args: { id: jobs.id }, as: "snap-agent" });
+  await Bun.sleep(600);
+  await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
+  await snap("7-agent-focus", 400);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {

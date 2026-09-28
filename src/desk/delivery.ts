@@ -10,7 +10,7 @@ import { onMediaChange } from "../media";
 import { USER, type Actor, type Backlink, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
-import { NOTE_ACTIONS } from "../surface/note";
+import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET, width } from "../style";
@@ -36,7 +36,7 @@ type Drag =
   | { kind: "float-move"; f: Float; dx: number; dy: number } | { kind: "float-size"; f: Float }
   | { kind: "card"; from: number; card: Msg; over: number | null; open: boolean }
   /** The mouse went down in a reader (PIE-419): a drag selects its text, the release is the click. */
-  | { kind: "select"; pane: ReaderPane; col: number; row: number; open?: (m: Msg) => void };
+  | { kind: "select"; pane: ReaderPane; col: number; row: number; open?: (m: Msg, how?: OpenHow) => void };
 interface Layout { laneFrac: number; previewFrac: number; treeFrac: number; linksFrac: number; treeSide: "left" | "right"; laneWeights: Record<string, number>; readerWeights: number[] }
 interface Saved extends Layout {
   treePinned: boolean; linksPinned: boolean; lane: number; collapsed: string[]; hubs?: Record<string, string>;
@@ -529,10 +529,13 @@ export class DeliveryBoard implements Screen, DeskApi {
 
   // ── DeskApi: the reused tree and reader panes call back through this ───────
 
-  setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } = {}) {
+  setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
     if (!m) return;
     this.current = m;
     const from = opts.from;
+    // alt+⏎ on a link opens a new detail; a link followed in the preview opens in a detail, as ⏎ on a
+    // card does (PIE-441). An agent's never takes the person's focus.
+    if (from instanceof ReaderPane && (opts.fresh || (opts.link && from === this.preview))) { this.openDetail(m, !!opts.fresh, !!opts.agent); return; }
     if (from === this.tree) this.treePreview.show(m, this);                     // tree → its own mini preview
     else if (from instanceof ReaderPane && from !== this.preview) from.show(m, this);   // links open in place
     else this.preview.show(m, this);
@@ -541,8 +544,11 @@ export class DeliveryBoard implements Screen, DeskApi {
   focusKind(kind: PaneKind) { if (kind === "reader" && this.current) this.openDetail(this.current, false); }
   redraw() { this.ctx?.redraw(); }
 
-  /** Show `m` in a detail; false (with a flash) when none could take it. */
-  private openDetail(m: Msg, fresh: boolean): boolean {
+  /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
+  startSession(pane: ReaderPane, kind: SessionKind) { this.start(pane, kind); }
+
+  /** Show `m` in a detail; false (with a flash) when none could take it. `quiet`: an agent's, focus stays. */
+  private openDetail(m: Msg, fresh: boolean, quiet = false): boolean {
     // The reader the person is in (an edit, a comment or the property panel), by identity: the detail
     // list can shift under it, and their keys stay with it wherever it lands.
     const keep = this.personIn();
@@ -560,7 +566,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (this.shut.delete(this.details[this.active]!)) this.save();   // opening a note into a collapsed detail reopens it
     // Focus follows the note into its detail, unless the person is in an edit, comment or panel: it stays
     // on that reader, wherever the list moved it.
-    this.focus = keep ? this.regionOf(keep) ?? this.focus : `detail${this.active}`;
+    if (!quiet) this.focus = keep ? this.regionOf(keep) ?? this.focus : `detail${this.active}`;
     if (!this.treePinned) this.treeOpen = false;
     this.redraw();
     return true;
@@ -678,7 +684,7 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (x < 0 || y < 0 || x >= r.cols - 2 || y >= r.rows - 2 - skip) return;
     const drawer = pane === this.treePreview || pane === this.linksPreview;
     // Decided on release: a click (a link opens, a heading folds…), or a drag that selected text.
-    this.drag = { kind: "select", pane, col: r.col + 1, row: r.row + 1 + skip, open: drawer ? m => { this.current = m; this.openDetail(m, false); } : undefined };
+    this.drag = { kind: "select", pane, col: r.col + 1, row: r.row + 1 + skip, open: drawer ? (m, how) => { this.current = m; this.openDetail(m, !!how?.fresh); } : undefined };
     pane.press(x, y, this);
   }
 
@@ -1737,7 +1743,8 @@ export class DeliveryBoard implements Screen, DeskApi {
     if (!rd || rd.holdsKeys) return;
     const start = sessionStart(k);
     if (start) return this.start(rd, start);
-    if (!rd.key(k, this) && k.kind === "enter" && rd === this.preview && this.preview.msg) this.openDetail(this.preview.msg, false);
+    // ⏎ or alt+⏎ in the preview that isn't on one of its elements opens its note, as on the card.
+    if (!rd.key(k, this) && (k.kind === "enter" || k.kind === "alt-enter") && rd === this.preview && this.preview.msg) this.openDetail(this.preview.msg, k.kind === "alt-enter");
   }
 
   private laneKey(k: Key, c: string) {

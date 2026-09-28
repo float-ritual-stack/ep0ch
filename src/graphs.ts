@@ -37,21 +37,25 @@ function bar(frac: number, n: number, on = ACCENT): string {
   return fg(on) + "█".repeat(k) + fg(DIM) + "-".repeat(n - k) + RESET;
 }
 
-const KINDS: Record<string, (p: Props, w: number) => string[]> = {
-  check: (p, w) => (p.items ?? []).flatMap((it: Props) => {
+/** Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). */
+type RowLink = (block: string, text: string) => string;
+const rowLink = (link: RowLink | undefined, block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
+
+const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> = {
+  check: (p, w, link) => (p.items ?? []).flatMap((it: Props) => {
     const box = it.done ? fg(ACCENT) + "[x]" : fg(DIM) + "[ ]";
     const lines = wrap(String(it.label ?? ""), w - 6);
-    return lines.map((l, i) => (i ? "      " : box + RESET + "  ") + fg(it.done ? HI : INK) + l + RESET)
+    return lines.map((l, i) => (i ? "      " : box + RESET + "  ") + fg(it.done ? HI : INK) + (i ? l : rowLink(link, it.block, l)) + RESET)
       .concat(it.note ? ["      " + fg(DIM) + it.note + RESET] : []);
   }),
 
-  timeline: (p, w) => {
+  timeline: (p, w, link) => {
     const ev: Props[] = p.events ?? [];
     const dw = Math.max(0, ...ev.map(e => String(e.date ?? "").length));
     return ev.flatMap((e, i) => {
       const now = e.state === "now", next = e.state === "next";
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
-      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${e.label ?? ""}${RESET}`;
+      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, String(e.label ?? ""))}${RESET}`;
       return i < ev.length - 1 ? [pad(line, w), fg(DIM) + "│" + RESET] : [pad(line, w)];
     });
   },
@@ -131,7 +135,7 @@ const KINDS: Record<string, (p: Props, w: number) => string[]> = {
     return out;
   },
 
-  table: (p, w) => {
+  table: (p, w, link) => {
     const head: string[] = (p.headers ?? []).map(String), rows: string[][] = (p.rows ?? []).map((r: unknown[]) => r.map(String));
     const foot: string[] | undefined = p.footer?.map(String);
     const align: string[] = p.align ?? [];
@@ -143,7 +147,9 @@ const KINDS: Record<string, (p: Props, w: number) => string[]> = {
     const cell = (s: string, k: number) => { const t = s.length > cw[k]! ? s.slice(0, cw[k]! - 1) + "…" : s; return align[k] === "right" ? t.padStart(cw[k]!) : t.padEnd(cw[k]!); };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
     const rule = fg(DIM) + "·".repeat(Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
-    return [line(head, fg(HI)), rule, ...rows.map(r => line(r, fg(INK))), ...(foot ? [rule, line(foot, fg(HI))] : [])];
+    // A live table's row stands for its note: the whole row is the link (cells are cut by length first).
+    const blocks: unknown[] = p.blocks ?? [];
+    return [line(head, fg(HI)), rule, ...rows.map((r, i) => rowLink(link, blocks[i], line(r, fg(INK)))), ...(foot ? [rule, line(foot, fg(HI))] : [])];
   },
 };
 
@@ -155,8 +161,11 @@ export function isGraphStart(line: string): string | null {
   return m ? m[1]! : null;
 }
 
-/** Render a `::graph-kind` block whose YAML (between --- lines) is in `yaml`. */
-export function renderGraph(kind: string, yaml: string, W: number): string[] {
+/**
+ * Render a `::graph-kind` block whose YAML (between --- lines) is in `yaml`. `link`: a live figure's rows
+ * that stand for a note are tagged with it, so the reader steps to them and opens them (PIE-441).
+ */
+export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink): string[] {
   let props: Props = {};
   try { props = (Bun.YAML.parse(yaml) as Props) ?? {}; }
   catch (e) { return frame(kind, [fg(C.lred) + `bad YAML: ${(e as Error).message}` + RESET], W); }
@@ -167,7 +176,7 @@ export function renderGraph(kind: string, yaml: string, W: number): string[] {
     if (live.waiting) return frame(String(props.title ?? kind), [fg(DIM) + "asking the outline…" + RESET], W, "live");
     props = live.props;
     const draw = KINDS[kind];
-    const body = draw ? draw(props, Math.max(10, W - 4)) : [];
+    const body = draw ? draw(props, Math.max(10, W - 4), link) : [];
     if (live.error) body.push(fg(C.lred) + live.error + RESET);
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     return frame(String(props.title ?? ""), body, W, live.status ?? "live");

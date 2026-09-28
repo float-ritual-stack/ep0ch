@@ -595,11 +595,12 @@ export class River implements Screen {
     return {
       ctx: this.ctx,
       redraw: () => this.ctx.redraw(),
-      navigate: m => {
+      // alt+⏎ (PIE-441) opens it in a new column even when one shows it already.
+      navigate: (m, how) => {
         const at = this.cols.findIndex(c => c.panes.includes(p));
-        if (actor?.kind === "agent") { this.open(m, false, at >= 0 ? at : this.focus, false); return; }
+        if (actor?.kind === "agent" || how?.agent) { this.open(m, !!how?.fresh, at >= 0 ? at : this.focus, false); return; }
         if (at >= 0) this.focus = at;
-        this.open(m, false);
+        this.open(m, !!how?.fresh);
       },
     };
   }
@@ -908,10 +909,11 @@ export class River implements Screen {
       ctx.flash(`in ${this.whose(p)} · ${p.surface.hint()}`);
       return ctx.redraw();
     }
-    // Reading: the surface's own keys act on the column's note (e C m i ctrl+e [ ] u, ⏎ on a selected link).
+    // Reading: the surface's own keys act on the column's note (e C m i ctrl+e [ ] u, ⏎ or alt+⏎ on a
+    // selected link: without it, alt+⏎ would open the selected card in a new column instead, PIE-441).
     const linked = !!p && !held && this.linked(p);
     const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";
-    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && k.kind === "enter"))) {
+    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && (k.kind === "enter" || k.kind === "alt-enter")))) {
       if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);

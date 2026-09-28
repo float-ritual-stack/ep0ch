@@ -19,15 +19,21 @@ export interface DocEnv {
    * and the one selected by the keys. Without it nothing folds (an embed, a draft's preview).
    */
   folds?: { points: readonly FoldPoint[]; folded: ReadonlySet<string>; selected?: string | null };
+  /**
+   * Tag `text` as a link to a row's note (a live figure's check item, event or table row), so the reader
+   * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
+   */
+  link?: (block: string, text: string) => string;
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
- * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `source[r]`: the
+ * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `media[i].row`:
+ * the row that names the image or video (its caption, or the line in its place). `source[r]`: the
  * body line rendered row `r` comes from (the first line of a table, callout, fence or figure for all of its
  * rows). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
  * row, a list item's indent and mark).
  */
-export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string }[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[] }
+export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string; row: number }[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[] }
 
 /**
  * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
@@ -154,7 +160,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const yaml: string[] = [];
       let dashes = 0;
       for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) { if (/^\s*---\s*$/.test(src[i]!)) { dashes++; continue; } if (dashes === 1) yaml.push(src[i]!); }
-      out.push(...renderGraph(gk, yaml.join("\n"), W));
+      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link));
       continue;
     }
 
@@ -175,7 +181,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (m) {
       const kind = m[1]!.toLowerCase() === "video" ? "video" : "img";
       const entry = media(m[2]!, kind);
-      mediaRefs.push({ path: entry.path, kind });
+      const ref = { path: entry.path, kind, row: out.length };
+      mediaRefs.push(ref);
       const name = entry.path.split("/").pop()!;
       const label = kind === "video" ? "▶ video" : "▣ image";
       if (entry.state === "ready" && env.graphics) {
@@ -186,6 +193,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (rows > env.maxImageRows) { rows = env.maxImageRows; cols = Math.max(4, Math.min(W, Math.round((rows * env.cellH * img.width) / img.height / env.cellW))); }
         images.push({ line: out.length, rows, cols, media: entry });
         for (let r = 0; r < rows; r++) out.push("");
+        ref.row = out.length;
         out.push(fg(C.dark) + pad(`${label} · ${name} · ${img.width}×${img.height}${kind === "video" ? " · poster frame" : ""} · [ ] then ⏎ opens it`, W) + RESET);
       } else if (entry.state === "ready") {
         out.push(fg(C.cyan) + pad(`${label} · ${name} · ${entry.image.width}×${entry.image.height} (Kitty graphics off)`, W) + RESET);
