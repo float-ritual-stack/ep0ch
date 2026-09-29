@@ -102,11 +102,14 @@ export class PtyPane implements Pane {
         // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes.
         if (s.includes("\x1b[?1006h")) this.sgr = true;
         if (s.includes("\x1b[?1006l")) this.sgr = false;
+        // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
+        // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
+        for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.pty?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
         term.write(d, () => this.soon());
       },
     });
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door.
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", EP0CH_TILE: this.run.label ?? "" };
+    const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: this.run.label ?? "" };
     for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID"]) delete env[k];
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
