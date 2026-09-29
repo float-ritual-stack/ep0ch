@@ -1,21 +1,25 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createOutlinerClient } from "./client";
 import { listLiveClients, sendClientCommand } from "./client-target";
 import {
+  invocationPaneRoot,
   selectLinkedDetailClient,
   selectTreeClientForInvocation,
 } from "./herdr-open-policy";
 import {
   pluginInvocationPaneId,
-  pluginInvocationWorkspaceRoot,
+  pluginInvocationWorkspaceRootSource,
   type PaneEntrypoint,
   resolveServicePaneId,
 } from "./pane-control";
-import { resolveClientPaths } from "./paths";
+import { relaunchArgs, relaunchEnvironment } from "./herdr-open-relaunch";
+import { detectOutline, localOutlineOwner, socketAbsent } from "./known-outlines";
+import { resolveClientConfigRoot, resolveStateRoot } from "./paths";
+import type { OutlineChooserContext } from "./outline-chooser";
 import { waitForCompatibleService } from "./service-compatibility";
 import {
   clientSupportsRole,
@@ -77,7 +81,13 @@ await reportStartupErrors("open", async () => {
   }
   if (process.env.HERDR_ENV !== "1") throw new Error("The outliner workspace action must run inside Herdr");
 
-  let workspaceRoot = pluginInvocationWorkspaceRoot();
+  // The outline chooser continues an open with the folder it was asked about.
+  const chosenRoot = process.env.OUTLINER_OPEN_WORKSPACE_ROOT?.trim();
+  const invocationRoot = pluginInvocationWorkspaceRootSource();
+  let workspaceRoot = chosenRoot || invocationRoot.root;
+  let rootSource = chosenRoot
+    ? "the folder the outline chooser was opened for"
+    : { pane: "the invoking pane's directory", workspace: "the Herdr workspace root", fallback: "the launcher's working directory" }[invocationRoot.source];
   let invocationPane: NonNullable<PaneDetailsResponse["result"]>["pane"];
   if (currentPaneId) {
     const paneOutput = execFileSync(herdr, ["pane", "get", currentPaneId], {
@@ -87,13 +97,63 @@ await reportStartupErrors("open", async () => {
     invocationPane = (JSON.parse(paneOutput) as PaneDetailsResponse).result?.pane;
     // Outliner panes report their project through OSC 7; their running process
     // remains in the plugin checkout. A new Tree must inherit the project.
-    workspaceRoot = mode === "open-tree"
-      ? invocationPane?.cwd ?? invocationPane?.foreground_cwd ?? workspaceRoot
-      : invocationPane?.foreground_cwd ?? invocationPane?.cwd ?? workspaceRoot;
+    const picked = chosenRoot ? undefined : invocationPaneRoot(invocationPane, mode, resolve(import.meta.dir, ".."));
+    if (picked) {
+      workspaceRoot = picked.root;
+      rootSource = `the invoking pane's ${picked.field}`;
+    }
   }
 
-  const paths = resolveClientPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot });
-  mkdirSync(paths.stateDir, { recursive: true });
+  const presence = detectOutline({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot });
+  if (presence.kind === "missing") {
+    // Opening never creates an outline by itself: ask which one this folder uses.
+    if (mode === "service-only") {
+      throw new Error(`No outline for ${presence.paths.workspaceRoot} (resolved from ${rootSource}). Open the Outliner from Herdr in that folder to choose an outline or create one there.`);
+    }
+    const context: OutlineChooserContext = {
+      mode,
+      workspaceRoot: presence.paths.workspaceRoot,
+      rootSource,
+      ...(currentPaneId ? { paneId: currentPaneId } : {}),
+      ...(requestedClientId ? { clientId: requestedClientId } : {}),
+    };
+    const args = [
+      "plugin", "pane", "open", "--plugin", pluginId, "--entrypoint", "choose-outline",
+      "--env", `OUTLINER_WORKSPACE_ROOT=${presence.paths.workspaceRoot}`,
+      "--env", `OUTLINER_CHOOSER_CONTEXT=${JSON.stringify(context)}`,
+      "--focus",
+    ];
+    for (const name of ["OUTLINER_STATE_DIR", "OUTLINER_CONFIG_PATH", "OUTLINER_KEYBINDINGS_PATH", "XDG_CONFIG_HOME"] as const) {
+      if (process.env[name] !== undefined) args.push("--env", `${name}=${process.env[name]}`);
+    }
+    execFileSync(herdr, args, { stdio: "ignore", timeout: HERDR_SYNC_TIMEOUT_MS });
+    process.stdout.write(`${JSON.stringify({ outline: "missing", chooser: "choose-outline", workspaceRoot: presence.paths.workspaceRoot, rootSource })}\n`);
+    return;
+  }
+  const paths = presence.paths;
+  // A folder the chooser aliased to another local outline records that outline's
+  // socket. After a restart nobody runs its service, so start it from its own folder.
+  if (paths.mode === "remote" && process.env.OUTLINER_REMOTE?.trim() === undefined) {
+    const owner = localOutlineOwner(paths.socket, {
+      stateRoot: resolveStateRoot(process.env),
+      configRoot: resolveClientConfigRoot(process.env),
+    });
+    // Only a missing or refusing socket means stopped: a slow answer from a busy
+    // service must not start a second one or fail the open.
+    if (owner && await socketAbsent(paths.socket)) {
+      if (!owner.root) {
+        throw new Error(`The outline this folder uses (${owner.stateDir}) is not running, and the folder it belongs to is unknown. Open the Outliner from that outline's own folder to start it, then retry.`);
+      }
+      // OUTLINER_REMOTE=0 makes the owner's own open local, so this cannot recurse.
+      execFileSync(process.execPath, relaunchArgs("service-only"), {
+        env: { ...relaunchEnvironment(process.env, owner.root), OUTLINER_REMOTE: "0" },
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 30_000,
+      });
+    }
+  }
+  // Remote outlines keep their state on the service host; nothing is created here.
+  if (paths.mode === "local") mkdirSync(paths.stateDir, { recursive: true });
 
   const localHostname = hostname();
   function localHerdrClients(
