@@ -326,7 +326,8 @@ export class Welcome extends Desk {
   }
 
   nextLogo(by: number, actor: Actor) {
-    this.logo = (this.logo + (by || 1) + LOGOS.length * 8) % LOGOS.length;
+    const step = by < 0 ? -1 : 1;
+    this.logo = (this.logo + step + LOGOS.length) % LOGOS.length;
     if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} changed the logo`);
     this.redraw();
     return { logo: LOGOS[this.logo]!.file, drawn: !!artNamed(LOGOS[this.logo]!.file) };
@@ -360,7 +361,8 @@ export class Welcome extends Desk {
   override onEvent(e: OutlineEvent) {
     super.onEvent(e);
     // A note tagged, untagged, renamed, trashed or restored anywhere: the list is asked again (once per burst).
-    if (e.change ? e.change.kind === "annotate" || e.change.kind === "reorder" : e.action !== "reset" && e.action !== "reconnected") return;
+    // Without a change record (a service with no feed, a reset) it could be anything, so it's asked too.
+    if (e.change && (e.change.kind === "annotate" || e.change.kind === "reorder" || e.change.kind === "draft")) return;
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.load(); }, 300);
   }
@@ -478,8 +480,8 @@ export class Welcome extends Desk {
 
   override key(k: Key, ctx: Ctx) {
     // The band: a tab reads its note, "… more" goes to the list, the logo is the next logo.
-    if (k.kind === "mouse" && k.y < this.band) {
-      if (k.action !== "down") return;
+    // Only presses: a release or drag over it is the desk's, so a border or tile drag still ends.
+    if (k.kind === "mouse" && k.y < this.band && k.action === "down") {
       const t = this.tabs.find(h => k.y >= h.y0 && k.y <= h.y1 && k.x >= h.from && k.x < h.to);
       if (t && "i" in t) this.runWelcome({ action: "welcome.select", args: { n: t.i + 1 } });
       else if (t && "more" in t) { this.focusTile("welcome", USER); this.redraw(); }
