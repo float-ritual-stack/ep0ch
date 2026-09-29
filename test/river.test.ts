@@ -15,7 +15,7 @@ const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
 test("every river action has keys and a summary", () => {
   const list = RIVER_ACTIONS.list();
-  expect(list.map(a => a.name)).toEqual(["open", "focus", "select", "replies", "split", "pin", "close"]);
+  expect(list.map(a => a.name)).toEqual(["open", "focus", "select", "replies", "split", "pin", "widen", "close"]);
   for (const a of list) { expect(a.summary.length).toBeGreaterThan(10); expect(a.keys).toBeTruthy(); }
 });
 
@@ -75,6 +75,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     for (let i = 0; i < 20 && R().focus < target; i++) key(char("l"));
     expect(R().focus).toBe(target);
   };
+  const readOnReader = (reader: string) => { focusOnReader(reader); key(char("w")); };   // the keys there, then the person's widen
   let beansR = "";
 
   test("an agent's open returns a stable reader id and leaves the person's focus; the person moves there and edits with e", async () => {
@@ -328,12 +329,12 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("an edit already open in a compressed column still takes its agent's actions; starting one there says pin, not focus", async () => {
     const cols = () => (app.describe() as any).state.columns;
-    const dockOnly = async (reader: string) => {   // at 180 cells: the focused column and one docked one are full
+    const dockOnly = async (reader: string) => {   // at 180 cells: the wide column and one docked one are full
       for (const c of cols()) if (c.pinned && c.panes[0].reader !== reader) await act("pin", { docked: false }, c.panes[0].reader);
       await act("pin", { docked: true }, reader);
     };
     const shootR = readerOf(notes.shoot.id);
-    focusOnReader(beansR);
+    readOnReader(beansR);
     await dockOnly(shootR);
     expect(coverOf(shootR)).toBe("full");
     const text = (await current(notes.shoot.id)).text + "\nSqueezed.";
@@ -361,7 +362,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   });
 
   test("another client's save marks the column's draft, never replaces it; leaving copies it out", async () => {
-    focusOnReader(beansR);
+    readOnReader(beansR);
     await act("edit.text", { text: (await current(notes.beans.id)).text + "\nMine, unsaved." }, beansR);
     const now = await current(notes.beans.id);
     await other.request("update", { blockId: notes.beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "other-writer" } });
@@ -383,6 +384,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await create(long.id, "Order more\nFrom the usual place.");
     const r = (await act("open", { id: long.id })) as { reader: string };
     await act("focus", {}, r.reader);
+    await act("widen", {}, r.reader);
     const p = paneOf(r.reader);
     await until(() => (p.items?.length ?? 0) >= 1, "the long note's reply");
     let s = screen();

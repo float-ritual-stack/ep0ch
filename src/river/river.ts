@@ -1,6 +1,12 @@
 // River: Quay's model (niri placement, Andy-style compression, Twitter threads) in character cells.
 // Columns sit in one horizontal strip. Opening a note inserts a column beside its source; columns
-// compress full → peek → spine as they recede from focus. Replies expand in place.
+// compress full → peek → spine as they recede from the wide column. Replies expand in place.
+//
+// Focus and the layout are two things. Focus is which column has the keys: a click in a column, h l or
+// tab move it and change nothing else on screen. The wide column (`anchor`) is what the layout is built
+// around; only an explicit shift moves it: `w` (the `widen` action), a click on a column's header, or an
+// open that wouldn't otherwise show the new column full. A peek column draws its whole note at reading
+// width, covered by its right-hand neighbour like a drawer and dimmed; only the far ones become spines.
 //
 // Every pane hosts the shared note surface (src/surface/note.ts) for its note: the note a block column
 // was opened on, or the selected one in the Library and a #tag column. Reading keeps the river's own
@@ -12,13 +18,13 @@ import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Draft } from "../edit";
 import type { CommentSession } from "../comment";
-import type { Actor, IndexBlock, OutlineEvent } from "../socket";
+import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
-import { NOTE_ACTIONS, NoteSurface, type Link, type SurfaceHost } from "../surface/note";
+import { historyKey, historyRow, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
-import { bg, C, extractLinks, fg, pad, paint, RESET } from "../style";
+import { bg, C, extractLinks, fg, pad, paint, RESET, visible } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
 import { drawSpine, SPINE } from "../spine";
@@ -52,11 +58,12 @@ interface PaneS {
   /** Every row the pane drew last (not just those in view), for selecting text (PIE-419). */
   drawn?: { lines: string[]; w: number };
 }
-interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean }
+/** `from`: the column this one was opened from (back goes there); `ahead`: the one back last came from (forward). */
+interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean; from?: number; ahead?: number }
 type Cover = "full" | "peek" | "spine";
 interface Row { m: Msg; depth: number }
 /** A row of a pane as drawn: its card, whether it's the replies toggle, and the links on it (PIE-415). */
-type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[] };
+type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[] };
 interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[]; cover: Cover }
 
 const PEEK = 24;
@@ -129,13 +136,24 @@ function passes(m: Msg, f: Clause[]): boolean {
 
 // ── the river ────────────────────────────────────────────────────────────────
 
-interface SavedRiver { cols: { panes: { source: Source; filter: Clause[] }[]; pinned: boolean }[]; focus: number }
+interface SavedRiver { cols: { panes: { source: Source; filter: Clause[] }[]; pinned: boolean; from?: number }[]; focus: number; anchor?: number; keep?: number }
+/** How much a peek column's visible part is dimmed, so the wide and focused columns read first. */
+const COVER_DIM = 0.55;
 
 export class River implements Screen {
   title = "river";
   ctx!: Ctx;
   private cols: Col[] = [];
   private focus = 0;
+  /**
+   * The column the layout is built around (its uid): it gets the wide place, and the others compress by
+   * their distance from it. Focus never moves it; `w`, a header click, `widen` and an open that needs it do.
+   */
+  private anchorUid: number | null = null;
+  /** The column the person was reading when the anchor last moved: it stays full after the anchor if it can. */
+  private keepUid: number | null = null;
+  /** The column the person had the keys in before the one they're in now: what a widen keeps full beside it. */
+  private readUid: number | null = null;
   private uid = 1;
   private idx = new OutlineIndex();
   private indexing: number | null = null;
@@ -173,7 +191,10 @@ export class River implements Screen {
     const saved = readState<SavedRiver>("river.json");
     if (saved?.cols?.length) {
       for (const c of saved.cols) this.cols.push({ uid: this.uid++, pinned: c.pinned, pane: 0, panes: c.panes.map(p => this.pane(p.source, p.filter)) });
+      saved.cols.forEach((c, i) => { if (c.from !== undefined && this.cols[c.from]) this.cols[i]!.from = this.cols[c.from]!.uid; });
       this.focus = Math.min(saved.focus, this.cols.length - 1);
+      this.anchorUid = this.cols[Math.min(saved.anchor ?? saved.focus, this.cols.length - 1)]?.uid ?? null;
+      this.keepUid = saved.keep !== undefined ? this.cols[saved.keep]?.uid ?? null : null;
     } else {
       this.cols.push({ uid: this.uid++, pinned: true, pane: 0, panes: [this.pane({ kind: "roots" })] });
     }
@@ -186,8 +207,13 @@ export class River implements Screen {
 
   private save() {
     writeState("river.json", {
-      cols: this.cols.map(c => ({ pinned: c.pinned, panes: c.panes.map(p => ({ source: p.source, filter: p.filter })) })),
+      cols: this.cols.map(c => {
+        const from = this.cols.findIndex(x => x.uid === c.from);
+        return { pinned: c.pinned, panes: c.panes.map(p => ({ source: p.source, filter: p.filter })), ...(from >= 0 ? { from } : {}) };
+      }),
       focus: this.focus,
+      anchor: this.anchor,
+      ...(this.keepAt >= 0 ? { keep: this.keepAt } : {}),
     } satisfies SavedRiver);
   }
 
@@ -235,6 +261,9 @@ export class River implements Screen {
     return out;
   }
 
+  /** How many notes the pane lists (its filter applied), not counting replies shown in place. */
+  private listed(p: PaneS): number { return (p.items ?? []).filter(m => passes(m, p.filter)).length; }
+
   private get col() { return this.cols[this.focus]; }
   private panes(): PaneS[] { return this.cols.flatMap(c => c.panes); }
   /** A column holding an edit or a comment: it resists compression, and can't be closed. */
@@ -246,29 +275,72 @@ export class River implements Screen {
 
   // ── layout: progressive compression ───────────────────────────────────────
 
-  private layout(W: number): { col: number; cover: Cover; width: number }[] {
-    const n = this.cols.length;
+  /** The wide column's index: the anchor, or the focused column when the anchor has closed. */
+  private get anchor(): number {
+    const i = this.anchorUid === null ? -1 : this.cols.findIndex(c => c.uid === this.anchorUid);
+    if (i >= 0) return i;
+    // None yet (a new river) or it closed: settle on one, so later focus moves don't carry the layout along.
+    const at = Math.min(this.focus, Math.max(0, this.cols.length - 1));
+    this.anchorUid = this.cols[at]?.uid ?? null;
+    return at;
+  }
+  private get keepAt(): number { return this.keepUid === null ? -1 : this.cols.findIndex(c => c.uid === this.keepUid); }
+
+  /**
+   * Where each column goes, built around the wide column (never around focus, so moving focus moves
+   * nothing). `natural` is the width a column is drawn at: a peek is drawn at reading width and shows
+   * only its first `width` cells, the rest under its right-hand neighbour.
+   */
+  private layout(W: number, anchor = this.anchor, keep = this.keepAt): { col: number; cover: Cover; width: number; natural: number }[] {
     const FULL = Math.max(40, Math.min(76, Math.round(W * 0.42)));
-    // Too many columns even as spines: keep the ones nearest focus.
-    const visible = [...this.cols.keys()].sort((a, b) => Math.abs(a - this.focus) - Math.abs(b - this.focus) || b - a)
+    // Too many columns even as spines: keep the ones nearest the wide one.
+    const visible = [...this.cols.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
       .slice(0, Math.max(1, Math.floor(W / SPINE))).sort((a, b) => a - b);
     const cover = new Map<number, Cover>(visible.map(i => [i, "spine"]));
     let spare = W - visible.length * SPINE;
-    const order = [...visible].sort((a, b) => {
-      const docked = (i: number) => this.cols[i]!.pinned || this.holds(this.cols[i]!);
-      const da = a === this.focus ? -1 : docked(a) ? 0.5 : Math.abs(a - this.focus);
-      const db = b === this.focus ? -1 : docked(b) ? 0.5 : Math.abs(b - this.focus);
-      return da - db || b - a;
-    });
+    // The wide column first, then the one the person was just reading, then docked ones, then by distance.
+    // (Docking a column lets go of the one kept, so a dock always widens what it can.)
+    const rank = (i: number) => i === anchor ? -1 : i === keep ? 0.25 : this.cols[i]!.pinned || this.holds(this.cols[i]!) ? 0.5 : Math.abs(i - anchor);
+    const order = [...visible].sort((a, b) => rank(a) - rank(b) || b - a);
     for (const i of order) {
       if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
       else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
     }
     const width = new Map<number, number>(visible.map(i => [i, cover.get(i) === "full" ? FULL : cover.get(i) === "peek" ? PEEK : SPINE]));
-    // Hand any leftover to the focused column so the strip fills the screen.
-    width.set(this.focus, (width.get(this.focus) ?? FULL) + Math.max(0, spare));
-    void n;
-    return visible.map(i => ({ col: i, cover: cover.get(i)!, width: width.get(i)! }));
+    // Leftover room shows more of the peeks' text first (each up to its reading width), then goes to the
+    // wide column, so the strip fills the screen.
+    const peeks = visible.filter(i => cover.get(i) === "peek");
+    for (let left = peeks.length; left > 0 && spare > 0; left--) {
+      const i = peeks[peeks.length - left]!, add = Math.min(FULL - PEEK, Math.floor(spare / left));
+      width.set(i, width.get(i)! + add); spare -= add;
+    }
+    width.set(anchor, (width.get(anchor) ?? FULL) + Math.max(0, spare));
+    return visible.map(i => ({ col: i, cover: cover.get(i)!, width: width.get(i)!, natural: cover.get(i) === "peek" ? FULL : width.get(i)! }));
+  }
+
+  /**
+   * The explicit shift: column `ci` takes the wide place. The column that had it stays full after it where
+   * there's room, so the text the person was reading doesn't collapse. Focus is untouched.
+   */
+  private widen(ci: number) {
+    const col = this.cols[ci];
+    if (!col) return;
+    // Keep full the column the person was reading: the one they were in before this one, else the old wide one.
+    const read = this.cols.find(c => c.uid === this.readUid && c !== col) ?? this.cols[this.anchor];
+    if (read && read !== col) this.keepUid = read.uid;
+    this.anchorUid = col.uid;
+    if (this.keepUid === col.uid) this.keepUid = null;
+  }
+
+  /** The person's w or header click: the `widen` action, as an agent would call it. */
+  private shift(ci: number) { void RIVER_ACTIONS.run("widen", {}, { r: this, reader: String(ci + 1) }, USER).catch(e => this.ctx.flash(e instanceof Error ? e.message : String(e))); }
+
+  /** Focus moved by key to a column the strip doesn't show at all: the wide place steps toward it until it's on screen. */
+  private reveal(ci: number) {
+    const W = this.ctx.t.cols;
+    let a = this.anchor;
+    while (a !== ci && !this.layout(W, a).some(l => l.col === ci)) a += ci > a ? 1 : -1;
+    if (a !== this.anchor) this.anchorUid = this.cols[a]!.uid;
   }
 
   // ── drawing ───────────────────────────────────────────────────────────────
@@ -280,20 +352,25 @@ export class River implements Screen {
     const placements: Placement[] = [];
     this.hits = []; this.colRects = [];
     let x = 0;
-    for (const { col: ci, cover, width } of this.layout(W)) {
+    const anchor = this.anchor;
+    for (const { col: ci, cover, width, natural } of this.layout(W)) {
       const col = this.cols[ci]!;
+      // `rect` is what shows; `box` is where the column is drawn. A peek's box runs on under its right-hand
+      // neighbour, which is drawn next and slides over it like a drawer.
       const rect: Rect = { col: x, row: 0, cols: width, rows: H };
+      const box: Rect = { ...rect, cols: natural };
       this.colRects.push({ col: ci, rect });
       x += width;
       const focused = ci === this.focus;
+      canvas.clear({ ...box, cols: Math.min(box.cols, W - box.col) });
       if (cover === "spine") { this.spine(canvas, placements, col, rect, focused, ctx); continue; }
       const p0 = col.panes[0]!;
-      const count = p0.items ? ` ${fg(C.dark)}${this.flat(p0).length}` : "";
+      const count = p0.items ? ` ${fg(C.dark)}${this.listed(p0)}` : "";
       const state = col.panes.map(p => p.surface.state()).find(Boolean);
-      canvas.box(rect, fg(focused ? C.lcyan : col.pinned ? C.cyan : C.blue),
+      canvas.box(box, fg(focused ? C.lcyan : col.pinned ? C.cyan : C.blue),
         `${col.pinned ? fg(C.yellow) + "⊙ " : ""}${fg(focused ? C.white : C.grey)}${this.titleOf(p0)}${count}${state ? ` ${fg(C.yellow)}· ${state}` : ""}`,
-        focused && cover === "full" && !this.paneS?.surface.editing ? fg(C.dark) + "space replies · ⏎ open · s split · f filter · # tags" : "");
-      const inner: Rect = { col: rect.col + 1, row: rect.row + 1, cols: rect.cols - 2, rows: rect.rows - 2 };
+        focused && !this.paneS?.surface.editing ? fg(C.dark) + (cover === "full" && ci === anchor ? "space replies · ⏎ open · s split · f filter · # tags" : cover === "full" ? "w widen · space replies · ⏎ open" : "w widen") : "");
+      const inner: Rect = { col: box.col + 1, row: box.row + 1, cols: box.cols - 2, rows: box.rows - 2 };
       const n = col.panes.length;
       const each = Math.floor(inner.rows / n);
       col.panes.forEach((p, pi) => {
@@ -305,10 +382,14 @@ export class River implements Screen {
           canvas.text(r.col, r.row, pad(head + fg(active ? C.lcyan : C.blue) + "─".repeat(r.cols), r.cols), r.cols);
           body = { ...r, row: r.row + 1, rows: r.rows - 1 };
         }
-        const view = cover === "peek" ? this.peek(p, body, focused && pi === col.pane) : this.full(p, body, focused && pi === col.pane);
+        // A peek draws the same view as a full column, at the same width, so nothing rewraps or jumps when it widens.
+        const view = this.full(p, body, focused && pi === col.pane);
         view.lines.forEach((l, i) => canvas.text(body.col, body.row + i, l, body.cols));
-        this.hits.push({ rect: body, col: ci, pane: pi, rows: view.rows, cover });
+        // What a click can reach: the part of the pane in view (a peek's right side is under its neighbour).
+        const seen: Rect = { ...body, cols: Math.max(0, Math.min(body.cols, rect.col + rect.cols - 1 - body.col)) };
+        this.hits.push({ rect: seen, col: ci, pane: pi, rows: view.rows, cover });
       });
+      if (cover === "peek") this.cover(canvas, rect, focused);
     }
     if (this.mode === "palette") this.drawPalette(canvas, W, rows);
     if (this.mode === "tags") this.drawTags(canvas, W, rows);
@@ -325,18 +406,14 @@ export class River implements Screen {
     if (p) placements.push(p);
   }
 
-  private peek(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
-    const rows = this.flat(p);
-    const lines: string[] = [], hit: Hit["rows"] = [];
-    p.top = Math.max(0, Math.min(p.top, p.sel - Math.floor(r.rows / 2)));
-    const all = rows.map((row, n) => {
-      const t = `${"  ".repeat(row.depth)}${glyph(row.m)} ${subject(row.m)}`;
-      return n === p.sel ? (active ? SEL : bg(C.dark) + fg(C.white)) + pad(t, r.cols) + RESET : fg(C.grey) + pad(t, r.cols) + RESET;
-    });
-    this.keepRows(p, all, r.cols);
-    all.slice(p.top, p.top + r.rows).forEach((l, i) => { lines.push(this.paintSel(p, l, p.top + i)); hit.push({ card: p.top + i, replies: false }); });
-    if (!p.items) lines.push(fg(C.dark) + "…" + RESET);
-    return { lines, rows: hit };
+  /**
+   * A peek column under its neighbour: its text dimmed, and a drawer's edge where the neighbour slides over
+   * it (the board's drawer and float shadow, ▒). The column the person is in is dimmed less.
+   */
+  private cover(canvas: Canvas, r: Rect, focused: boolean) {
+    const edge = r.col + r.cols - 1;
+    canvas.dim({ ...r, cols: r.cols - 1 }, focused ? 0.8 : COVER_DIM);
+    for (let y = r.row; y < r.row + r.rows; y++) canvas.text(edge, y, fg(C.dark) + "▒" + RESET, 1);
   }
 
   private full(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
@@ -351,6 +428,9 @@ export class River implements Screen {
       const m = root;
       push(fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, w) + RESET);
       push(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`);
+      // Where back and forward go (the reader's history row, PIE-453), under the title where it's always in reach.
+      const h = this.historyOf(p), hr = historyRow(w, h.peek(-1), h.peek(1));
+      if (hr) all.push({ text: hr.line, card: -1, replies: false, history: hr.hits });
       for (const l of this.banner(p, m, w)) push(l);
       // The note's body through the shared surface's renderer (its digest): Markdown, links as Detail reads
       // them, transclusions nested and sliced as the service projects them, and step controls (PIE-424,
@@ -365,7 +445,7 @@ export class River implements Screen {
         p.shownElem = dg.key;
         if (dg.current !== null) { const row = at + dg.current; if (row < p.top) p.top = Math.max(0, row - 1); else if (row >= p.top + r.rows) p.top = row - r.rows + 2; }
       }
-      const label = `── ${p.items ? this.flat(p).length : "…"} replies `;
+      const label = `── ${p.items ? this.listed(p) : "…"} replies `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
     }
     const rows = this.flat(p);
@@ -378,7 +458,9 @@ export class River implements Screen {
       const title = `${glyph(m)} ${subject(m)}`;
       push(rail + mark + (on && active ? SEL : fg(C.white)) + pad(title, tw) + RESET, n);
       push(rail + " " + pad(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`, tw), n);
-      for (const l of wrap(bodyLines(m).slice(0, 2).join(" "), tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
+      // Links read as their titles here too, as in the note above (not as raw ((ids))); an embed reads as its title.
+      const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text));
+      for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
       const count = this.idx.count(m.id) ?? (Array.isArray(p.kids.get(m.id)) ? (p.kids.get(m.id) as Msg[]).length : undefined);
       if (p.kids.get(m.id) === "loading") push(rail + " " + fg(C.dark) + "↳ loading replies…" + RESET, n, true);
       else if (count) push(rail + " " + fg(C.cyan) + (p.open.has(m.id) ? `▾ ${count} replies · hide` : `↳ ${count} replies`) + RESET, n, true);
@@ -398,7 +480,7 @@ export class River implements Screen {
     p.top = Math.max(0, Math.min(p.top, Math.max(0, all.length - r.rows)));
     this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
-    return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
+    return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history })) };
   }
 
   /** Scroll a column by lines; the next draw keeps it within the column's content. */
@@ -488,7 +570,7 @@ export class River implements Screen {
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
     if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
-    return pad(paint(`|08 h l columns · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15esc|08 menu${meter}`), W);
+    return pad(paint(`|08 h l columns · |15w|08 widen · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15esc|08 menu${meter}`), W);
   }
 
   private overlay(canvas: Canvas, W: number, rows: number, wFrac: number, hFrac: number, title: string): Rect {
@@ -517,7 +599,8 @@ export class River implements Screen {
   private drawHelp(canvas: Canvas, W: number, rows: number) {
     const r = this.overlay(canvas, W, rows, 0.6, 0.75, "river · keys");
     const help = [
-      "h l / ← →      previous / next column",
+      "h l / ← →      previous / next column (the keys move; the layout stays)",
+      "w              widen: the focused column takes the wide place",
       "j k / ↑ ↓      previous / next note",
       "⏎              reveal if open, else insert beside the source",
       "alt ⏎          force a duplicate column",
@@ -534,7 +617,7 @@ export class River implements Screen {
       "m              the note's comment threads (r reply · x resolve)",
       "[ ] u          select a link (⏎ follows it beside) · the parent",
       "               the column's note: the one it opened on; in the Library and a #tag, the selected one",
-      "click          focus a spine, pick a note, open replies",
+      "click          in a column: its keys, a note, replies · on its header: widen it",
     ];
     help.forEach((l, i) => canvas.text(r.col + 1, r.row + i, fg(C.grey) + l + RESET, r.cols - 1));
   }
@@ -549,13 +632,17 @@ export class River implements Screen {
   private open(m: Msg, duplicate: boolean, from = this.focus, focus = true): number {
     if (!duplicate) {
       const at = this.cols.findIndex(c => c.panes[0]!.source.kind === "block" && (c.panes[0]!.source as { id: string }).id === m.id);
-      if (at >= 0) { if (focus) this.focus = at; this.save(); this.ctx.redraw(); return at; }
+      if (at >= 0) {
+        // The person's open finds the column: back from there returns to where they opened it from.
+        if (focus) { if (at !== from && this.cols[from]) this.cols[at]!.from = this.cols[from]!.uid; this.focus = at; this.place(at, from); }
+        this.save(); this.ctx.redraw(); return at;
+      }
     }
     const p = this.pane({ kind: "block", id: m.id });
     p.root = m;
     const at = Math.min(from + 1, this.cols.length);
-    this.cols.splice(at, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false });
-    if (focus) this.focus = at;
+    this.cols.splice(at, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false, from: this.cols[from]?.uid });
+    if (focus) { this.focus = at; this.place(at, at - 1); }
     else if (at <= this.focus) this.focus += 1;
     this.load(p);
     this.save();
@@ -565,9 +652,23 @@ export class River implements Screen {
 
   private openTag(key: string, value: string) {
     const p = this.pane({ kind: "tag", key, value });
-    this.cols.splice(this.focus + 1, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false });
+    this.cols.splice(this.focus + 1, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false, from: this.cols[this.focus]?.uid });
     this.focus += 1;
+    this.place(this.focus, this.focus - 1);
     this.load(p); this.save(); this.ctx.redraw();
+  }
+
+  /**
+   * The person opened column `ci` from column `from`: the layout moves only if it must. When the new column
+   * already shows full, and `from` stays full, nothing shifts; otherwise the new column takes the wide place
+   * and `from` (the text they were reading) stays full beside it.
+   */
+  private place(ci: number, from: number) {
+    const now = this.layout(this.ctx.t.cols);
+    const full = (i: number) => now.find(l => l.col === i)?.cover === "full";
+    if (full(ci) && (from < 0 || full(from))) return;
+    this.anchorUid = this.cols[ci]!.uid;
+    this.keepUid = from >= 0 && from !== ci ? this.cols[from]?.uid ?? null : null;
   }
 
   private toggle(p: PaneS, m: Msg) {
@@ -594,7 +695,17 @@ export class River implements Screen {
     const p = col.panes[pi]!;
     if (p.surface.editing) return `it's ${p.surface.state()}; save or close that first`;
     if (col.panes.length > 1) { col.panes.splice(pi, 1); if (pi <= col.pane) col.pane = Math.max(0, col.pane - 1); }
-    else if (this.cols.length > 1) { this.cols.splice(ci, 1); if (this.focus >= ci) this.focus = Math.max(0, this.focus - 1); }
+    else if (this.cols.length > 1) {
+      // The wide place passes to the column that slides into the gap from the left (the one it opened from).
+      const full = this.covers().get(ci) === "full";
+      if (col.uid === this.anchorUid) this.anchorUid = this.cols[Math.max(0, ci - 1)] === col ? this.cols[ci + 1]!.uid : this.cols[Math.max(0, ci - 1)]!.uid;
+      // A full column's place goes to the one that slides into the gap from the right, so nothing left of it moves
+      // (unless the column the person was reading still holds a place of its own).
+      const kept = this.keepUid !== null && this.keepUid !== col.uid && this.keepUid !== this.anchorUid;
+      if ((full || col.uid === this.keepUid) && !kept) this.keepUid = [this.cols[ci + 1], this.cols[ci - 1]].find(c => c && c.uid !== this.anchorUid)?.uid ?? null;
+      if (col.uid === this.keepUid) this.keepUid = null;
+      this.cols.splice(ci, 1); if (this.focus >= ci) this.focus = Math.max(0, this.focus - 1);
+    }
     else return "it's the last column";
     if (this.sel?.p === p) this.sel = null;                 // its selected text went with it
     this.save();
@@ -631,6 +742,33 @@ export class River implements Screen {
         if (at >= 0) this.focus = at;
         this.open(m, !!how?.fresh);
       },
+      history: this.historyOf(p),
+    };
+  }
+
+  /**
+   * Back and forward in the river (PIE-453): the columns themselves are the history. Back gives the keys to
+   * the column this one was opened from, forward to the one back last left; either widens it only if it's
+   * covered, so the text comes back where it was, not rewrapped or scrolled.
+   */
+  private historyOf(p: PaneS): ReaderHistory {
+    const colOf = () => this.cols.find(c => c.panes.includes(p));
+    const target = (dir: -1 | 1) => { const c = colOf(); const uid = dir < 0 ? c?.from : c?.ahead; return uid === undefined ? undefined : this.cols.find(x => x.uid === uid); };
+    return {
+      peek: dir => { const t = target(dir); return t ? this.titleOf(t.panes[0]!) : null; },
+      go: dir => {
+        const c = colOf(), t = target(dir);
+        if (!c || !t) return dir < 0 ? "nothing to go back to: this column wasn't opened from one still open" : "nothing ahead: go back first";
+        if (dir < 0) t.ahead = c.uid;
+        const ti = this.cols.indexOf(t);
+        this.readUid = c.uid;
+        this.focus = ti;
+        if (this.covers().get(ti) !== "full") this.widen(ti);
+        this.entered = null;
+        this.save(); this.ctx.redraw();
+        return null;
+      },
+      agentRefusal: "back and forward in the river move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     };
   }
 
@@ -705,9 +843,9 @@ export class River implements Screen {
   describe() {
     const covers = this.covers();
     return {
-      kind: "river", focus: this.focus,
+      kind: "river", focus: this.focus, wide: this.anchor + 1,
       columns: this.cols.map((c, i) => ({
-        n: i + 1, pinned: c.pinned, focused: i === this.focus, cover: covers.get(i) ?? "off screen",
+        n: i + 1, pinned: c.pinned, focused: i === this.focus, wide: i === this.anchor, cover: covers.get(i) ?? "off screen",
         panes: c.panes.map((p, pi) => {
           const note = this.noteOf(p);
           return {
@@ -767,7 +905,7 @@ export class River implements Screen {
     // its actions (it draws when the column widens), so an agent can always finish or close its own.
     if (!t.p.surface.editing) {
       const cover = this.covers().get(t.ci);
-      if (cover !== "full") throw new ActionRefused(`column ${t.at} is ${cover === undefined ? "off screen" : `a ${cover}`}; a compressed column is a read-only view until it's full width · dock it (pin reader=${t.name}) to widen it without taking the person's keys`);
+      if (cover !== "full") throw new ActionRefused(`column ${t.at} is ${cover === undefined ? "off screen" : `a ${cover}`}; a compressed column is a read-only view until it's full width · widen reader=${t.name} or dock it (pin reader=${t.name}); neither takes the person's keys`);
     }
     let out: unknown;
     try { out = await this.ready(t.p).act(req.action, args, this.hostFor(t.p, actor), actor); }
@@ -829,6 +967,14 @@ export class River implements Screen {
     return { ...this.named(this.cols[at]!.panes[0]!), id: m.id };
   }
 
+  /** The explicit shift: the column takes the wide place; the person's keys stay where they are. */
+  widenIn(sel?: string): { reader: string; at: string; wide: boolean } {
+    const t = this.pick(sel);
+    this.widen(t.ci);
+    this.save(); this.ctx.redraw();
+    return { reader: t.name, at: t.at, wide: this.anchor === t.ci };
+  }
+
   focusOn(sel: string): { focus: string; at: string } {
     const t = this.pick(sel);
     const moved = this.focus !== t.ci || this.cols[t.ci]!.pane !== t.pi;
@@ -871,6 +1017,7 @@ export class River implements Screen {
   dock(sel: string | undefined, docked: boolean | undefined): { reader: string; at: string; docked: boolean } {
     const t = this.pick(sel), col = this.cols[t.ci]!;
     col.pinned = docked ?? !col.pinned;
+    if (col.pinned) this.keepUid = null;                     // the dock is the newer choice: it takes the kept column's place
     this.save(); this.ctx.redraw();
     return { reader: t.name, at: t.at, docked: col.pinned };
   }
@@ -918,6 +1065,13 @@ export class River implements Screen {
   }
 
   key(k: Key, ctx: Ctx) {
+    const was = this.cols[this.focus]?.uid ?? null;
+    this.keyIn(k, ctx);
+    const now = this.cols[this.focus]?.uid ?? null;
+    if (now !== was && was !== null && this.cols.some(c => c.uid === was)) this.readUid = was;
+  }
+
+  private keyIn(k: Key, ctx: Ctx) {
     if (this.mode) return this.modal(k);
     if (k.kind === "mouse") return this.mouse(k);
     const col = this.col, p = this.paneS;
@@ -950,7 +1104,7 @@ export class River implements Screen {
     const undo = k.kind === "char" && !!k.ctrl && k.ch === "z";
     if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || undo || (current === "task" && c === " ") || ((linked || current) && (k.kind === "enter" || k.kind === "alt-enter")))) {
       // A step change's Undo isn't an edit: it works in a compressed column too.
-      if (this.covers().get(this.focus) !== "full" && !undo) return ctx.flash("this column is compressed; widen the pane to edit or comment here");
+      if (this.covers().get(this.focus) !== "full" && !undo) return ctx.flash("this column is covered; w (or a click on its header) widens it to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);
         // Starting an edit or a comment by key: the person is in it once it opens.
@@ -961,14 +1115,20 @@ export class River implements Screen {
       return ctx.redraw();
     }
     if ((linked || current) && k.kind === "esc") { p!.surface.clearLink(); return ctx.redraw(); }
+    // Back and forward (alt+← alt+→, backspace, the mouse's side buttons): between the columns a follow opened.
+    const dir = p && !held ? historyKey(k) : 0;
+    if (dir) { const why = this.historyOf(p!).go(dir); if (why) ctx.flash(why); return; }
     if (p) p.surface.clearLink();
     const n = p ? this.flat(p).length : 0;
-    if (k.kind === "left" || c === "h") this.focus = Math.max(0, this.focus - 1);
-    else if (k.kind === "right" || c === "l") this.focus = Math.min(this.cols.length - 1, this.focus + 1);
+    // h l move the keys only; the layout stays (a column off the strip altogether is brought on).
+    if (k.kind === "left" || c === "h") { this.focus = Math.max(0, this.focus - 1); this.reveal(this.focus); }
+    else if (k.kind === "right" || c === "l") { this.focus = Math.min(this.cols.length - 1, this.focus + 1); this.reveal(this.focus); }
+    // w: the explicit shift. The focused column takes the wide place.
+    else if (c === "w" && col) this.shift(this.focus);
     else if (p && (k.kind === "down" || c === "j")) p.sel = Math.min(Math.max(0, n - 1), p.sel + 1);
     else if (p && (k.kind === "up" || c === "k")) p.sel = Math.max(0, p.sel - 1);
     // A page of the column in a full column, as in any reader; in a peek (a list of titles) eight cards.
-    else if (p && (k.kind === "pgdn" || k.kind === "pgup") && this.coverOf(p) === "full") this.scroll(p, (k.kind === "pgdn" ? 1 : -1) * Math.max(1, (p.height ?? 10) - 2));
+    else if (p && (k.kind === "pgdn" || k.kind === "pgup") && this.coverOf(p) !== "spine") this.scroll(p, (k.kind === "pgdn" ? 1 : -1) * Math.max(1, (p.height ?? 10) - 2));
     else if (p && k.kind === "pgdn") p.sel = Math.min(Math.max(0, n - 1), p.sel + 8);
     else if (p && k.kind === "pgup") p.sel = Math.max(0, p.sel - 8);
     else if (p && k.kind === "home") p.sel = 0;
@@ -977,13 +1137,13 @@ export class River implements Screen {
     else if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.selected(); if (m) return void this.open(m, k.kind === "alt-enter"); }
     else if (c === " ") { const m = this.selected(); if (p && m) return this.toggle(p, m); }
     else if (c === "s" && col) { const m = this.selected(); if (m) this.split(col, m); }
-    else if (c === "p" && col) { col.pinned = !col.pinned; this.save(); }
+    else if (c === "p" && col) { col.pinned = !col.pinned; if (col.pinned) this.keepUid = null; this.save(); }
     else if (c === "x" && col) { const why = this.close(this.focus, col.pane); if (why && !why.startsWith("it's the last")) ctx.flash(`not closed: ${why}${held ? " · e or ⏎ enters it" : ""}`); }
     else if (c === "f" && p) { this.mode = "filter"; this.input = filterText(p.filter); }
     else if (c === "#") { const m = this.selected(); this.tagChoices = m ? Object.entries(m.props).filter(([key]) => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9) : []; this.mode = "tags"; }
     else if (c === "/") { this.mode = "palette"; this.input = ""; this.matches = this.idx.search(""); this.msel = 0; }
     else if (c === "?") this.mode = "help";
-    else if (c === "c") ctx.flash("the river squeezes columns itself (p docks one) · C comments on a passage");
+    else if (c === "c") ctx.flash("the river squeezes columns itself (w widens one, p docks one) · C comments on a passage");
     else if (c === "q") ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
     else if (c === "V") return ctx.cycleVideo();
     else if (k.kind === "esc") return ctx.pop();
@@ -1042,7 +1202,15 @@ export class River implements Screen {
     if (k.action === "down") {
       const h = this.hits.find(h => inside(h.rect));
       const cr = this.colRects.find(c => inside(c.rect));
-      if (cr) this.focus = cr.col;
+      // Only a click in the column that already has the keys can open a card: the first one only focuses.
+      const wasIn = !!h && this.focus === h.col && this.cols[h.col]!.pane === h.pane;
+      // A click in a column gives it the keys and nothing else: no column moves, widens or scrolls. A click
+      // on its header (the top border, a spine's top cell) is the shift: it takes the wide place too.
+      if (cr) {
+        if (cr.col !== this.focus && this.cols[this.focus]) this.readUid = this.cols[this.focus]!.uid;
+        this.focus = cr.col;
+        if (k.y === cr.rect.row) this.shift(cr.col);
+      }
       this.down = null;
       if (h) {
         const col = this.cols[h.col]!, p = col.panes[h.pane]!;
@@ -1051,10 +1219,13 @@ export class River implements Screen {
         // A completion candidate in the edit the person is in: chosen and inserted (PIE-416).
         if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) return this.ctx.redraw();
         const row = h.rows[k.y - h.rect.row];
+        const back = row?.history?.find(x => k.x - h.rect.col >= x.from && k.x - h.rect.col < x.to);
+        if (back && !p.surface.editing) { const why = this.historyOf(p).go(back.dir); if (why) this.ctx.flash(why); return this.ctx.redraw(); }
         const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
-        const same = !!row && row.card >= 0 && p.sel === row.card;
+        const same = wasIn && !!row && row.card >= 0 && p.sel === row.card;
         if (row && row.card >= 0 && !(link && !p.surface.editing)) {
           p.sel = row.card;
+          p.shownSel = row.card;                            // it's where the pointer is: already in view, so nothing scrolls
           // The clicked card is what ⏎ opens now, not a link selected in the note before.
           if (!p.surface.editing) p.surface.clearLink();
         }
@@ -1083,9 +1254,8 @@ export class River implements Screen {
       // In an edit the wheel is the surface's (it moves a completion popup's choice, or the cursor).
       if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
       this.seen(p);
-      // The wheel scrolls a full column by lines, like the desk reader; in a peek it moves between titles.
-      if (h.cover === "full") this.scroll(p, k.action === "wheel-down" ? 3 : -3);
-      else p.sel = Math.max(0, Math.min(this.flat(p).length - 1, p.sel + (k.action === "wheel-down" ? 1 : -1)));
+      // The wheel scrolls a column by lines, like the desk reader, a peek under its neighbour too; nothing else moves.
+      this.scroll(p, k.action === "wheel-down" ? 3 : -3);
       p.surface.clearLink();
       this.ctx.redraw();
     }
@@ -1103,6 +1273,7 @@ export const RIVER_ACTIONS = new ActionSet<{
   "replies": { id?: string; open?: boolean };
   "split": Record<string, never>;
   "pin": { docked?: boolean };
+  "widen": Record<string, never>;
   "close": Record<string, never>;
 }, RiverOn>("river", {
   "open": {
@@ -1115,7 +1286,7 @@ export const RIVER_ACTIONS = new ActionSet<{
     },
   },
   "focus": {
-    summary: "give the person's keys to reader= (r7, a column, or <column>.<pane>); a compressed column widens. Only when the person asked: it moves their focus", keys: "h l, tab, click",
+    summary: "give the person's keys to reader= (r7, a column, or <column>.<pane>); only the keys move, the layout stays (widen shifts it). Only when the person asked: it moves their focus", keys: "h l, tab, click in a column",
     args: {},
     run(_, { r, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs reader=<r7 or a column number>");
@@ -1143,6 +1314,15 @@ export const RIVER_ACTIONS = new ActionSet<{
     summary: "dock the column so it resists compression, widening a peek or spine without moving the person's focus (docked=false undocks; default toggles)", keys: "p",
     args: { docked: { type: "boolean", optional: true, about: "dock or undock" } },
     run: ({ docked }, { r, reader }) => r.dock(reader, docked),
+  },
+  "widen": {
+    summary: "give reader='s column the wide place (the layout is built around it; the column that had it stays full beside it when there's room). The person's keys stay where they are", keys: "w, click a column's header",
+    args: {},
+    run(_, { r, reader }, actor) {
+      const out = r.widenIn(reader);
+      if (actor.kind === "agent") r.ctx.flash(`${agentLabel(actor)} widened column ${out.at}`);
+      return out;
+    },
   },
   "close": {
     summary: "close the pane, or the column when it has one; refused while it holds an edit or a comment", keys: "x",
