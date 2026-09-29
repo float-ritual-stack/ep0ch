@@ -21,11 +21,11 @@ const CLIENT_PROTOCOL = 82;
  * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
  * "Unsupported action" answer for the session.
  */
-export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection"
+export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views.read", "query.expression", "changes.since", "references.backlinks.facets", "resources.projection",
   /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
-  | "fragments.read" | "transclusions.read" | "fragments.candidates"
-  /** An outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
-  | HostCapability;
+  "fragments.read", "transclusions.read", "fragments.candidates"] as const;
+/** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
+export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
 /**
  * What an outline host adds: `request.outline` (a request may name its outline; the host routes the

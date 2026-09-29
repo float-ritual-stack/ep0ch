@@ -25,10 +25,25 @@ socket, with the same checks (revisions, property warnings, duplicate-safe comme
     ep0ch snap [out.png]             exactly what the terminal shows
     ep0ch try --ws <root> --copy --outliner <checkout>   your own door on a private copy of a workspace
     ep0ch --skill [<name>]           the stack's skills, or the path of one
+    ep0ch doctor [--json]            the whole stack's state (✓ ! ✗) with a fix command for each; read-only
+    ep0ch install [--json]           the update plan (a dry run); --apply runs it, --restart-services too
 
 `bun src/main.ts …` in the door's checkout is the same command. The full action table is in the door's
 README, section "Letting an agent see what you see, and do what you do" (`ep0ch --skill ep0ch` shows this
 file's path; the README is two directories up).
+
+## Checking and updating the stack
+
+`ep0ch doctor --json` is the first thing to run when something in the stack seems off: bun, the Outliner
+plugin (linked or managed, its commit against origin/main, its protocol), this checkout, `ep0ch` on PATH,
+the outline host and per-folder services (flagging ones running old code), Herdr and its keys, and the
+Claude mod. It only reads (`git fetch` aside).
+
+`ep0ch install` without `--apply` is safe to run any time: it prints the plan. Run `--apply` only when the
+person asked for the update. It backs up every outline database to `~/backups/ep0ch/` first, then
+fast-forwards the plugin and door checkouts and links `ep0ch`. `--restart-services` restarts the person's
+per-folder service panes: never pass it unless they asked for that too. Install never changes the outline
+host, its systemd or launchd unit, Herdr's config or Claude's settings; it reports them as notes.
 
 ## Which outline a door opens
 

@@ -29,16 +29,27 @@ export function skillsIn(roots: readonly SkillRoot[]): Skill[] {
   return out;
 }
 
-/** The installed Outliner plugin's root, as Herdr reports it; null when Herdr or the plugin isn't there. */
-export function outlinerRoot(): string | null {
+/** The Herdr command: HERDR_BIN_PATH (what Herdr sets in its panes, and what the Outliner uses), else `herdr`. */
+export const herdrBin = (env: Record<string, string | undefined> = process.env) => env.HERDR_BIN_PATH || "herdr";
+
+/**
+ * The installed Outliner plugin as Herdr records it (`herdr plugin list --json`): its root, manifest, source
+ * (`kind` local for a linked checkout, github for a managed install, with `owner`, `repo`, `requested_ref`
+ * and `resolved_commit`) and actions. Null when Herdr or the plugin isn't there.
+ */
+export function outlinerPlugin(env: Record<string, string | undefined> = process.env): any | null {
   try {
-    const r = Bun.spawnSync(["herdr", "plugin", "list", "--plugin", "float.pi-outliner", "--json"], { stdout: "pipe", stderr: "ignore" });
+    const r = Bun.spawnSync([herdrBin(env), "plugin", "list", "--plugin", "float.pi-outliner", "--json"], { stdout: "pipe", stderr: "ignore", env: env as Record<string, string> });
     if (r.exitCode !== 0) return null;
     const plugins = JSON.parse(r.stdout.toString())?.result?.plugins;
     const hit = Array.isArray(plugins) ? plugins.filter((p: any) => p?.plugin_id === "float.pi-outliner") : [];
-    const root = hit.length === 1 ? hit[0].plugin_root : null;
-    return typeof root === "string" && root.startsWith("/") ? root : null;
+    return hit.length === 1 && typeof hit[0].plugin_root === "string" && hit[0].plugin_root.startsWith("/") ? hit[0] : null;
   } catch { return null; }
+}
+
+/** The installed Outliner plugin's root, as Herdr reports it; null when Herdr or the plugin isn't there. */
+export function outlinerRoot(): string | null {
+  return outlinerPlugin()?.plugin_root ?? null;
 }
 
 /** Where to look: shipped skills, and contributor skills with `all`. */
