@@ -11,7 +11,7 @@ import { encodePng, GLYPH_H, GLYPH_W } from "./vga";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
 const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 // The VGA font's low glyphs: arrows and triangles the door draws (a tile's link →, the tree's ▸ ▾, a drawer's ⇤).
-for (const [c, n] of [["☺", 1], ["♦", 4], ["•", 7], ["►", 16], ["▸", 16], ["◄", 17], ["◂", 17], ["↕", 18], ["‼", 19], ["↑", 24], ["↓", 25], ["→", 26], ["←", 27], ["↔", 29], ["▲", 30], ["▼", 31], ["▾", 31], ["⇤", 27], ["⇐", 27], ["⇒", 26], ["⇓", 25], ["⠿", 254], ["▭", 254], ["⌖", 15]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
+for (const [c, n] of [["☺", 1], ["♦", 4], ["◆", 4], ["•", 7], ["►", 16], ["▸", 16], ["◄", 17], ["◂", 17], ["↕", 18], ["‼", 19], ["↑", 24], ["↓", 25], ["→", 26], ["←", 27], ["↔", 29], ["▲", 30], ["▼", 31], ["▾", 31], ["⇤", 27], ["⇐", 27], ["⇒", 26], ["⇓", 25], ["⠿", 254], ["▭", 254], ["⌖", 15]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
 
 interface TCell { ch: string; fg: number[]; bg: number[] | null }
 export class Mirror {
