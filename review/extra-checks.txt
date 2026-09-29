@@ -1,0 +1,38 @@
+## c1. the person types in claude (a drawer); an agent's focus, drawer shut and open leave the keys there
+screen desk | focus claude | in-terminal claude
+the person is typing; an agent doesn't move their keys (block.mark gets their attention)
+the person is typing; an agent doesn't shut the drawer they have (block.mark gets their attention)
+{"opened":"929eecea-a2c2-4f5f-a445-10f404fd58cb"}
+screen desk | focus claude | in-terminal claude
+== c1-agent-tries-while-typing
+typing-in-claude and-still-typing
+## c2. esc esc after ctrl+] from nvim: the desk and nvim keep running; D brings them back
+screen main menu | focus None | in-terminal None
+== c2a-menu-desk-in-background
+ 719472 nvim
+screen main menu | focus None | in-terminal None
+draft.md are running in a tile · quitting ends them · again within 3s quits
+== c2a2-logoff-asks
+screen desk | focus draft | in-terminal None
+nvim pid 719472 running True
+== c2b-D-brings-it-back
+## c3. ^W x on nvim asks first
+draft is running nvim draft.md · closing ends it · ^W x again within 3s closes
+still there, running True
+== c3-close-asks
+## c4. a program exits while the person types in it: keys wait, nothing leaks
+screen desk | focus pty | in-terminal pty
+pty exited · ⏎ runs it again · ctrl+] back to the door · other keys wait
+== c4-exited-keys-wait
+after enter: running True
+## c5. a multi-line paste into claude's terminal arrives as one paste
+before enter: ['agent-stand-in$ echo typing-in-claude and-still-typingclear', 'typing-in-claude and-still-typingclear', 'agent-stand-in$ echo pasted-one', 'echo pasted-two']
+== c5a-paste-not-run-yet
+after enter: ['agent-stand-in$ echo typing-in-claude and-still-typingclear', 'typing-in-claude and-still-typingclear', 'agent-stand-in$ echo pasted-one', 'echo pasted-two', 'pasted-one', 'pasted-two']
+## c6. F5 and shift+up reach nvim (ctrl+v in insert mode writes the key's name)
+nvim line: []
+== c6-fkeys-in-nvim
+## c7. a stalled subscriber
+{"stalledSubscriberDisconnectedAfterMs":null,"layoutChanges":3961,"replies":3961,"worstPeekMs":9,"peekAfterMs":2}
+screen desk | focus draft | in-terminal None
+{'slept_s': 60.0, 'unread_bytes_drained': 146343, 'door_closed_it': True}
