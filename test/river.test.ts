@@ -377,6 +377,34 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("edit.close", { discard: true }, beansR);
     expect(river.unsaved()).toBe(false);
   });
+  test("a column shows the whole note and scrolls like a reader; it jumps to a reply only when you move to it (PIE-465)", async () => {
+    const lines = Array.from({ length: 70 }, (_, i) => `Row ${i + 1} of the long seed list.`);
+    const long = await create(null, `The long seed list\n${lines.join("\n")}`);
+    await create(long.id, "Order more\nFrom the usual place.");
+    const r = (await act("open", { id: long.id })) as { reader: string };
+    await act("focus", {}, r.reader);
+    const p = paneOf(r.reader);
+    await until(() => (p.items?.length ?? 0) >= 1, "the long note's reply");
+    let s = screen();
+    expect(s).not.toContain("more lines");
+    expect(s).toContain("Row 1 of the long seed list.");     // opens at the top of the note, not at its reply
+    expect(p.top).toBe(0);
+    // The wheel scrolls the column by lines, to the end of the note.
+    const hit = R().hits.find((h: any) => R().cols[h.col].panes[h.pane] === p);
+    for (let i = 0; i < 30; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: hit.rect.col + 2, y: hit.rect.row + 1 });
+    s = screen();
+    expect(s).toContain("Row 70 of the long seed list.");
+    const scrolled = p.top;
+    expect(scrolled).toBeGreaterThan(0);
+    expect(p.sel).toBe(0);                                     // scrolling moved no selection
+    screen();
+    expect(p.top).toBe(scrolled);                               // a repaint leaves the scroll alone
+    // Page keys scroll too.
+    key({ kind: "pgup" }); screen();
+    expect(p.top).toBeLessThan(scrolled);
+    key({ kind: "home" }); key({ kind: "pgdn" }); screen();
+    expect(p.top).toBeGreaterThan(0);
+  });
 });
 
 describe("naming a river reader by position", () => {
@@ -387,4 +415,6 @@ describe("naming a river reader by position", () => {
     expect(riverPosition("12345678")).toBeNull();
     expect(riverPosition("12345678-9abc")).toBeNull();
   });
+
 });
+

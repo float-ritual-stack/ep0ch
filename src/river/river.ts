@@ -35,6 +35,10 @@ interface PaneS {
   kids: Map<string, Msg[] | "loading">;
   sel: number;
   top: number;
+  /** The selection the column last brought into view: it jumps to a reply only when this changes (PIE-465). */
+  shownSel?: number;
+  /** The column's height when last drawn, for paging. */
+  height?: number;
   filter: Clause[];
   error?: string;
   /** The note surface for this pane's note: editing, quoting, comment threads, links. */
@@ -51,7 +55,7 @@ type Cover = "full" | "peek" | "spine";
 interface Row { m: Msg; depth: number }
 /** A row of a pane as drawn: its card, whether it's the replies toggle, and the links on it (PIE-415). */
 type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[] };
-interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[] }
+interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[]; cover: Cover }
 
 const PEEK = 24;
 /** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
@@ -299,7 +303,7 @@ export class River implements Screen {
         }
         const view = cover === "peek" ? this.peek(p, body, focused && pi === col.pane) : this.full(p, body, focused && pi === col.pane);
         view.lines.forEach((l, i) => canvas.text(body.col, body.row + i, l, body.cols));
-        this.hits.push({ rect: body, col: ci, pane: pi, rows: view.rows });
+        this.hits.push({ rect: body, col: ci, pane: pi, rows: view.rows, cover });
       });
     }
     if (this.mode === "palette") this.drawPalette(canvas, W, rows);
@@ -348,9 +352,9 @@ export class River implements Screen {
       const drawn: Link[] = [];
       const body = wrap(presentLinks(bodyLines(m).join("\n"), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text, drawn), w - 1);
       // bodyLines took the properties out, so a `[key::value]` still here is a literal region's text.
-      const shown = extractLinks(body.slice(0, 12).map(l => stripMarks(colourBody(l, true))));
+      // The whole note: the column scrolls, so nothing is cut short or sent elsewhere (PIE-465).
+      const shown = extractLinks(body.map(l => stripMarks(colourBody(l, true))));
       shown.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: shown.ranges.filter(r => r.line === i && drawn[r.n]).map(r => ({ from: r.from + 1, to: r.to + 1, link: drawn[r.n]! })) }));
-      if (body.length > 12) push(fg(C.dark) + ` … ${body.length - 12} more lines (open in the desk reader for all)` + RESET);
       const label = `── ${p.items ? this.flat(p).length : "…"} replies `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
     }
@@ -371,9 +375,13 @@ export class River implements Screen {
       push(rail, n);
     });
     if (!p.items && !p.error) push(fg(C.dark) + "dialing…" + RESET);
-    // Keep the selected card on screen.
+    // Bring the selected card into view only when the selection moved to it (keys, a click). A repaint or the
+    // wheel leaves the scroll alone, so a note longer than the column can be read to its end (PIE-465).
     const first = all.findIndex(l => l.card === p.sel), last = all.findLastIndex(l => l.card === p.sel);
-    if (first >= 0) {
+    const moved = p.shownSel !== undefined && p.shownSel !== p.sel;
+    p.shownSel = p.sel;
+    p.height = r.rows;
+    if (first >= 0 && moved) {
       if (first < p.top) p.top = Math.max(0, first - (p.source.kind === "block" && p.sel === 0 ? first : 0));
       if (last >= p.top + r.rows) p.top = last - r.rows + 1;
     }
@@ -381,6 +389,15 @@ export class River implements Screen {
     this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
     return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links })) };
+  }
+
+  /** Scroll a column by lines; the next draw keeps it within the column's content. */
+  private scroll(p: PaneS, by: number) { p.top = Math.max(0, p.top + by); }
+
+  /** How a pane was last drawn: full, peek or spine (a pane not drawn yet counts as full). */
+  private coverOf(p: PaneS): Cover {
+    const h = this.hits.find(h => this.cols[h.col]?.panes[h.pane] === p);
+    return h?.cover ?? "full";
   }
 
   /** A press and release on the same cell of a pane: what a click there always did. */
@@ -933,6 +950,8 @@ export class River implements Screen {
     else if (k.kind === "right" || c === "l") this.focus = Math.min(this.cols.length - 1, this.focus + 1);
     else if (p && (k.kind === "down" || c === "j")) p.sel = Math.min(Math.max(0, n - 1), p.sel + 1);
     else if (p && (k.kind === "up" || c === "k")) p.sel = Math.max(0, p.sel - 1);
+    // A page of the column in a full column, as in any reader; in a peek (a list of titles) eight cards.
+    else if (p && (k.kind === "pgdn" || k.kind === "pgup") && this.coverOf(p) === "full") this.scroll(p, (k.kind === "pgdn" ? 1 : -1) * Math.max(1, (p.height ?? 10) - 2));
     else if (p && k.kind === "pgdn") p.sel = Math.min(Math.max(0, n - 1), p.sel + 8);
     else if (p && k.kind === "pgup") p.sel = Math.max(0, p.sel - 8);
     else if (p && k.kind === "home") p.sel = 0;
@@ -1047,7 +1066,9 @@ export class River implements Screen {
       // In an edit the wheel is the surface's (it moves a completion popup's choice, or the cursor).
       if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
       this.seen(p);
-      p.sel = Math.max(0, Math.min(this.flat(p).length - 1, p.sel + (k.action === "wheel-down" ? 1 : -1)));
+      // The wheel scrolls a full column by lines, like the desk reader; in a peek it moves between titles.
+      if (h.cover === "full") this.scroll(p, k.action === "wheel-down" ? 3 : -3);
+      else p.sel = Math.max(0, Math.min(this.flat(p).length - 1, p.sel + (k.action === "wheel-down" ? 1 : -1)));
       p.surface.clearLink();
       this.ctx.redraw();
     }
