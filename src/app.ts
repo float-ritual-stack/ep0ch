@@ -264,8 +264,10 @@ export class App implements Ctx {
     lines.push(this.statusBar(s, cols));
     const placements = this.graphics ? [...(frame.placements ?? [])] : [];
     if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
-    this.term.paint(lines);
-    this.kitty.sync(placements);
+    // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
+    const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
+    if (this.term.frame) this.term.frame(draw);
+    else draw();
   }
 
   private statusBar(s: Screen, cols: number): string {
