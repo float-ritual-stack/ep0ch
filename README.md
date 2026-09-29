@@ -2013,6 +2013,66 @@ Override the root with `OUTLINER_WORKSPACE_ROOT` and the base state directory wi
 Only the service and an explicit **New outline here** create this directory;
 opening a folder without an outline does not.
 
+### Outline names
+
+A name is the way to address an outline; the hash directory is only where it is
+stored. Each database describes itself in `outline.json` beside
+`outliner.sqlite`:
+
+```json
+{ "name": "jam-shelf", "root": "/work/jam-shelf", "host": "float-box", "created": "…", "updated": "…" }
+```
+
+`name` is a slug (`[a-z0-9][a-z0-9-]{0,31}`), unique within the state root, and
+`label` is optional. The service writes the descriptor on start (atomically)
+and records the folder it serves as `root`. A new outline is named by
+`OUTLINER_OUTLINE_NAME`, or else by its folder's basename as a slug, with a
+numeric suffix (`jam-shelf-2`) when another outline already has it. An existing
+descriptor keeps its name; only `outline rename` changes it. Nobody edits a
+registry of outlines: every list is a scan of the state root.
+
+While it runs, the service keeps `<state root>/by-name/<name>.sock`, a symlink
+to its real socket, and removes it on a clean stop. `ping` reports
+`outline: { name, descriptorPath, byNameSocket }` (capability `ping.outline`).
+`outline` is absent from older services and from a service running unnamed, and
+each path is absent when that part could not be written.
+
+Names never take a service down. If the descriptor or the link cannot be
+written, the service logs why (`Outline name: …` on stderr) and keeps serving on
+its hash socket. An unreadable or empty `outline.json` is left in place and
+shown as invalid by `outlines`; the service takes its name from a `by-name`
+link that points at it, or otherwise runs unnamed until the file is fixed or
+removed. `OUTLINER_OUTLINE_NAME` never renames an existing outline; the service
+warns when it differs. Only folders named like a storage key (12 lowercase hex
+characters) are scanned, so a backup beside them is not an outline. The service
+refuses to start only when another running service has its name, or when a new
+outline would take a name another outline holds; a stopped copy carrying the
+name this outline already has is a warning.
+
+```sh
+bun run cli outlines            # every outline: name, status, root, address, storage, aliases
+bun run cli outlines --json     # the same for agents; creates nothing
+bun run cli outline rename jam-shelf fig-crate        # only while stopped
+bun run cli outline set-root jam-shelf /work/moved/jam-shelf
+```
+
+Both commands accept a storage key (the 12-hex folder name) in place of the
+name, and refuse a name that more than one stored outline carries, listing
+their storage keys.
+
+`outlines` includes databases that have no descriptor yet (they get one the
+next time their service starts) and folders whose client config points at an
+outline, as aliases.
+
+**Moving an outline's folder.** Stop the service, move the folder, then run
+`outline set-root <name> <new folder>`; storage stays where it is. The new
+folder hashes to a different state directory, so start the service by name:
+`OUTLINER_OUTLINE=<name> bun run server` selects the database whose descriptor
+has that name and serves its recorded root. Starting by folder at the new root
+is refused rather than creating a second, empty outline. Clients still find a
+local outline by its folder's hash; until they resolve names, point a moved
+folder's client config at the by-name socket.
+
 Browsing contexts, Detail targets/history, Tree presentation state, and live
 Herdr client identities are intentionally ephemeral and are not stored in
 `outliner.sqlite`. Canonical content remains shared and durable.
