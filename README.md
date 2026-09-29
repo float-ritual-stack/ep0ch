@@ -158,14 +158,15 @@ macOS and Linux alike:
    `~/backups/ep0ch/<name>-<UTC timestamp>.sqlite`, integrity-checked. It runs before any other step
    changes anything, and not at all when nothing else changes.
 2. **Update the plugin**: `git pull --ff-only` in a linked checkout (then `bun install` when needed), or
-   for a managed one the same `herdr plugin install <owner/repo> --ref <ref> --yes` again (Herdr has no
-   update command; reinstalling refreshes it).
+   for a managed one `herdr plugin install <owner/repo> --ref main --yes` again (Herdr has no update
+   command; reinstalling refreshes it, from `main` whatever ref it was installed from).
 3. **Update this checkout**: `git pull --ff-only`, then `bun install --frozen-lockfile` when needed.
 4. **Link `ep0ch`** in the first directory that is on PATH and writable, of `~/.local/bin`,
    `/opt/homebrew/bin` and `/usr/local/bin`, saying which. Never sudo. An `ep0ch` that already runs
    another door checkout is left alone.
 5. **Restart per-folder services running old code**, only with `--restart-services` (they are working
-   panes): each service's Herdr pane is closed and the Outliner's own launcher starts it again
+   panes): each service's Herdr pane, once the Outliner's `resolveServicePaneId` confirms it is still
+   that service's (never a pane id alone), is closed and the Outliner's own launcher starts it again
    (`herdr-open.ts --mode service-only`, from inside Herdr); reopen its Tree and Detail afterwards.
    After a plugin update the services are asked again.
 

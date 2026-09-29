@@ -132,14 +132,25 @@ export function hostUnit(platform: Facts["platform"], home: string): HostFacts["
 }
 
 type Ping = { protocolVersion?: number; capabilities?: string[]; location?: { workspaceRoot?: string }; outline?: { name?: string } };
-const ping = (socket: string) => hostRequest<Ping>(socket, "ping", {}, 1500).catch(() => null);
+const ping = (socket: string, params: Record<string, unknown> = {}) => hostRequest<Ping>(socket, "ping", params, 1500).catch(() => null);
+
+/**
+ * The outline a read-only `ping` may go to on the host: the default when it is open, else any open one.
+ * A plain `ping` goes to the default outline, and the host opens it when it's closed; so a closed outline
+ * is never pinged (with none open, the host's protocol stays unknown).
+ */
+export function openOutlineToPing(outlines: readonly HostedOutline[]): string | null {
+  return (outlines.find(o => o.open && o.default) ?? outlines.find(o => o.open))?.name ?? null;
+}
 
 export async function hostFacts(base: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
   const socket = hostSocketOf(base);
   const unit = hostUnit(platform, home);
   const live = await hostLive(socket);
   if (!live) return { socket, configured: hostConfigured(base), running: false, outlines: [], unit };
-  const [list, p] = await Promise.all([hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] })), ping(socket)]);
+  const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
+  const target = openOutlineToPing(list.outlines);
+  const p = target ? await ping(socket, { outline: target }) : null;
   return { socket, configured: true, running: true, ...(live.defaultOutline ? { defaultOutline: live.defaultOutline } : {}), outlines: list.outlines,
     ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), capabilities: p?.capabilities ?? null, unit };
 }

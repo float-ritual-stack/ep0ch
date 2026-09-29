@@ -48,7 +48,8 @@ export function doctorChecks(f: Facts): Check[] {
   add("door", "bun install", f.door.deps.needed ? "behind" : "ok", f.door.deps.why, f.door.deps.needed ? `(cd ${c.root} && bun install --frozen-lockfile)` : undefined);
   const link = linkStep(f);
   if (f.ep0ch.pointsHere) add("door", "ep0ch on PATH", "ok", `${f.ep0ch.found} → ${f.door.entry}`);
-  else if (f.ep0ch.found) add("door", "ep0ch on PATH", "behind", link.why);
+  // Another door checkout's link is left alone on purpose (install skips it too): information, not a fault.
+  else if (f.ep0ch.found) add("door", "ep0ch on PATH", link.status === "skip" ? "info" : "behind", link.why);
   else add("door", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
 
   // outline services

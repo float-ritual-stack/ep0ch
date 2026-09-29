@@ -3,13 +3,13 @@
 // files. The sandboxed --apply run is in the PR; nothing here touches a real outline, Herdr or checkout.
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, confirmServicePane, formatPlan, setupCommand, tilde } from "../src/setup/apply";
 import { OUTLINE_CAPABILITIES } from "../src/socket";
 import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
-import { databases, depsState, herdrKeys, hostUnit } from "../src/setup/facts";
+import { databases, depsState, herdrKeys, hostFacts, hostUnit, openOutlineToPing } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type ServiceFacts, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, linkCandidates, type PlanOptions, stamp } from "../src/setup/plan";
 
@@ -206,6 +206,13 @@ describe("the doctor", () => {
     expect(formatDoctor(laptop())).toMatch(/^ {2}! installed/m);
   });
 
+  test("ep0ch running another door checkout is information (install leaves it alone); a stranger on PATH is behind", () => {
+    const other = laptop({ ep0ch: { found: "/opt/homebrew/bin/ep0ch", target: "/Users/wren/old/ep0ch-door/src/main.ts", pointsHere: false } });
+    expect(byName(other)["door/ep0ch on PATH"]!.status).toBe("info");
+    const stranger = laptop({ ep0ch: { found: "/usr/local/bin/ep0ch", target: "/usr/local/bin/ep0ch", pointsHere: false } });
+    expect(byName(stranger)["door/ep0ch on PATH"]!.status).toBe("behind");
+  });
+
   test("all current is all ✓", () => {
     expect(doctorChecks(current()).filter(c => c.status === "behind" || c.status === "missing")).toEqual([]);
   });
@@ -300,6 +307,21 @@ describe("read-only probes on scratch files", () => {
     expect(() => backupDatabase(src, dest)).toThrow("already exists");
     expect(existsSync(src)).toBe(true);
   });
+
+  test("a failed backup leaves an existing file at the destination as it was, and removes only its own copy", () => {
+    const src = join(scratch, "pond.sqlite"), dest = join(scratch, "backups/pond-earlier.sqlite");
+    const w = new Database(src);
+    w.exec("CREATE TABLE notes(text); INSERT INTO notes VALUES ('net the leaves')");
+    w.close();
+    writeFileSync(dest, "an earlier backup");
+    expect(() => backupDatabase(src, dest)).toThrow("already exists");
+    expect(readFileSync(dest, "utf8")).toBe("an earlier backup");
+    const notADb = join(scratch, "not-a-db.sqlite"), bad = join(scratch, "backups/not-a-db-copy.sqlite");
+    writeFileSync(notADb, "this is not a database, it is a shopping list: twine, seed trays");
+    expect(() => backupDatabase(notADb, bad)).toThrow();
+    expect(existsSync(bad)).toBe(false);
+    expect(readFileSync(notADb, "utf8")).toContain("shopping list");
+  });
 });
 
 describe("the command line", () => {
@@ -323,4 +345,56 @@ test("a managed install from another ref (a PR branch) is compared with main and
   const step = buildPlan(f, opts()).steps[1]!;
   expect(step.why).toContain("installed from pr-239, refreshed from main");
   expect(step.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
+});
+
+describe("never starting an outline, never closing a pane it can't confirm", () => {
+  test("the host is pinged only through an open outline: the default when open, else another open one, else not at all", () => {
+    const o = (name: string, open: boolean, def = false) => ({ name, database: `/x/${name}.sqlite`, adopted: false, open, default: def });
+    expect(openOutlineToPing([o("orchard", true), o("pond", true, true)])).toBe("pond");
+    expect(openOutlineToPing([o("pond", false, true), o("orchard", true)])).toBe("orchard");
+    expect(openOutlineToPing([o("pond", false, true)])).toBeNull();
+  });
+
+  test("doctor's host probe never sends a plain ping (the host would open a closed default outline)", async () => {
+    const base = join(scratch, "host-state");
+    mkdirSync(join(base, "outlines"), { recursive: true });
+    const seen: any[] = [];
+    const server = Bun.listen<{ buf: string }>({ unix: join(base, "outliner.sock"), socket: {
+      open(s) { s.data = { buf: "" }; },
+      data(s, d) {
+        s.data.buf += d.toString();
+        const nl = s.data.buf.indexOf("\n");
+        if (nl < 0) return;
+        const req = JSON.parse(s.data.buf.slice(0, nl));
+        seen.push(req);
+        const result = req.action === "outlines.list"
+          ? { defaultOutline: "pond", outlines: [{ name: "pond", database: "/x/pond.sqlite", adopted: false, open: false, default: true }] }
+          : { protocolVersion: 82, capabilities: [] };
+        s.write(JSON.stringify({ id: req.id, ok: true, result, sequence: 0 }) + "\n");
+      },
+    } });
+    try {
+      const h = await hostFacts(base, "linux", scratch);
+      expect(h.running).toBe(true);
+      expect(h.protocol).toBeUndefined();
+      expect(seen.map(r => r.action)).not.toContain("ping");
+    } finally { server.stop(true); }
+  });
+
+  test("a service pane is confirmed by the plugin's resolveServicePaneId; anything else means no pane is closed", async () => {
+    const plugin = (name: string, body: string | null) => {
+      const root = join(scratch, name);
+      mkdirSync(join(root, "src"), { recursive: true });
+      if (body !== null) writeFileSync(join(root, "src/pane-control.ts"), body);
+      return root;
+    };
+    const confirmed = plugin("plugin-confirms", `export const resolveServicePaneId = (dir: string, herdr: string) => dir.endsWith("a1b2c3d4e5f6") && herdr === "herdr" ? "w1:p3" : null;`);
+    expect(await confirmServicePane(confirmed, "/state/a1b2c3d4e5f6", "herdr", process.env)).toEqual({ paneId: "w1:p3" });
+    expect((await confirmServicePane(confirmed, "/state/ffffffffffff", "herdr", process.env)).paneId).toBeNull();
+    const old = plugin("plugin-without", "export const somethingElse = 1;");
+    expect(await confirmServicePane(old, "/state/a1b2c3d4e5f6", "herdr", process.env)).toEqual({ paneId: null, error: "the plugin has no resolveServicePaneId" });
+    const throws = plugin("plugin-throws", `export const resolveServicePaneId = () => { throw new Error("herdr is not answering"); };`);
+    expect((await confirmServicePane(throws, "/state/a1b2c3d4e5f6", "herdr", process.env)).paneId).toBeNull();
+    expect((await confirmServicePane(plugin("plugin-missing", null), "/state/a1b2c3d4e5f6", "herdr", process.env)).error).toContain("missing");
+  });
 });

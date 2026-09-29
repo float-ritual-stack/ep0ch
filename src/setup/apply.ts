@@ -3,7 +3,7 @@
 // with the recovery. Databases are only ever copied; no outline is created or started; no unit is changed.
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
 import { depsState, gatherFacts, pluginFacts, run, serviceFacts } from "./facts";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
@@ -17,17 +17,47 @@ const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!", 
 
 /** Copies a database consistently (VACUUM INTO, from a read-only connection) and checks the copy. */
 export function backupDatabase(path: string, dest: string): { integrity: string } {
+  // An existing file is never touched: not overwritten, and not removed when this copy fails.
   if (existsSync(dest)) throw new Error(`${dest} already exists; not overwritten`);
-  const src = new Database(path, { readonly: true });
-  try { src.run("VACUUM INTO ?", [dest]); } finally { src.close(); }
-  chmodSync(dest, 0o600);
-  const copy = new Database(dest, { readonly: true });
   try {
-    const rows = copy.query("PRAGMA integrity_check").all() as { integrity_check: string }[];
-    const verdict = rows.map(r => r.integrity_check).join("; ");
-    if (verdict !== "ok") throw new Error(`the copy of ${path} failed its integrity check: ${verdict}`);
-    return { integrity: verdict };
-  } finally { copy.close(); }
+    const src = new Database(path, { readonly: true });
+    try {
+      // A reader of a WAL database rarely waits, but a service's checkpoint or recovery can hold it briefly.
+      src.run("PRAGMA busy_timeout = 5000");
+      src.run("VACUUM INTO ?", [dest]);
+    } finally { src.close(); }
+    chmodSync(dest, 0o600);
+    const copy = new Database(dest, { readonly: true });
+    try {
+      const rows = copy.query("PRAGMA integrity_check").all() as { integrity_check: string }[];
+      const verdict = rows.map(r => r.integrity_check).join("; ");
+      if (verdict !== "ok") throw new Error(`the copy of ${path} failed its integrity check: ${verdict}`);
+      return { integrity: verdict };
+    } finally { copy.close(); }
+  } catch (e) {
+    // Only this copy (and the journal files SQLite may have left beside it) is removed; never the source.
+    for (const f of [dest, `${dest}-journal`, `${dest}-wal`, `${dest}-shm`]) { try { rmSync(f, { force: true }); } catch { /* the report says what failed */ } }
+    throw e;
+  }
+}
+
+/**
+ * The Herdr pane running a folder service, confirmed by the Outliner's own `resolveServicePaneId`
+ * (pane-control.ts): the recorded pane id is trusted only when that pane is still the service's terminal
+ * on this Herdr (ids are reused after a Herdr restart), else the moved pane is found by its identity.
+ * Null when it can't be confirmed; a pane that isn't confirmed is never closed.
+ */
+export async function confirmServicePane(pluginRoot: string, stateDir: string, herdr: string, env: Env): Promise<{ paneId: string | null; error?: string }> {
+  const module = join(pluginRoot, "src/pane-control.ts");
+  if (!existsSync(module)) return { paneId: null, error: `${module} is missing` };
+  const r = await run([process.execPath, "-e",
+    `const m = await import(${JSON.stringify(module)}); console.log(JSON.stringify(typeof m.resolveServicePaneId === "function" ? { paneId: m.resolveServicePaneId(${JSON.stringify(stateDir)}, ${JSON.stringify(herdr)}) } : { error: "the plugin has no resolveServicePaneId" }))`],
+  { env, timeoutMs: 30_000 });
+  try {
+    const v = JSON.parse(r.out.split("\n").pop() ?? "");
+    if (typeof v?.paneId === "string" && v.paneId) return { paneId: v.paneId };
+    return { paneId: null, error: v?.error ?? "no Herdr pane on this Herdr is that service's" };
+  } catch { return { paneId: null, error: r.err.split("\n").find(l => l.trim()) || `exit ${r.code}` }; }
 }
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
@@ -78,12 +108,12 @@ async function waitFor(check: () => Promise<boolean>, ms: number): Promise<boole
 async function execute(step: Step, f: Facts, env: Env, say: (s: string) => void): Promise<void> {
   switch (step.id) {
     case "backup": {
-      const dir = backupDirOf(f.home);
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
       for (const b of step.backups ?? []) {
-        try { const { integrity } = backupDatabase(b.path, b.dest); say(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity})`); }
-        catch (e) {
-          try { rmSync(b.dest, { force: true }); } catch { /* keep going to the report */ }
+        try {
+          mkdirSync(dirname(b.dest), { recursive: true, mode: 0o700 });
+          const { integrity } = backupDatabase(b.path, b.dest);
+          say(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity})`);
+        } catch (e) {
           throw new StepFailed(`backing up ${b.name} failed: ${(e as Error).message}`, `nothing was changed; check the disk and ${b.path}, then rerun ep0ch install --apply`);
         }
       }
@@ -124,7 +154,10 @@ async function execute(step: Step, f: Facts, env: Env, say: (s: string) => void)
       for (const s of step.services ?? []) {
         if (!s.paneId || !s.root) continue;
         const label = serviceLabel(s);
-        await must([f.herdr.path!, "pane", "close", s.paneId], `the service for ${label} still runs; stop it in its pane (${s.paneId}) and reopen the Outliner in ${s.root}`, { env });
+        // Only a pane the Outliner confirms is this service's is closed: a recorded id can name another pane now.
+        const pane = await confirmServicePane(pluginRoot, s.stateDir, f.herdr.path!, env);
+        if (!pane.paneId) throw new StepFailed(`couldn't confirm which Herdr pane runs the service for ${label} (${pane.error}); no pane was closed`, `stop the service by hand and reopen the Outliner in ${s.root}`);
+        await must([f.herdr.path!, "pane", "close", pane.paneId], `the service for ${label} still runs; stop it in its pane (${pane.paneId}) and reopen the Outliner in ${s.root}`, { env });
         const stopped = await waitFor(async () => !(await hostRequest(s.socket, "ping", {}, 500).then(() => true, () => false)), 15_000);
         if (!stopped) throw new StepFailed(`the service for ${label} still answers after its pane closed`, `stop it by hand, then reopen the Outliner in ${s.root}`);
         const launchEnv: Env = { ...env, HERDR_ENV: "1", OUTLINER_OPEN_WORKSPACE_ROOT: s.root, HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify({ focused_pane_cwd: s.root }) };
