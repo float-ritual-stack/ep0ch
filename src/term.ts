@@ -1,5 +1,6 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
+import { width } from "./style";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
@@ -24,7 +25,26 @@ export class Term {
   private decoder = new TextDecoder("utf-8");
   private probing: { kitty: boolean | null; done: () => void } | null = null;
 
-  write = (s: string) => { process.stdout.write(s); };
+  /** What a frame in progress has written so far (null outside `frame`); sent as one chunk when it ends. */
+  private frameOut: string | null = null;
+  write = (s: string) => { if (this.frameOut !== null) this.frameOut += s; else process.stdout.write(s); };
+
+  /**
+   * Everything `draw` writes goes out as one synchronized update (DEC mode 2026), in one write: the terminal,
+   * and Herdr in between, show the frame whole or not at all, never half painted (PIE-462). Nested frames
+   * join the outer one.
+   */
+  frame(draw: () => void): void {
+    if (this.frameOut !== null) return draw();
+    this.frameOut = "";
+    try {
+      draw();
+    } finally {
+      const out = this.frameOut;
+      this.frameOut = null;
+      if (out) process.stdout.write(`\x1b[?2026h${out}\x1b[?2026l`);
+    }
+  }
 
   async start(): Promise<void> {
     process.stdin.setRawMode?.(true);
@@ -72,10 +92,10 @@ export class Term {
     for (let r = 0; r < this.info.rows; r++) {
       const line = lines[r] ?? "";
       if (this.last[r] === line) continue;
-      out += `\x1b[${r + 1};1H\x1b[0m\x1b[2K${line}\x1b[0m`;
+      out += this.row(r, line);
     }
     this.last = lines.slice(0, this.info.rows);
-    if (out) this.write(out);
+    if (out) this.frame(() => this.write(out));
   }
 
   /**
@@ -86,7 +106,16 @@ export class Term {
   paintRow(r: number, line: string): void {
     if (r < 0 || r >= this.info.rows || this.last[r] === line) return;
     this.last[r] = line;
-    this.write(`\x1b[${r + 1};1H\x1b[0m\x1b[2K${line}\x1b[0m`);
+    this.frame(() => this.write(this.row(r, line)));
+  }
+
+  /**
+   * One row: its text first, then an erase of whatever is left to its right. Erasing the whole row first left
+   * it black until the text arrived, and a terminal could show that (PIE-462). Autowrap is off, so an erase
+   * from the last column would take the last character: a row that fills the width gets none.
+   */
+  private row(r: number, line: string): string {
+    return `\x1b[${r + 1};1H\x1b[0m${line}\x1b[0m${width(line) >= this.info.cols ? "" : "\x1b[K"}`;
   }
 
   invalidate() { this.last = []; }
