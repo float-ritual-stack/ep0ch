@@ -32,7 +32,11 @@ export interface Caller {
   target?: string | null;  // block id the caller is looking at
 }
 
-export interface BoardInfo { host: string; workspace: string; protocol: number; blocks: number | null; capabilities?: string[] | null }
+export interface BoardInfo {
+  host: string; workspace: string; protocol: number; blocks: number | null; capabilities?: string[] | null;
+  /** The outline's name when the service is an outline host (PIE-457); absent from a single-outline service. */
+  outline?: string;
+}
 
 export interface Board {
   info(): Promise<BoardInfo>;

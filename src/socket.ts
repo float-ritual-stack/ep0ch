@@ -21,7 +21,42 @@ const CLIENT_PROTOCOL = 82;
  * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
  * "Unsupported action" answer for the session.
  */
-export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection";
+export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection"
+  /** An outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
+  | HostCapability;
+
+/**
+ * What an outline host adds: `request.outline` (a request may name its outline; the host routes the
+ * connection by its first line), `ping.host` (`ping` reports `host`), and the host's own `outlines.*`.
+ */
+export type HostCapability = "request.outline" | "ping.host" | "outlines.list" | "outlines.attach" | "outlines.create" | "outlines.adopt" | "outlines.close" | "outlines.delete";
+
+/** An outline's name on a host: a short slug, as the outliner's OUTLINE_NAME_PATTERN. */
+export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/** What `ping` without an outline says about an outline host (absent from a single-outline service). */
+export interface HostStatus { socket: string; defaultOutline?: string; outlines: string[] }
+/** One outline on a host, as `outlines.list|attach|create|adopt|close` describe it. */
+export interface HostedOutline { name: string; database: string; adopted: boolean; open: boolean; default: boolean; root?: string; problem?: string }
+
+/**
+ * A request to the outline host itself (`outlines.*`, or `ping` for the host), on a short connection of
+ * its own. The host answers the first line of a connection and hands the rest to one outline, so these
+ * never go on a board's connection, which belongs to its outline.
+ */
+export function hostRequest<T = any>(path: string, action: string, params: Record<string, unknown> = {}, timeoutMs = 15_000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const s = connect(path);
+    const timer = setTimeout(() => { s.destroy(); reject(new Error(`${action} timed out`)); }, timeoutMs);
+    const lines = new Line(r => {
+      clearTimeout(timer); s.destroy();
+      r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`));
+    });
+    s.on("data", d => lines.feed(d));
+    s.on("error", e => { clearTimeout(timer); reject(e); });
+    s.on("connect", () => s.write(JSON.stringify({ id: "host", action, ...params }) + "\n"));
+  });
+}
 
 /**
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
@@ -229,7 +264,11 @@ export class SocketBoard implements Board {
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
-  constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = 15_000) {}
+  /**
+   * `outline`: the outline this board reads on an outline host. Every request line and the subscribe
+   * line name it, and `info()` refuses a service that can't route by name.
+   */
+  constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = 15_000, readonly outline?: string) {}
 
   private conn(): Socket {
     if (this.sock && !this.sock.destroyed) return this.sock;
@@ -255,7 +294,7 @@ export class SocketBoard implements Board {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, this.timeoutMs);
       this.waiting.set(id, { resolve, reject, timer });
-      this.conn().write(JSON.stringify({ id, action, ...params }) + "\n");
+      this.conn().write(JSON.stringify({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }) + "\n");
     });
   }
 
@@ -293,7 +332,12 @@ export class SocketBoard implements Board {
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string } }>("ping");
+    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
+    // A single-outline service ignores `outline` and would serve its own outline: never read the wrong one.
+    if (this.outline && !r.capabilities?.includes("request.outline"))
+      throw new Error(`${this.path} serves one outline and can't route by name (no request.outline), so it can't open the outline "${this.outline}"; start the outline host, or name a folder root with --ws <root>`);
+    if (this.outline && r.outline?.name && r.outline.name !== this.outline)
+      throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
     // Newer services add actions; the door only needs long-standing ones, so older is the hard stop.
     if (r.protocolVersion < PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door needs ${PROTOCOL} or newer`);
     if (r.minClientProtocol !== undefined && r.minClientProtocol > CLIENT_PROTOCOL)
@@ -302,7 +346,11 @@ export class SocketBoard implements Board {
     this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
     this.protocol = r.protocolVersion;
     this.unsupported.clear();
-    return { host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null };
+    return {
+      host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null,
+      // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).
+      ...(r.host ? { outline: r.outline?.name ?? this.outline } : {}),
+    };
   }
 
   async roots(): Promise<Msg[]> {
@@ -415,7 +463,7 @@ export class SocketBoard implements Board {
   /** The whole outline without full text (tree.index): parents, properties, titles. ~1 MB for 1.5k blocks. */
   async index(): Promise<IndexBlock[]> {
     // Its own connection: the service answers one socket strictly in order, and this call takes seconds.
-    const lane = new SocketBoard(this.path, 90_000);
+    const lane = new SocketBoard(this.path, 90_000, this.outline);
     const r = await lane.request<{ blocks: any[] }>("tree.index", {}).finally(() => lane.close());
     return r.blocks.map(b => ({
       id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
@@ -667,6 +715,7 @@ export class SocketBoard implements Board {
     });
     s.on("connect", () => s.write(JSON.stringify({
       id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId },
+      ...(this.outline ? { outline: this.outline } : {}),
     }) + "\n"));
     this.events = s;
   }

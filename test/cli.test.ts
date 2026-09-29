@@ -36,6 +36,8 @@ describe("ep0ch command", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("ep0ch clients");
     expect(r.out).toContain("ep0ch try");
+    expect(r.out).toContain("ep0ch outline list | attach <name>");
+    expect(r.out).toContain("ep0ch status");
   });
 
   test("clients against a socket with no service says no carrier and exits 1", async () => {
