@@ -14,6 +14,24 @@ Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-
 [AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
 verification and the review checklist.
 
+## Outlines on the outline host
+
+With pi-herdr-outliner's outline host running (one socket per machine, `<state>/outliner.sock`, holding any
+number of outlines by name), the door opens outlines like Herdr sessions:
+
+    ep0ch --ws jam-shelf              that outline; created if there is none ("created outline jam-shelf")
+    ep0ch --ws /work/fred             the folder's outline: its client.json binding, the nearest bound
+                                      folder above it, else the outline named after the folder
+    ep0ch                             the same for the current directory (the home folder: the default)
+    ep0ch outline list | attach <name> | create <name> | adopt <path> <name> [--root <dir>]
+                | stop <name> | delete <name> [--yes]     (each with --json)
+    ep0ch status                      the host's socket, default outline and open outlines
+
+`EP0CH_SOCKET` or a socket path still overrides the choice. Every request and the subscription name the
+outline, and a single-outline service is refused when an outline is named. The status bar and `peek` show
+`host · outline`. Only opening the door creates an outline; the listings and `clients` never do. Without a
+host, `--ws <root>` and discovery work as before (`src/discover.ts`, `resolveTarget`, `outlineForFolder`).
+
 ## Try it
 
     scripts/try-it.sh --ws /home/evan/test

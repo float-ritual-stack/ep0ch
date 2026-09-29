@@ -169,7 +169,7 @@ export class Logon implements Screen {
       "",
       "CONNECT 28800/ARQ/V34/LAPM/V42BIS",
       "",
-      `ep0ch · node 1 · ${ctx.workspace} · outline protocol 80`,
+      `ep0ch · node 1 · ${ctx.outline ?? ctx.workspace} · outline protocol 80`,
     ];
   }
   private get alias() { return process.env.USER ?? "shypht"; }

@@ -24,6 +24,8 @@ export interface Ctx {
   board: SocketBoard;
   host: string;
   workspace: string;
+  /** The outline's name on an outline host (PIE-466); absent on a single-outline service. */
+  outline?: string;
   video: Video;
   get graphics(): boolean;
   push(s: Screen): void;
@@ -31,7 +33,7 @@ export interface Ctx {
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
-  flash(msg: string): void;
+  flash(msg: string, ms?: number): void;
   /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on). */
   copy?(text: string): void;
   cycleVideo(): void;
@@ -85,6 +87,7 @@ export class App implements Ctx {
   private quitArmed = 0;
   host = "";
   workspace = "";
+  outline: string | undefined;
   video: Video;
   events = 0;
   /** The event connection to the service is down; the door is reconnecting. */
@@ -121,7 +124,7 @@ export class App implements Ctx {
     this.flash("an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)");
     return false;
   }
-  flash(msg: string) { this.message = msg; this.messageUntil = Date.now() + 4000; this.redraw(); }
+  flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
   copy(text: string) { this.term.write(osc52(text)); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
@@ -166,7 +169,8 @@ export class App implements Ctx {
     const b = this.board;
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
-    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace, service, state: s?.describe?.() ?? null };
+    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace,
+      ...(this.outline ? { outline: this.outline } : {}), service, state: s?.describe?.() ?? null };
   }
 
   async openBlock(id: string): Promise<string> {
@@ -270,10 +274,13 @@ export class App implements Ctx {
     else draw();
   }
 
+  /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */
+  get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
+
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
-    const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.host}:${this.workspace}`;
+    const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
     const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);

@@ -12,6 +12,11 @@ socket, with the same checks (revisions, property warnings, duplicate-safe comme
 ## Commands
 
     ep0ch help                       everything below
+    ep0ch --ws <name>                open the door on an outline of the outline host (created if none)
+    ep0ch outline list [--json]      the host's outlines: name, open, default, adopted, root
+    ep0ch outline attach <name> [--json]   open the door on it (--json: only attach, print the answer)
+    ep0ch outline create <name> | adopt <path> <name> [--root <dir>] | stop <name> | delete <name> --yes
+    ep0ch status [--json]            the host: socket, default outline, open outlines
     ep0ch clients [--ws <root>]      who is connected to the service (every role)
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
@@ -24,6 +29,17 @@ socket, with the same checks (revisions, property warnings, duplicate-safe comme
 `bun src/main.ts …` in the door's checkout is the same command. The full action table is in the door's
 README, section "Letting an agent see what you see, and do what you do" (`ep0ch --skill ep0ch` shows this
 file's path; the README is two directories up).
+
+## Which outline a door opens
+
+With an outline host running (one socket per machine, outlines by name, like Herdr sessions):
+`--ws <name>` opens that outline and creates it if there is none; `--ws <folder>` or no `--ws` opens the
+folder's bound outline (its `client.json` `outline`, or the nearest bound folder above), else the outline
+named after the folder; the home folder gets the host's default. `EP0CH_SOCKET` or a socket path overrides
+all of this. Opening the door creates an outline; `outline list`, `status` and `clients` never do. The
+status bar and `peek` show `host · outline`. Without a host, `--ws <root>` and discovery work as before.
+Delete moves a created outline to `deleted/` (an adopted one is only unlinked); pass `--yes` only when the
+person asked for it.
 
 ## Which door you reach
 
