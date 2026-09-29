@@ -25,8 +25,10 @@ function writeLastCall(at: number) {
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
 
-  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --river | --brief | --showcase]
+  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --showcase]
                                    open the door (the logon, then the main menu, by default);
+                                   --layout daily opens the desk laid out as a named layout (daily,
+                                   river, board, desk, or one saved with ^W w);
                                    --brief opens the newest daily brief (type::daily-brief), and
                                    EP0CH_LANDING=brief lands on it after the logon.
                                    With an outline host running, --ws <name> opens that outline,
@@ -96,7 +98,9 @@ await term.start();
 const mirror = new Mirror(term.info.cols, term.info.rows);
 const rawWrite = term.write;
 term.write = (s: string) => { rawWrite(s); mirror.write(s); };
-process.stdout.on("resize", () => mirror.resize(term.info.cols, term.info.rows));
+// Before the door repaints for the new size: a mirror resized after the repaint would be blank until each
+// row changed again, and `snap` would show half a screen.
+process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
 const app = new App(term, board, lastCall, () => {

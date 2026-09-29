@@ -10,6 +10,8 @@ import { encodePng, GLYPH_H, GLYPH_W } from "./vga";
 
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
 const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
+// The VGA font's low glyphs: arrows and triangles the door draws (a tile's link →, the tree's ▸ ▾, a drawer's ⇤).
+for (const [c, n] of [["☺", 1], ["♦", 4], ["•", 7], ["►", 16], ["▸", 16], ["◄", 17], ["◂", 17], ["↕", 18], ["‼", 19], ["↑", 24], ["↓", 25], ["→", 26], ["←", 27], ["↔", 29], ["▲", 30], ["▼", 31], ["▾", 31], ["⇤", 27], ["⇐", 27], ["⇒", 26], ["⇓", 25], ["⠿", 254], ["▭", 254], ["⌖", 15]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
 
 interface TCell { ch: string; fg: number[]; bg: number[] | null }
 export class Mirror {
@@ -115,7 +117,7 @@ export class Mirror {
     this.cells.forEach((row, r) => row.forEach((c, k) => { if (c.bg) fill(k * t.cellW, r * t.cellH, t.cellW, t.cellH, c.bg); }));
     drawImages(z => z >= -1073741824 && z < 0);                // over backgrounds, under text
     this.cells.forEach((row, r) => row.forEach((c, k) => {
-      if (c.ch === " ") return;
+      if (c.ch === " " || c.ch === "\u200b") return;
       const code = c.ch.charCodeAt(0) < 128 ? c.ch.charCodeAt(0) : toCp437.get(c.ch) ?? 63;
       for (let gy = 0; gy < GLYPH_H; gy++) for (let gx = 0; gx < GLYPH_W; gx++) {
         const bit = (code * GLYPH_H + gy) * GLYPH_W + gx;

@@ -12,7 +12,9 @@ import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
 
-export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art";
+export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art"
+  /** Tiles (PIE-413): a reader that keeps its note, one that follows a tile or a file, a program, a whole screen. */
+  | "detail" | "preview" | "pty" | "board" | "river" | "brief";
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
@@ -28,6 +30,8 @@ export interface DeskApi {
   startSession?(pane: ReaderPane, kind: SessionKind): void;
   /** `pane` is the reader the person has focused: an agent's back and forward are refused there (PIE-453). */
   holdsFocus?(pane: ReaderPane): boolean;
+  /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
+  routes?(pane: Pane): boolean;
 }
 
 export interface Pane {
@@ -44,6 +48,15 @@ export interface Pane {
   reveal?(m: Msg, desk: DeskApi): void;
   onEvent?(desk: DeskApi): void;
   init?(desk: DeskApi): void;
+  /**
+   * Every mouse event inside the tile, at x, y in it (a terminal tile, a whole screen): true when the tile
+   * took it. Without it the desk sends clicks and the wheel as above.
+   */
+  mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean;
+  /** What the tile needs to be built again (a layout saved by name): its note, command, source. */
+  spec?(): Record<string, unknown>;
+  /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
+  dispose?(): void;
 }
 
 const SEL_ON = bg(C.blue) + fg(C.white);
@@ -74,6 +87,8 @@ export class TreePane implements Pane {
   private timer: Timer | null = null;
   title() { return "outline"; }
   hint() { return "←→ fold · ⏎ read"; }
+  /** The row it has selected: a preview tile following the tree starts there. */
+  selected(): Msg | null { return this.rows[this.sel]?.m ?? null; }
 
   init(desk: DeskApi) {
     desk.ctx.board.roots().then(r => {
@@ -159,7 +174,8 @@ export class TreePane implements Pane {
       desk.redraw();
       return true;
     }
-    if (k.kind === "enter") { desk.setCurrent(row.m, { from: this }); desk.focusKind("reader"); return true; }
+    // ⏎ opens it: in the tile this one links to (PIE-473), else as the current note, the keys to a reader.
+    if (k.kind === "enter") { const routed = desk.routes?.(this); desk.setCurrent(row.m, { from: this, link: true }); if (!routed) desk.focusKind("reader"); return true; }
     return false;
   }
 
@@ -188,7 +204,8 @@ export { propertyChange };
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
 export class ReaderPane implements Pane {
-  readonly kind = "reader";
+  /** "detail": a tile that keeps its note (held from the start); "preview": one that follows a tile or a file. */
+  readonly kind: "reader" | "detail" | "preview" = "reader";
   readonly surface = new NoteSurface();
   private held = false;
   /**
@@ -209,6 +226,8 @@ export class ReaderPane implements Pane {
   get holdsKeys() { return this.surface.holdsKeys; }
   /** Hold `m` (a desk reader opened by alt+⏎ on a link): it keeps its note as the current one changes. */
   hold(m: Msg, desk: DeskApi) { this.held = this.follows; this.show(m, desk); }
+  /** Held before it has a note (a detail tile waiting for its first open): the current note doesn't move it. */
+  holdOn() { this.held = this.follows; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   title() {
@@ -223,7 +242,7 @@ export class ReaderPane implements Pane {
       ctx: desk.ctx,
       redraw: () => desk.redraw(),
       // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
-      navigate: (m, how) => { if (this.held && !how?.fresh) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
+      navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       focused: desk.holdsFocus?.(this) ?? false,
@@ -516,7 +535,7 @@ export class ArtPane implements Pane {
   wheel(dir: 1 | -1, desk: DeskApi) { this.scroll = Math.max(0, this.scroll + dir * 2); desk.redraw(); }
 }
 
-export function makePane(kind: PaneKind): Pane {
+export function makePane(kind: "tree" | "reader" | "thread" | "activity" | "who" | "art"): Pane {
   switch (kind) {
     case "tree": return new TreePane();
     case "reader": return new ReaderPane(true);

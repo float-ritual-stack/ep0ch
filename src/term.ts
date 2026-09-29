@@ -12,7 +12,8 @@ export type Key =
    * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
    */
   | { kind: "alt-left" | "alt-right" | "back" | "forward" }
-  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
+  /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
+  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number; mods?: number };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
@@ -129,7 +130,7 @@ export class Term {
         // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
         if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); continue; }
         const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
-        this.keyHandler({ kind: "mouse", action, button: b & 3, x, y });
+        this.keyHandler({ kind: "mouse", action, button: b & 3, x, y, ...(b & 28 ? { mods: b & 28 } : {}) });
         continue;
       }
       m = p.match(/^\x1b\[\?[\d;]*c/);
@@ -171,6 +172,8 @@ export class Term {
       if (c === "\r" || c === "\n") this.keyHandler({ kind: "enter" });
       else if (c === "\t") this.keyHandler({ kind: "tab" });
       else if (code === 127 || code === 8) this.keyHandler({ kind: "backspace" });
+      // ctrl+\ ] ^ _ are 28-31: named as the keys pressed (ctrl+] leaves a terminal tile, PIE-417).
+      else if (code >= 28 && code < 32) this.keyHandler({ kind: "char", ch: "\\]^_"[code - 28]!, ctrl: true });
       else if (code < 32) this.keyHandler({ kind: "char", ch: String.fromCharCode(code + 96), ctrl: true });
       else this.keyHandler({ kind: "char", ch: c });
     }

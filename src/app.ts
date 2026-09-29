@@ -39,6 +39,11 @@ export interface Ctx {
   cycleVideo(): void;
   /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
   suspend(run: () => void): void;
+  /**
+   * Run an editor on `path` in a terminal tile beside the note instead of suspending the door (PIE-417):
+   * true when the screen has tiles and opened one; `done` is called with its exit code when it ends.
+   */
+  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
 }
@@ -66,6 +71,14 @@ export interface Screen {
   actions?(): { actions: ActionInfo[]; readers: string[] };
   /** Run a named action as `actor`, through the same code as its keys (`ep0ch-door act`). */
   act?(req: ActRequest, actor: Actor): Promise<unknown>;
+  /** Every key is the screen's, ctrl+c included: the person is typing in a terminal tile (PIE-417). */
+  rawKeys?(): boolean;
+  /** Leaving the screen would end something (programs running in tiles): said, and asked twice. */
+  leaveWarning?(): string | null;
+  /** The screen is gone for good (popped or replaced): it ends what it started. */
+  dispose?(): void;
+  /** See Ctx.editInTile. */
+  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
 }
 
 /** An agent's actor id: what it calls itself, or `ep0ch-door:<host>:agent`. Kept to plain, short ids. */
@@ -109,8 +122,8 @@ export class App implements Ctx {
   get graphics() { return this.video !== "cells"; }
 
   push(s: Screen) { this.stack.push(s); s.enter?.(this); this.redraw(); }
-  pop() { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); if (!this.stack.length) return this.quit(); this.redraw(); }
-  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); this.push(s); }
+  pop() { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop()?.dispose?.(); if (!this.stack.length) return this.quit(); this.redraw(); }
+  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop()?.dispose?.(); this.push(s); }
 
   /**
    * Closing screens that hold unsaved edits asks twice. The second time goes ahead, but the drafts are
@@ -118,12 +131,14 @@ export class App implements Ctx {
    */
   private leaving(screens: (Screen | undefined)[]): boolean {
     const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
-    if (!dirty.length) return true;
+    const warn = screens.map(s => s?.leaveWarning?.()).find(Boolean);
+    if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
-    this.flash("an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)");
+    this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
+  editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
   copy(text: string) { this.term.write(osc52(text)); }
   cycleVideo() {
@@ -231,7 +246,7 @@ export class App implements Ctx {
   }
 
   private key(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "c") { if (this.leaving(this.stack)) this.quit(); return; }
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving(this.stack)) this.quit(); return; }
     this.stack.at(-1)?.key(k, this);
   }
 

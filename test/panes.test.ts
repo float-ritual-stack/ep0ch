@@ -400,7 +400,8 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
   });
 
   test("an agent splits, resizes, zooms and closes desk panes; the person's pane and keys stay theirs", async () => {
-    expect(D().describe().layout).toMatchObject({ split: "row", kids: [{ pane: "1" }, { split: "row" }] });
+    // Normalised (PIE-413): the desk's nested rows are one row of three, the last a column.
+    expect(D().describe().layout).toMatchObject({ split: "row", kids: [{ pane: "1" }, { pane: "2" }, { split: "col" }] });
     const focus = D().focus;
     const n = D().describe().panes.length;
     const r = await act("pane.split", { kind: "reader", dir: "col" }, "2") as any;
@@ -408,7 +409,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(D().focus).toBe(focus);                                      // the new pane didn't take the keys
     expect(r).toMatchObject({ kind: "reader", beside: "2" });
     expect(saved().root.t).toBe("split");
-    expect(JSON.stringify(saved())).not.toContain("kids");            // pairs stay in the binary form older doors read
+    expect(JSON.stringify(saved())).toContain(`"ratio"`);             // pairs stay in the binary form older doors read
     await act("pane.resize", { by: 2 }, "1");
     expect(D().describe().layout.share).toBe(1);
     await expect(act("pane.close", {}, "focused")).rejects.toThrow(/has the person's keys/);
@@ -422,7 +423,9 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     await act("pane.close", {}, r.pane);
     expect(D().describe().panes.length).toBe(n);
     await expect(act("pane.float", {}, "1")).rejects.toThrow(/no floats yet/);
-    await expect(act("pane.pin", {}, "1")).rejects.toThrow(/no drawers/);
+    // Any tile slides over as a drawer now (PIE-413): pane.pin is tile.pin.
+    expect(await act("pane.pin", { on: false }, "1")).toMatchObject({ pinned: false });
+    await act("pane.pin", { on: true }, "1");
   });
 
   test("^W x closes by the same path as pane.close: down to the last pane, which stays", async () => {
