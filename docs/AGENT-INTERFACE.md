@@ -8,10 +8,11 @@ An agent sees what the person sees, live, and can change anything except where t
 - **Reads:** `layout.get` and `view.get` say what's on screen, as JSON.
 - **A live feed:** `subscribe` pushes every change to what the person sees as it happens: focus, what each
   tile has in view, cursors and selections, the layout, and marks.
-- **Agents never take the cursor.** An agent's command never moves the person's focus, keys, selection or
-  cursor. While the person is typing (an edit, a comment, the property panel, a terminal tile), an agent's
-  `tile.focus`, `marks.next` and `layout.load` are refused, and what it opens or moves lands in other tiles.
-  To get the person's attention, an agent sets a mark (`block.mark`).
+- **Agents never take the cursor.** One rule, in one place (`mayMoveKeys` in the desk): an agent's action moves
+  the person's focus only when they aren't typing. Typing means in an edit, a comment or the property panel,
+  in a terminal tile, in a board, river or brief tile's own edit, or with a picker open. The paths it guards
+  are listed below. An agent never moves the outline's cursor or the person's selection at all. To get the
+  person's attention, an agent sets a mark (`block.mark`).
 - **Edits go through the owner.** Notes are written through the outline service, with revision checks and
   `author: agent`. An nvim tile's buffer is written through nvim's own socket, which moves no one's cursor.
 
@@ -34,14 +35,16 @@ one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":
 ### `subscribe`: the live feed
 
 The connection stays open, and each change comes down it as one line: `{"event":{"type":…,"at":<ms>,…}}`.
-It is pushed after each paint, and only what changed is sent. `types` (optional) picks which kinds.
+Only what changed is sent, at most every 50ms (changes in between are coalesced into one diff). `types`
+(optional) picks which kinds. A subscriber that stops reading is disconnected once 1 MB waits unread for it.
+The door paints at most once a frame (16ms), however busy its terminal tiles are.
 
 | Event | Fields | When |
 |---|---|---|
 | `hello` | `screen`, `state` (everything below, whole) | first, on subscribing |
 | `focus.changed` | `tile`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
 | `viewport` | `tile`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
-| `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`) |
+| `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
 | `layout.changed` | `layout`: `name`, `rule`, `zoom`, `tree` (splits with their `path` and `shares`, tab sets with the tab `shown`), `tiles` (each `tile`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer`, `source`, and for a terminal `cmd` and its nvim `socket`) | a split, move, tab, pin, drawer, resize, load |
 | `marks.changed` | `marks`: each mark's `n`, `block` or `tile`+`line`, `reason`, `by`, `at`, `showing` | a mark set or dismissed |
 | `screen` | `screen` | the door moved to another screen (the feed is the desk's) |
@@ -86,7 +89,7 @@ screen (`5`), or `focused`. Each is also a key or a mouse gesture; see the READM
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
 | `marks.next` | | refused while the person is typing |
 | `pane.*` | `split`, `close`, `resize`, `zoom`, `float`, `pin` | as before (PIE-412) |
-| the note actions | `edit.*`, `comment.*`, `link.follow`, `focus.set` (PIE-423's focus mark), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
+| the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark; `focus.set` is its older name), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
 Example: bring the person's attention to a decision.
 
@@ -110,6 +113,51 @@ An agent uses nvim's own RPC on that socket (msgpack-rpc; `nvim --server <socket
 - a mark on a line: `ep0ch act block.mark line=<n> reason=… reader=<tile>` sets an extmark with virtual
   text (namespace `ep0ch_marks`), and `block.unmark n=<n>` takes it away.
 
+## Agent paths that could touch the person's keys
+
+Every action an agent can call that moves focus, shows or hides a tile, or changes what the person is looking
+at, and what it does while they're typing:
+
+| Action | Moves the person's focus? | While they're typing |
+|---|---|---|
+| `tile.focus`, `focus` (the same action) | yes, that's what it's for | refused |
+| `marks.next` | to a tile showing the mark | refused |
+| `layout.load` (`layout.restore`) | rebuilds the desk | refused |
+| `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
+| `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
+| `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
+| `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
+| `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |
+| `tile.close`, `pane.close` (the same code) | never the focused tile, never a running program | refused for those |
+| `tab.select` | never hides the person's tab | refused for that |
+| `pane.zoom` | only the focused tile, never one that hides it | refused otherwise |
+| `tile.type` | no | refused for the terminal they're in |
+| `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
+| `block.mark`, `block.unmark`, `block.tint` | no | allowed |
+| note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
+| an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
+
+## Names
+
+- **Focus** is only the person's keys: which tile has them (`tile.focus`, and `focus`, its older name).
+- **An attention mark** is `block.mark`: a reason and who set it, framed and labelled in every tile showing the
+  block (or an extmark on an nvim line), until it's dismissed.
+- **A tint** is `block.tint`: a block, lines or a passage tinted in one reader (PIE-423's "focus mark").
+  `focus.set` and `focus.clear` are its older names, kept for callers that use them.
+
+## Programs and state: what survives what
+
+| When | Terminal tiles | The layout |
+|---|---|---|
+| leaving the desk (`q`, `esc`, the menu) | keep running; the desk waits in the background and `D` brings it back | kept (desk.json) |
+| `^W x` on a running program | asks; again within 3s ends it | the tile goes |
+| an agent's `tile.close` on a running program | refused | — |
+| the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
+| `layout.load` | same-named tiles keep their programs; others running become shut drawers | replaced |
+| quitting the door | asked twice, then ended | kept |
+| SIGTERM, SIGHUP, a crash | ended with the door (drafts copied out on a signal) | kept; written whole (temp file, rename) |
+| a restart | started again from the layout; a `ctrl+e` edit tile isn't restored | read back |
+
 ## Marks
 
 `block.mark` is the door side of PIE-423's focus mark, kept in a `MarkStore` (`src/desk/marks.ts`):
@@ -119,8 +167,8 @@ An agent uses nvim's own RPC on that socket (msgpack-rpc; `nvim --server <socket
   shows it.
 - `alt+m` steps through marks: to a tile showing it, else it opens where the focused tile's opens go.
 - A click on the label, or `alt+x` on the focused tile, dismisses it.
-- The reader's own `focus.set` (a tinted block or passage inside a note) stays as it was; `block.mark` is
-  its tile-level counterpart.
+- A tint (`block.tint`, a block or passage tinted inside one reader) is the in-reader counterpart: no reason,
+  no frame, gone when the reader shows another note or the person presses `esc`.
 
 ## What still changes the UI without a command
 
@@ -130,7 +178,10 @@ Audited for this interface (PIE-413 part b). Fixed in this PR on the desk:
 - a drawer sliding shut when the keys leave (`tile.drawer`);
 - the person's focus by Tab, 1-9, clicks and `^W hjkl` (`tile.focus`);
 - tabs (`tab.select`), zoom and unzoom (`pane.zoom`);
-- an agent's `open` moving the person's keys (no longer).
+- an agent's `open`, the control socket's `open <id>`, `focus`, and shutting a drawer the person has: one
+  guard, the same actions as `tile.*` (`focus` is `tile.focus`, `pane.split` and `pane.close` are
+  `tile.open` and `tile.close`);
+- an agent's open revealing its note in the outline (it moved the person's outline cursor; no longer).
 
 Still direct, next:
 - **A reader's own keys that change only what it has in view.** `j k`, PgUp, PgDn and the wheel scroll it,

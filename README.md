@@ -197,20 +197,32 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
 | `Ctrl+W` then `p` / `d` | pin or unpin (a drawer slides over the others without moving them) / slide drawers open or shut |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
-| in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c` and `^W` included, is the program's) |
+| in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
-| `q` / `Esc` | back to the menu (running programs are ended: asked twice) |
+| `q` / `Esc` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
 
 **Layouts** are saved by name in `~/.local/state/ep0ch-door/layouts.json` (`^W w`, `act layout.save name=…`)
 and loaded with `^W r`, `alt+d` for `daily`, or `act layout.load name=…`. Built in: `daily` (an agent
 terminal over the "now" detail; the outline over its preview, above the middle detail; the editor on the
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
-(columns: an open from a column lands in the column to its right), `board` (the kanban with a preview tile
+(the River screen in a tile, a preview following its card), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
 a running program or an unsaved edit the new layout has no place for becomes a shut drawer, never ended.
 `EP0CH_DAILY_AGENT` (default `claude`) and `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state)
 set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+
+**What happens to programs in tiles:**
+
+| When | Programs in terminal tiles |
+|---|---|
+| `q`, `Esc`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
+| `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
+| loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
+| quitting the door (`ctrl+c`, `q` on the menu) | asks twice (it names what's running), then ends them |
+| SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
+| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
 
 The current layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.

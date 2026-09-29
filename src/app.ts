@@ -73,10 +73,20 @@ export interface Screen {
   act?(req: ActRequest, actor: Actor): Promise<unknown>;
   /** Every key is the screen's, ctrl+c included: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
+  /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
+  rawInput?(): ((bytes: string) => void) | null;
+  /** The screen takes a paste whole (`{kind:"paste"}`); otherwise App gives it the pasted text as keys. */
+  acceptsPaste?(): boolean;
   /** Leaving the screen would end something (programs running in tiles): said, and asked twice. */
   leaveWarning?(): string | null;
-  /** The screen is gone for good (popped or replaced): it ends what it started. */
-  dispose?(): void;
+  /**
+   * The screen is left (popped or replaced). It ends what it started, or answers "keep": it has programs
+   * running (the desk's terminal tiles) and stays alive in the background until it's opened again or the
+   * door quits.
+   */
+  dispose?(): void | "keep";
+  /** Why the screen can't be left now (it would end something and has no way back), or null. */
+  leaveRefusal?(): string | null;
   /** See Ctx.editInTile. */
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
@@ -127,6 +137,8 @@ export class App implements Ctx {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
+    // Raw input while the person types in a terminal tile: the screen says where it goes (Term keeps mouse and ctrl+]).
+    (term as { rawSink?: unknown }).rawSink = () => this.stack.at(-1)?.rawInput?.() ?? null;
     setLiveSource(board, () => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
@@ -136,17 +148,37 @@ export class App implements Ctx {
   get t() { return this.term.info; }
   get graphics() { return this.video !== "cells"; }
 
-  push(s: Screen) { this.stack.push(s); s.enter?.(this); this.redraw(); }
-  pop() { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop()?.dispose?.(); if (!this.stack.length) return this.quit(); this.redraw(); }
-  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop()?.dispose?.(); this.push(s); }
+  /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
+  background: Screen[] = [];
+  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); }
+  pop() {
+    const last = this.stack.length === 1;
+    if (!this.leaving(last ? [...this.stack, ...this.background] : [this.stack.at(-1)], last)) return;
+    this.leave();
+    if (!this.stack.length) return this.quit();
+    this.redraw();
+  }
+  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.leave(); this.push(s); }
+  /** The top screen goes: it ends what it started, or keeps running in the background (its programs). */
+  private leave() {
+    const top = this.stack.pop();
+    if (top?.dispose?.() === "keep") { this.background.push(top); this.flash(`${top.leaveWarning?.() ?? top.title} · still running · D on the menu comes back`, 6000); }
+  }
 
   /**
    * Closing screens that hold unsaved edits asks twice. The second time goes ahead, but the drafts are
    * copied to disk first, so typed text is never simply dropped.
    */
-  private leaving(screens: (Screen | undefined)[]): boolean {
+  /**
+   * Leaving screens (or, `quitting`, the door): an unsaved edit asks twice, and so does quitting while programs
+   * run in a screen. Leaving a screen that keeps its programs alive (the desk) doesn't ask: nothing ends.
+   * A screen that can't be left says why and stays.
+   */
+  private leaving(screens: (Screen | undefined)[], quitting = false): boolean {
+    const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
+    if (refusal) { this.flash(refusal); return false; }
     const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = screens.map(s => s?.leaveWarning?.()).find(Boolean);
+    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) : null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -173,6 +205,14 @@ export class App implements Ctx {
 
   private snapshot(screen: string, v: ViewState) {
     return { screen, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.viewport)] as const)), cursors: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.cursor ?? null)] as const)), marks: JSON.stringify(v.marks ?? null) };
+  }
+
+  /** After paints: the feed is published at most every 50ms, from what's on screen then. */
+  private publishTimer: Timer | null = null;
+  private schedulePublish() {
+    if (!this.viewers.size) { this.shown = null; return; }
+    if (this.publishTimer) return;
+    this.publishTimer = setTimeout(() => { this.publishTimer = null; const s = this.stack.at(-1); if (s) this.publishView(s); }, 50);
   }
 
   /** After a paint: what changed since the last one, as events to every subscriber. */
@@ -287,7 +327,7 @@ export class App implements Ctx {
    */
   terminate(): string[] {
     const kept: string[] = [];
-    for (const s of this.stack) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
+    for (const s of [...this.stack, ...this.background]) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
     this.keptOnExit = kept;
     this.quit();
     return kept;
@@ -297,12 +337,19 @@ export class App implements Ctx {
 
   quit() {
     if (this.timer) clearInterval(this.timer);
+    if (this.paintTimer) clearTimeout(this.paintTimer);
+    if (this.publishTimer) clearTimeout(this.publishTimer);
     this.kitty.dispose();
     this.done();
   }
 
   private key(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving(this.stack)) this.quit(); return; }
+    // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
+    if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
+      for (const ch of k.text.replace(/\r\n?/g, "\n")) this.key(ch === "\n" ? { kind: "enter" } : ch === "\t" ? { kind: "tab" } : { kind: "char", ch });
+      return;
+    }
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
     this.stack.at(-1)?.key(k, this);
   }
 
@@ -329,7 +376,21 @@ export class App implements Ctx {
     else this.redraw();
   }
 
+  /**
+   * A repaint: at most one a frame (16ms). The first comes at once; calls within the frame after it are one
+   * more paint at its end, so a busy terminal tile (or several) never renders the screen more than 60 times a second.
+   */
   redraw() {
+    if (this.paintTimer) return;
+    const since = Date.now() - this.lastPaint;
+    if (since >= 16) return this.paint();
+    this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, 16 - since);
+  }
+  private lastPaint = 0;
+  private paintTimer: Timer | null = null;
+
+  private paint() {
+    this.lastPaint = Date.now();
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
@@ -343,7 +404,7 @@ export class App implements Ctx {
     const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
     if (this.term.frame) this.term.frame(draw);
     else draw();
-    this.publishView(s);
+    this.schedulePublish();
   }
 
   /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */

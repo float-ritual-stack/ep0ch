@@ -264,6 +264,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const desk = new Desk();
     app.push(new MainMenu()); app.push(desk);
     desk.openBlock((await board.get(b.id))!);
+    desk.focusOn("reader");                                             // `open` (an agent's) never moves the person's keys
     const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
     await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
     key(char("e"));
@@ -294,6 +295,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const desk = new Desk();
     app.push(new MainMenu()); app.push(desk);
     desk.openBlock((await board.get(b.id))!);
+    desk.focusOn("reader");                                             // `open` (an agent's) never moves the person's keys
     const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
     await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
     const d = desk as unknown as DeskApi;

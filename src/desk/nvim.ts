@@ -4,20 +4,31 @@
 // person's cursor in nvim is in `view.subscribe`, and a preview following the tile follows the buffer's file.
 // An agent reads the cursor and edits other lines through the same socket (nvim_buf_set_lines): nvim moves no
 // one's cursor for that. Attention marks in an nvim tile are extmarks with virtual text.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { decode, encode, Incomplete } from "../msgpack";
 import { stateDir } from "../state";
 
-/** Where nvim tiles listen: the door's state (nvim/), or a short folder when that path is too long for a socket. */
-export function nvimSocketPath(name: string): string {
+/**
+ * Where nvim tiles listen: the door's state (nvim/); when that path is too long for a socket (about 100
+ * bytes), $XDG_RUNTIME_DIR (the user's own), else a folder under the temp directory. That folder is used only
+ * when it's this user's and nobody else's (mode 700); otherwise null, and nvim runs without a socket.
+ */
+export function nvimSocketPath(name: string): string | null {
   const file = `${name.replace(/[^\w.-]/g, "_").slice(0, 24)}-${process.pid}-${Math.random().toString(36).slice(2, 7)}.sock`;
-  const inState = join(stateDir(), "nvim");
-  const dir = join(inState, file).length < 100 ? inState : join(tmpdir(), `ep0ch-nvim-${process.getuid?.() ?? "u"}`);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return join(dir, file);
+  const fits = (dir: string) => join(dir, file).length < 100;
+  const uid = process.getuid?.();
+  const dirs = [join(stateDir(), "nvim"), ...(process.env.XDG_RUNTIME_DIR ? [join(process.env.XDG_RUNTIME_DIR, "ep0ch-nvim")] : []), join(tmpdir(), `ep0ch-nvim-${uid ?? "u"}`)];
+  for (const dir of dirs.filter(fits)) {
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const st = statSync(dir);
+      if (st.isDirectory() && (uid === undefined || st.uid === uid) && (st.mode & 0o077) === 0) return join(dir, file);
+    } catch { /* the next one */ }
+  }
+  return null;
 }
 
 /** What nvim said about its window last: the buffer's file, the cursor (1-based line, 0-based col), the lines in view, the mode. */
@@ -70,7 +81,8 @@ export class NvimClient {
     let at = 0;
     for (;;) {
       let r: { value: unknown; next: number };
-      try { r = decode(all, at); } catch (e) { if (e instanceof Incomplete) break; throw e; }
+      // Something nvim sent that isn't msgpack we can read: dropped (the connection goes on), never thrown.
+      try { r = decode(all, at); } catch (e) { if (e instanceof Incomplete) break; at = all.length; break; }
       at = r.next;
       const m = r.value as unknown[];
       if (m[0] === 1) {
@@ -85,11 +97,16 @@ export class NvimClient {
     this.buf = all.slice(at);
   }
 
-  request(method: string, params: unknown[]): Promise<unknown> {
+  /** A request, answered within `ms` or refused: a busy or stuck nvim never hangs the door. */
+  request(method: string, params: unknown[], ms = 5000): Promise<unknown> {
     const s = this.sock;
     if (!s) return Promise.reject(new Error("not connected to nvim"));
     const id = this.id++;
-    return new Promise((ok, no) => { this.waiting.set(id, { ok, no }); s.write(encode([0, id, method, params])); });
+    return new Promise((ok, no) => {
+      const t = setTimeout(() => { this.waiting.delete(id); no(new Error(`nvim didn't answer ${method} within ${ms / 1000}s`)); }, ms);
+      this.waiting.set(id, { ok: v => { clearTimeout(t); ok(v); }, no: e => { clearTimeout(t); no(e); } });
+      s.write(encode([0, id, method, params]));
+    });
   }
 
   /** Run Lua in nvim with `args` as `...`. */

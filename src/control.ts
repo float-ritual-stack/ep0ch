@@ -15,6 +15,20 @@ import type { TermInfo } from "./term";
 const DIR = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door");
 export const CONTROL_SOCKET = process.env.EP0CH_CONTROL ?? join(DIR, "door.sock");
 
+/** How much of the live feed may wait unread for one subscriber before it's disconnected. */
+export const FEED_LIMIT = 1 << 20;
+
+/**
+ * One subscriber's end of the feed: each event (of the types asked for) as a JSON line. A subscriber that stops
+ * reading is let go once `limit` bytes wait unread: the door never buffers without end for it.
+ */
+export function feedWriter(sock: { writableLength: number; write(s: string): unknown; destroy(): unknown }, types: Set<string> | null, off: () => void, limit = FEED_LIMIT) {
+  return (e: { type: string }) => {
+    if (sock.writableLength > limit) { off(); sock.destroy(); return; }
+    if (!types || types.has(e.type) || e.type === "hello") sock.write(JSON.stringify({ event: e }) + "\n");
+  };
+}
+
 export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
@@ -59,8 +73,9 @@ export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise
         // The live feed: this connection stays open, and every change to what the person sees comes down it as
         // one JSON line (`{"event":{…}}`) until the subscriber hangs up.
         if (req.cmd === "subscribe") {
-          const types = Array.isArray(req.types) ? new Set(req.types.map(String)) : null;
-          const off = d.app.subscribe(e => { if (!types || types.has(e.type) || e.type === "hello") sock.write(JSON.stringify({ event: e }) + "\n"); });
+          const types = Array.isArray(req.types) ? new Set<string>(req.types.map(String)) : null;
+          let off = () => {};
+          off = d.app.subscribe(feedWriter(sock, types, () => off()));
           sock.on("close", off); sock.on("error", off);
           continue;
         }

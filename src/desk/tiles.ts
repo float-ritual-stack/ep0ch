@@ -39,8 +39,11 @@ export interface TileSpec {
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
-/** Where an explicit open from a tile goes when it has no link (PIE-473, Evan's "default expectations"). */
-export type OpenRule = "current" | "river";
+/**
+ * Where an open from a tile goes when it has no link: the current note. (The river's rule, "the next column",
+ * is the River screen's own; the `river` layout hosts that screen in a tile rather than copying it.)
+ */
+export type OpenRule = "current";
 export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string }
 
 export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief"];
@@ -87,8 +90,8 @@ const T = (kind: PaneKind, name: string, more: Partial<TileSpec> = {}): LNode<Ti
  * - `daily`: Evan's arrangement (the 2026-09-29 screenshots). Claude over the "now" detail on the left; the
  *   outline tree over its preview, above the middle detail; the editor on the scratch draft over a third
  *   detail on the right. The tree, the "now" detail and the right detail open into the middle one.
- * - `river`: the river (Quay) as a preset with the river open rule: columns of readers, an open from a
- *   column lands in a new column to its right, and the ones past it close.
+ * - `river`: the River screen (Quay) in a tile, its columns and open rule its own, a preview following what
+ *   it selects beside it. One implementation of the river: the screen's (see docs/UI-GRAMMAR.md §7).
  * - `board`: the kanban as a tile, its selection followed by a preview tile that can go anywhere.
  * - `desk`: the desk as it has always opened.
  */
@@ -106,7 +109,7 @@ export function builtin(name: string): LayoutSpec | null {
       ], [0.34, 0.33, 0.33])),
     };
   }
-  if (name === "river") return { name, rule: "river", focus: "tree", root: serial(splitOf("row", [T("tree", "tree"), T("reader", "river-1")], [0.3, 0.7])) };
+  if (name === "river") return { name, rule: "current", focus: "river", root: serial(splitOf("row", [T("river", "river"), T("preview", "card", { source: "tile:river" })], [0.7, 0.3])) };
   if (name === "board") return { name, rule: "current", focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
   if (name === "desk") return { name, rule: "current", focus: 2, root: serial(splitOf("row", [T("tree", "tree"), splitOf("row", [T("reader", "reader"), splitOf("col", [T("thread", "thread"), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
   return null;

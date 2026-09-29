@@ -344,6 +344,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     const desk = new Desk();
     app.push(desk);
     desk.openBlock((await board.get(cards.gate.id))!);
+    desk.focusOn("reader");                                             // `open` (an agent's) never moves the person's keys
     const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
     await until(() => reader()?.msg?.id === cards.gate.id && !reader().msg!.partial, "the desk reader");
     key(char("c"));

@@ -47,7 +47,8 @@ process.on("exit", () => { for (const p of LIVE) p.kill(); });
 export const ESCAPE_CHORD = "ctrl+]";
 export const isEscapeChord = (k: Key) => k.kind === "char" && !!k.ctrl && k.ch === "]";
 
-export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string }
+/** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
+export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean }
 
 export class PtyPane implements Pane {
   readonly kind = "pty";
@@ -62,6 +63,7 @@ export class PtyPane implements Pane {
   private programTitle = "";
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
+  private modeTail = "";
   /** Lines scrolled back into what went by (0: the live screen). */
   private back = 0;
   private redrawSoon: Timer | null = null;
@@ -108,9 +110,11 @@ export class PtyPane implements Pane {
       cols, rows, name: "xterm-256color",
       data: (_t, d) => {
         const s = Buffer.from(d).toString("latin1");
-        // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes.
-        if (s.includes("\x1b[?1006h")) this.sgr = true;
-        if (s.includes("\x1b[?1006l")) this.sgr = false;
+        // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
+        // with other modes (ESC [ ? 1000 ; 1006 h) and maybe split across reads (the tail is kept).
+        const seen = this.modeTail + s;
+        this.modeTail = seen.slice(-32);
+        for (const m of seen.matchAll(/\x1b\[\?([\d;]+)([hl])/g)) if (m[1]!.split(";").includes("1006")) this.sgr = m[2] === "h";
         // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
         // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
         for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.pty?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
@@ -126,7 +130,7 @@ export class PtyPane implements Pane {
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
       // buffer, and an agent edits other lines through it without moving the person's cursor.
       const cmd = [...this.run.cmd];
-      if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); cmd.splice(1, 0, "--listen", this.socket); }
+      if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       this.proc = Bun.spawn(SETSID ? [SETSID, "-c", ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
       if (this.socket) this.attach(this.socket);
     } catch (e) {
@@ -175,8 +179,12 @@ export class PtyPane implements Pane {
     try { this.pty?.close(); } catch { /* gone */ }
   }
 
-  /** Keys or text straight to the program (an agent's `tile.type`, a paste). */
+  /** Keys or text straight to the program (an agent's `tile.type`). */
   input(s: string) { if (this.running) { this.back = 0; this.pty?.write(s); } }
+  /** Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for them. */
+  inputRaw(s: string) { this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
+  paste(text: string) { this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
   render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
@@ -196,7 +204,7 @@ export class PtyPane implements Pane {
       const cy = !this.back && cursor && !hidden && this.exited === null && y === b.cursorY ? b.cursorX : -1;
       lines.push(line ? rowOf(line, cell, w, cy) : "");
     }
-    if (this.exited !== null) lines[h - 1] = `\x1b[38;2;255;255;85m[${this.run.cmd[0]} exited ${this.exited}] ⏎ runs it again · ^W x closes the tile\x1b[0m`;
+    if (this.exited !== null) lines[h - 1] = `\x1b[38;2;255;255;85m[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again · ctrl+] back to the door · ^W x closes the tile\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
 

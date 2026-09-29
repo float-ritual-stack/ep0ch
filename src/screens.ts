@@ -223,7 +223,7 @@ const ITEMS: MenuItem[] = [
   { key: "S", label: "Stats", open: () => new Stats() },
   { key: "Q", label: "Quay", open: () => new River() },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
-  { key: "D", label: "Desk", open: () => new Desk() },
+  { key: "D", label: "Desk", open: () => Desk.resume() },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
   // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
   { key: "X", label: "Showcase", open: () => new Showcase() },

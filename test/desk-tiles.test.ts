@@ -267,23 +267,16 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await expect(mine("layout.load", { name: "nope" })).rejects.toThrow(/no layout nope/);
   });
 
-  test("the river's open rule: an open from a column shows the note in the column to its right, the ones past it close", async () => {
+  test("the river layout is the River screen in a tile (one river, its own columns), a card preview following it", async () => {
     await mine("layout.load", { name: "river" });
-    const tree = D().panes.get([...D().names].find(([, v]: any) => v === "tree")[0]);
-    await until(() => tree.rows?.length > 3, "the tree's rows");
-    D().focus = [...D().names].find(([, v]: any) => v === "tree")[0];
-    tree.sel = tree.rows.findIndex((r: any) => r.m.id === notes.plan.id);
-    key({ kind: "enter" });
-    await until(() => tile("river-1").showing?.id === notes.plan.id, "the plan in the first column");
-    const r1 = D().panes.get([...D().names].find(([, v]: any) => v === "river-1")[0]);
-    await r1.surface.whole(); render();
-    await r1.act("link.follow", { n: 1 }, D(), { kind: "user" });
-    await until(() => get().tiles.some(t => t.showing?.id === notes.beans.id && t.name !== "river-1"), "a new column");
-    const cols = () => get().tree.kids.map((k: any) => k.pane ?? "split");
-    expect(cols().slice(0, 3)).toEqual(["tree", "river-1", "river-3"]);
-    await r1.act("link.follow", { n: 2 }, D(), { kind: "user" });
-    await until(() => tile("river-3")?.showing?.id === notes.shed.id, "the same column reused");
-    expect(cols().filter((c: string) => c.startsWith("river")).length).toBe(2);
+    expect(shape()).toBe("row(river,card,claude,draft)");               // the running programs, kept as shut drawers
+    expect([tile("claude").drawer, tile("draft").drawer]).toEqual(["shut", "shut"]);
+    expect(tile("river").kind).toBe("river");
+    expect(tile("card").source).toBe("tile:river");
+    render();
+    const drawn = D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    expect(drawn).toContain("river · ");
+    expect(D().rule).toBe("current");
   }, 20_000);
 
   test("an agent's tile actions leave the person's focus where it is; its new tab isn't shown over theirs", async () => {

@@ -105,7 +105,8 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   }
   if (n.key) out.nodes.set(n.key, r);
   const row = n.dir === "row", S = row ? r.cols : r.rows;
-  const fixed = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : undefined));
+  // A tab set is sized as the tab it shows (a drawer's tab set slides over like a drawer).
+  const fixed = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : k.t === "tabs" && k.ids[k.active] !== undefined ? opts.fixed?.(k.ids[k.active]!, n.dir) : undefined));
   const mins = n.kids.map(k => opts.min?.(k, n.dir, n) ?? (row ? MIN_COLS : MIN_ROWS));
   const open = n.kids.map((_, i) => i).filter(i => fixed[i] === undefined);
   const flex = [...open].reverse().find(i => { const k = n.kids[i]!; return !(k.t === "leaf" && opts.sized?.(k.id)); }) ?? open.at(-1);
@@ -317,7 +318,7 @@ export interface PlacedScreen<I = number> extends Placed<I> {
  * docking would put it.
  */
 export function placeScreen<I>(s: ScreenLayout<I, Float>, r: Rect, opts: PlaceOpts<I> = {}): PlacedScreen<I> {
-  const sliding = leaves(s.root).filter(id => s.over.has(id));
+  const sliding = shown(s.root).filter(id => s.over.has(id));
   const base = place(s.root, r, { ...opts, fixed: (id, dir) => (s.over.has(id) ? 0 : opts.fixed?.(id, dir)) });
   for (const id of sliding) base.rects.delete(id);
   const out: PlacedScreen<I> = { ...base, over: new Map() };
@@ -326,7 +327,8 @@ export function placeScreen<I>(s: ScreenLayout<I, Float>, r: Rect, opts: PlaceOp
     for (const id of sliding) {
       const rect = full.rects.get(id);
       if (!rect) continue;
-      const divider = full.dividers.find(d => { const a = d.node.kids[d.i]!, b = d.node.kids[d.i + 1]!; return (a.t === "leaf" && a.id === id) || (b.t === "leaf" && b.id === id); }) ?? null;
+      const is = (k: LNode<I>) => (k.t === "leaf" && k.id === id) || (k.t === "tabs" && k.ids.includes(id));
+      const divider = full.dividers.find(d => is(d.node.kids[d.i]!) || is(d.node.kids[d.i + 1]!)) ?? null;
       out.over.set(id, { rect, divider });
     }
   }
@@ -462,13 +464,15 @@ export function normalise<I>(n: LNode<I>, min = 0.05): LNode<I> {
   if (n.t === "leaf") return n;
   if (n.t === "tabs") {
     const ids = [...new Set(n.ids)];
+    if (!ids.length) return { t: "tabs", ids: [], active: 0 };
     if (ids.length === 1) return leaf(ids[0]!);
     return { t: "tabs", ids, active: Math.max(0, Math.min(ids.length - 1, Number.isInteger(n.active) ? n.active : 0)) };
   }
   let kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k0, i) => {
     const k = normalise(k0, min);
-    if (k.t === "tabs" && !k.ids.length) return;   // a tab set with no tiles (a hand-edited save) has no place
+    // A tab set with no tabs left, or a split with no kids, takes no room: it's gone.
+    if ((k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key)) return;
     const w = good(n.weights[i]) ? n.weights[i]! : 1;
     if (k.t === "split" && k.dir === n.dir && !k.key && !n.key) {
       const sum = k.weights.reduce((a, x) => a + x, 0) || 1;

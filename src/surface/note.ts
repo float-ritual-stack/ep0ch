@@ -25,7 +25,7 @@ import { actorIdOf, EditConflict, mutationFor, recordedActorId, Refused, USER, t
 import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, ActionSet, agentLabel, asActor } from "./actions";
+import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
 import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
 import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
@@ -2719,6 +2719,8 @@ export interface NoteActionArgs {
   "element.open": { n?: number; fresh?: boolean };
   "focus.set": FocusSpec;
   "focus.clear": Record<string, never>;
+  "block.tint": FocusSpec;
+  "block.untint": Record<string, never>;
   "link.follow": { n?: number };
   "up": Record<string, never>;
   "back": Record<string, never>;
@@ -2894,6 +2896,35 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   return { went: word, showing: m ? { id: m.id, title: subject(m) } : null, history: surface.describeHistory() };
 }
 
+/** A tint in the reading ruler's colour on a block, note lines or a passage, with who set it (PIE-423's focus mark). */
+const TINT: ActionDef<FocusSpec, On> = {
+    summary: "tint a block in this reader (PIE-423's focus mark): a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
+    args: {
+      block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
+      line: { type: "number", optional: true, about: "a note line (1 is the subject)" },
+      to: { type: "number", optional: true, about: "with line: the last note line" },
+      quote: { type: "string", optional: true, about: "the note's exact words, as stored (the same shape as a comment's quote)" },
+      near: { type: "number", optional: true, about: "with quote, when the words occur more than once: the offset to be nearest" },
+    },
+    async run(spec, { surface, host }, actor) {
+      await surface.whole();
+      const r = surface.setFocus(spec, actor);
+      host.ctx.flash(`${agentLabel(actor)} marked ${r.marked}`);
+      host.redraw();
+      return { ...r, by: actor.kind === "agent" ? actor.id : "you" };
+    },
+  };
+const UNTINT: ActionDef<Record<string, never>, On> = {
+    summary: "take away the tint (block.tint) in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
+    args: {},
+    run(_, { surface, host }) {
+      const had = surface.focusMark;
+      surface.focusMark = null;
+      host.redraw();
+      return { cleared: !!had, ...(had ? { by: had.by.kind === "agent" ? had.by.id : "you" } : {}) };
+    },
+  };
+
 export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActionArgs, On>("note", {
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
@@ -3058,33 +3089,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
     },
   },
-  "focus.set": {
-    summary: "set a focus mark: a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
-    args: {
-      block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
-      line: { type: "number", optional: true, about: "a note line (1 is the subject)" },
-      to: { type: "number", optional: true, about: "with line: the last note line" },
-      quote: { type: "string", optional: true, about: "the note's exact words, as stored (the same shape as a comment's quote)" },
-      near: { type: "number", optional: true, about: "with quote, when the words occur more than once: the offset to be nearest" },
-    },
-    async run(spec, { surface, host }, actor) {
-      await surface.whole();
-      const r = surface.setFocus(spec, actor);
-      host.ctx.flash(`${agentLabel(actor)} marked ${r.marked}`);
-      host.redraw();
-      return { ...r, by: actor.kind === "agent" ? actor.id : "you" };
-    },
-  },
-  "focus.clear": {
-    summary: "take away the focus mark in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
-    args: {},
-    run(_, { surface, host }) {
-      const had = surface.focusMark;
-      surface.focusMark = null;
-      host.redraw();
-      return { cleared: !!had, ...(had ? { by: had.by.kind === "agent" ? had.by.id : "you" } : {}) };
-    },
-  },
+  // A tint (PIE-423's focus mark): "focus" is the person's keys only, so the tint is block.tint; focus.set and
+  // focus.clear are its older names, kept for callers that use them.
+  "block.tint": TINT,
+  "block.untint": UNTINT,
+  "focus.set": { ...TINT, summary: `the older name of block.tint. ${TINT.summary}` },
+  "focus.clear": { ...UNTINT, summary: `the older name of block.untint. ${UNTINT.summary}` },
   "up": {
     summary: "go to the note's parent", keys: "u",
     args: {},
