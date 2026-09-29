@@ -117,3 +117,4 @@ let control: { close(): void } | null = null;
 startControl({ app, mirror, info: () => term.info }).then(c => { control = c; }, () => {});
 for (const s of startScreens(args, process.env, then => new Logon(app, then))) app.push(s);
 if (created) app.flash(`created outline ${target.outline}`, 12_000);
+else if (target.notice) app.flash(target.notice, 12_000);

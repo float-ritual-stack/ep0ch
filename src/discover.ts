@@ -98,30 +98,101 @@ export function bindingOf(root: string, env: Record<string, string | undefined> 
  * `attach`: the door is a session opener, so it asks the host for the outline with `create` (like
  * `herdr --session <name>`); `created` then says so on screen.
  */
-export type Target = { path: string; why: string; outline?: string; attach?: boolean } | { error: string };
+export type Target = {
+  path: string; why: string; outline?: string; attach?: boolean;
+  /** The folder the outline belongs to, sent with `outlines.attach` so a created outline records it. */
+  root?: string;
+  /** Something the door says on screen when it opens (an unnamed folder that got the default). */
+  notice?: string;
+} | { error: string };
+
+/** The nearest folder from `folder` up holding `.git` (a folder, or a worktree's file). */
+function repositoryRoot(folder: string): string | undefined {
+  for (let current = folder; ; current = dirname(current)) {
+    if (existsSync(join(current, ".git"))) return current;
+    if (dirname(current) === current) return undefined;
+  }
+}
+
+/** `$HOME`, `/` and a folder directly under `/` (`/tmp`, `/opt`) never give their name to an outline. */
+function tooBroadToName(folder: string, home: string): boolean {
+  const parent = dirname(folder);
+  return folder === home || parent === folder || dirname(parent) === parent;
+}
+
+/** The folder `outlines/<name>.json` records for a host outline; undefined when none, "" when unreadable. */
+function recordedRoot(base: string, name: string): string | undefined {
+  let text: string;
+  try { text = readFileSync(join(base, "outlines", `${name}.json`), "utf8"); }
+  catch (e) { return (e as NodeJS.ErrnoException).code === "ENOENT" ? undefined : ""; }
+  try {
+    const root = (JSON.parse(text) as { root?: unknown }).root;
+    if (root === undefined) return undefined;
+    return typeof root === "string" && root.startsWith("/") ? resolve(root) : "";
+  } catch { return ""; }
+}
+
+/** Where a folder's own hash database would be (its single-outline service's). */
+const hashDatabaseOf = (folder: string, base: string) => join(dirname(socketOf(folder, base)), "outliner.sqlite");
+
+/** What the folder rule decides; `root` is the folder the outline belongs to (sent with attach). */
+export type FolderOutline =
+  | { kind: "outline"; outline: string; root: string; why: string }
+  | { kind: "other"; folder: string; why: string }
+  | { kind: "unnamed"; reason: string };
 
 /**
- * Which host outline a folder opens: the outliner's rule for a folder (pi-herdr-outliner PIE-457, kept in
- * this one function so the two stay aligned). The nearest config, from the folder up, decides: one that
- * binds an outline (`{ outline }`) opens it; one that chose another connection (`local`, `remote`) keeps
- * the folder off the host. With none, the outline named after the folder; never for the home folder or
- * `/`, which name no outline (the caller uses the host's default).
+ * Which outline a folder opens on the host: pi-herdr-outliner's `resolveFolderOutline` and the folder part
+ * of its `resolveClientPaths` (PIE-457, 5c5a14b), mirrored here and kept in this one function.
+ *
+ * 1. The nearest bound folder, walking up, decides: an `outline` binding opens it; a `local` or `remote`
+ *    choice keeps the folder off the host. A folder's own hash database wins over an ancestor's binding.
+ * 2. Otherwise a folder with its own hash database keeps it (off the host).
+ * 3. Otherwise a guess: the git repository root's name (`.git` a folder or a file), else the folder's own
+ *    name; a repository root that still has its own hash database keeps it.
+ * 4. `$HOME`, `/` and folders directly under `/` are `unnamed` (a repository rooted at `$HOME` falls through
+ *    to the folder's own name), and so is a guess whose outline records another folder.
  */
-export function outlineForFolder(folder: string, env: Record<string, string | undefined> = process.env):
-  { outline: string; why: string } | { other: string; why: string } | { none: string } {
-  const start = resolve(folder);
-  for (let dir = start; ; dir = dirname(dir)) {
-    const binding = bindingOf(dir, env);
-    if (binding && "outline" in binding) {
-      return { outline: binding.outline, why: dir === start ? `the outline ${binding.outline}, which ${start} is bound to` : `the outline ${binding.outline}, which ${dir} (above ${start}) is bound to` };
+export function outlineForFolder(folderInput: string, env: Record<string, string | undefined> = process.env, base = stateBase()): FolderOutline {
+  const folder = resolve(folderInput);
+  const explicit = env.OUTLINER_CONFIG_PATH?.trim();
+  const { OUTLINER_CONFIG_PATH: _explicit, ...walkEnv } = env;
+  let bound: { dir: string; binding: { outline: string } | { other: string } } | undefined;
+  if (explicit) {
+    const binding = bindingOf(folder, env);
+    if (binding) bound = { dir: folder, binding };
+  } else {
+    for (let dir = folder; ; dir = dirname(dir)) {
+      const binding = bindingOf(dir, walkEnv);
+      if (binding) { bound = { dir, binding }; break; }
+      if (dirname(dir) === dir) break;
     }
-    if (binding) return { other: binding.other, why: `${dir} chose a ${binding.other} connection` };
-    if (dirname(dir) === dir) break;
+    if (bound && bound.dir !== folder && existsSync(hashDatabaseOf(folder, base))) bound = undefined;
   }
-  if (start === resolve(homedir()) || start === "/") return { none: `${start} names no outline` };
-  const name = slugOutlineName(basename(start));
-  return { outline: name, why: `the outline ${name}, named after ${start}` };
+  if (bound) {
+    if ("outline" in bound.binding) {
+      const { outline } = bound.binding;
+      return { kind: "outline", outline, root: bound.dir, why: bound.dir === folder ? `the outline ${outline}, which ${folder} is bound to` : `the outline ${outline}, which ${bound.dir} (above ${folder}) is bound to` };
+    }
+    return { kind: "other", folder: bound.dir, why: `${bound.dir} chose a ${bound.binding.other} connection` };
+  }
+  if (explicit) return { kind: "other", folder, why: "OUTLINER_CONFIG_PATH names no outline" };
+  if (existsSync(hashDatabaseOf(folder, base))) return { kind: "other", folder, why: `${folder} has its own outline database` };
+  const home = resolve(env.HOME?.trim() || homedir());
+  const repository = repositoryRoot(folder);
+  const candidate = repository && !tooBroadToName(repository, home) ? { dir: repository, from: "repository" } : { dir: folder, from: "folder" };
+  if (tooBroadToName(candidate.dir, home)) return { kind: "unnamed", reason: `${folder} is too broad to name an outline after` };
+  if (candidate.dir !== folder && existsSync(hashDatabaseOf(candidate.dir, base))) return { kind: "other", folder: candidate.dir, why: `${candidate.dir} has its own outline database` };
+  const outline = slugOutlineName(basename(candidate.dir));
+  const recorded = recordedRoot(base, outline);
+  if (recorded !== undefined && recorded !== candidate.dir) {
+    return { kind: "unnamed", reason: `the outline "${outline}" belongs to ${recorded || "a folder its record does not say"}, not ${candidate.dir}` };
+  }
+  return { kind: "outline", outline, root: candidate.dir, why: `the outline ${outline}, named after ${candidate.from === "repository" ? "the repository at " : ""}${candidate.dir}` };
 }
+
+/** Whether an outline host is set up under the state root (its `outlines/` folder), as the outliner decides. */
+export const hostConfigured = (base = stateBase()) => existsSync(join(base, "outlines"));
 
 /**
  * The target, Herdr-style:
@@ -129,9 +200,11 @@ export function outlineForFolder(folder: string, env: Record<string, string | un
  *    on this machine's host.
  * 2. A socket path argument, then EP0CH_SOCKET: explicit overrides, as before (a host reached that way
  *    with no outline named serves its default).
- * 3. With a host running: the folder (`--ws <root>`, a value with `/`, else the current directory) by
- *    `outlineForFolder`; the home folder or `/` gets the host's default outline.
- * 4. Without a host: `--ws <root>` is that folder's hash socket, and otherwise `discoverSocket`, as before.
+ * 3. With an outline host set up: the folder (`--ws <root>`, a value with `/`, else the current directory)
+ *    by `outlineForFolder`. An `unnamed` folder with no `--ws` opens the host's default outline and says
+ *    so (`notice`); the outliner refuses instead, but the door is interactive and shows the name.
+ * 4. Otherwise (or a folder that keeps its own connection): `--ws <root>` is that folder's hash socket,
+ *    and otherwise `discoverSocket`, as before.
  */
 export async function resolveTarget(args: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd(), base = stateBase()): Promise<Target> {
   const wsAt = args.indexOf("--ws");
@@ -142,23 +215,28 @@ export async function resolveTarget(args: readonly string[], env: Record<string,
   const hostSocket = hostSocketOf(base);
   if (ws && !ws.includes("/") && OUTLINE_NAME.test(ws)) {
     if (explicit) return { path: explicit, outline: ws, attach: true, why: `the outline ${ws} on ${explicit}` };
-    if (!(await hostLive(hostSocket))) {
+    if (!hostConfigured(base) && !(await hostLive(hostSocket))) {
       return { error: `no outline host is running at ${hostSocket}, so there is no outline "${ws}" to open; start the host (pi-herdr-outliner: bun run host), or name a folder root: --ws <root>` };
     }
     return { path: hostSocket, outline: ws, attach: true, why: `the outline ${ws}` };
   }
   if (pathArg) return { path: pathArg, why: "the socket named" };
   if (env.EP0CH_SOCKET) return { path: env.EP0CH_SOCKET, why: "EP0CH_SOCKET" };
-  const host = await hostLive(hostSocket);
-  if (host) {
+  if (hostConfigured(base)) {
     const folder = ws ? resolve(cwd, ws.replace(/^~(?=\/|$)/, homedir())) : resolve(cwd);
-    const chosen = outlineForFolder(folder, env);
-    if ("outline" in chosen) return { path: hostSocket, outline: chosen.outline, attach: true, why: chosen.why };
-    if ("none" in chosen) {
-      if (host.defaultOutline) return { path: hostSocket, outline: host.defaultOutline, why: `the host's default outline, ${host.defaultOutline} (${chosen.none})` };
-      return { error: `the outline host at ${hostSocket} has no default outline, and ${chosen.none}; pick one with --ws <name> (ep0ch outline list)` };
+    const chosen = outlineForFolder(folder, env, base);
+    if (chosen.kind === "outline") return { path: hostSocket, outline: chosen.outline, root: chosen.root, attach: true, why: chosen.why };
+    if (chosen.kind === "unnamed") {
+      const host = await hostLive(hostSocket);
+      if (!host) return { error: `the outline host at ${hostSocket} isn't answering (${chosen.reason})` };
+      if (host.defaultOutline) {
+        const shown = folder === resolve(env.HOME?.trim() || homedir()) ? "~" : folder;
+        return { path: hostSocket, outline: host.defaultOutline, why: `the host's default outline, ${host.defaultOutline} (${chosen.reason})`,
+          notice: `no outline for ${shown}, opened the default: ${host.defaultOutline}` };
+      }
+      return { error: `${chosen.reason}, and the outline host at ${hostSocket} has no default outline; pick one with --ws <name> (ep0ch outline list)` };
     }
-    // The folder chose another connection: as without a host.
+    // The folder keeps its own connection: as without a host.
   }
   if (ws) return { path: socketOf(ws, base), why: `the workspace ${ws}` };
   return discoverSocket(cwd, base);

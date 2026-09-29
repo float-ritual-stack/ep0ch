@@ -130,9 +130,9 @@ export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, 
  * Before the door opens a session on a host outline: attach to it, creating it when there is none (like
  * `herdr --session <name>`). Resolves to whether it was created, so the door can say so.
  */
-export async function attachTarget(target: { path: string; outline?: string; attach?: boolean }): Promise<{ created: boolean }> {
+export async function attachTarget(target: { path: string; outline?: string; attach?: boolean; root?: string }): Promise<{ created: boolean }> {
   if (!target.attach || !target.outline) return { created: false };
-  const r = await hostRequest<{ created: boolean }>(target.path, "outlines.attach", { name: target.outline, create: true });
+  const r = await hostRequest<{ created: boolean }>(target.path, "outlines.attach", { name: target.outline, create: true, ...(target.root ? { root: target.root } : {}) });
   return { created: r.created };
 }
 

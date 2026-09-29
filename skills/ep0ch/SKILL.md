@@ -34,8 +34,9 @@ file's path; the README is two directories up).
 
 With an outline host running (one socket per machine, outlines by name, like Herdr sessions):
 `--ws <name>` opens that outline and creates it if there is none; `--ws <folder>` or no `--ws` opens the
-folder's bound outline (its `client.json` `outline`, or the nearest bound folder above), else the outline
-named after the folder; the home folder gets the host's default. `EP0CH_SOCKET` or a socket path overrides
+nearest bound folder's outline (`client.json` `outline`), else the one named after the git repository
+root, else after the folder. `$HOME`, `/` and folders directly under `/` name none: the door opens the
+host's default and says so. `EP0CH_SOCKET` or a socket path overrides
 all of this. Opening the door creates an outline; `outline list`, `status` and `clients` never do. The
 status bar and `peek` show `host · outline`. Without a host, `--ws <root>` and discovery work as before.
 Delete moves a created outline to `deleted/` (an adopted one is only unlinked); pass `--yes` only when the

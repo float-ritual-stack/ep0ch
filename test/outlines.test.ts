@@ -130,6 +130,7 @@ describe("which outline the door opens", () => {
   });
 
   test("with a host: --ws <name>, then the folder's binding or the nearest bound folder above, then its name", async () => {
+    mkdirSync(join(base, "outlines"), { recursive: true });   // the host is set up under this state root
     svc = await fakeService(hostSocketOf(base), r => r.action === "outlines.list" ? { defaultOutline: "bob", outlines: [{ name: "bob" }, { name: "fred" }] } : hostPing());
     expect(await resolveTarget(["--ws", "fred"], env, base, base)).toEqual({ path: hostSocketOf(base), outline: "fred", attach: true, why: "the outline fred" });
     // A --ws with a / is a folder root: on a host, the folder's outline.
@@ -144,22 +145,33 @@ describe("which outline the door opens", () => {
     expect(bindingOf(bound, env)).toEqual({ outline: "fred" });
     expect(bindingOf(remote, env)).toEqual({ other: "remote" });
 
-    expect(await resolveTarget([], env, bound, base)).toEqual({ path: hostSocketOf(base), outline: "fred", attach: true, why: `the outline fred, which ${bound} is bound to` });
-    expect(await resolveTarget([], env, jam, base)).toEqual({ path: hostSocketOf(base), outline: "jam-shelf", attach: true, why: `the outline jam-shelf, named after ${jam}` });
+    expect(await resolveTarget([], env, bound, base)).toEqual({ path: hostSocketOf(base), outline: "fred", root: bound, attach: true, why: `the outline fred, which ${bound} is bound to` });
+    expect(await resolveTarget([], env, jam, base)).toEqual({ path: hostSocketOf(base), outline: "jam-shelf", root: jam, attach: true, why: `the outline jam-shelf, named after ${jam}` });
     expect(slugOutlineName("Tïn_Drawer!!")).toBe("tin-drawer");
     // Below a bound folder: the nearest bound folder's outline.
     const deep = join(bound, "notes", "drafts");
     mkdirSync(deep, { recursive: true });
-    expect(await resolveTarget([], env, deep, base)).toMatchObject({ outline: "fred", why: `the outline fred, which ${bound} (above ${deep}) is bound to` });
+    expect(await resolveTarget([], env, deep, base)).toMatchObject({ outline: "fred", root: bound, why: `the outline fred, which ${bound} (above ${deep}) is bound to` });
     expect(await resolveTarget(["--ws", deep], env, base, base)).toMatchObject({ outline: "fred" });
-    // An old hash database doesn't keep a folder off the host; another connection choice does.
+    // A folder's own hash database keeps it off the host (as the outliner's resolveClientPaths), and so
+    // does another connection choice.
     mkdirSync(dirname(socketOf(old, base)), { recursive: true });
     writeFileSync(join(dirname(socketOf(old, base)), "outliner.sqlite"), "");
-    expect(await resolveTarget([], env, old, base)).toMatchObject({ outline: "uncle-folder" });
+    expect(await resolveTarget([], env, old, base)).toMatchObject({ error: expect.stringContaining("no outline service is running") });
+    // Inside a git repository: the repository root's name, and the root is the repository.
+    const repo = join(base, "bandit-repo"), sub = join(repo, "src", "deep");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(sub, { recursive: true });
+    expect(await resolveTarget([], env, sub, base)).toMatchObject({ outline: "bandit-repo", root: repo, why: `the outline bandit-repo, named after the repository at ${repo}` });
+    // A guess whose outline records another folder is unnamed: the default, said on screen.
+    writeFileSync(join(base, "outlines", "jam-shelf.json"), JSON.stringify({ root: "/fictional/other/jam-shelf" }));
+    expect(await resolveTarget([], env, jam, base)).toMatchObject({ outline: "bob", notice: `no outline for ${jam}, opened the default: bob` });
+    expect((await resolveTarget([], env, jam, base) as any).attach).toBeUndefined();
     expect(await resolveTarget([], env, remote, base)).toMatchObject({ error: expect.stringContaining("no outline service is running") });
     expect(await resolveTarget(["--ws", remote], env, base, base)).toEqual({ path: socketOf(remote, base), why: `the workspace ${remote}` });
-    // The home folder is not an outline's name: the host's default.
-    expect(await resolveTarget([], env, homedir(), base)).toMatchObject({ outline: "bob", why: expect.stringContaining("default outline") });
+    // The home folder, /, and folders directly under / are not outline names: the host's default, said on screen.
+    expect(await resolveTarget([], env, homedir(), base)).toMatchObject({ outline: "bob", notice: "no outline for ~, opened the default: bob" });
+    expect(await resolveTarget([], env, "/tmp", base)).toMatchObject({ outline: "bob", notice: "no outline for /tmp, opened the default: bob" });
     // EP0CH_SOCKET is an explicit override, over a running host and over --ws <root>.
     expect(await resolveTarget([], { ...env, EP0CH_SOCKET: "/fictional/env.sock" }, jam, base)).toEqual({ path: "/fictional/env.sock", why: "EP0CH_SOCKET" });
     expect(await resolveTarget(["--ws", jam], { ...env, EP0CH_SOCKET: "/fictional/env.sock" }, base, base)).toEqual({ path: "/fictional/env.sock", why: "EP0CH_SOCKET" });
@@ -200,6 +212,44 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     } finally { bob.close(); fred.close(); }
   });
 
+  test("ssh ep0ch's --ws <folder>: an adopted pie whose recorded root is that folder is attached, not created", async () => {
+    // pie's database, made by a single-outline service elsewhere, adopted in place with that folder as its root.
+    const { Scratch, outliner } = await import("./scratch");
+    if (!outliner) return;
+    const old = new Scratch();
+    try {
+      const sock = await old.start();
+      const seed = new SocketBoard(sock, 5000);
+      const recipe = await seed.request<{ id: string }>("create", { text: "Pie's fictional recipe" });
+      seed.close();
+      await old.stop();
+      const pie = host.folder("pie");
+      const database = join(dirname(sock), "outliner.sqlite");
+      await hostRequest(host.sock, "outlines.adopt", { path: database, name: "pie", root: pie });
+      const target = await resolveTarget(["--ws", pie], host.env, "/", host.state);
+      expect(target).toMatchObject({ path: host.sock, outline: "pie", root: pie, attach: true });
+      expect(await attachTarget(target as any)).toEqual({ created: false });
+      const board = new SocketBoard(host.sock, 5000, "pie");
+      try { expect((await board.get(recipe.id))?.text).toContain("recipe"); } finally { board.close(); }
+      // A subfolder of pie's folder, bound to pie, and a repository subfolder.
+      const deep = join(pie, "crust", "notes");
+      mkdirSync(deep, { recursive: true });
+      mkdirSync(dirname(clientConfigOf(pie, host.env)), { recursive: true });
+      writeFileSync(clientConfigOf(pie, host.env), JSON.stringify({ workspaceRoot: pie, outline: "pie" }));
+      expect(await resolveTarget([], host.env, deep, host.state)).toMatchObject({ outline: "pie", root: pie });
+      const repo = host.folder("uncle-repo");
+      mkdirSync(join(repo, ".git"));
+      mkdirSync(join(repo, "src", "deep"), { recursive: true });
+      const inRepo = await resolveTarget([], host.env, join(repo, "src", "deep"), host.state);
+      expect(inRepo).toMatchObject({ outline: "uncle-repo", root: repo, attach: true });
+      expect(await attachTarget(inRepo as any)).toEqual({ created: true });
+      // $HOME names no outline: the door opens the host's default and says so.
+      const home = host.folder("home-of-evan");
+      expect(await resolveTarget([], { ...host.env, HOME: home }, home, host.state))
+        .toMatchObject({ outline: "bob", notice: "no outline for ~, opened the default: bob" });
+    } finally { await old.dispose(); }
+  }, 60_000);
+
   test("ep0ch outline list|create|attach|stop|delete and status, with --json", async () => {
     const created = await run("outline", "create", "uncle", "--json");
     expect(created.code).toBe(0);
@@ -212,7 +262,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     expect(JSON.parse((await run("outline", "attach", "bandit", "--json")).out)).toMatchObject({ created: false });
     const list = JSON.parse((await run("outline", "list", "--json")).out);
     expect(list.defaultOutline).toBe("bob");
-    expect(list.outlines.map((o: any) => o.name)).toEqual(["bandit", "bob", "fred", "uncle"]);
+    expect(list.outlines.map((o: any) => o.name)).toEqual(expect.arrayContaining(["bandit", "bob", "fred", "uncle"]));
     expect((await run("outline", "list")).out).toMatch(/^bob\s+open · default/m);
     expect(JSON.parse((await run("outline", "stop", "uncle", "--json")).out)).toMatchObject({ name: "uncle", open: false });
     const status = JSON.parse((await run("status", "--json")).out);
@@ -226,7 +276,9 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     const deleted = await run("outline", "delete", "bandit", "--yes", "--json");
     expect(deleted.code).toBe(0);
     expect(JSON.parse(deleted.out).movedTo).toContain(join(host.state, "deleted"));
-    expect(JSON.parse((await run("outline", "list", "--json")).out).outlines.map((o: any) => o.name)).toEqual(["bob", "fred", "uncle"]);
+    const after = JSON.parse((await run("outline", "list", "--json")).out).outlines.map((o: any) => o.name);
+    expect(after).toEqual(expect.arrayContaining(["bob", "fred", "uncle"]));
+    expect(after).not.toContain("bandit");
   });
 
   test("--ws jam-shelf creates the outline on first open and attaches on the next", async () => {
@@ -240,17 +292,11 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     // An unbound folder named after an outline opens that outline.
     const folder = host.folder("fred");
     expect(await resolveTarget([], env, folder, host.state)).toMatchObject({ outline: "fred", attach: true });
-    // ssh ep0ch's form, --ws <folder path>: through the host, to the outline named after the folder.
-    const pie = host.folder("pie");
-    const byPath = await resolveTarget(["--ws", pie], env, "/", host.state);
-    expect(byPath).toMatchObject({ path: host.sock, outline: "pie", attach: true });
-    expect(await attachTarget(byPath as any)).toEqual({ created: true });
-    const pieBoard = new SocketBoard(host.sock, 5000, "pie");
-    try {
-      const note = await pieBoard.request<{ id: string }>("create", { text: "Pie's fictional recipe" });
-      expect((await pieBoard.get(note.id))?.text).toContain("recipe");
-    } finally { pieBoard.close(); }
-    expect(await attachTarget(byPath as any)).toEqual({ created: false });
+    // Created by a folder guess, the outline records its folder: the root goes with attach.
+    const jamFolder = host.folder("jam-folder");
+    const guessed = await resolveTarget([], env, jamFolder, host.state);
+    expect(await attachTarget(guessed as any)).toEqual({ created: true });
+    expect(JSON.parse((await run("outline", "list", "--json")).out).outlines.find((o: any) => o.name === "jam-folder").root).toBe(jamFolder);
     // ep0ch clients reads only: naming a missing outline does not create it.
     const clients = await run("clients", "--ws", "nobody-here");
     expect(clients.code).toBe(1);
