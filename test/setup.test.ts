@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupDatabase, formatPlan, setupCommand } from "../src/setup/apply";
+import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
 import { OUTLINE_CAPABILITIES } from "../src/socket";
 import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
 import { databases, depsState, herdrKeys, hostUnit } from "../src/setup/facts";
@@ -310,4 +310,10 @@ describe("the command line", () => {
     expect(await setupCommand(["install", "--yes"], io)).toBe(2);
     expect(said.every(s => s.includes("ep0ch install [--apply] [--restart-services]"))).toBe(true);
   });
+});
+
+test("text output shows the home directory as ~ (JSON keeps whole paths)", () => {
+  expect(tilde("ep0ch doctor · linux · /home/wren\n  $ ln -s /home/wren/door/src/main.ts /home/wren/.local/bin/ep0ch (x /home/wren)", "/home/wren"))
+    .toBe("ep0ch doctor · linux · ~\n  $ ln -s ~/door/src/main.ts ~/.local/bin/ep0ch (x ~)");
+  expect(tilde("/home/wrenfield/x", "/home/wren")).toBe("/home/wrenfield/x");
 });

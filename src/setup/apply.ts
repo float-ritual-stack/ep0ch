@@ -139,6 +139,9 @@ async function execute(step: Step, f: Facts, env: Env, say: (s: string) => void)
   }
 }
 
+/** Paths under the home directory as ~/…, for people (--json keeps them whole). */
+export const tilde = (text: string, home: string) => (home.length > 1 ? text.split(`${home}/`).join("~/").replace(new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|\\s|\\))`, "gm"), "~") : text);
+
 export interface SetupIO { out: (s: string) => void; err: (s: string) => void; env?: Env; now?: Date; doorRoot?: string; platform?: string }
 
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
@@ -147,6 +150,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   const unknown = args.slice(1).filter(a => !["--json", "--apply", "--restart-services"].includes(a));
   if (unknown.length || (args[0] === "doctor" && args.some(a => a === "--apply" || a === "--restart-services"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const facts = await gatherFacts({ env, doorRoot: io.doorRoot, platform: io.platform });
+  if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, facts.home)), err: s => err(tilde(s, facts.home)) }; }
   if (args[0] === "doctor") {
     const report = doctorReport(facts);
     io.out(json ? JSON.stringify(report, null, 2) : formatDoctor(facts, report.checks));
