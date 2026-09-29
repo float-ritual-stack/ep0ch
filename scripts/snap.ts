@@ -31,7 +31,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["brief", "projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements"].includes(scenario);
+const wide = ["brief", "projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -47,8 +47,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `bbs`, `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold` and `elements` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" ? await (async () => {
+// `bbs`, `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -525,6 +525,44 @@ if (scenario === "fold") {
   await agent("open", "", { id: plan.id }); await Bun.sleep(800);
   ch(")"); ch("f");
   await snap("10-desk", 800);
+  board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "steps") {
+  // PIE-424/425/472 on its own scratch service (fictional allotment notes), in a desk reader: a plan
+  // embedding a checklist whole, one step of it by its anchor, and a hub that embeds a step and the plan (a
+  // cycle); [ ] walks to a step inside an embed, ⏎ opens its status choice, x marks it done; a click opens
+  // another's and sets it waiting; ctrl+z undoes; an agent sets a step and the header names it; a fragment
+  // link is followed to the fragment.
+  const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "user" });
+  const garden = await mk(["Allotment checklist", "## Spring ^spring", "1. [x] Turn the compost ^t-a1b2c3", "2. [ ] Sow the beans ^t-d4e5f6", "   Soak them overnight first.", "   - [~] Buy canes ^t-0a0b0c", "3. [!] Fix the water butt", "## Summer", "- [ ] Net the brassicas"].join("\n"));
+  const hub = await mk("Hub of hubs");
+  const plan = await mk(["Week plan", "This week:", `!((${garden.id}))`, "Just the beans:", `!((${garden.id}^t-d4e5f6))`, `!((${hub.id}))`, "- [ ] Ring the plot office", `Where it started: ((${garden.id}^spring)).`].join("\n"));
+  await board.update(hub.id, `Hub of hubs\n!((${garden.id}^t-0a0b0c))\n!((${plan.id}))`, hub.revision);
+  board.subscribe(e => app.event(e));
+  const desk = new Desk(), D = desk as any;
+  const agent = (action: string, args: Record<string, unknown> = {}) => app.act({ action, args, as: "snap-agent" });
+  const at = (words: string) => {
+    const rows = emu.text(), y = rows.findIndex(l => l.includes(words));
+    if (y < 0) throw new Error(`no "${words}" on screen`);
+    return { x: [...rows[y]!].join("").indexOf(words), y };
+  };
+  const click = (p: { x: number; y: number }) => { press({ kind: "mouse", action: "down", button: 0, x: p.x, y: p.y }); press({ kind: "mouse", action: "up", button: 0, x: p.x, y: p.y }); };
+  app.push(new MainMenu()); app.push(desk);
+  await agent("open", { id: plan.id });
+  const r = () => [...D.panes.values()].find((x: any) => x.kind === "reader" && x.msg);
+  D.focus = [...D.panes.entries()].find(([, x]: any) => x === r())![0];
+  await snap("1-embeds", 2500);
+  const onStep = () => { const c = r().surface.describe().elements?.current; return c?.kind === "task" && c.label.includes("Sow the beans") && c.label.includes("^t-d4e5f6"); };
+  for (let i = 0; i < 20 && !onStep(); i++) ch("]");
+  await snap("2-walked-to-embedded-step", 300);
+  press({ kind: "enter" }); await snap("3-status-choice", 300);
+  ch("x"); await snap("4-done-by-key", 1200);
+  const w = at("3. [!] Fix the water butt");
+  click({ x: w.x + 4, y: w.y }); await snap("5-choice-by-click", 300);
+  click(at("[~] Mark waiting")); await snap("6-waiting-by-click", 1200);
+  press({ kind: "char", ch: "z", ctrl: true }); await snap("7-undo", 1200);
+  await agent("task.status", { id: "t-0a0b0c", to: "problem" }); await snap("8-agent-sets-a-step", 1200);
+  click(at("Allotment checklist^spring")); await snap("9-fragment-followed", 1500);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "elements") {

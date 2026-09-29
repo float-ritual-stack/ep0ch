@@ -169,7 +169,7 @@ export class Desk implements Screen, DeskApi, PaneHost {
    * are in (or opening) a reader's edit, comment or property panel. A screen built on the desk leaves
    * its own keys to the desk then.
    */
-  personTyping(): boolean { return !!this.search || this.prefix !== "" || !!this.pending || !!this.personIn(); }
+  personTyping(): boolean { return !!this.search || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing; }
 
   /** Reader panes by their number on screen (the one `peek` shows): "2", "3"… */
   private namedReaders(): { name: string; id: number; pane: ReaderPane }[] {
@@ -329,6 +329,8 @@ export class Desk implements Screen, DeskApi, PaneHost {
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     const focused = this.focusedReader();
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
+    if (focused?.surface.choosing && k.kind !== "mouse") { focused.key(k, this); return this.redraw(); }
     if (focused?.holdsKeys) {
       if (this.entered.in(focused)) {
         // The person is in it: every key is the edit's, comment's or panel's, window commands included,

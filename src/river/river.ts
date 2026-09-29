@@ -37,6 +37,8 @@ interface PaneS {
   top: number;
   /** The selection the column last brought into view: it jumps to a reply only when this changes (PIE-465). */
   shownSel?: number;
+  /** The note's element (`[ ]`) the column last brought into view, likewise. */
+  shownElem?: string | null;
   /** The column's height when last drawn, for paging. */
   height?: number;
   filter: Clause[];
@@ -348,13 +350,19 @@ export class River implements Screen {
       push(fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, w) + RESET);
       push(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`);
       for (const l of this.banner(p, m, w)) push(l);
-      // Links read as Detail shows them (titles, not ids), and a click on one opens it beside (PIE-415).
-      const drawn: Link[] = [];
-      const body = wrap(presentLinks(bodyLines(m).join("\n"), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text, drawn), w - 1);
-      // bodyLines took the properties out, so a `[key::value]` still here is a literal region's text.
-      // The whole note: the column scrolls, so nothing is cut short or sent elsewhere (PIE-465).
-      const shown = extractLinks(body.map(l => stripMarks(colourBody(l, true))));
-      shown.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: shown.ranges.filter(r => r.line === i && drawn[r.n]).map(r => ({ from: r.from + 1, to: r.to + 1, link: drawn[r.n]! })) }));
+      // The note's body through the shared surface's renderer (its digest): Markdown, links as Detail reads
+      // them, transclusions nested and sliced as the service projects them, and step controls (PIE-424,
+      // PIE-472). A click on a link opens it beside (PIE-415); `[ ]` walks its elements. The whole note: the
+      // column scrolls, so nothing is cut short or sent elsewhere (PIE-465).
+      const host = this.hostFor(p);
+      if (p.surface.msg?.id !== m.id) p.surface.show(m, host);
+      const dg = p.surface.digest(m, w - 1, host), at = all.length;
+      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: dg.links.filter(x => x.row === i).map(x => ({ from: x.from + 1, to: x.to + 1, link: x.link })) }));
+      // The element `[ ]` just stepped to comes into view (only when it changed: the wheel still reads on).
+      if (dg.key !== (p.shownElem ?? null)) {
+        p.shownElem = dg.key;
+        if (dg.current !== null) { const row = at + dg.current; if (row < p.top) p.top = Math.max(0, row - 1); else if (row >= p.top + r.rows) p.top = row - r.rows + 2; }
+      }
       const label = `── ${p.items ? this.flat(p).length : "…"} replies `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
     }
@@ -916,6 +924,8 @@ export class River implements Screen {
     // The property panel (and a value field in it) is only ever opened by the person's `i`, so it holds
     // their keys first; Esc closes the field, then the panel.
     if (p && p.surface.panel) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
+    // So does a step's status choice (PIE-472), until they choose or cancel.
+    if (p && p.surface.choosing) { p.surface.key(k, this.hostFor(p)); return ctx.redraw(); }
     const held = !!p?.surface.editing;
     // An edit, a passage being picked, a comment being written, the thread list, that the person is in:
     // every key is the surface's.
@@ -932,7 +942,11 @@ export class River implements Screen {
     // selected link: without it, alt+⏎ would open the selected card in a new column instead, PIE-441).
     const linked = !!p && !held && this.linked(p);
     const ctrlE = k.kind === "char" && !!k.ctrl && k.ch === "e";
-    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || (linked && (k.kind === "enter" || k.kind === "alt-enter")))) {
+    // An element the column's [ ] is on (PIE-441): ⏎ acts on it (a link or an embed opens beside, a step's
+    // box opens its status choice); on a step, space toggles it (PIE-472). ctrl+z undoes a step change.
+    const current = p && !held && p.surface.msg?.id === this.noteOf(p)?.id ? p.surface.currentKind() : null;
+    const undo = k.kind === "char" && !!k.ctrl && k.ch === "z";
+    if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || undo || (current === "task" && c === " ") || ((linked || current) && (k.kind === "enter" || k.kind === "alt-enter")))) {
       if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);
@@ -943,7 +957,7 @@ export class River implements Screen {
       } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }
       return ctx.redraw();
     }
-    if (linked && k.kind === "esc") { p!.surface.clearLink(); return ctx.redraw(); }
+    if ((linked || current) && k.kind === "esc") { p!.surface.clearLink(); return ctx.redraw(); }
     if (p) p.surface.clearLink();
     const n = p ? this.flat(p).length : 0;
     if (k.kind === "left" || c === "h") this.focus = Math.max(0, this.focus - 1);

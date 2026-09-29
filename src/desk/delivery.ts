@@ -2174,6 +2174,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     // A collapsed reader is a spine: c, ⏎ or space opens it; the board's keys keep working, and none of the
     // reader's own (not even e into a session it holds) reach a note the person can't see.
     const shut = !!rd && this.shut.has(rd);
+    // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
+    if (rd?.surface.choosing && !shut && k.kind !== "mouse") { rd.key(k, this); return this.redraw(); }
     if (rd?.holdsKeys && !shut) {
       if (this.entered.in(rd)) {
         // Every key is the edit's, comment's or panel's, board shortcuts included, until it's closed. The

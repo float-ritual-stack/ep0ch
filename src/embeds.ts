@@ -1,43 +1,122 @@
-// Transclusions in read mode, as Detail projects them: `!((id))` shows the target note once, read-only,
-// in a shaded region; a virtual-branch target shows its results (views.read); `!((id^fragment))` names the
-// fragment. Embeds refresh when the outline changes, are never recursive (an embed's own `!((…))` is not
-// expanded), and stop at 16 per document. Every failure says what it is instead of looking empty.
+// Transclusions in read mode, as Detail projects them: `!((id))` shows the target note rendered, in a
+// shaded region; `!((id^fragment))` shows just the fragment's slice (a step with its nested content, a
+// heading's section, a paragraph); a virtual-branch target shows its results (views.read). Embeds nest to
+// the service's bounded depth and stop at a cycle, and each document projects at most 16. Every failure
+// says what it is, in the service's words, instead of looking empty. Embeds refresh when any note they
+// show changes.
 //
-// Fragment slices: the service resolves whether a fragment exists (`references.resolve`) but doesn't
-// offer the slice itself, and the door doesn't re-derive the fragment rules, so a good fragment shows the
-// whole target with a note that the slice needs PIE-404.
+// The service owns the rules (pi-herdr-outliner PIE-424, `transclusions.read`): what a fragment covers,
+// where a cycle is, how deep embeds go and what each failure is called. The door asks and draws. Against an
+// older service (no `transclusions.read`) an embed shows its whole note once, not nested, and says why.
+//
+// Steps inside an embed are the service's too (PIE-472): each ready projection carries the checklist steps
+// in what it shows, so the reader can offer their status controls where they're drawn.
 import type { Msg } from "./board";
 import { subject } from "./board";
+import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
-import { anyChangeSince, changeClock, changedSince, outlineChanged, type LinkTarget } from "./refs";
-import type { SocketBoard } from "./socket";
+import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, type LinkTarget } from "./refs";
+import type { SocketBoard, TransclusionNode } from "./socket";
 import { C, fg, LINK_END, linkTag, pad, RESET } from "./style";
 import { readView, type ViewRead } from "./views";
 
+/** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
 export const MAX_EMBEDS = 16;
 
 type State =
   | { kind: "loading" }
+  // An older service's answers (no transclusions.read): the target read whole, never nested.
   | { kind: "missing" } | { kind: "deleted"; title: string } | { kind: "failed"; error: string }
   | { kind: "fragment-missing" } | { kind: "fragment-duplicate" }
   | { kind: "note"; target: Msg }
-  | { kind: "view"; target: Msg; view: ViewRead };
-interface Entry { state: State; at: number; asking: boolean }
+  | { kind: "view"; target: Msg; view: ViewRead }
+  // The service's projection: the embed and everything nested in it, with each view's results read.
+  | { kind: "node"; node: TransclusionNode; views: Map<TransclusionNode, ViewRead> };
+/** `deps`: the notes the answer shows (a change to one re-reads it); `volatile`: any change may alter it (a view's results). */
+interface Entry { state: State; at: number; asking: boolean; deps: string[]; volatile: boolean }
 
 const cacheBy = new WeakMap<object, Map<string, Entry>>();
 /** Everything changed: every embed is read again on the next render (what it showed stays meanwhile). */
 export function invalidateEmbeds() { outlineChanged(null); }
 
 /**
- * Stale after its target changes (refs.ts `outlineChanged`). A view's results can change with any block,
- * and a failure is worth asking again after any change; a note embed waits for its own target.
+ * Stale after a note it shows changes (refs.ts `outlineChanged`), nested ones included. A view's results
+ * can change with any block, and a failure is worth asking again after any change.
  */
-const stale = (id: string, e: Entry) => changedSince(e.at, [id]) || ((e.state.kind === "view" || e.state.kind === "failed") && anyChangeSince(e.at));
+const stale = (e: Entry) => changedSince(e.at, e.deps) || ((e.volatile || e.state.kind === "failed") && anyChangeSince(e.at));
 
-const key = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
+const refOf = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
 
-type Waiter = { resolve: (m: Msg | null) => void; reject: (e: Error) => void };
-const queued = new WeakMap<object, Map<string, Waiter[]>>();
+// ── asking the service ────────────────────────────────────────────────────────────────────────────────
+
+type Waiter = { resolve: (n: TransclusionNode | null) => void; reject: (e: Error) => void };
+const queued = new WeakMap<object, Map<string, Map<string, Waiter[]>>>();
+
+/**
+ * An embed as the service projects it, or null when it can't (no `transclusions.read`). The embeds one
+ * render asks for in one note go out together, as one `transclusions.read` naming that note (so embedding it
+ * again is a cycle).
+ */
+function readNode(b: SocketBoard, host: string, id: string, fragment?: string): Promise<TransclusionNode | null> {
+  let byHost = queued.get(b);
+  if (!byHost) { queued.set(b, (byHost = new Map())); setTimeout(() => void flush(b), 0); }
+  let q = byHost.get(host);
+  if (!q) byHost.set(host, (q = new Map()));
+  const k = refOf(id, fragment);
+  const waiting = q.get(k) ?? [];
+  q.set(k, waiting);
+  return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+}
+
+async function flush(b: SocketBoard) {
+  const byHost = queued.get(b);
+  queued.delete(b);
+  for (const [host, q] of byHost ?? []) {
+    const keys = [...q.keys()];
+    for (let from = 0; from < keys.length; from += 64) {
+      // The service takes 64 targets at a time.
+      const part = keys.slice(from, from + 64);
+      const targets = part.map(k => { const [blockId, fragmentId] = k.split("^"); return { blockId: blockId!, ...(fragmentId ? { fragmentId } : {}) }; });
+      try {
+        const r = await b.readTransclusions(targets, host || undefined);
+        part.forEach((k, i) => q.get(k)!.forEach(w => w.resolve(r ? r.results[i] ?? null : null)));
+      } catch (e) {
+        for (const k of part) q.get(k)!.forEach(w => w.reject(e as Error));
+      }
+    }
+  }
+}
+
+/** The notes a projection shows or names, and whether a view's results are in it. */
+function depsOf(n: TransclusionNode, out: { ids: Set<string>; volatile: boolean } = { ids: new Set(), volatile: false }) {
+  out.ids.add(n.blockId);
+  if (n.kind === "view") out.volatile = true;
+  for (const e of n.embeds ?? []) depsOf(e, out);
+  return out;
+}
+
+async function viewsIn(b: SocketBoard, n: TransclusionNode, out = new Map<TransclusionNode, ViewRead>()) {
+  if (n.status === "ready" && n.kind === "view" && n.block) out.set(n, await readView(b, n.block));
+  for (const e of n.embeds ?? []) await viewsIn(b, e, out);
+  return out;
+}
+
+async function project(b: SocketBoard, host: string, id: string, fragment?: string): Promise<{ state: State; deps: string[]; volatile: boolean }> {
+  if (b.supports?.("transclusions.read") !== false && typeof b.readTransclusions === "function") {
+    let node: TransclusionNode | null;
+    try { node = await readNode(b, host, id, fragment); } catch (e) { return { state: { kind: "failed", error: (e as Error).message }, deps: [id], volatile: false }; }
+    if (node) {
+      const d = depsOf(node);
+      return { state: { kind: "node", node, views: await viewsIn(b, node) }, deps: [...d.ids], volatile: d.volatile };
+    }
+  }
+  return { state: await legacy(b, id, fragment), deps: [id], volatile: false };
+}
+
+// ── an older service: one read per target, the whole note, never nested ──────────────────────────────
+
+type BlockWaiter = { resolve: (m: Msg | null) => void; reject: (e: Error) => void };
+const blockQueue = new WeakMap<object, Map<string, BlockWaiter[]>>();
 /**
  * An embed's target, whole. The targets one render asks for go out together as one `blocks.read`
  * (PIE-400); a trashed one is read on its own for its title, and a service without `blocks.read` gets
@@ -45,16 +124,16 @@ const queued = new WeakMap<object, Map<string, Waiter[]>>();
  */
 function readTarget(b: SocketBoard, id: string): Promise<Msg | null> {
   if (typeof b.readBlocks !== "function") return b.read(id);
-  let q = queued.get(b);
-  if (!q) { queued.set(b, (q = new Map())); setTimeout(() => void flush(b), 0); }
+  let q = blockQueue.get(b);
+  if (!q) { blockQueue.set(b, (q = new Map())); setTimeout(() => void flushBlocks(b), 0); }
   const waiting = q.get(id) ?? [];
   q.set(id, waiting);
   return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
 }
 
-async function flush(b: SocketBoard) {
-  const q = queued.get(b);
-  queued.delete(b);
+async function flushBlocks(b: SocketBoard) {
+  const q = blockQueue.get(b);
+  blockQueue.delete(b);
   if (!q) return;
   const settle = (id: string, p: Promise<Msg | null>) => p.then(m => q.get(id)!.forEach(w => w.resolve(m)), (e: Error) => q.get(id)!.forEach(w => w.reject(e)));
   let got: Awaited<ReturnType<SocketBoard["readBlocks"]>>;
@@ -66,7 +145,7 @@ async function flush(b: SocketBoard) {
   }
 }
 
-async function project(b: SocketBoard, id: string, fragment?: string): Promise<State> {
+async function legacy(b: SocketBoard, id: string, fragment?: string): Promise<State> {
   let target: Msg | null;
   try { target = await readTarget(b, id); } catch (e) { return { kind: "failed", error: (e as Error).message }; }
   if (!target) return { kind: "missing" };
@@ -80,23 +159,28 @@ async function project(b: SocketBoard, id: string, fragment?: string): Promise<S
   return { kind: "note", target };
 }
 
-/** The last projection of `!((id^fragment))`, refreshed in the background when the outline has changed. */
-export function embedState(id: string, fragment: string | undefined, src: Source | null | undefined): State {
+/**
+ * The last projection of `!((id^fragment))` in note `host`, refreshed in the background when a note it
+ * shows has changed.
+ */
+export function embedState(id: string, fragment: string | undefined, src: Source | null | undefined, host = ""): State {
   if (!src) return { kind: "failed", error: "no outline connection" };
   let cache = cacheBy.get(src.board);
   if (!cache) cacheBy.set(src.board, (cache = new Map()));
-  const k = key(id, fragment), c = cache;
+  const k = `${host}|${refOf(id, fragment)}`, c = cache;
   const hit = cache.get(k);
-  if (hit && (hit.asking || !stale(id, hit))) return hit.state;
+  if (hit && (hit.asking || !stale(hit))) return hit.state;
   const at = changeClock();
-  cache.set(k, { state: hit?.state ?? { kind: "loading" }, at, asking: true });
+  cache.set(k, { state: hit?.state ?? { kind: "loading" }, at, asking: true, deps: hit?.deps ?? [id], volatile: hit?.volatile ?? false });
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
-  Promise.resolve().then(() => project(src.board, id, fragment)).then(
-    state => { c.set(k, { state, at, asking: false }); src.redraw(); },
-    (e: Error) => { c.set(k, { state: { kind: "failed", error: e.message }, at, asking: false }); src.redraw(); },
+  Promise.resolve().then(() => project(src.board, host, id, fragment)).then(
+    ({ state, deps, volatile }) => { c.set(k, { state, at, asking: false, deps, volatile }); src.redraw(); },
+    (e: Error) => { c.set(k, { state: { kind: "failed", error: e.message }, at, asking: false, deps: [id], volatile: false }); src.redraw(); },
   );
   return hit?.state ?? { kind: "loading" };
 }
+
+// ── drawing ───────────────────────────────────────────────────────────────────────────────────────────
 
 /** A shaded region's background (a dim navy under the default text), and the gutter that marks it. */
 export const SHADE = "\x1b[48;2;18;24;44m";
@@ -108,19 +192,91 @@ export function shade(s: string, w: number): string {
 }
 
 /**
- * The region for the `n`th embed (from 0) of a document, `w` wide. `body` renders a note's body the way
- * the reader does (without expanding embeds), at the width it is given.
+ * How the reader draws a note's body inside an embed (src/surface/note.ts): `part` null for the whole
+ * readable note, else a fragment's slice (its text, line for line from note line `startLine`). `env.embed`
+ * draws the embeds inside it; `env.task` its step boxes, told the note line (from 0, the subject) each is on.
  */
-export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: (m: Msg, width: number) => string[], sink?: LinkTarget[]): string[] {
-  // With a sink, the title (and a view's results) are tagged as links, so a click opens them (PIE-415).
-  // Each says what it is (PIE-441): the title stands for the embed, a view's result for its note.
-  const link = (to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
-  const ref = `!((${id.length > 12 ? id.slice(0, 8) + "…" : id}${fragment ? `^${fragment}` : ""}))`;
+export type EmbedBody = (target: Msg, part: { text: string; startLine: number } | null, width: number, env: { embed: NonNullable<DocEnv["embed"]>; task: (noteLine: number, box: string) => string | null }) => string[];
+
+/**
+ * The region for the `n`th embed (from 0) of a document, `w` wide, in note `host`. `body` draws a note's
+ * body the way the reader does. With a sink, the title, a view's results, the links in the embedded text
+ * and its step boxes are tagged, so `[ ]` stops on them and a click acts on them (PIE-415, PIE-441, PIE-472).
+ */
+export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = ""): string[] {
   const S = (line: string) => shade(line, w);
-  const head = (text: string, colour: number = C.lcyan) => S(fg(colour) + "\x1b[1m" + link({ block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + "\x1b[22m" + RESET);
+  if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
+  const st = embedState(id, fragment, src, host);
+  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink);
+  return legacyRegion(st, id, fragment, w, body, sink);
+}
+
+const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.slice(0, 8) + "…" : id}${fragment ? `^${fragment}` : ""}))`;
+
+/** Tag `text` as link `to` in `sink` (or leave it as text without one). */
+const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
+
+function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.lcyan) {
+  return shade(fg(colour) + "\x1b[1m" + tagged(sink, { block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + "\x1b[22m" + RESET, w);
+}
+
+/** A virtual branch's results, as Detail lists them. */
+function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
+  const S = (line: string) => shade(line, w), title = printable(subject(target));
+  const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
+  if (v.status === "invalid") return [head(`Embedded view · ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
+  if (v.status !== "ready") return [head(`Embedded view · ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
+  if (!v.items.length) return [head(`Embedded view · ${title} · EMPTY`)];
+  const count = `${v.items.length} result${v.items.length === 1 ? "" : "s"}${v.truncated ? ` · TRUNCATED at ${v.limit}` : ""}`;
+  const keys = viewSummaryKeys(target) ?? [];
+  return [head(`Embedded view · ${title} · ${count}`), ...v.items.map(m => {
+    const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
+    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, { block: m.id, role: "row" }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
+  })];
+}
+
+/**
+ * One projected embed and everything nested in it. A ready note or fragment is drawn by the reader's own
+ * body renderer, a nested embed inside it by this again (so it sits one gutter further in), and each step
+ * the service found in what's shown gets its status control.
+ */
+function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined): string[] {
+  const S = (line: string) => shade(line, w);
+  const ref = shortRef(node.blockId, node.fragmentId);
+  if (node.status !== "ready" || !node.block) {
+    // Nesting limits are the note working as meant; failures are red.
+    const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget";
+    return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status).slice(0, 240)}` + RESET)];
+  }
+  const target = node.block;
+  if (node.kind === "view") {
+    const v = views.get(node);
+    return v ? viewRegion(target, v, w, sink) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
+  }
+  const title = printable(node.title ?? subject(target));
+  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `Embedded fragment · ${title} ^${node.fragmentId}` : `Embedded block · ${title}`, w, sink)];
+  // The embeds inside, matched to the service's list by what they name, in order.
+  const children = new Map<string, TransclusionNode[]>();
+  for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
+  const embed = (cid: string, cfrag: string | undefined, _n: number, width: number) => {
+    const child = children.get(refOf(cid, cfrag))?.shift();
+    return child ? nodeRegion(child, views, width, body, sink) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
+  };
+  const task = (noteLine: number, box: string) => {
+    const step = node.checklist?.find(s => s.span.startLine === noteLine);
+    if (!step || !sink || node.revision === undefined) return null;
+    return LINK_ON + tagged(sink, { role: "task", block: node.blockId, task: { block: node.blockId, revision: node.revision, step, via: ref } }, box) + LINK_OFF;
+  };
+  const part = node.fragment ? { text: node.fragment.text, startLine: node.fragment.startLine } : null;
+  for (const l of body(target, part, Math.max(4, w - 2), { embed, task })) out.push(S(" " + l));
+  return out;
+}
+
+/** An older service's projection: the whole note, its own embeds left as they are. */
+function legacyRegion(st: Exclude<State, { kind: "node" }>, id: string, fragment: string | undefined, w: number, body: EmbedBody, sink: LinkTarget[] | undefined): string[] {
+  const ref = shortRef(id, fragment);
+  const S = (line: string) => shade(line, w);
   const fail = (what: string) => [S(fg(C.lred) + `${ref} · ${what}` + RESET)];
-  if (n >= MAX_EMBEDS) return fail(`EMBED LIMIT · maximum ${MAX_EMBEDS} per note`);
-  const st = embedState(id, fragment, src);
   switch (st.kind) {
     case "loading": return [S(fg(C.dark) + `${ref} · reading…` + RESET)];
     case "missing": return fail("MISSING TARGET");
@@ -128,24 +284,14 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
     case "failed": return fail(`TARGET FAILED · ${printable(st.error).slice(0, 200)}`);
     case "fragment-missing": return fail("MISSING FRAGMENT");
     case "fragment-duplicate": return fail("DUPLICATE FRAGMENT");
+    case "view": return viewRegion(st.target, st.view, w, sink);
     case "note": {
       const title = printable(subject(st.target));
-      const out = [head(fragment ? `Embedded fragment · ${title} ^${fragment}` : `Embedded block · ${title}`)];
-      if (fragment) out.push(S(fg(C.dark) + "the whole note is shown: fragment slices need PIE-404" + RESET));
-      for (const l of body(st.target, Math.max(4, w - 2))) out.push(S(" " + l));
+      const out = [heading(id, fragment, fragment ? `Embedded fragment · ${title} ^${fragment}` : `Embedded block · ${title}`, w, sink)];
+      if (fragment) out.push(S(fg(C.dark) + "the whole note: this service can't slice fragments" + RESET));
+      const none = (cid: string, cfrag: string | undefined, _n: number, width: number) => [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not nested with this service` + RESET, width)];
+      for (const l of body(st.target, null, Math.max(4, w - 2), { embed: none, task: () => null })) out.push(S(" " + l));
       return out;
-    }
-    case "view": {
-      const v = st.view, title = printable(subject(st.target));
-      if (v.status === "invalid") return [head(`Embedded view · ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-      if (v.status !== "ready") return [head(`Embedded view · ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-      if (!v.items.length) return [head(`Embedded view · ${title} · EMPTY`)];
-      const count = `${v.items.length} result${v.items.length === 1 ? "" : "s"}${v.truncated ? ` · TRUNCATED at ${v.limit}` : ""}`;
-      const keys = viewSummaryKeys(st.target) ?? [];
-      return [head(`Embedded view · ${title} · ${count}`), ...v.items.map(m => {
-        const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
-        return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + link({ block: m.id, role: "row" }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
-      })];
     }
   }
 }

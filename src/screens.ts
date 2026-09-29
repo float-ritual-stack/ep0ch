@@ -525,7 +525,7 @@ export class MessageReader implements Screen {
     const host = this.host(ctx);
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
-    if (this.surface.holdsKeys) { this.surface.key(k, host); return; }
+    if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
     if (c === "q" || c === "Q") return ctx.pop();
