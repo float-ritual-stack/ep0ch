@@ -23,7 +23,7 @@ const PLACE: Record<string, string> = { left: "left of", right: "right of", up: 
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: PaneKind; name?: string; cmd?: string; file?: string; source?: string; note?: string; cwd?: string }
+export interface NewTile { kind: PaneKind; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string }
 
 /** The view that holds the tiles (the desk). `sel` names a tile by name or number, as `peek` shows it. */
 export interface TileHost {
@@ -76,7 +76,7 @@ export const TILE_ACTIONS = new ActionSet<{
   "layout.load": { name: string };
   "layout.restore": { name: string };
   "layout.move": { to?: string; where?: string; index?: number };
-  "tile.open": { kind: string; name?: string; cmd?: string; file?: string; source?: string; note?: string; cwd?: string; to?: string; where?: string };
+  "tile.open": { kind: string; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string; to?: string; where?: string };
   "tile.close": Record<string, never>;
   "tile.link": { to?: string };
   "tile.focus": Record<string, never>;
@@ -136,7 +136,7 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "tile.open": {
-    summary: "open a new tile beside reader=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=tree, reader, detail (note=<id>), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
+    summary: "open a new tile beside reader=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=tree, reader, detail (note=<id>, or page=<name> to pin the note [[name]]), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
     keys: "^W o <kind>; ^W O <kind> as a tab",
     args: {
       kind: { type: "string", about: "what the tile shows" },
@@ -145,6 +145,7 @@ export const TILE_ACTIONS = new ActionSet<{
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
       note: { type: "string", optional: true, about: "detail: the note it keeps" },
+      page: { type: "string", optional: true, about: "detail: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       to: { type: "string", optional: true, about: "the tile it opens beside (default the focused one; reader= also names it)" },
       where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" },

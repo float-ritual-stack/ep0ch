@@ -213,6 +213,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const p = this.panes.get(id)!;
     p.init?.(this);
     p.select?.(this.current, this);
+    if (p instanceof DetailPane && p.page && !p.msg) {
+      const page = p.page;
+      this.ctx.board.resolvePage(page).then(r => { if (r.status === "resolved" && r.block && !p.msg) { p.hold(r.block, this); this.redraw(); } }, () => {});
+    }
     if (p instanceof DetailPane && p.want && !p.msg) {
       const want = p.want;
       this.ctx.board.get(want).then(m => { if (m && !p.msg) { p.hold(m, this); this.redraw(); } }, () => {});
@@ -1008,7 +1012,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (t.kind === "preview" && t.file && !t.source) t.source = `file:${t.file}`;
     if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
     const base = this.tile(at);
-    const spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name, ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.cwd ? { cwd: t.cwd } : {}) };
+    const spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name, ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}) };
     if ((t.kind === "preview" || t.kind === "backlinks") && !t.source) spec.source = `tile:${base.name}`;
     const id = this.put(makeTile(spec), t.name);
     const wasShown = shown(this.root);

@@ -10,6 +10,8 @@ import { AGENT_ACTOR_ID, USER, type OutlineEvent } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import type { OpenHow, SurfaceHost } from "../surface/note";
 import { Desk } from "../desk/desk";
+import { nowPage } from "./now";
+export { nowPage };
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 
 export class PinnedReader extends ReaderPane {
@@ -96,5 +98,4 @@ export class PinnedPage extends Desk {
   }
 }
 
-/** Claude · now: the agents' running status page on a float-hub outline. */
-export const claudeNow = () => new PinnedPage("claude-now", "Claude · now");
+export const claudeNow = () => { const { address, label } = nowPage(); return new PinnedPage(address, label); };

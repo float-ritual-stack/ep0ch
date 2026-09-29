@@ -11,8 +11,8 @@
 // the backlinks tile (src/desk/backlinks-pane.ts), which lists the detail's backlinks. This file adds which
 // notes are welcome notes, the band, and the actions that pick them (WELCOME_ACTIONS).
 //
-// With no welcome note on the outline, the detail shows the [[claude-now]] page (the page the menu's C used to
-// pin) and the list says how to tag one.
+// With no welcome note on the outline, the detail shows the "now" page ([[claude-now]] unless EP0CH_NOW_PAGE
+// names another, src/hub/now.ts; the page the menu's C used to pin) and the list says how to tag one.
 import { basename } from "node:path";
 import type { Ctx } from "../app";
 import type { Art, Cell } from "../ansi";
@@ -33,11 +33,12 @@ import type { LNode } from "../desk/layout";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import { PreviewPane } from "../desk/preview";
 import { DetailPane } from "../desk/tiles";
+import { nowPage } from "./now";
 
 export const WELCOME_KEY = "welcome";
 const WELCOME_LIMIT = 200;
-/** The page shown while no note is a welcome note. */
-export const WELCOME_FALLBACK = "claude-now";
+/** The page shown while no note is a welcome note: the "now" page. */
+export const welcomeFallback = () => nowPage().address;
 
 /** A welcome value that is a number orders by it; any other value comes after, by title. */
 const placeOf = (m: Msg): number | null => {
@@ -128,7 +129,7 @@ export class WelcomeList implements Pane {
       lines: [
         ...wrap("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
         ...[`Tag one [${WELCOME_KEY}::1] (then 2, 3…; any value counts) and it opens here, first.`, "",
-          s.fallback ? `Meanwhile the detail shows [[${WELCOME_FALLBACK}]].` : `No [[${WELCOME_FALLBACK}]] page either.`]
+          s.fallback ? `Meanwhile the detail shows [[${welcomeFallback()}]].` : `No [[${welcomeFallback()}]] page either.`]
           .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET),
       ],
     };
@@ -185,7 +186,7 @@ export class WelcomeDetail extends DetailPane {
     const s = this.screen, m = this.msg;
     if (!s || !m) return s?.items && !s.items.length && !s.fallback ? "nothing to read yet" : "detail";
     const i = s.items?.findIndex(x => x.id === m.id) ?? -1;
-    const tag = i >= 0 ? `welcome ${tabKey(i) ?? i + 1}` : s.fallback?.id === m.id ? `[[${WELCOME_FALLBACK}]] · no welcome notes yet` : "read here";
+    const tag = i >= 0 ? `welcome ${tabKey(i) ?? i + 1}` : s.fallback?.id === m.id ? `[[${welcomeFallback()}]] · no welcome notes yet` : "read here";
     return `${tag} · ${subject(m)}`;
   }
   /** The detail never follows another note here: no `p`. */
@@ -275,7 +276,7 @@ export class Welcome extends Desk {
   items: Msg[] | null = null;
   /** The place of the welcome note the detail shows, or -1 (another note, alt+⏎'s, or nothing). */
   get at(): number { const id = this.detail.msg?.id; return id ? (this.items ?? []).findIndex(m => m.id === id) : -1; }
-  /** The [[claude-now]] page while there are no welcome notes (null when there's none either). */
+  /** The "now" page while there are no welcome notes (null when there's none either). */
   fallback: Msg | null = null;
   problem = "";
   /** Which logo the band draws (LOGOS), by place: the dotted SHY-EPO! first; `L` or a click on it for the next. */
@@ -327,7 +328,7 @@ export class Welcome extends Desk {
       if ((!keep || !shown) && !this.detail.holdsKeys && !this.detail.editing) this.detail.hold(items[0]!, this);
     } else if (!this.problem) {
       try {
-        const r = await this.ctx.board.resolvePage(WELCOME_FALLBACK);
+        const r = await this.ctx.board.resolvePage(welcomeFallback());
         this.fallback = r.status === "resolved" && r.block ? r.block : null;
       } catch { this.fallback = null; }
       if (this.fallback && (!shown || shown.id === this.fallback.id || first) && !this.detail.holdsKeys && !this.detail.editing) this.detail.hold(this.fallback, this);
@@ -512,7 +513,7 @@ export class Welcome extends Desk {
       put(" =", rail);
     });
     if (more) { put(" ", ""); put(`… ${more} more`, fg(C.lcyan), { more: true }); put(" =", rail); }
-    if (!items.length) put(this.items ? ` no welcome notes yet · showing [[${WELCOME_FALLBACK}]] ` : " asking the outline… ", fg(C.dark)), put("=", rail);
+    if (!items.length) put(this.items ? ` no welcome notes yet · showing [[${welcomeFallback()}]] ` : " asking the outline… ", fg(C.dark)), put("=", rail);
     put("=".repeat(Math.max(0, cols - 1 - x)), rail);
     put("]", rail, undefined, cols);
     canvas.text(0, row, s, cols);
@@ -560,7 +561,7 @@ export class Welcome extends Desk {
       shown: this.at >= 0 ? this.at + 1 : null,
       detail: this.detail.msg ? { id: this.detail.msg.id, title: subject(this.detail.msg) } : null,
       preview: this.preview.msg ? { id: this.preview.msg.id, title: subject(this.preview.msg) } : null,
-      fallback: items && !items.length ? (this.fallback ? { page: WELCOME_FALLBACK, id: this.fallback.id } : { page: WELCOME_FALLBACK, id: null }) : undefined,
+      fallback: items && !items.length ? (this.fallback ? { page: welcomeFallback(), id: this.fallback.id } : { page: welcomeFallback(), id: null }) : undefined,
       logo: LOGOS[this.logo]!.file,
       problem: this.problem || undefined,
     };
