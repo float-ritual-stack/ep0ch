@@ -1,4 +1,5 @@
 import type { MentionMessage, MentionScope } from "./mentions-types";
+import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
 import type { PromptRevision } from "./ai-prompts";
 import type {
@@ -1645,6 +1646,12 @@ export const OUTLINER_MIN_CLIENT_PROTOCOL = 82;
 export const OUTLINER_CAPABILITIES = [
   "blocks.read",
   "changes.since",
+  /** `fragments.candidates`: `((note#…` / `((note^…` completion over every active note (PIE-424, PIE-295). */
+  "fragments.candidates",
+  /** `fragments.ensure`: write a heading's anchor, revision-checked, for completion to link to. */
+  "fragments.ensure",
+  /** `fragments.read`: a `((id^fragment))` slice, its kind, label, lines and offsets (PIE-424). */
+  "fragments.read",
   /**
    * `move`, `delete` and `trash.restore` accept `mutation`, recorded in the
    * change feed and activity like an update's; `activity.recent` accepts `kinds`.
@@ -1656,6 +1663,8 @@ export const OUTLINER_CAPABILITIES = [
   "query.expression",
   "references.backlinks.facets",
   "resources.projection",
+  /** `transclusions.read`: `!((id))` and `!((id^fragment))` projected, nested to a bounded depth, cycle-safe. */
+  "transclusions.read",
   "views.read",
 ] as const;
 
@@ -2147,6 +2156,14 @@ export type OutlinerRequestAction =
   | { id: string; action: "checklist.query"; blockId: string; query: ChecklistQuery }
   | { id: string; action: "checklist.search"; query: ChecklistSearchQuery }
   | { id: string; action: "checklist.update"; blockId: string; input: ChecklistUpdateInput; mutation: MutationProvenance }
+  /** A fragment's slice of its note (PIE-424): kind, label, lines, offsets and the text a reader shows. */
+  | { id: string; action: "fragments.read"; blockId: string; fragmentId: string }
+  /** Transclusions projected as readers show them, nested and cycle-safe (src/transclusions.ts). */
+  | { id: string; action: "transclusions.read"; targets: { blockId: string; fragmentId?: string }[]; hostBlockId?: string; maxDepth?: number }
+  /** Fragment completion over every active note (src/fragment-search.ts). */
+  | { id: string; action: "fragments.candidates"; query: FragmentCandidateQuery }
+  /** Give a heading its anchor (`## Beds ^beds`), if the note is still at `expectedRevision`. */
+  | { id: string; action: "fragments.ensure"; blockId: string; lineIndex: number; expectedRevision: number; mutation: MutationProvenance }
   /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
   | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number; mutation?: MutationProvenance }
   | { id: string; action: "delete"; blockId: string; mutation?: MutationProvenance }

@@ -4,10 +4,39 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Fragment completion searches every note (PIE-424; fixes PIE-295's
+  "Searched only 500 blocks"). `fragments.candidates` finds `((note#heading` /
+  `((note^anchor` targets across all active notes by the service's fragment
+  rules, the draft's note first; an unanchored heading comes with the anchor it
+  would get, and `fragments.ensure` writes it with a revision check. Detail,
+  Tree and Quick Capture use them (with the old bounded search against an older
+  service). `transclusions.read` now sends each note and its steps once, parses
+  a note once per revision, stops scanning a document past its 17th embed, and
+  caps a read at 512 KB (`EMBED TOO LARGE`). Additive capabilities
+  `fragments.candidates`, `fragments.ensure`.
+
 - Workspace and connection: Copy on **Client protocol** copies the number
   alone; "needs service ≥ N" is the field's note, shown as before (PIE-355).
   After leaving an edit with retained writing, the status names Alt+R and the
   actions menu; compact chrome has no header cue for Writing history.
+
+- The service owns fragment slices and nested transclusion (PIE-424).
+  `fragments.read { blockId, fragmentId }` returns what `((id^fragment))`
+  covers: its kind, label, note lines, offsets and the text a reader shows (a
+  step with its nested content, a heading's section, a paragraph), or
+  `missing` / `duplicate`. `transclusions.read { targets, hostBlockId?,
+  maxDepth? }` projects `!((id))` and `!((id^fragment))` nested to a bounded
+  depth (default 3, ceiling 6), stops at a cycle (`CYCLE · this embed is
+  already open above it`) and past the depth (`DEPTH LIMIT · embeds nest N
+  deep`), keeps Detail's 16-per-document limit, and caps a read at 64 embeds;
+  each ready projection carries the checklist steps inside what it shows.
+  Both are additive capabilities; no protocol bump. A heading's section no
+  longer ends at a `#` line inside a code fence, and fragment completion no
+  longer offers headings inside code. Detail's embeds take their limit and
+  wording from the same module (`src/transclusions.ts`), and neither Detail
+  nor `transclusions.read` expands `!((…))` written inside fenced or indented
+  code.
+
 - Clients name their outline on the outline host (PIE-457 step 3).
   `OutlinerClient` sends `outline` on every request and subscription, and
   refuses a single-outline service when a name is asked for. The endpoint is

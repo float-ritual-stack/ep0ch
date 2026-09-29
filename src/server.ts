@@ -2132,6 +2132,18 @@ export class OutlinerServer {
         case "checklist.update":
           result = this.store.updateChecklist(request.blockId, request.input, request.mutation);
           break;
+        case "fragments.read":
+          result = this.store.readFragment(request.blockId, request.fragmentId);
+          break;
+        case "transclusions.read":
+          result = this.store.readTransclusions(request.targets, { hostBlockId: request.hostBlockId, maxDepth: request.maxDepth });
+          break;
+        case "fragments.candidates":
+          result = this.store.fragmentCandidates(request.query);
+          break;
+        case "fragments.ensure":
+          result = this.store.ensureFragment(request.blockId, request.lineIndex, request.expectedRevision, request.mutation);
+          break;
         case "update":
           result = this.store.update(
             request.blockId,
@@ -2515,6 +2527,7 @@ export class OutlinerServer {
       case "attention.get":
         return null;
       case "checklist.update":
+      case "fragments.ensure":
         if (response.sequence === previousSequence) return null;
         domain = "content";
         blockId = request.blockId;
