@@ -20,14 +20,34 @@ const REMOTE_REQUEST_TIMEOUT_MS = 30_000;
 
 export interface OutlinerClientEndpoint {
   socket: string;
-  mode: "local" | "remote";
+  mode: "local" | "remote" | "host";
+  /** The outline every request names; the socket must be an outline host. */
+  outline?: string;
+  /** Host mode without an outline (`resolveFolderOutline` rule 4): why none is named. */
+  unnamed?: string;
 }
 
 export function createOutlinerClient(endpoint: OutlinerClientEndpoint): OutlinerClient {
   return new OutlinerClient(
     endpoint.socket,
     endpoint.mode === "remote" ? REMOTE_REQUEST_TIMEOUT_MS : LOCAL_REQUEST_TIMEOUT_MS,
+    endpoint.outline,
+    // On the host, a client without a name would reach the default outline: refuse instead.
+    endpoint.mode === "host" && !endpoint.outline ? endpoint.unnamed ?? "No outline is named for this folder" : undefined,
   );
+}
+
+/**
+ * A service that does not advertise `request.outline` ignores the field, so a
+ * client that names an outline refuses it rather than read the wrong outline.
+ */
+export function requireOutlineRouting(service: OutlinerServiceStatus, socketPath: string, outline: string): void {
+  if (!service.capabilities?.includes("request.outline")) {
+    throw new Error(`The Outliner service at ${socketPath} serves one outline and cannot route to the outline "${outline}" (no request.outline capability). Start the outline host, or unset OUTLINER_OUTLINE / the folder's outline binding.`);
+  }
+  if (service.outline?.name !== undefined && service.outline.name !== outline) {
+    throw new Error(`The outline host at ${socketPath} answered for "${service.outline.name}", not "${outline}"`);
+  }
 }
 
 export interface OutlinerWatchHandlers {
@@ -48,6 +68,9 @@ export class OutlinerWatcher {
     private readonly socketPath: string,
     private readonly handlers: OutlinerWatchHandlers,
     private readonly acknowledgementTimeoutMs = LOCAL_REQUEST_TIMEOUT_MS,
+    /** Names the outline on the subscribe line; `verify` confirms the service routes by it first. */
+    private readonly outline?: string,
+    private readonly verify?: () => Promise<void>,
   ) {
     this.connect();
   }
@@ -67,6 +90,18 @@ export class OutlinerWatcher {
 
   private connect(): void {
     if (this.stopped) return;
+    if (this.verify) {
+      this.verify().then(() => this.open(), error => {
+        this.reportError(error);
+        this.scheduleReconnect();
+      });
+      return;
+    }
+    this.open();
+  }
+
+  private open(): void {
+    if (this.stopped) return;
     const socket = createConnection(this.socketPath);
     this.socket = socket;
     socket.setEncoding("utf8");
@@ -84,8 +119,10 @@ export class OutlinerWatcher {
       const request: OutlinerRequest = {
         id: subscriptionId,
         action: "events.subscribe",
-        client: this.handlers.client,
+        // A pane registers the outline it is on, so Herdr actions invoked from it use that outline.
+        client: this.outline ? { ...this.handlers.client, outline: this.outline } : this.handlers.client,
       };
+      if (this.outline) (request as { outline?: string }).outline = this.outline;
       socket.write(`${JSON.stringify(request)}\n`);
       acknowledgementTimer = setTimeout(() => {
         socket.destroy(new Error("Outliner subscription was not acknowledged"));
@@ -157,9 +194,15 @@ export class OutlinerRequestError extends Error {
 }
 
 export class OutlinerClient {
+  private routingChecked: Promise<void> | undefined;
+
   constructor(
     readonly socketPath: string,
     private readonly requestTimeoutMs = LOCAL_REQUEST_TIMEOUT_MS,
+    /** Every request names this outline; the service must be an outline host that routes by it. */
+    readonly outline?: string,
+    /** Set when no outline could be named: every request and subscription fails with it. */
+    readonly refusal?: string,
   ) {}
 
   /** Rejects a service that is too old or lacks a capability the caller will use. */
@@ -169,8 +212,40 @@ export class OutlinerClient {
     return service;
   }
 
-  request<T>(input: RequestInput, timeoutMs = this.requestTimeoutMs): Promise<T> {
-    const request = { ...input, id: crypto.randomUUID() } as OutlinerRequest;
+  /**
+   * With an outline, the first request confirms by ping that the service routes
+   * by name (`request.outline`); every request then carries `outline`. A ping
+   * is itself checked on its answer.
+   */
+  async request<T>(input: RequestInput, timeoutMs = this.requestTimeoutMs): Promise<T> {
+    if (this.refusal) throw new Error(this.refusal);
+    if (!this.outline) return this.send<T>(input, timeoutMs);
+    if (input.action === "ping") {
+      const status = await this.send<OutlinerServiceStatus>(input, timeoutMs);
+      requireOutlineRouting(status, this.socketPath, this.outline);
+      this.routingChecked ??= Promise.resolve();
+      return status as T;
+    }
+    await this.checkRouting(timeoutMs);
+    return this.send<T>(input, timeoutMs);
+  }
+
+  private checkRouting(timeoutMs = this.requestTimeoutMs): Promise<void> {
+    if (this.refusal) return Promise.reject(new Error(this.refusal));
+    if (!this.outline) return Promise.resolve();
+    const outline = this.outline;
+    this.routingChecked ??= this.send<OutlinerServiceStatus>({ action: "ping" }, timeoutMs)
+      .then(status => requireOutlineRouting(status, this.socketPath, outline))
+      .catch(error => {
+        // A service that was down may come back as the host; ask again next time.
+        this.routingChecked = undefined;
+        throw error;
+      });
+    return this.routingChecked;
+  }
+
+  private send<T>(input: RequestInput, timeoutMs: number): Promise<T> {
+    const request = { ...input, id: crypto.randomUUID(), ...(this.outline ? { outline: this.outline } : {}) } as OutlinerRequest;
     const responseReceived = Promise.withResolvers<T>();
     const socket = createConnection(this.socketPath);
     let buffer = "";
@@ -207,6 +282,7 @@ export class OutlinerClient {
   }
 
   watch(handlers: OutlinerWatchHandlers): OutlinerWatcher {
-    return new OutlinerWatcher(this.socketPath, handlers, this.requestTimeoutMs);
+    return new OutlinerWatcher(this.socketPath, handlers, this.requestTimeoutMs, this.outline,
+      this.outline || this.refusal ? () => this.checkRouting() : undefined);
   }
 }

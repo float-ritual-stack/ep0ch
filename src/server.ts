@@ -14,7 +14,7 @@ import { NoteAssistanceRepository } from "./note-assistance-repository";
 import type { NoteModel } from "./note-assistance-model";
 import type { InboxModel, InboxResult, InboxStatus } from "./inbox-types";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
 import { dirname } from "node:path";
 import {
@@ -41,12 +41,15 @@ import {
   normalizeResourcePresentationContext,
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
+import { probeSocket } from "./socket-probe";
 import { WorkflowManager } from "./workflows";
 import {
   OUTLINER_CAPABILITIES,
+  OUTLINER_HOST_CAPABILITIES,
   OUTLINER_MIN_CLIENT_PROTOCOL,
   OUTLINER_PROTOCOL_VERSION,
   type OutlinerServiceOutline,
+  type OutlinerHostStatus,
   type OutlinerViewAddress,
   type NavigationLinkState,
   type OutlinerNavigationResolution,
@@ -181,13 +184,20 @@ export class OutlinerServer {
   private readonly workflows: WorkflowManager;
   private readonly hostname = systemHostname();
   private outline: OutlinerServiceOutline | undefined;
+  /** Set when an outline host accepts this outline's connections instead of a listener of its own. */
+  private hosted = false;
+  private host: (() => OutlinerHostStatus) | undefined;
+  /** This outline's side files (assistant sessions); by default the socket's folder. */
+  readonly stateDirectory: string;
 
   constructor(
     readonly store: OutlinerStore,
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
+    options: { stateDirectory?: string } = {},
   ) {
+    this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot);
     this.editRecovery = new EditRecoveryRepository(store);
@@ -200,6 +210,31 @@ export class OutlinerServer {
   /** The named outline this service runs, reported by `ping`. */
   setOutline(outline: OutlinerServiceOutline | undefined): void {
     this.outline = outline;
+  }
+
+  /** The host serving this outline; `ping` then reports it and the host's capabilities. */
+  setHost(status: () => OutlinerHostStatus): void {
+    this.host = status;
+  }
+
+  private get running(): boolean {
+    return this.server !== null || this.hosted;
+  }
+
+  /**
+   * Serves connections an outline host accepts and hands over with
+   * `acceptConnection`, instead of listening on `socketPath` itself.
+   */
+  startHosted(): void {
+    if (this.running) throw new Error("Outliner service is already started");
+    this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
+    this.hosted = true;
+  }
+
+  /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */
+  acceptConnection(socket: Socket, buffered: string): void {
+    if (!this.hosted) throw new Error("Only a hosted outline takes connections from its host");
+    this.accept(socket, buffered);
   }
 
   async start(): Promise<void> {
@@ -229,7 +264,8 @@ export class OutlinerServer {
     for (const job of this.editMergeJobs.values()) job.abort();
     await this.inbox?.stop();
     const server = this.server;
-    if (!server) return;
+    if (!server && !this.hosted) return;
+    this.hosted = false;
     this.store.changes.onBackgroundChanges = undefined;
     for (const subscriber of this.subscribers.keys()) subscriber.destroy();
     this.subscribers.clear();
@@ -239,6 +275,7 @@ export class OutlinerServer {
     this.attentionTimers.clear();
     this.attentionStates.clear();
     this.browsingContextTargets.clear();
+    if (!server) return;
     const closed = Promise.withResolvers<void>();
     server.close((error) => (error ? closed.reject(error) : closed.resolve()));
     await closed.promise;
@@ -248,7 +285,7 @@ export class OutlinerServer {
 
   enableInbox(model: InboxModel, noteModel?: NoteModel): void {
     if (this.inbox) throw new Error("Inbox processor already started");
-    if (!this.server) throw new Error("Start the service before its Inbox processor");
+    if (!this.running) throw new Error("Start the service before its Inbox processor");
     this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), {
       repository: this.inboxRepository, notes: this.noteRepository, noteModel,
     });
@@ -288,22 +325,8 @@ export class OutlinerServer {
   }
 
   private async socketIsActive(): Promise<boolean> {
-    const connected = Promise.withResolvers<boolean>();
-    const socket = createConnection(this.socketPath);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      connected.resolve(false);
-    }, 250);
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      socket.end();
-      connected.resolve(true);
-    });
-    socket.once("error", () => {
-      clearTimeout(timer);
-      connected.resolve(false);
-    });
-    return connected.promise;
+    // A listener that does not answer within the probe counts as gone, as before.
+    return (await probeSocket(this.socketPath, 250)) === "answers";
   }
 
   private pruneDestroyedSubscribers(): void {
@@ -476,6 +499,11 @@ export class OutlinerServer {
       throw new Error(`Invalid client role: ${String(registration.role)}`);
     }
     const contextId = this.normalizeContextId(registration.contextId);
+    // A hosted outline records its own name on every pane; a pane that says another outline is refused.
+    if (registration.outline !== undefined && this.hosted && registration.outline !== this.outline?.name) {
+      throw new Error(`This connection serves the outline "${this.outline?.name}", not "${String(registration.outline)}"`);
+    }
+    const outline = this.hosted ? this.outline?.name : undefined;
     this.pruneDestroyedSubscribers();
     if (this.subscribers.has(socket)) {
       throw new Error("Socket already owns a client registration");
@@ -502,6 +530,7 @@ export class OutlinerServer {
       clientId,
       role: registration.role,
       contextId,
+      ...(outline ? { outline } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),
       ...(resourcePresentation ? { resourcePresentation } : {}),
@@ -611,6 +640,11 @@ export class OutlinerServer {
           (registry.focusedTabId === null || registry.focusedTabId === pane.tab_id),
       },
     };
+  }
+
+  /** The live pane registrations, as `clients.list` answers them (the outline host looks up panes by them). */
+  liveClients(): OutlinerClientRegistration[] {
+    return this.listClients();
   }
 
   private listClients(role?: OutlinerClientRole): OutlinerClientRegistration[] {
@@ -1263,7 +1297,7 @@ export class OutlinerServer {
         if (this.editMergeJobs.has(record.id)) throw Error("A merge is already running for this draft");
         cancel = new AbortController();
         this.editMergeJobs.set(record.id, cancel);
-        const proposal = await proposeEditMerge(record, {workspaceRoot:this.store.workspaceRoot,stateDirectory:dirname(this.socketPath),promptDirectory:this.promptDirectory}, cancel.signal);
+        const proposal = await proposeEditMerge(record, {workspaceRoot:this.store.workspaceRoot,stateDirectory:this.stateDirectory,promptDirectory:this.promptDirectory}, cancel.signal);
         cancel.signal.throwIfAborted();
         const result = this.editRecovery.propose(record.id, record.revision, proposal);
         return {id:request.id,ok:true,result,sequence:this.store.sequence};
@@ -1456,8 +1490,16 @@ export class OutlinerServer {
           break;
         }
         case "ping":
-          result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, minClientProtocol: OUTLINER_MIN_CLIENT_PROTOCOL, capabilities: [...OUTLINER_CAPABILITIES], location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:dirname(this.store.database.filename)}, ...(this.outline ? { outline: { ...this.outline } } : {}) };
+          result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, minClientProtocol: OUTLINER_MIN_CLIENT_PROTOCOL, capabilities: [...OUTLINER_CAPABILITIES, ...(this.host ? OUTLINER_HOST_CAPABILITIES : [])], location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:this.host ? this.stateDirectory : dirname(this.store.database.filename)}, ...(this.outline ? { outline: { ...this.outline } } : {}), ...(this.host ? { host: this.host() } : {}) };
           break;
+        case "outlines.list":
+        case "outlines.create":
+        case "outlines.adopt":
+        case "outlines.attach":
+        case "outlines.close":
+        case "outlines.delete":
+        case "outlines.pane":
+          throw new Error(`${action} is answered by an outline host; this service runs one outline`);
         case "blocks.query":
           result = request.fields === undefined
             ? this.store.queryBlocks(request.query)
@@ -2634,6 +2676,10 @@ export class OutlinerServer {
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
+      // The host routed this connection by its first line; it stays with that outline.
+      if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
+        throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
+      }
       const subscribedClient = request.action === "events.subscribe"
         ? this.registerSubscriber(socket, request.client)
         : undefined;
@@ -2687,7 +2733,7 @@ export class OutlinerServer {
     if (base.domain === "content") this.inbox?.wake();
   }
 
-  private accept(socket: Socket): void {
+  private accept(socket: Socket, buffered = ""): void {
     socket.setEncoding("utf8");
     socket.once("close", () => this.removeSubscriber(socket));
     // A peer that vanishes mid-write (EPIPE, ECONNRESET) is routine for a long-lived service:
@@ -2695,7 +2741,7 @@ export class OutlinerServer {
     socket.on("error", () => this.removeSubscriber(socket));
     let buffer = "";
     let requestQueue = Promise.resolve();
-    socket.on("data", (chunk: string) => {
+    const receive = (chunk: string): void => {
       buffer += chunk;
       let newline = buffer.indexOf("\n");
       while (newline >= 0) {
@@ -2706,6 +2752,8 @@ export class OutlinerServer {
         }
         newline = buffer.indexOf("\n");
       }
-    });
+    };
+    socket.on("data", receive);
+    if (buffered) receive(buffered);
   }
 }

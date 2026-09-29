@@ -45,7 +45,8 @@ import {
   type PullRequestSnapshot,
 } from "./delivery-lifecycle";
 import { inspectWorkEnvironment, type ExtensionExec } from "./work-environment";
-import { resolveClientPaths } from "../src/paths"
+import { resolveClientPaths, resolveStateRoot } from "../src/paths"
+import { waitForOutlineHost } from "../src/outline-host-client"
 import { completeWorkItem, propertyTransition, typedArtifactText } from "../src/work-tools";
 import { currentPaneIdentity } from "../src/pane-control";
 import { getProperty, matchesFilters } from "../src/properties";
@@ -979,7 +980,7 @@ async function runWorkflowOrchestrator(
 async function ensureService(focus: boolean): Promise<void> {
   // A choice made in the outline chooser since load changes where this folder connects.
   const current = resolveClientPaths();
-  if (current.socket !== paths.socket || current.mode !== paths.mode) {
+  if (current.socket !== paths.socket || current.mode !== paths.mode || current.outline !== paths.outline) {
     paths = current;
     client = createOutlinerClient(paths);
   }
@@ -994,6 +995,21 @@ async function ensureService(focus: boolean): Promise<void> {
   if (!service && paths.mode === "remote") {
     throw new Error(
       `Remote Outliner service is unavailable at ${paths.socket}; start the SSH tunnel and retry`,
+    );
+  }
+  // The outline host is a service of its own; Pi never starts one (nor a hash
+  // service in its place). A host that is restarting is waited for, as a remote
+  // tunnel is. Herdr's open still attaches the outline.
+  if (!service && paths.mode === "host" && process.env.HERDR_ENV !== "1") {
+    if (paths.unnamed) throw new Error(paths.unnamed);
+    const host = await waitForOutlineHost(resolveStateRoot());
+    const answered = host ? await client.request<OutlinerServiceStatus>({ action: "ping" }).catch(() => null) : null;
+    if (answered) {
+      assertCompatibleProtocol(answered);
+      return;
+    }
+    throw new Error(
+      `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host, or open the outline from Herdr to create it`,
     );
   }
 

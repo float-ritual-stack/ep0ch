@@ -73,10 +73,27 @@ source evidence or distinguish authored glyphs from controls.
   reading each database's `outline.json`); the outline chooser, the launcher and
   `outliner outlines` use it. `writeClientConfig` in `src/paths.ts`
   is the one writer of a project `client.json`.
+- `resolveFolderOutline` in `src/paths.ts` owns the folder rule (nearest bound
+  folder, else repository name, else folder name, never `$HOME`, `/` or `/tmp`);
+  `resolveClientPaths` uses it and the door mirrors it, rather than guessing names
+  themselves. `resolveInvocationPaths` in `src/outline-host-client.ts` owns
+  which outline a Herdr action invoked from a pane uses (the pane's registered
+  outline first).
 - `src/outline-names.ts` owns every write of an outline's identity: the
   descriptor, the `by-name/<name>.sock` link, `OUTLINER_OUTLINE` resolution for
   the service, and `outline rename|set-root`. A name addresses an outline; the
   hash directory is storage. Derive lists of outlines by scanning; never keep one.
+- `src/outline-host.ts` owns the outline host: one listener for every outline
+  in `<state root>/outlines/`, routing each connection by its first line's
+  `outline` to that outline's `OutlinerServer`, and the host requests
+  (`outlines.list|create|adopt`). `OutlinerServer` stays per outline and never
+  learns about other outlines; `paths.ts` owns the host's layout
+  (`outlineHostPaths`, `hostedOutlinePaths`). `src/outline-inbox.ts` starts an
+  outline's Inbox agent for both the host and the single-outline service.
+- `resolveClientPaths` in `src/paths.ts` is the one place a client decides its
+  endpoint and outline (env, binding, folder guess); `src/outline-host-client.ts`
+  is the client side of the host's own requests (`outlines.list|attach`). Every
+  pane opener forwards `OUTLINER_OUTLINE`; a new one must too.
 - `src/work-tools.ts` owns agent workboard operations (create, stage/set, PR delivery
   and delivery keys, completion with proof across all of an item's deliveries,
   delivery stage, note sections, item bodies) over the existing RPCs. The CLI

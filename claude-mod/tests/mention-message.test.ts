@@ -5,11 +5,15 @@ import { effectiveWorkspaces, failureReasonOf, workspacesOf } from '../hooks/men
 tier('user')
 
 describe('mention-message', () => {
-  test('workspaces split on either separator and keep absolute paths only', async () => {
-    expect(workspacesOf(' /a/b/, relative : /c ')).toEqual(['/a/b', '/c'])
-    expect(workspacesOf(['/a', 3, 'x'])).toEqual(['/a'])
+  test('workspaces split on either separator; entries are absolute folders only', async () => {
+    expect(workspacesOf(' /a/b/, : /c ')).toEqual(['/a/b', '/c'])
     expect(workspacesOf('')).toEqual([])
     expect(workspacesOf('/')).toEqual(['/'])
+    // No silent fallback: a relative path, a non-string or the old folder=name form is an error.
+    expect(() => workspacesOf(' /a/b/, relative : /c ')).toThrow('"relative" is not an absolute folder')
+    expect(() => workspacesOf(['/a', 3])).toThrow('3 is not a folder path')
+    expect(() => workspacesOf('/work/fred-folder=fred')).toThrow('bind a folder to an outline in its client.json')
+    expect(() => effectiveWorkspaces('', '/work/jam-shelf,jam')).toThrow('"jam" is not an absolute folder')
   })
 
   test('a CLI failure reports its error line, not the Bun trailer', async () => {

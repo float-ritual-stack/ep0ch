@@ -13,22 +13,27 @@ export type MentionMessage = {
 }
 
 /**
- * The workspaces option as configured: one path or several separated by ':'
- * or ','. Trailing slashes are dropped so `/a/b/` matches a cwd of `/a/b`.
+ * The workspaces option as configured: one absolute folder or several,
+ * separated by ':' or ','. Trailing slashes are dropped so `/a/b/` matches a
+ * cwd of `/a/b`. An entry names a folder only: which outline it feeds is
+ * resolved by the Outliner CLI from that folder's `client.json`, the same way
+ * for every client. Any other entry is an error, never skipped.
  */
 export function workspacesOf(value: unknown): string[] {
-  const parts = Array.isArray(value)
-    ? value.filter((part): part is string => typeof part === 'string')
-    : typeof value === 'string'
-      ? value.split(/[:,]/)
-      : []
-  return parts
-    .map(part => part.trim().replace(/(?<=.)\/+$/, ''))
-    .filter(part => part.startsWith('/'))
+  const parts = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[:,]/) : []
+  return parts.flatMap(part => {
+    if (typeof part !== 'string') throw Error(`Outliner workspaces entry ${JSON.stringify(part)} is not a folder path`)
+    const entry = part.trim()
+    if (entry === '') return []
+    if (!entry.startsWith('/') || entry.includes('=')) {
+      throw Error(`Outliner workspaces entry "${entry}" is not an absolute folder; list folders only, and bind a folder to an outline in its client.json (the choose-outline action)`)
+    }
+    return [entry.replace(/(?<=.)\/+$/, '')]
+  })
 }
 
 /**
- * The workspaces in force: the option when it names any, else the environment
+ * The option when it names at least one workspace, otherwise the environment
  * variable. Claude Code passes an unset string option as '', so an empty
  * option cannot be told from an unset one and never overrides the environment.
  */

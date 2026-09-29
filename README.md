@@ -2013,6 +2013,44 @@ Override the root with `OUTLINER_WORKSPACE_ROOT` and the base state directory wi
 Only the service and an explicit **New outline here** create this directory;
 opening a folder without an outline does not.
 
+### The outline host
+
+One host per user and machine serves any number of outlines on one socket,
+`<state root>/outliner.sock`, by name. Outlines live in `<state root>/outlines/`
+as `<name>.sqlite` (or a symlink to an adopted database), with a created
+outline's side files in `<name>/`. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-outline-host).
+
+```sh
+OUTLINER_DEFAULT_OUTLINE=jam-shelf bun run host   # requests without `outline` go to jam-shelf
+bun run cli outline create jam-shelf               # the only way an outline is born
+bun run cli outline adopt /backups/fig-crate/outliner.sqlite fig-crate --root /work/fig-crate   # serve it where it lies
+bun run cli outlines                               # lists through the host when one runs
+```
+
+A request names its outline with `"outline": "<name>"`; without it, it reaches
+the default. Clients pick their outline like `herdr --session <name>`:
+`OUTLINER_OUTLINE=<name>` (or the CLI's global `outliner --outline <name> <command>`),
+else one folder rule (`resolveFolderOutline` in `src/paths.ts`):
+
+1. the nearest bound folder, walking up: its `client.json`
+   (`{ "workspaceRoot": "/work/fred", "outline": "fred" }`, or a local or remote choice);
+2. otherwise, inside a git work tree, a guess: the repository root's name;
+3. otherwise a guess: the folder's own name;
+4. never a guess for `$HOME`, `/` or a folder directly under `/` (`/tmp`, `/opt`):
+   those need an explicit name, and Ctrl-b u shows the chooser there.
+
+A guess applies once a host is set up (its `outlines/` folder exists), even
+while it restarts, and never takes an outline that records another folder.
+Ctrl-b u opens the guessed outline, creating it on first open ("Created outline
+jam-shelf") with that folder as its root; **Outliner: choose this folder's
+outline** switches a folder to another, and its "New outline here" takes a free
+`-2` suffix rather than attach. Herdr actions invoked from an outliner pane stay
+on that pane's outline. Reads (`list`, `read`, `doctor`) never create an
+outline. Claude's `PI_OUTLINER_MENTIONS_WORKSPACES` entries are folders; their
+outline comes from the same rule. The single-outline service (`bun run server`)
+does not start for a folder that belongs to the host.
+
 ### Outline names
 
 A name is the way to address an outline; the hash directory is only where it is

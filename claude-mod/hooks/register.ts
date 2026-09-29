@@ -27,6 +27,12 @@ import { WORK_TOOLS } from './work-tools'
 type ReferenceContext = { workspace: string | null; prefixes: string[] }
 let references: ReferenceContext | undefined
 let isLoadingReferences = false
+/**
+ * The environment an Outliner CLI run or pane gets for one workspace: its
+ * folder only. The CLI and the pane resolve the outline from the folder's
+ * client.json themselves, so every client lands on the same outline.
+ */
+const envFor = (workspace: string) => ({ OUTLINER_WORKSPACE_ROOT: workspace })
 /** The pane id Herdr gave the last Detail this session split, until it registers. */
 let splitScratchPane: string | undefined
 /** Shows run one at a time, so concurrent clicks and tool calls split one pane. */
@@ -140,10 +146,13 @@ export function register(on: On, options: PluginOptions): void {
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
     if (!isIngestible(e)) return result
-    const workspaces = effectiveWorkspaces(
-      option,
-      await $.env.get('PI_OUTLINER_MENTIONS_WORKSPACES'),
-    )
+    let workspaces: string[]
+    try {
+      workspaces = effectiveWorkspaces(option, await $.env.get('PI_OUTLINER_MENTIONS_WORKSPACES'))
+    } catch (error) {
+      $.ui.toast(`Outliner recent mentions unavailable: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 6000 })
+      return result
+    }
     if (workspaces.length === 0) return result
     const [id, cwd] = await Promise.all([$.session.id(), $.session.cwd()])
     const message = mentionMessageOf(e, { id, cwd }, workspaces)
@@ -196,7 +205,7 @@ async function deliver($: EngineInterface, message: MentionMessage): Promise<voi
     ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, 'mentions', 'ingest'],
     {
       cwd: message.workspaceRoot,
-      env: { OUTLINER_WORKSPACE_ROOT: message.workspaceRoot },
+      env: envFor(message.workspaceRoot),
       stdin: JSON.stringify(message),
       timeoutMs: 30_000,
     },
@@ -225,7 +234,7 @@ async function runWorkCommand(
       '--author', 'agent', '--actor', 'claude-code', '--session', sessionId],
     {
       cwd: workspace,
-      env: { OUTLINER_WORKSPACE_ROOT: workspace },
+      env: envFor(workspace),
       ...(command.stdin === undefined ? {} : { stdin: command.stdin }),
       timeoutMs: 60_000,
     },
@@ -254,7 +263,7 @@ async function loadReferences($: EngineInterface, option: unknown): Promise<void
     if (!root) return
     const status = await $.process.run(
       ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, 'work-id-status'],
-      { cwd: workspace, env: { OUTLINER_WORKSPACE_ROOT: workspace }, timeoutMs: 30_000 },
+      { cwd: workspace, env: envFor(workspace), timeoutMs: 30_000 },
     )
     if (status.exitCode !== 0) return
     const { prefix, observedPrefixes } = JSON.parse(status.stdout) as { prefix?: unknown; observedPrefixes?: unknown }
@@ -291,7 +300,7 @@ async function showNow($: EngineInterface, workspace: string, uri: string): Prom
   if (!paneId || !herdrWorkspace) throw Error('this session is not running inside Herdr')
   const outliner = (args: string[]) => $.process.run(
     ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args],
-    { cwd: workspace, env: { OUTLINER_WORKSPACE_ROOT: workspace }, timeoutMs: 30_000 },
+    { cwd: workspace, env: envFor(workspace), timeoutMs: 30_000 },
   )
   const findScratchPane = async () => {
     const [listedClients, listedPanes] = await Promise.all([

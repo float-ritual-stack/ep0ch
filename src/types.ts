@@ -1102,6 +1102,8 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
+  /** The host outline this pane is on; a hosted outline stamps its own name. */
+  outline?: string;
   navigationProtection?: string | null;
   currentTarget?: OutlinerNavigationTarget;
   previewTarget?: OutlinerNavigationTarget;
@@ -1656,7 +1658,32 @@ export const OUTLINER_CAPABILITIES = [
   "resources.projection",
   "views.read",
 ] as const;
-export type OutlinerCapability = (typeof OUTLINER_CAPABILITIES)[number];
+
+/**
+ * What the outline host (`src/outline-host.ts`) adds. Its `ping` reports these
+ * beside the outline's own capabilities; a service running one outline has none.
+ */
+export const OUTLINER_HOST_CAPABILITIES = [
+  /** `outlines.adopt`: serve an existing database where it lies, under a name. */
+  "outlines.adopt",
+  /** `outlines.attach`: open an outline by name, creating it when asked (like `tmux new -A`). */
+  "outlines.attach",
+  /** `outlines.close`: stop serving an open outline and release its database; live panes reopen it. */
+  "outlines.close",
+  /** `outlines.create`: a new outline is born only here or through `outlines.attach` with `create`. */
+  "outlines.create",
+  /** `outlines.delete`: remove an outline from the host; its files are moved aside, never erased. */
+  "outlines.delete",
+  /** `outlines.list`: the outlines in the host's `outlines/` folder. */
+  "outlines.list",
+  /** `outlines.pane`: the outline a live Herdr pane is registered on. */
+  "outlines.pane",
+  /** `ping` reports `host`: its socket, default outline and outline names. */
+  "ping.host",
+  /** A request may carry `outline: <name>`; the host routes its connection to that outline. */
+  "request.outline",
+] as const;
+export type OutlinerCapability = (typeof OUTLINER_CAPABILITIES)[number] | (typeof OUTLINER_HOST_CAPABILITIES)[number];
 
 export interface OutlinerServiceStatus {
   status: "ready";
@@ -1671,6 +1698,59 @@ export interface OutlinerServiceStatus {
    * Absent from older services and from a service running unnamed.
    */
   outline?: OutlinerServiceOutline;
+  /** Present when an outline host answers (capability `ping.host`). */
+  host?: OutlinerHostStatus;
+}
+
+/** The outline host behind a socket: one per user and machine, serving outlines by name. */
+export interface OutlinerHostStatus {
+  socket: string;
+  /** Where requests without `outline` go; absent when the host has none. */
+  defaultOutline?: string;
+  /** Every outline in the host's `outlines/` folder, open or not. */
+  outlines: string[];
+}
+
+/** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.adopt`). */
+export interface HostedOutlineSummary {
+  name: string;
+  /** The database file; for an adopted outline, where the link points. */
+  database: string;
+  /** True when the entry links to a database that lives elsewhere. */
+  adopted: boolean;
+  /** The folder the outline belongs to (its workspace root), when known. */
+  root?: string;
+  /** Open in this host process now. Outlines open on their first request. */
+  open: boolean;
+  default: boolean;
+  /** Why the database cannot be reached, for an adopted link whose target is gone. */
+  problem?: string;
+}
+
+/** `outlines.attach`: the outline, open, and whether this request created it. */
+export interface HostedOutlineAttachment {
+  outline: HostedOutlineSummary;
+  created: boolean;
+}
+
+/** `outlines.pane`: the outline and client a live pane is registered on; empty when none is. */
+export interface HostedPaneOutline {
+  outline?: string;
+  clientId?: string;
+  role?: OutlinerClientRole;
+}
+
+/** `outlines.delete`: where the outline's files went (an adopted outline's database is left where it lies). */
+export interface HostedOutlineDeletion {
+  name: string;
+  adopted: boolean;
+  /** The folder the created outline's files were moved into; absent for an adopted outline. */
+  movedTo?: string;
+}
+
+export interface HostedOutlineList {
+  defaultOutline?: string;
+  outlines: HostedOutlineSummary[];
 }
 
 /**
@@ -1694,7 +1774,15 @@ export interface ComputedExecutionResult {
   readonly description: ResourceDescription;
 }
 
-export type OutlinerRequest =
+/**
+ * Any request may name its outline (capability `request.outline`): an outline
+ * host routes the connection by its first line's `outline`, and a later line
+ * naming another outline is refused. A single-outline service ignores it, so a
+ * client that names one first confirms the capability.
+ */
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string };
+
+export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
   | { id: string; action: "inbox.search"; query: string; semantic?: boolean }
@@ -1705,6 +1793,14 @@ export type OutlinerRequest =
   | { id: string; action: "inbox.retry"; sourceId: string; instructions?: string }
   | { id: string; action: "inbox.undo"; resultId: string }
   | { id: string; action: "ping" }
+  /** Answered by the outline host itself (capabilities `outlines.*`); a single-outline service refuses them. */
+  | { id: string; action: "outlines.list" }
+  | { id: string; action: "outlines.create"; name: string; root?: string }
+  | { id: string; action: "outlines.adopt"; path: string; name: string; root?: string }
+  | { id: string; action: "outlines.attach"; name: string; create?: boolean; root?: string }
+  | { id: string; action: "outlines.pane"; paneId: string; hostname: string }
+  | { id: string; action: "outlines.close"; name: string }
+  | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
