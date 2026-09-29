@@ -26,12 +26,14 @@ function writeLastCall(at: number) {
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
 
-  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --showcase]
+  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
                                    --brief opens the newest daily brief (type::daily-brief), and
-                                   EP0CH_LANDING=brief lands on it after the logon.
+                                   EP0CH_LANDING=brief lands on it after the logon;
+                                   --welcome opens the welcome notes ([welcome::1] first), and
+                                   EP0CH_LANDING=welcome lands there after the logon.
                                    With an outline host running, --ws <name> opens that outline,
                                    creating it if there is none (like herdr --session <name>); with
                                    nothing named, the folder's bound outline, else the outline named

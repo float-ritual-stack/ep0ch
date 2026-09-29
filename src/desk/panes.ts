@@ -14,7 +14,9 @@ import { ago, wrap } from "../text";
 
 export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art"
   /** Tiles (PIE-413): a reader that keeps its note, one that follows a tile or a file, a program, a whole screen. */
-  | "detail" | "preview" | "pty" | "board" | "river" | "brief";
+  | "detail" | "preview" | "pty" | "board" | "river" | "brief"
+  /** The backlinks of what another tile shows (PIE-432). */
+  | "backlinks";
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
@@ -32,6 +34,8 @@ export interface DeskApi {
   holdsFocus?(pane: ReaderPane): boolean;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
   routes?(pane: Pane): boolean;
+  /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
+  tileShowing?(name: string): Msg | null;
 }
 
 export interface Pane {

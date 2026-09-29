@@ -13,6 +13,7 @@ import { readState, stateDir, writeState } from "../state";
 import { leaf, splitOf, type LNode, type NaryForm, type BinaryForm } from "./layout";
 import { makePane, ReaderPane, type Pane, type PaneKind } from "./panes";
 import { PreviewPane, sourceOf } from "./preview";
+import { BacklinksPane } from "./backlinks-pane";
 import { PtyPane } from "./pty";
 import { ScreenTile, SCREEN_KINDS, type ScreenKind } from "./screen-tile";
 
@@ -28,7 +29,7 @@ export interface TileSpec {
   cmd?: string[];
   cwd?: string;
   file?: string;
-  /** A preview's source: `tile:<name>` or `file:<path>`. */
+  /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
   source?: string;
   /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */
   preview?: boolean;
@@ -46,7 +47,7 @@ export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 export type OpenRule = "current";
 export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string }
 
-export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief"];
+export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief", "backlinks"];
 
 /** Build a tile from its spec. A spec it can't build (a preview with no source) is a reader, and says why. */
 export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
@@ -55,6 +56,7 @@ export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
     case "preview": return new PreviewPane((s.source && sourceOf(s.source)) || { tile: "tree" });
     case "pty": return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name });
     case "board": case "river": case "brief": return new ScreenTile(s.kind as ScreenKind, { preview: s.preview });
+    case "backlinks": { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); }
     default: return makePane(s.kind as "tree");
   }
 }
@@ -65,7 +67,7 @@ export class DetailPane extends ReaderPane {
   /** The note it should show once the desk can read it (a restored layout). */
   want: string | null = null;
   constructor() { super(true); this.holdOn(); }
-  override title() { return this.msg ? "detail" : "detail · empty"; }
+  override title(): string { return this.msg ? "detail" : "detail · empty"; }
   override select() {}
   spec() { return this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
 }

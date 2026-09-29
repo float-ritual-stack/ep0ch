@@ -122,6 +122,37 @@ embeds are live.
   any other note opens beside it.
 - The showcase outline has two made-up briefs, so `scripts/try-it.sh --showcase` then `T` shows one.
 
+## Welcome
+
+The notes you want to land on, one at a time: every note with a block-scoped `welcome` property. Any value
+counts; a number is its place (`[welcome::1]` first, then `[welcome::2]`…), and the rest come after the numbered
+ones, by title. The service finds them (`blocks.query`, filter `welcome`, block scope); the door only orders them.
+
+- **Reaching it:** `C` on the main menu, `ep0ch --welcome`, or `EP0CH_LANDING=welcome` to land there right
+  after the logon (one ⏎ at the logon, and you're reading the first welcome note). `q` goes back to the menu.
+- **The screen** is one composition: an ep0ch logo from the WoE packs across the top (Shypht's own, drawn from
+  the `.ANS` files in place; `L` or a click on it shows the next; a signature line with a phone number is never
+  drawn), a tab per welcome note under it, the list of them down the side, **the detail** (the note read) in the
+  middle, **the preview** beside it, and the detail's **backlinks** along the bottom. Frames are the logos' dotted
+  `::....::`. At 30 rows the logo gives way to the reading panes; the tabs stay.
+- **Picking a note:** `1`–`9` and `0` (the tenth) pick by tab; a click on a tab too. Past ten, a `… n more` tab
+  gives the list the keys; `j` `k` there, `⏎` reads it. Tiles are focused with `Tab`, a click or `^W h j k l`
+  here (the digits are the tabs'). The detail has the keys when the screen opens.
+- **Links:** `⏎` on a link in the detail (or a click) opens it in the preview; `⏎` with nothing picked yet takes
+  the first link. `alt+⏎`, a ctrl-click or an alt-click reads it in the detail instead (the door's "open fresh",
+  here: make it the thing read); `alt+←` or backspace goes back. Links in the preview open in the preview.
+- **Backlinks** of the detail's note, grouped as Detail groups them, every group open: `j` `k` show the selected
+  one in the same preview, `⏎` or a click too, `alt+⏎` or a ctrl-click reads it in the detail. `s K w h n .` and
+  the status line's controls change the view as on the board's drawer.
+- **No welcome notes:** the list says how to tag one, and the detail shows the `[[claude-now]]` page meanwhile
+  (the page `C` used to pin).
+- **Live:** tagging, untagging or editing a note anywhere updates the tabs and the list; the detail and the
+  backlinks refresh as the outline changes.
+- **Agents:** `welcome.select n=<place>|id=<id>`, `welcome.read id=<id>` (put any note in the detail),
+  `welcome.logo`, `welcome.reload`, `backlinks.pick n=|id= [open=true] [fresh=true]`, `backlinks.view`, and the
+  desk's and the reader's actions. None of them moves your keys; the picks are refused while you're typing here,
+  and the status bar says which agent did what. `open <id>` shows the note in the preview.
+
 ## Install and update
 
 The stack is Bun, Herdr, the Outliner plugin (pi-herdr-outliner, linked as a checkout or installed by
@@ -191,7 +222,7 @@ A door checkout from before `install` gets it by hand, once:
     ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
     ep0ch /path/to/outliner.sock
     ep0ch --ws /path/to/workspace   # the socket of that workspace's service
-    ep0ch --showcase | --desk | --layout <name> | --river | --brief | --board [<hub-id>]
+    ep0ch --showcase | --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
 
 `ep0ch help` lists everything. Besides opening the door:
 
@@ -210,7 +241,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_SOCKET` | socket path (same as the argument) |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
-| `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon (default: the main menu) |
+| `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
@@ -228,6 +259,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | detail | a reader that keeps its note: it changes only by an open into it (its link, `open`, a click) |
 | preview | a reader that follows a source: a tile's selection (`tile:tree`, `tile:board`) or a file (`file:~/draft.md`), re-read when it's saved. Read-only for a file |
 | terminal (`pty`) | a program in a pty the door owns: nvim, claude, a shell. Click it or `⏎` to type in it; `ctrl+]` back to the door |
+| backlinks | the backlinks of what another tile shows (`tile:detail`), grouped as Detail groups them: `j` `k` show one where the tile's selection goes (a preview following it), `⏎` or a click opens it, `alt+⏎` or a ctrl-click opens it fresh; `s K w h n .` and the status line change the view (`backlinks.pick`, `backlinks.view`) |
 | board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
 | thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
 
@@ -254,7 +286,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `[ ]` | previous / next tab |
 | `Ctrl+W` then `< > + -`, `=` | resize, even out |
 | `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
-| `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin |
+| `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile |
 | `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
 | `Ctrl+W` then `p` / `d` | pin or unpin (a drawer slides over the others without moving them) / slide drawers open or shut |
@@ -887,6 +919,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 |---|---|---|
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
+| `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
+| `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
 | `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |

@@ -11,8 +11,8 @@ import type { Placement } from "../kitty";
 import { onMediaChange } from "../media";
 import { USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import {
-  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkStatusParts, backlinkView,
-  DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
+  backlinkRows, backlinkStatusParts, backlinkView,
+  DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkSource, type BacklinkView, type BacklinkViewOptions,
 } from "../backlinks";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
@@ -32,6 +32,7 @@ import {
   type Axis, type Divider, type Grab, type LNode, type PlacedScreen, type PlaceOpts, type ScreenLayout, type Split,
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
+import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
 import { Draft } from "../edit";
 import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { createMisses, planCreate } from "../move";
@@ -2017,48 +2018,29 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const view = this.linkViewNow(), rows = this.linkRows(), o = this.linkOptions();
     // The status line, wrapped between its parts so every control stays on screen (at most half of
     // the drawer). While a filter is typed it shows the text with a cursor; its counts follow each key.
-    let x = inner.col, y0 = inner.row;
-    const end = inner.col + inner.cols, maxHead = Math.max(1, Math.floor(inner.rows / 2));
-    const put = (text: string, colour: string, control?: BacklinkControl) => {
-      const room = end - x;
-      if (room <= 0) return;
-      canvas.text(x, y0, colour + pad(text, Math.min(room, width(text))) + RESET, room);
-      if (control) this.rects.set(`bl:${control}`, { col: x, row: y0, cols: Math.min(room, width(text)), rows: 1 });
-      x += width(text);
-    };
+    // The status line and the rows are drawn as the backlinks tile draws them (src/desk/backlinks-pane.ts).
+    let statusRows = 1;
     if (L.data) {
       const typing = this.linkView.draft;
       const parts = backlinkStatusParts(view, o).filter(p => typing === null || p.control !== "filter");
       if (typing !== null) parts.unshift({ text: `Filter: ${typing}▏`, control: "filter" });
       if (L.data.completeness.kind === "truncated") parts.push({ text: `first ${L.data.completeness.limit ?? L.data.sources.length} sources` });
-      parts.forEach((p, i) => {
-        // A part that doesn't fit starts the next line (the separator stays at the end of this one).
-        if (i && x + 3 + width(p.text) > end && y0 + 1 < inner.row + maxHead) { if (x + 2 <= end) put(" ·", fg(C.dark)); x = inner.col; y0 += 1; }
-        else if (i) put(" · ", fg(C.dark));
-        put(p.text, typing !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey), p.control);
-      });
-    } else put("asking the service…", fg(C.dark));
+      const st = layoutBacklinkStatus(parts, inner.cols, Math.max(1, Math.floor(inner.rows / 2)), p => (typing !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey)));
+      for (const seg of st.segs) {
+        canvas.text(inner.col + seg.x, inner.row + seg.y, seg.sgr + pad(seg.text, seg.cols) + RESET, inner.cols - seg.x);
+        if (seg.control) this.rects.set(`bl:${seg.control}`, { col: inner.col + seg.x, row: inner.row + seg.y, cols: seg.cols, rows: 1 });
+      }
+      statusRows = st.rows;
+    } else canvas.text(inner.col, inner.row, fg(C.dark) + "asking the service…" + RESET, inner.cols);
     // One line per row, under the status line.
-    const head = this.linkHead = y0 - inner.row + 1;
+    const head = this.linkHead = statusRows;
     const fit = Math.max(1, inner.rows - head);
     L.sel = clamp(L.sel, 0, Math.max(0, rows.length - 1));
     if (L.sel < L.top) L.top = L.sel;
     if (L.sel >= L.top + fit) L.top = L.sel - fit + 1;
     L.top = clamp(L.top, 0, Math.max(0, rows.length - fit));
-    const indent = view.faceted ? "   " : " ";
     rows.slice(L.top, L.top + fit).forEach((row, j) => {
-      const sel = L.top + j === L.sel;
-      const y = inner.row + head + j;
-      const on = sel ? (this.focus === "backlinks" ? SEL : bg(C.dark) + fg(C.white)) : "";
-      if (row.kind === "group") {
-        const g = row.group;
-        const head = ` ${row.expanded ? "−" : "+"} ${g.label} ${g.sources.length}`;
-        canvas.text(inner.col, y, on + (sel ? "" : fg(C.yellow)) + head + (sel ? "" : fg(C.grey)) + pad(backlinkStageSummary(g), Math.max(0, inner.cols - width(head))) + RESET, inner.cols);
-        return;
-      }
-      const f = fitBacklinkRow(row.source.title, backlinkRowSuffix(row.source), inner.cols - indent.length);
-      const tail = f.suffix ? `${sel ? "" : fg(C.dark)} — ${f.suffix}` : "";
-      canvas.text(inner.col, y, on + (sel ? "" : fg(C.white)) + pad(`${indent}${f.title}${tail}`, inner.cols) + RESET, inner.cols);
+      canvas.text(inner.col, inner.row + head + j, backlinkRowLine(row, { selected: L.top + j === L.sel, focused: this.focus === "backlinks", faceted: view.faceted, cols: inner.cols }), inner.cols);
     });
     if (L.data && !L.data.sources.length) canvas.text(inner.col + 1, inner.row + head, fg(C.dark) + "nothing links here" + RESET, inner.cols - 1);
     else if (L.data && !rows.length) canvas.text(inner.col + 1, inner.row + head, fg(C.dark) + "nothing matches · the status line's controls, / and esc change what shows" + RESET, inner.cols - 1);

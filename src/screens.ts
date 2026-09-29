@@ -4,7 +4,7 @@ import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Caller, type Msg } from "./board";
-import { find, loadArt, members, packs, type Member } from "./packs";
+import { artNamed, find, loadArt, members, packs, type Member } from "./packs";
 import type { Activity } from "./socket";
 import { bg, C, center, fg, pad, paint, RESET, width } from "./style";
 import type { Key } from "./term";
@@ -15,7 +15,7 @@ import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
 import { Brief } from "./brief/brief";
 import { Waiting } from "./hub/waiting";
-import { claudeNow } from "./hub/pinned";
+import { Welcome } from "./hub/welcome";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { ActionRefused, ActionSet, asActor, type ActRequest } from "./surface/actions";
@@ -116,13 +116,7 @@ function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key
   return out;
 }
 
-const artCache = new Map<string, Art | null>();
-function screenArt(file: string): Art | null {
-  if (!artCache.has(file)) {
-    try { const m = find(file); artCache.set(file, m ? loadArt(m) : null); } catch { artCache.set(file, null); }
-  }
-  return artCache.get(file)!;
-}
+const screenArt = artNamed;
 
 /**
  * Art with live text written into it. Cells mode stamps the text into the grid;
@@ -162,7 +156,7 @@ export class Logon implements Screen {
   title = "logon";
   private shown = 0;
   private readonly script: string[];
-  /** `then`: a screen opened over the main menu after the logon (EP0CH_LANDING=brief: the daily brief). */
+  /** `then`: a screen opened over the main menu after the logon (EP0CH_LANDING=brief: the daily brief; welcome: the welcome notes). */
   constructor(ctx: Ctx, private readonly then?: () => Screen) {
     this.script = [
       `ATDT ${ctx.host}`,
@@ -229,9 +223,10 @@ const ITEMS: MenuItem[] = [
   { key: "X", label: "Showcase", open: () => new Showcase() },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
   { key: "T", label: "Today", open: () => new Brief() },
-  // float-hub's own views: its outbox items still waiting, and the agents' status page, pinned.
+  // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::1]…; without
+  // any, the agents' [[claude-now]] page, which C pinned before).
   { key: "O", label: "Waiting", open: () => new Waiting() },
-  { key: "C", label: "Claude·now", open: () => claudeNow() },
+  { key: "C", label: "Welcome", open: () => new Welcome() },
 ];
 
 export class MainMenu implements Screen {

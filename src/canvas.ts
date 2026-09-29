@@ -15,6 +15,12 @@ export const scrollPct = (s: Scroll) => `${Math.round((Math.min(s.top + s.room, 
 
 const SGR = /(\x1b\[[\d;]*m)/;
 
+/** The characters a box is drawn with. */
+export interface BoxGlyphs { top: string; bottom: string; side: string; tl: string; tr: string; bl: string; br: string }
+export const LINE_BOX: BoxGlyphs = { top: "─", bottom: "─", side: "│", tl: "┌", tr: "┐", bl: "└", br: "┘" };
+/** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
+export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
+
 export class Canvas {
   private cells: Cell[][];
   constructor(readonly cols: number, readonly rows: number) {
@@ -63,14 +69,14 @@ export class Canvas {
     }
   }
 
-  /** Single-line box with a title in the top edge and an optional hint in the bottom edge. */
-  box(r: Rect, sgr: string, title = "", hint = ""): void {
+  /** A box with a title in the top edge and an optional hint in the bottom edge: single lines, or `g`'s glyphs. */
+  box(r: Rect, sgr: string, title = "", hint = "", g: BoxGlyphs = LINE_BOX): void {
     if (r.cols < 2 || r.rows < 2) return;
     const right = r.col + r.cols - 1, bottom = r.row + r.rows - 1;
     const put = (x: number, y: number, ch: string, style = sgr) => { const l = this.cells[y]; if (l && x >= 0 && x < this.cols) l[x] = { ch, sgr: style }; };
-    for (let x = r.col + 1; x < right; x++) { put(x, r.row, "─"); put(x, bottom, "─"); }
-    for (let y = r.row + 1; y < bottom; y++) { put(r.col, y, "│"); put(right, y, "│"); }
-    put(r.col, r.row, "┌"); put(right, r.row, "┐"); put(r.col, bottom, "└"); put(right, bottom, "┘");
+    for (let x = r.col + 1; x < right; x++) { put(x, r.row, g.top); put(x, bottom, g.bottom); }
+    for (let y = r.row + 1; y < bottom; y++) { put(r.col, y, g.side); put(right, y, g.side); }
+    put(r.col, r.row, g.tl); put(right, r.row, g.tr); put(r.col, bottom, g.bl); put(right, bottom, g.br);
     if (title) this.text(r.col + 2, r.row, ` ${title} `, r.cols - 4);
     if (hint) this.text(r.col + 2, bottom, ` ${hint} `, r.cols - 4);
   }
