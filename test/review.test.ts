@@ -13,7 +13,7 @@ import { feedWriter } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { normalise, revive } from "../src/desk/layout";
 import { NvimClient, nvimSocketPath } from "../src/desk/nvim";
-import { MainMenu } from "../src/screens";
+import { Goodbye, MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { readState, writeState } from "../src/state";
 import { Term, type Key } from "../src/term";
@@ -309,6 +309,11 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     let quit = false;
     (app as any).done = () => { quit = true; };
     key(ctrl("c"));
+    expect(message()).toContain("quitting ends");
+    // Logging off from the menu (esc, G) asks the same: the Goodbye screen goes, the door stays.
+    await Bun.sleep(3100);
+    app.push(new Goodbye());
+    expect(top()).toBeInstanceOf(MainMenu);
     expect(message()).toContain("quitting ends");
     expect(existsSync(join(scratch.root, "door"))).toBe(true);
     expect(quit).toBe(false);

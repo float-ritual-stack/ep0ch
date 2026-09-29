@@ -154,7 +154,7 @@ at, and what it does while they're typing:
 | an agent's `tile.close` on a running program | refused | — |
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
 | `layout.load` | same-named tiles keep their programs; others running become shut drawers | replaced |
-| quitting the door | asked twice, then ended | kept |
+| quitting the door (ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
 | SIGTERM, SIGHUP, a crash | ended with the door (drafts copied out on a signal) | kept; written whole (temp file, rename) |
 | a restart | started again from the layout; a `ctrl+e` edit tile isn't restored | read back |
 

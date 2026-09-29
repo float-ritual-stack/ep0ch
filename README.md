@@ -220,7 +220,7 @@ set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
-| quitting the door (`ctrl+c`, `q` on the menu) | asks twice (it names what's running), then ends them |
+| quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
 | SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
 | a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
 

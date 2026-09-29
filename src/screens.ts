@@ -944,6 +944,8 @@ const HELP: Record<string, string> = {
 export class Goodbye implements Screen {
   title = "logoff";
   private at = Date.now();
+  /** Logging off quits the door: with programs still running (the desk in the background), it asks first. */
+  enter(ctx: Ctx) { if (ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
   tick(ctx: Ctx) { if (Date.now() - this.at > 1600) { ctx.quit(); return false; } return true; }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;

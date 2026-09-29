@@ -37,6 +37,11 @@ export interface Ctx {
   /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on). */
   copy?(text: string): void;
   cycleVideo(): void;
+  /**
+   * The door is about to quit (the menu's logoff): true when it may. With programs running in a screen (even
+   * one in the background) or an unsaved edit, the first ask says so and refuses; again within 3s goes.
+   */
+  confirmQuit?(): boolean;
   /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
   suspend(run: () => void): void;
   /**
@@ -186,6 +191,7 @@ export class App implements Ctx {
     return false;
   }
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
+  confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
 
   // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
