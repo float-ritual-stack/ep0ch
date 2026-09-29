@@ -48,6 +48,8 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one
+  ep0ch subscribe [type,...]       the door's live feed: focus.changed, viewport, cursor, layout.changed,
+                                   marks.changed, one JSON event per line (docs/AGENT-INTERFACE.md)
   ep0ch --skill [--all] [<name>]
                                    the stack's skills (this door's and the installed Outliner's), or the
                                    path of one skill's SKILL.md; --all adds contributor skills
@@ -58,7 +60,7 @@ if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
-if (["peek", "snap", "open", "actions", "act"].includes(args[0] ?? "")) process.exit(await controlClient(args));
+if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 if (args[0] === "outline" || args[0] === "status") {
   const cmd = parseOutlineArgs(args[0] === "status" ? args : args.slice(1));
   if ("error" in cmd) { console.error(`ep0ch: ${cmd.error}`); process.exit(2); }

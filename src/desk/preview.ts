@@ -37,22 +37,30 @@ export class PreviewPane extends ReaderPane {
   reads = 0;
   constructor(public source: PreviewSource) { super(false); }
 
-  override title() { return `preview · ${"tile" in this.source ? this.source.tile : basename(this.source.file)}`; }
-  override hint() { return "file" in this.source ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
+  override title() { const f = this.fileNow(); return `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`; }
+  override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
 
   /** The desk's current note moved: a preview follows its source, not that. */
   override select() {}
   /** Its source tile selected `m`. */
   follow(m: Msg | null, desk: DeskApi) { if (m && m.id !== this.msg?.id) this.show(m, desk); }
+  /** A terminal tile it follows is editing `path` now (nvim changed buffer): show that file, re-read as it's saved. */
+  private tileFile: string | null = null;
+  followFile(path: string | null | undefined, desk: DeskApi) {
+    if (!path || path === this.tileFile) return;
+    this.tileFile = path;
+    this.watch(desk);
+  }
+  private fileNow(): string | null { return "file" in this.source ? this.source.file : this.tileFile; }
 
   init(desk: DeskApi) { this.watch(desk); }
-  /** A file source: e, C, m, i, I and ctrl+e are refused here, not started as sessions. */
-  get readOnly() { return "file" in this.source; }
+  /** A file source (or a terminal tile's file): e, C, m, i, I and ctrl+e are refused here, not started as sessions. */
+  get readOnly() { return !!this.fileNow(); }
 
   /** A file source is read now and again each time it changes on disk (an editor's save, even by rename). */
   watch(desk: DeskApi) {
-    if (!("file" in this.source)) return this.unwatch();
-    const path = this.source.file;
+    const path = this.fileNow();
+    if (!path) return this.unwatch();
     if (this.watching === path) return;
     this.unwatch();
     this.watching = path;
@@ -75,8 +83,9 @@ export class PreviewPane extends ReaderPane {
   }
 
   override key(k: Key, desk: DeskApi): boolean {
-    if ("file" in this.source && ((k.kind === "char" && !k.ctrl && WRITES.has(k.ch)) || (k.kind === "char" && k.ctrl && k.ch === "e"))) {
-      desk.ctx.flash(`a file preview only reads · edit ${basename(this.source.file)} in its editor`);
+    const f = this.fileNow();
+    if (f && ((k.kind === "char" && !k.ctrl && WRITES.has(k.ch)) || (k.kind === "char" && k.ctrl && k.ch === "e"))) {
+      desk.ctx.flash(`a file preview only reads · edit ${basename(f)} in its editor`);
       return true;
     }
     return super.key(k, desk);

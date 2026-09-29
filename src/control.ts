@@ -3,6 +3,7 @@
 // `snap` composites exactly what the terminal was sent into a PNG, `open` puts a block in front of you,
 // `actions` lists what the current screen can do, and `act` does one of those things as the agent.
 //   bun src/main.ts peek | snap [file.png] | open <block-id> | actions | act <action> [key=value…] [--as <actor-id>]
+//   bun src/main.ts subscribe [focus.changed,viewport,cursor,layout.changed,marks.changed]   (the live feed)
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
@@ -55,6 +56,14 @@ export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
         let req: any;
         try { req = JSON.parse(line); } catch { sock.write(JSON.stringify({ ok: false, error: "bad json" }) + "\n"); continue; }
+        // The live feed: this connection stays open, and every change to what the person sees comes down it as
+        // one JSON line (`{"event":{…}}`) until the subscriber hangs up.
+        if (req.cmd === "subscribe") {
+          const types = Array.isArray(req.types) ? new Set(req.types.map(String)) : null;
+          const off = d.app.subscribe(e => { if (!types || types.has(e.type) || e.type === "hello") sock.write(JSON.stringify({ event: e }) + "\n"); });
+          sock.on("close", off); sock.on("error", off);
+          continue;
+        }
         handle(req, d).then(result => sock.write(JSON.stringify({ ok: true, result }) + "\n"), e => sock.write(JSON.stringify({ ok: false, error: String(e.message ?? e) }) + "\n"));
       }
     });
@@ -68,6 +77,20 @@ export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise
 export async function controlClient(args: string[]): Promise<number> {
   const [cmd, arg] = args;
   let req: Record<string, unknown>;
+  // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
+  if (cmd === "subscribe") {
+    const path = process.env.EP0CH_CONTROL ?? CONTROL_SOCKET;
+    return new Promise(res => {
+      const c = connect(path, () => c.write(JSON.stringify({ cmd, ...(arg ? { types: arg.split(",") } : {}) }) + "\n"));
+      let buf = "";
+      c.on("data", chunk => {
+        buf += chunk.toString();
+        for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) { const l = buf.slice(0, i); buf = buf.slice(i + 1); try { console.log(JSON.stringify(JSON.parse(l).event)); } catch { console.log(l); } }
+      });
+      c.on("close", () => res(0));
+      c.on("error", e => { console.error(`no door running at ${path} (${e.message})`); res(1); });
+    });
+  }
   try {
     req = cmd === "snap" ? { cmd, path: arg } : cmd === "open" ? { cmd, id: arg }
       : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };

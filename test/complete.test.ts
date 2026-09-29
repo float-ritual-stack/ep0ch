@@ -488,6 +488,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     app.push(desk);
     try {
       await app.act({ action: "open", args: { id: beans.id } });
+      desk.focusOn("reader");                                             // an agent's open doesn't move the person's keys
       const rd = D.panes.get(D.focus) as ReaderPane;
       await until(() => !!rd.msg && !rd.msg.partial, "the note");
       key(char("e"));

@@ -1347,6 +1347,28 @@ export class NoteSurface {
   }
 
   /** The note line (from 0, the subject line) reader row `y` of the last render shows, or null off the note's body. */
+  /**
+   * What the reader has in view (PIE-413's view.get and view.subscribe): the note lines in its body rows, first
+   * and last (1 is the subject), and the body's scroll. Null before it's drawn.
+   */
+  viewport(): { first: number | null; last: number | null; top: number; room: number; total: number } | null {
+    const d = this.drawn;
+    if (!d) return null;
+    // The drawn rows' note lines are 0-based; a line here is 1-based, as focus.set and comments count them.
+    const lineOf = (row: number) => { const b = d.doc.source[row]; const l = b === undefined ? undefined : d.lines[b]; return l === undefined ? null : l + 1; };
+    const shown = Array.from({ length: Math.max(0, Math.min(d.room, d.body.length - d.scroll)) }, (_, i) => lineOf(d.scroll + i)).filter((x): x is number => x !== null);
+    return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top: d.scroll, room: d.room, total: d.body.length };
+  }
+
+  /** Scroll so note line `line` (1 is the subject) is the first body row in view (view.scrollTo). False before it's drawn. */
+  scrollToLine(line: number): boolean {
+    const d = this.drawn;
+    if (!d) return false;
+    const row = d.doc.source.findIndex(b => b !== undefined && (d.lines[b] ?? 0) + 1 >= line);
+    this.scroll = Math.max(0, Math.min(this.maxScroll, row < 0 ? d.body.length : row));
+    return true;
+  }
+
   sourceLineAt(y: number): number | null {
     const d = this.drawn;
     if (!d) return null;

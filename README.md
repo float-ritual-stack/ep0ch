@@ -788,11 +788,15 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 
 ## Letting an agent see what you see, and do what you do
 
+The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
+[docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
+
 A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
 
     bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
     bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
+    bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
     bun src/main.ts act <action> [reader=<reader>] [key=value…] [--as <actor-id>]
 

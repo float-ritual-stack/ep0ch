@@ -79,7 +79,22 @@ export interface Screen {
   dispose?(): void;
   /** See Ctx.editInTile. */
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
+  /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
+  viewState?(): ViewState;
 }
+
+/**
+ * What a screen shows, as `view.subscribe` publishes it: which tile has the keys (and what it shows), the
+ * layout's shape, each tile's viewport (what's in view) and cursor or selection, and the attention marks.
+ */
+export interface ViewState {
+  focus: { tile: string; block?: string | null; file?: string | null };
+  layout: unknown;
+  tiles: { tile: string; viewport: unknown; cursor?: unknown }[];
+  marks?: unknown;
+}
+/** One event of the live feed: `focus.changed`, `layout.changed`, `viewport`, `cursor`, `marks.changed`, `screen`. */
+export interface ViewEvent { type: string; at: number; [k: string]: unknown }
 
 /** An agent's actor id: what it calls itself, or `ep0ch-door:<host>:agent`. Kept to plain, short ids. */
 export function agentActor(as?: string): Actor {
@@ -140,6 +155,47 @@ export class App implements Ctx {
   }
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
+
+  // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
+  private viewers = new Set<(e: ViewEvent) => void>();
+  private shown: { screen: string; focus: string; layout: string; tiles: Map<string, string>; cursors: Map<string, string>; marks: string } | null = null;
+
+  /** Hear every change to what the person sees. The first event is the whole state (`hello`). */
+  subscribe(f: (e: ViewEvent) => void): () => void {
+    this.viewers.add(f);
+    const s = this.stack.at(-1);
+    const state = s?.viewState?.() ?? null;
+    f({ type: "hello", at: Date.now(), screen: s?.title ?? null, state });
+    // Every subscriber starts from what the hello said: what changes after it comes as events.
+    if (s && state && !this.shown) this.shown = this.snapshot(s.title, state);
+    return () => { this.viewers.delete(f); };
+  }
+
+  private snapshot(screen: string, v: ViewState) {
+    return { screen, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.viewport)] as const)), cursors: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.cursor ?? null)] as const)), marks: JSON.stringify(v.marks ?? null) };
+  }
+
+  /** After a paint: what changed since the last one, as events to every subscriber. */
+  private publishView(s: Screen) {
+    if (!this.viewers.size) { this.shown = null; return; }
+    const v = s.viewState?.();
+    const at = Date.now();
+    const send = (e: Omit<ViewEvent, "at">) => { for (const f of this.viewers) { try { f({ ...e, at } as ViewEvent); } catch { /* a subscriber's own problem */ } } };
+    if (!v) { if (this.shown?.screen !== s.title) send({ type: "screen", screen: s.title }); this.shown = { screen: s.title, focus: "", layout: "", tiles: new Map(), cursors: new Map(), marks: "" }; return; }
+    const was = this.shown?.screen === s.title ? this.shown : null;
+    const now = { screen: s.title, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map<string, string>(), cursors: new Map<string, string>(), marks: JSON.stringify(v.marks ?? null) };
+    if (this.shown && this.shown.screen !== s.title) send({ type: "screen", screen: s.title });
+    if (was?.layout !== now.layout) send({ type: "layout.changed", layout: v.layout });
+    if (was?.focus !== now.focus) send({ type: "focus.changed", ...v.focus });
+    for (const t of v.tiles) {
+      const vp = JSON.stringify(t.viewport), cu = JSON.stringify(t.cursor ?? null);
+      now.tiles.set(t.tile, vp); now.cursors.set(t.tile, cu);
+      if (was?.tiles.get(t.tile) !== vp) send({ type: "viewport", tile: t.tile, viewport: t.viewport });
+      if (t.cursor !== undefined && was?.cursors.get(t.tile) !== cu) send({ type: "cursor", tile: t.tile, cursor: t.cursor });
+    }
+    if (was?.marks !== now.marks && v.marks !== undefined) send({ type: "marks.changed", marks: v.marks });
+    this.shown = now;
+  }
   copy(text: string) { this.term.write(osc52(text)); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
@@ -287,6 +343,7 @@ export class App implements Ctx {
     const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
     if (this.term.frame) this.term.frame(draw);
     else draw();
+    this.publishView(s);
   }
 
   /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */

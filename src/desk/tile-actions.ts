@@ -44,6 +44,15 @@ export interface TileHost {
   loadLayout(name: string, actor: Actor): { layout: string; [k: string]: unknown } | Promise<{ layout: string; [k: string]: unknown }>;
   layouts(): unknown;
   layoutGet(): unknown;
+  resizeBorder(path: string, border: number, share: number, actor: Actor): TileDone | { split: string; [k: string]: unknown };
+  evenOut(actor: Actor): { even: true };
+  swapTile(sel: string | undefined, to: string, actor: Actor): TileDone;
+  viewGet(sel: string | undefined): unknown;
+  scrollTo(sel: string | undefined, at: { line?: number; text?: string; block?: string }, actor: Actor): TileDone;
+  markBlock(sel: string | undefined, m: { id?: string; line?: number; reason: string }, actor: Actor): Promise<unknown>;
+  unmark(n: number | undefined, id: string | undefined, actor: Actor): Promise<unknown>;
+  marks(): unknown;
+  nextMark(actor: Actor): TileDone | { mark: null };
 }
 
 interface On { d: TileHost; reader?: string }
@@ -78,6 +87,15 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.type": { text: string };
   "tile.restart": Record<string, never>;
   "tab.select": { by?: number };
+  "layout.resize": { path: string; border: number; share: number };
+  "layout.even": Record<string, never>;
+  "layout.swap": { to: string };
+  "view.get": Record<string, never>;
+  "view.scrollTo": { line?: number; text?: string; block?: string };
+  "block.mark": { id?: string; line?: number; reason: string };
+  "block.unmark": { n?: number; id?: string };
+  "marks.list": Record<string, never>;
+  "marks.next": Record<string, never>;
 }, On>("tile", {
   "layout.get": {
     summary: "the layout as data: the tile tree (splits with their shares, tab sets with the tab shown) and each tile's kind, name, source, note, link, drawer state and rect",
@@ -220,6 +238,55 @@ export const TILE_ACTIONS = new ActionSet<{
       say(d, actor, `restarted ${r.tile}`);
       return r;
     },
+  },
+  "layout.resize": {
+    summary: "move a border: in the split at path=<p> (as layout.get gives it: \"\" the root, \"1.0\" its second kid's first kid), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share)",
+    keys: "drag a border; ^W < > + - (pane.resize)",
+    args: { path: { type: "string", about: "the split's path from layout.get" }, border: { type: "number", about: "the border after this kid (0 first)" }, share: { type: "number", about: "kid border's part of the pair, 0.08-0.92" } },
+    run({ path, border, share }, { d }, actor) { return d.resizeBorder(path, border, share, actor); },
+  },
+  "layout.even": {
+    summary: "every split shares its room equally", keys: "^W =",
+    args: {},
+    run(_, { d }, actor) { const r = d.evenOut(actor); say(d, actor, "evened out the layout"); return r; },
+  },
+  "layout.swap": {
+    summary: "tile reader=<tile> and tile to=<tile> trade places", keys: "^W s (the next tile)",
+    args: { to: { type: "string", about: "the tile it trades places with" } },
+    run({ to }, { d, reader }, actor) { const r = d.swapTile(reader, to, actor); say(d, actor, `swapped ${r.tile} and ${to}`); return r; },
+  },
+  "view.get": {
+    summary: "what each tile has in view: a reader's note and its lines in view (first, last) with the scroll; the outline's selected row; a terminal's screen, and for nvim its cursor, lines in view and file; reader=<tile> for one",
+    args: {},
+    run(_, { d, reader }) { return d.viewGet(reader); },
+  },
+  "view.scrollTo": {
+    summary: "scroll reader=<tile> so a note line (line=<n>, 1 the subject) or the first line with text=<words> is at the top. It moves what's in view, not the person's [ ] position, selection or keys. block=<id> checks the tile shows that note (open it there first: open id=… reader=…)",
+    args: { line: { type: "number", optional: true, about: "the note line to bring to the top" }, text: { type: "string", optional: true, about: "or: the first line with these words" }, block: { type: "string", optional: true, about: "the note the tile must be showing" } },
+    run(at, { d, reader }, actor) { const r = d.scrollTo(reader, at, actor); if (actor.kind === "agent") say(d, actor, `scrolled ${r.tile}`); return r; },
+  },
+  "block.mark": {
+    summary: "an attention mark, with the reason and who set it: on block id=<id> (default: the note tile reader=<tile> shows), framed and labelled in every tile that shows it; or on line=<n> of an nvim tile (reader=<tile>), as an extmark with virtual text. It stays until dismissed and never moves the person's focus, selection or cursor",
+    keys: "alt+m steps through marks; a click on a tile's ◆ label dismisses it",
+    args: { id: { type: "string", optional: true, about: "the block (note) id" }, line: { type: "number", optional: true, about: "an nvim tile's line (1-based)" }, reason: { type: "string", about: "what it's about, in a few words (\"needs your call\")" } },
+    async run(m, { d, reader }, actor) { const r = await d.markBlock(reader, m, actor); say(d, actor, `marked: ${m.reason}`); return r; },
+  },
+  "block.unmark": {
+    summary: "dismiss mark n=<n> (marks.list numbers them), or every mark on block id=<id>, or (neither) the marks on what reader=<tile> shows",
+    keys: "a click on a tile's ◆ label; alt+x dismisses the focused tile's",
+    args: { n: { type: "number", optional: true, about: "the mark's number" }, id: { type: "string", optional: true, about: "a block id" } },
+    async run({ n, id }, { d, reader }, actor) { void reader; const r = await d.unmark(n, id, actor); say(d, actor, "dismissed a mark"); return r; },
+  },
+  "marks.list": {
+    summary: "every attention mark: its number, block or tile and line, reason, who set it, when, and the tiles showing it",
+    args: {},
+    run(_, { d }) { return d.marks(); },
+  },
+  "marks.next": {
+    summary: "step to the next mark: the keys go to a tile showing it, or it opens where the focused tile's opens go. Refused to an agent while the person is typing",
+    keys: "alt+m",
+    args: {},
+    run(_, { d }, actor) { return d.nextMark(actor); },
   },
   "tab.select": {
     summary: "show tab reader=<tile> in its tab set, or step by=1 (next) / by=-1 (previous) from it. An agent's leaves the person's focus where it is",

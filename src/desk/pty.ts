@@ -14,6 +14,7 @@ import type { Subprocess } from "bun";
 import { basename } from "node:path";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
+import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -66,6 +67,11 @@ export class PtyPane implements Pane {
   private desk: DeskApi | null = null;
   /** Called once when the program exits (an editor opened for a draft reads its file back then). */
   onExit: ((code: number) => void) | null = null;
+  /** An nvim tile's socket and the door's connection to it (the cursor, the buffer's file, marks). */
+  nvim: NvimClient | null = null;
+  socket: string | null = null;
+  /** nvim moved its cursor, scrolled, or changed buffer: the desk publishes it, previews follow the file. */
+  onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
   spec() { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}) }; }
@@ -73,12 +79,14 @@ export class PtyPane implements Pane {
 
   get running() { return !!this.proc && this.exited === null; }
   get pid() { return this.proc?.pid; }
-  /** The file the program edits, when it was started on one (an editor's): a preview tile can follow it. */
-  get file() { return this.run.file; }
+  /** The file the program edits: nvim's current buffer when it has told us, else the file it was started on. */
+  get file() { return this.nvim?.view?.file || this.run.file; }
+  /** It's nvim: it listens on a socket the door and agents can reach. */
+  get isNvim() { return basename(this.run.cmd[0] ?? "") === "nvim"; }
 
   title() {
     const name = basename(this.run.cmd[0] ?? "shell");
-    const what = this.run.file ? `${name} ${basename(this.run.file)}` : this.programTitle && this.programTitle !== name ? `${name} · ${this.programTitle}` : name;
+    const what = this.file ? `${name} ${basename(this.file)}` : this.programTitle && this.programTitle !== name ? `${name} · ${this.programTitle}` : name;
     return this.exited !== null ? `${what} · exited ${this.exited}` : this.back ? `${what} · ${this.back} lines back` : what;
   }
   hint() { return this.exited !== null ? "⏎ runs it again" : `click or ⏎ types here · ${ESCAPE_CHORD} back to the door`; }
@@ -114,7 +122,12 @@ export class PtyPane implements Pane {
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
       // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.
-      this.proc = Bun.spawn(SETSID ? [SETSID, "-c", ...this.run.cmd] : this.run.cmd, { terminal: this.pty, cwd: this.run.cwd, env });
+      // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
+      // buffer, and an agent edits other lines through it without moving the person's cursor.
+      const cmd = [...this.run.cmd];
+      if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); cmd.splice(1, 0, "--listen", this.socket); }
+      this.proc = Bun.spawn(SETSID ? [SETSID, "-c", ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
+      if (this.socket) this.attach(this.socket);
     } catch (e) {
       this.exited = 127;
       term.write(`\r\ncan't start ${this.run.cmd.join(" ")}: ${(e as Error).message}\r\n`);
@@ -133,6 +146,13 @@ export class PtyPane implements Pane {
     });
   }
 
+  /** Connect to nvim's socket and ask it to report its view. A failure leaves the tile a plain terminal. */
+  private attach(path: string) {
+    const c = new NvimClient(path);
+    c.onView = v => { this.onView?.(v); this.soon(); };
+    c.connect().then(() => c.watch()).then(() => { this.nvim = c; }, () => c.close());
+  }
+
   /** A repaint a moment from now: a program writing fast is drawn at most ~60 times a second. */
   private soon() {
     if (this.redrawSoon) return;
@@ -144,6 +164,7 @@ export class PtyPane implements Pane {
 
   kill() {
     LIVE.delete(this);
+    this.nvim?.close(); this.nvim = null;
     try { this.proc?.kill(); } catch { /* gone */ }
     try { this.pty?.close(); } catch { /* gone */ }
   }
@@ -211,7 +232,15 @@ export class PtyPane implements Pane {
     return false;
   }
 
-  describe() { return { cmd: this.run.cmd, file: this.run.file, running: this.running, exited: this.exited, pid: this.pid, mouse: this.term?.modes.mouseTrackingMode ?? "none", text: this.text() }; }
+  /** The emulator's cursor (0-based column and row in the tile), where the program left it. */
+  cursor(): { x: number; y: number } | null { const b = this.term?.buffer.active; return b ? { x: b.cursorX, y: b.cursorY } : null; }
+  describe() {
+    return {
+      cmd: this.run.cmd, file: this.file, running: this.running, exited: this.exited, pid: this.pid, mouse: this.term?.modes.mouseTrackingMode ?? "none",
+      ...(this.socket ? { nvim: { socket: this.socket, connected: !!this.nvim, view: this.nvim?.view ?? null } } : {}),
+      cursor: this.cursor(), text: this.text(),
+    };
+  }
 }
 
 // ── drawing the emulator's cells ─────────────────────────────────────────────

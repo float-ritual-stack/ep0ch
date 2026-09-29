@@ -255,6 +255,19 @@ export function neighbour<I>(rects: Map<I, Rect>, from: I, dir: Dir): I | null {
 
 // ── dragging a border ────────────────────────────────────────────────────────
 
+/** Where a dragged border would put the pair's share (the first kid's part, within bounds), without changing the tree. */
+export function dragShare<I>(g: Grab<I>, x: number, y: number, o: { mins?: [number, number]; bounds?: [number, number] } = {}): number | null {
+  const { d, side } = g, n = d.node;
+  const [sa, sb] = d.sizes, total = sa + sb;
+  if (total <= 0) return null;
+  const start = d.at - sa;
+  const p = n.dir === "row" ? x : y;
+  const [ma, mb] = o.mins ?? (n.dir === "row" ? [MIN_COLS, MIN_COLS] : [MIN_ROWS, MIN_ROWS]);
+  const a = Math.max(ma, Math.min(total - mb, side === 0 ? p - start + 1 : p - start));
+  const [lo, hi] = o.bounds ?? [0.08, 0.92];
+  return Math.max(lo, Math.min(hi, a / total));
+}
+
 /** A divider being dragged, and which of its two border cells was grabbed (0: the first kid's, 1: the second's). */
 export interface Grab<I = number> { d: Divider<I>; side: 0 | 1 }
 
@@ -273,15 +286,9 @@ export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab
  * least `mins`, the first's share of the pair within `bounds`. The pair's total weight stays the same.
  */
 export function dragTo<I>(g: Grab<I>, x: number, y: number, o: { mins?: [number, number]; bounds?: [number, number] } = {}): void {
-  const { d, side } = g, n = d.node;
-  const [sa, sb] = d.sizes, total = sa + sb;
-  if (total <= 0) return;
-  const start = d.at - sa;
-  const p = n.dir === "row" ? x : y;
-  const [ma, mb] = o.mins ?? (n.dir === "row" ? [MIN_COLS, MIN_COLS] : [MIN_ROWS, MIN_ROWS]);
-  const a = Math.max(ma, Math.min(total - mb, side === 0 ? p - start + 1 : p - start));
-  const [lo, hi] = o.bounds ?? [0.08, 0.92];
-  const f = Math.max(lo, Math.min(hi, a / total));
+  const n = g.d.node, d = g.d;
+  const f = dragShare(g, x, y, o);
+  if (f === null) return;
   const sum = n.weights[d.i]! + n.weights[d.i + 1]!;
   n.weights[d.i] = sum * f;
   n.weights[d.i + 1] = sum - n.weights[d.i]!;
