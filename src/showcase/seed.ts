@@ -61,7 +61,7 @@ export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "timeline"
 
 const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
 
-function notebookText(whiteboardId: string, kettleId: string): string {
+function notebookText(whiteboardId: string, kettleId: string, tapId: string): string {
   return [
     `${SEED.notebook} [page::${SEED.notebook}]`,
     "[season::autumn] [plot::14b] [to::the plot committee]",
@@ -103,6 +103,9 @@ function notebookText(whiteboardId: string, kettleId: string): string {
     "",
     "## From the whiteboard",
     `!((${whiteboardId}))`,
+    // An anchored embed: just the step (PIE-424), a control like the note's own steps (PIE-472).
+    "Just the tap:",
+    `!((${tapId}^t-7a9c11))`,
   ].join("\n");
 }
 
@@ -320,7 +323,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.shed = await make(notes.root.id, SHED);
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
-  notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id));
+  // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
+  const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
+  notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
   notes.recipe = await make(notes.root.id, RECIPE);
   await seedTickets(board, opts.ticketsConfig);

@@ -22,6 +22,8 @@ const CLIENT_PROTOCOL = 82;
  * "Unsupported action" answer for the session.
  */
 export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection"
+  /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
+  | "fragments.read" | "transclusions.read" | "fragments.candidates"
   /** An outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
   | HostCapability;
 
@@ -179,6 +181,47 @@ export type StepStatus = "todo" | "done" | "waiting" | "problem";
 export interface ChecklistStep {
   itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
   span: { start: number; end: number; startLine: number; endLine: number }; depth: number; text: string;
+  /** Where its `[ ]` starts (UTF-16 offset into the note's text). */
+  markerStart?: number;
+}
+/** What a step change does: set its status, or only give it a stable id (`^t-…`) so it can be linked. */
+export type StepChange = { kind: "status"; status: StepStatus } | { kind: "ensure-id" };
+
+/** A fragment's slice of its note, as the service reads it (`fragments.read`, PIE-424). */
+export interface FragmentSlice {
+  kind: "heading" | "paragraph" | "list-item"; label: string;
+  /** Note lines (from 0, the subject), inclusive, and UTF-16 offsets [start, end). */
+  startLine: number; endLine: number; start: number; end: number;
+  /** The slice as a reader shows it (anchors hidden, a list item standing alone), line for line. */
+  text: string;
+}
+export type FragmentRead =
+  | { blockId: string; fragmentId: string; revision: number; status: "resolved"; fragment: FragmentSlice }
+  | { blockId: string; fragmentId: string; revision: number; status: "missing" }
+  | { blockId: string; fragmentId: string; revision: number; status: "duplicate"; duplicates: { kind: string; label: string; line: number }[] };
+
+/** A fragment completion can link to, as `fragments.candidates` finds it. */
+export interface FragmentCandidate {
+  blockId: string; title: string; revision: number; kind: "heading" | "paragraph" | "list-item"; label: string; lineIndex: number;
+  fragmentId?: string;
+  /** A heading without an anchor: the anchor it would get, and its line with it. */
+  anchor?: { fragmentId: string; line: string };
+}
+
+/**
+ * One transclusion as the service projects it (`transclusions.read`): ready with its note (and a fragment's
+ * slice), the steps inside what it shows and the embeds inside it, nested; or why not, in the service's words.
+ */
+export interface TransclusionNode {
+  blockId: string; fragmentId?: string; depth: number;
+  status: "ready" | "missing" | "deleted" | "failed" | "fragment-missing" | "fragment-duplicate" | "limit" | "depth-limit" | "cycle" | "budget" | "too-large";
+  message?: string; kind?: "note" | "fragment" | "view"; title?: string; revision?: number;
+  block?: Msg; fragment?: FragmentSlice; checklist?: ChecklistStep[]; embeds?: TransclusionNode[];
+}
+export interface TransclusionRead {
+  limits: { maxDepth: number; maxPerDocument: number; maxNodes: number };
+  results: TransclusionNode[];
+  dependencies: string[];
 }
 export interface ChecklistRead { blockId: string; revision: number; title: string; items: ChecklistStep[]; completeness: { kind: string } }
 
@@ -874,11 +917,62 @@ export class SocketBoard implements Board {
    * at the revision it was read (the service then gives it an id); either way `evidence` must still match.
    */
   async setStep(blockId: string, step: ChecklistStep, revision: number, status: StepStatus, actor: Actor = USER): Promise<{ block: Msg; item: ChecklistStep; changed: boolean }> {
+    return this.changeStep(blockId, step, revision, { kind: "status", status }, actor);
+  }
+
+  /**
+   * One `checklist.update` of `step` (PIE-367): its status, or only a stable id so it can be linked. Checked
+   * against the step's evidence (and, for a step without an id, the revision it was read at): a step that
+   * changed since is refused, never guessed. Recorded as `actor`'s.
+   */
+  async changeStep(blockId: string, step: ChecklistStep, revision: number, change: StepChange, actor: Actor = USER): Promise<{ block: Msg; item: ChecklistStep; changed: boolean }> {
     const target = step.identity === "unique" && step.itemId ? { itemId: step.itemId } : { start: step.span.start, expectedRevision: revision };
     const r = await this.request<{ block: WireBlock; item: ChecklistStep; changed: boolean }>("checklist.update", {
-      blockId, input: { target, expectedEvidence: step.evidence, change: { kind: "status", status } }, mutation: mutationFor(actor),
+      blockId, input: { target, expectedEvidence: step.evidence, change }, mutation: mutationFor(actor),
     });
     return { block: toMsg(r.block), item: r.item, changed: r.changed };
+  }
+
+  /**
+   * `((note#…` / `((note^…` completion over every note, by the service's fragment rules (PIE-424): each
+   * match with its note and, for a heading without an anchor, the anchor it would get. Null on a service
+   * without `fragments.candidates`.
+   */
+  fragmentCandidates(query: { noteQuery?: string; fragmentQuery: string; mode: "heading" | "id"; limit: number; draft?: { blockId: string; text: string } }) {
+    return this.optional<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", "fragments.candidates", { query });
+  }
+
+  /** Give the heading on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
+  ensureFragment(blockId: string, lineIndex: number, expectedRevision: number, actor: Actor = USER): Promise<{ fragmentId: string; created: boolean }> {
+    return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
+  }
+
+  /** `((id^fragment))`'s slice of its note (PIE-424); null on a service without `fragments.read`. */
+  readFragment(blockId: string, fragmentId: string): Promise<FragmentRead | null> {
+    return this.optional<FragmentRead>("fragments.read", "fragments.read", { blockId, fragmentId });
+  }
+
+  /**
+   * Transclusions as the service projects them (`transclusions.read`): each target's note or fragment
+   * slice, nested to its depth and cycle-safe, with the steps in what it shows. `hostBlockId`: the note
+   * they're embedded in (embedding it again is a cycle). Null on a service without it.
+   */
+  async readTransclusions(targets: { blockId: string; fragmentId?: string }[], hostBlockId?: string): Promise<TransclusionRead | null> {
+    // The service sends each note once (`blocks`) and its steps once (`checklists`, without their text);
+    // each projection names its note and the lines it shows. Put them back together per projection.
+    type Wire = Omit<TransclusionNode, "block" | "embeds" | "checklist"> & { shownLines?: { start: number; end: number }; embeds?: Wire[] };
+    type WireStep = Omit<ChecklistStep, "text">;
+    const r = await this.optional<Omit<TransclusionRead, "results"> & { results: Wire[]; blocks?: Record<string, WireBlock>; checklists?: Record<string, WireStep[]> }>("transclusions.read", "transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
+    if (!r) return null;
+    const blocks = new Map(Object.entries(r.blocks ?? {}).map(([id, b]) => [id, toMsg(b)]));
+    const node = (n: Wire): TransclusionNode => {
+      const block = blocks.get(n.blockId), lines = n.shownLines;
+      const checklist = block && lines ? (r.checklists?.[n.blockId] ?? [])
+        .filter(s => s.span.startLine >= lines.start && s.span.startLine <= lines.end)
+        .map(s => ({ ...s, text: block.text.slice(s.span.start, s.span.end).trimEnd() })) : undefined;
+      return { ...n, ...(n.status === "ready" && block ? { block } : {}), ...(checklist ? { checklist } : {}), embeds: n.embeds?.map(node) };
+    };
+    return { limits: r.limits, dependencies: r.dependencies, results: r.results.map(node) };
   }
 
   close(): void {

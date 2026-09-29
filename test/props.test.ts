@@ -113,7 +113,7 @@ describe("links read as titles", () => {
 });
 
 describe("transclusions", () => {
-  test("each failure is explicit, a fragment shows the whole note with the PIE-404 note, and the 17th embed is the limit", async () => {
+  test("an older service (no transclusions.read): each failure is explicit, a fragment shows the whole note and says why, and the 17th embed is the limit", async () => {
     invalidateEmbeds();
     const src = fakeSource(notes);
     const body = (m: Msg) => m.text.split("\n").slice(1);
@@ -121,12 +121,12 @@ describe("transclusions", () => {
     for (const [id, frag] of [[A], [A, "beds"], [A, "nope"], [T], [GONE], ["ffffffff-dead-4000-8000-000000000000"]] as [string, string?][]) region(id, frag);
     await Bun.sleep(10);
     expect(region(A)).toEqual(["▌Embedded block · Garden plan", "▌ Beans along the fence.", "▌ ## Beds ^beds", "▌ Two beds."]);
-    expect(region(A, "beds").slice(0, 2)).toEqual(["▌Embedded fragment · Garden plan ^beds", "▌the whole note is shown: fragment slices need PIE-404"]);
+    expect(region(A, "beds").slice(0, 2)).toEqual(["▌Embedded fragment · Garden plan ^beds", "▌the whole note: this service can't slice fragments"]);
     expect(region(A, "nope")).toEqual(["▌!((aaaaaaaa…^nope)) · MISSING FRAGMENT"]);
     expect(region(T)).toEqual(["▌!((bbbbbbbb…)) · IN TRASH · Old shed"]);
     expect(region(GONE)).toEqual(["▌!((cccccccc…)) · MISSING TARGET"]);
     expect(region("ffffffff-dead-4000-8000-000000000000")).toEqual(["▌!((ffffffff…)) · TARGET FAILED · socket closed"]);
-    expect(region(A, undefined, MAX_EMBEDS)).toEqual([`▌!((aaaaaaaa…)) · EMBED LIMIT · maximum ${MAX_EMBEDS} per note`]);
+    expect(region(A, undefined, MAX_EMBEDS)).toEqual([`▌!((aaaaaaaa…)) · EMBED LIMIT · maximum ${MAX_EMBEDS}`]);
   });
 
   test("the renderer numbers embeds in reading order and keeps the text around them", () => {
@@ -285,17 +285,23 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   });
 
   test("title, the lane's summary line, then the body: no metadata lines, links by title, every embed state", async () => {
-    await until(() => { const s = shown(120); return s.includes("Embedded view · Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("!Garden plan · embed") && !s.includes("reading…"); }, "the embeds", 8000);
+    await until(() => { const s = shown(120); return s.includes("Embedded view · Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("Embedded block · Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
     const s = shown(120), lines = s.split("\n");
     expect(lines[0]!.trim()).toBe("GDN-12 Build the compost bin");
     expect(lines[1]!.trim()).toBe("priority high · track soil, tools · i 8 properties");   // the lane's [summary-properties::]
     expect(s).not.toContain("[type::");
     expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 · Missing target.");
     expect(s).toContain("owner:: the allotment group");                                   // a line-scope property is body text
-    for (const want of ["Embedded block · Garden plan", "Embedded fragment · Garden plan ^beds", "fragment slices need PIE-404",
+    for (const want of ["Embedded block · Garden plan", "Embedded fragment · Garden plan ^beds",
       "MISSING FRAGMENT", "∙ Plant the beans · priority high", "IN TRASH · Old shed notes", "!((0badc0de…)) · MISSING TARGET",
-      "It embeds the plan: !Garden plan · embed not expanded here", `EMBED LIMIT · maximum 16 per note`]) expect(s).toContain(want);
+      `EMBED LIMIT · maximum 16`]) expect(s).toContain(want);
     expect(s.match(/EMBED LIMIT/g)).toHaveLength(1);                                         // 17 embeds: the 17th is refused
+    // The fragment is its slice (the section, not the note's first line); the nested note's embed is expanded in it.
+    const at = lines.findIndex(l => l.includes("Embedded fragment · Garden plan ^beds"));
+    expect(lines.slice(at + 1, at + 3).map(l => l.trim())).toEqual(["▌ ## Beds", "▌ Two raised beds."]);
+    const nested = lines.findIndex(l => l.includes("Embedded block · Nested note"));
+    expect(lines[nested + 1]!.trim()).toBe("▌ It embeds the plan:");
+    expect(lines[nested + 2]!.trim()).toBe("▌ ▌Embedded block · Garden plan");
     expect(s).not.toContain("## Beds ^beds");                                               // anchors are hidden when read
   });
 
@@ -390,15 +396,16 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       expect(unrelated["blocks.context"] ?? 0).toBe(0);
       expect(unrelated["prefix"] ?? 0).toBe(0);
       expect(unrelated["pages.resolve"] ?? 0).toBeLessThanOrEqual(1);       // [[GDN-99]] is missing: any edit could add it
-      expect(unrelated["blocks.read+text"] ?? 0).toBeLessThanOrEqual(1);    // the embedded view's definition, with its results
-      // 2. Everything again (a reset): the card's embed targets in one blocks.read.
+      expect(unrelated["transclusions.read"] ?? 0).toBeLessThanOrEqual(1);  // the embedded view's definition, with its results
+      // 2. Everything again (a reset): the card's embeds in one transclusions.read.
       reset();
       invalidateEmbeds();
       await settled("the embeds again");
       const all = tally();
       console.log(`  requests to re-read every embed: ${JSON.stringify(all)}`);
-      expect(all["blocks.read+text"]).toBe(1);
-      expect(all["blocks.context"] ?? 0).toBeLessThanOrEqual(1);            // the trashed target, for its title
+      expect(all["transclusions.read"]).toBe(1);
+      expect(all["blocks.read+text"] ?? 0).toBe(0);
+      expect(all["blocks.context"] ?? 0).toBe(0);                          // the service names a trashed target
       // 3. A note whose body links a target by label and whose property holds the same target's id.
       const linked = await create(null, `Linked note [related-to::${ids.plan}]\nSee ((${ids.plan}|the plan)) and ((${ids.plan})).`);
       reset();

@@ -368,13 +368,15 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
 - **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
   aliases and Work IDs (`pages.complete`), `((` blocks by text (`blocks.query`), `((note#heading` or
-  `((note^id` their fragments, and `[file::` workspace paths (`files.complete`). The selected candidate
+  `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
+  door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
   `[[WORK-ID]]` when the title holds link delimiters), a page or alias `[[address]]`, a block
   `((id))`, a fragment `((id^fragment))`, a folder `[file::dir/` (its entries come next) and a file
-  `[file::path]`. Choosing checks the target still answers first. A heading in the note being edited
-  gets its `^anchor` in the draft when chosen; headings without one in other notes aren't offered (that
-  would write to them). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  `[file::path]`. Choosing checks the target still answers first (a fragment with `fragments.read`). A
+  heading without an anchor is offered with the anchor it would get: in the note being edited it's added
+  in the draft; in another note the service adds it when chosen (`fragments.ensure`, recorded as yours or
+  the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents. A service without a lookup says so in the popup, and typing carries on.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
@@ -492,17 +494,31 @@ element is current, and `esc` lets go of the element or selection first, then go
   property panel a value that names a block, a page or a Work ID (a click on a panel row selects it).
   Clicks find links where they are drawn, so scrolling and wrapping move them with the text. A missing
   target says so and nothing opens.
-- **Transclusions.** `!((id))` shows the target note, read-only, in a shaded region. A virtual-branch
-  target shows its results (`views.read`), with the view's `[summary-properties::]`, its count and
-  `TRUNCATED at N`, or `EMPTY`, `CONFIG ERROR`, `QUERY FAILED`. `!((id^fragment))` checks the fragment
-  with the service and shows the whole note with "fragment slices need PIE-404": the service doesn't
-  serve slices yet and the door doesn't re-derive the fragment rules. Missing and trashed targets,
-  missing or duplicate fragments, failed reads and the 17th embed (`EMBED LIMIT · maximum 16`) each say
-  what they are. Embeds refresh when their target changes (an embedded view: when anything does) and
-  are never recursive: an embed's own `!((…))` reads `!title · embed not expanded here`. `!((…))` in
-  inline code or a code fence stays code. A note's embed targets are read together (`blocks.read`), and
-  its links and block-valued properties resolve in one `references.resolve`, asked again only when a
-  change record names one of those blocks.
+- **Transclusions** (PIE-424, PIE-425). `!((id))` shows the target note rendered, as the reader draws a
+  note (headings, lists, steps, links), in a shaded region. `!((id^fragment))` shows just the fragment's
+  slice, as Detail does: a step with its continuation and nested steps, a heading's section, a paragraph.
+  Embeds nest: an embed inside an embedded note is drawn in place, one gutter further in, to the
+  service's depth (3 levels by default), and one that would open a note already open above it says
+  `CYCLE · this embed is already open above it`; past the depth it says `DEPTH LIMIT · embeds nest 3
+  deep`. The service owns these rules (`transclusions.read`: what a fragment covers, where a cycle is,
+  the limits and their wording, shared with Detail); the door asks and draws. A virtual-branch target
+  shows its results (`views.read`), with the view's `[summary-properties::]`, its count and
+  `TRUNCATED at N`, or `EMPTY`, `CONFIG ERROR`, `QUERY FAILED`. Missing and trashed targets, missing or
+  duplicate fragments, failed reads and the 17th embed of a document (`EMBED LIMIT · maximum 16`) each
+  say what they are. Links and steps inside an embed are elements like the note's own: `[ ]` stops on
+  them, a click acts on them. Embeds refresh when any note they show changes, nested ones included (an
+  embedded view: when anything does). `!((…))` in inline code or a code fence stays code. A note's embeds
+  are read together (one `transclusions.read`), and its links and block-valued properties resolve in one
+  `references.resolve`, asked again only when a change record names one of those blocks. Against a
+  service without `transclusions.read`, an embed shows its whole note once, not nested, and a fragment
+  says the service can't slice it.
+- **Following a fragment link** (PIE-425). A click on `((id^fragment))`, or `[ ]` then `⏎`, opens the
+  note where links open, scrolled so the fragment is at the top, whatever folds hid it unfolded, and
+  marked in the reading ruler's tint (`◆ ^beds · the fragment the link names`; `esc` lets go). Where the
+  fragment is comes from the service (`fragments.read`). A missing or duplicate fragment opens the note
+  and says so. Back and forward work as for any link. The reveal belongs to that one follow; if you
+  scroll while it's looked up, your scroll stays. An agent's follow never scrolls or marks the reader you
+  have focused; elsewhere its mark names the agent (`· an agent (<id>) followed it`).
 - **Literal regions** (PIE-422). Between a `<!-- literal -->` line and a `<!-- /literal -->` line the
   service doesn't read properties, so the reader draws `[key::value]` there as text; links and Markdown
   work as anywhere else. The marker lines aren't drawn (edit mode shows them), and a title skips them, as
@@ -565,8 +581,43 @@ where it was. Instead an agent sets a **focus mark** with `focus.set` (`block=`,
 says `◆ focus · an agent (<id>) marked …`, and the reader scrolls to it if it isn't in view. The person's
 position, selection and keys don't move. `focus.clear` takes it away. The mark lives in this door's reader;
 sharing it through the service, so other clients see it too, is PIE-423's service part. A river column
-draws its own digest of the note, so there `[ ]` steps its links, and `⏎` or `alt+⏎` opens the selected one
-beside or in a new column.
+draws the note's body through the surface's renderer inside its own column (its header and replies are
+the river's; no folds or comment marks there), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
+opens a link or an embed beside or in a new column, and a step's box opens its status choice.
+
+### Checklist steps
+
+Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem), in the note or
+inside an embed of another note, anchored ones (`!((id^t-8a6d7f))`) too (PIE-472). The service says
+which items are steps and reads their status (`checklist.query`, and each embed's projection carries
+its own); each step's box is a control, and `[ ]` stops on it with the note's other elements. Every
+change is one `checklist.update` of that step in the note it's in, checked against the step as it was
+read (a step changed since is refused, never overwritten), and recorded as whoever made it: you, or an
+agent by its id. Every reader showing the note, or an embed of it, redraws from the change. A step
+without an id is known by its text, never by where it sits: if the note is reordered while its status
+choice is open, the choice stays on that step, or closes ("that step changed…") if its text changed,
+and never acts on another. Your `[ ]` position stays on a step while the note is read again after a
+change (yours or an agent's).
+
+| Keys | Action |
+|---|---|
+| `⏎`, a click (or right-click) on a step's box | the status choice opens under it: Detail's choices, in its order |
+| `x` `o` `w` `!` in the choice | mark done, to do, waiting, problem |
+| `y`, `a` in the choice | Copy step link (`((note^t-…))` to your clipboard), Make addressable; either gives the step a stable id |
+| `j k` `↑↓` `⏎`, a click on a row; `esc` | move, choose; cancel. The choice holds your keys until then |
+| `space` on the current step | done, or back to to do (as Detail's space) |
+| `ctrl+z` | undo the last step change you made while reading this note |
+
+The keys were picked after checking every screen's: `space` pages a reader everywhere else and keeps doing
+so unless a step is the current element in view; `ctrl+z` is bound nowhere else in the door; `x o w !`
+and `y a` only mean this while the choice is open (it takes the keys first on the board, the desk, the
+river and the BBS reader), and match the board's steps overlay (`x w !`) and the door's `y` for copy.
+
+Agents use `tasks` (the steps the reader draws, in the note and in its embeds), `task.status` (`n=` or
+`id=`, `to=done|todo|waiting|problem`), `task.undo` (its own last change) and `task.link`. An agent's
+change is said in the status bar and the reader's header (`an agent (<id>) set "Sow the beans" to do →
+waiting · in !((…))`) and never moves your `[ ]` position, scroll or selection; the status choice is
+yours only.
 
 ### Selecting and copying text
 
@@ -742,6 +793,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
 | `elements`, `element.select`, `element.open` | `n` (from `elements`); `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `Enter`, `alt+Enter`, a click |
 | `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
+| `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
+| `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |
+| `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
+| `task.link`, `task.menu` | `n` or `id`. `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard); `task.menu` opens the status choice and is the person's only | the choice's `y`; `⏎` on a box |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
@@ -850,11 +905,14 @@ Writes, only on an explicit key or an agent's `act` (then attributed `author: ag
 - `annotations.lifecycle` when you resolve or reopen a thread.
 - `create` for a new card or a note under one: `author: user` for yours (the service takes an actor id
   only on agent blocks), `author: agent` with `provenance.actorId` for an agent's. Never retried.
-- `checklist.update` when you set a step, with the step's evidence (and its read revision when it has no
-  id), attributed like an edit.
+- `checklist.update` when you set a step (on the board's steps overlay, or a step's box in any reader, in
+  the note or inside an embed), or copy its link, with the step's evidence (and its read revision when
+  it has no id), attributed like an edit. A step without an id whose note moved on since it was read is
+  looked up again only when exactly one step has the same text; otherwise the refusal stands.
 - `delete` (to Trash) and `trash.restore`; the service records no author for either.
 
-Reads for those: `checklist.query`, and `properties.preview` before a create.
+Reads for those: `checklist.query`, `transclusions.read` (an embed's steps), and `properties.preview`
+before a create.
 
 The service has no auth or read-only mode, so these limits are the door's own discipline.
 
@@ -876,6 +934,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts steps     # its own scratch service: nested and anchored embeds, a cycle, a step's status choice, an agent's change
     EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
@@ -898,7 +957,9 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 ## Known limits
 
 - Live figures' `done:` and `now:` take plain clauses; `query:` needs `query.expression` for OR/NOT/dates.
-- Fragment transclusions show the whole target until the service serves fragment slices (PIE-404).
+- Nested embeds each keep their title row and gutter; PIE-185's flat composition (no chrome per level)
+  and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
+  the service's depth.
 - Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
   embedded view's result rows aren't followable (follow the `!((…))` link itself); `!((…))` inside a
   callout or a table stays a link.

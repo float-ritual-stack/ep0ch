@@ -11,7 +11,7 @@ three pane models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
-| render or read a note | `NoteSurface`, hosted through `SurfaceHost` (a view with its own header gives its rows through `SurfaceHost.header`, as the BBS message reader does, PIE-426); the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts` | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts` |
+| render or read a note | `NoteSurface`, hosted through `SurfaceHost` (a view with its own header gives its rows through `SurfaceHost.header`, as the BBS message reader does, PIE-426); the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts`; transclusions (`!((id))`, `!((id^fragment))`) by `src/embeds.ts` from the service's projection (`transclusions.read`, PIE-424: fragment slices, nesting depth, cycles and their wording are the service's), each embedded body drawn by the surface's own renderer; a followed `((id^fragment))` revealed from `fragments.read` (PIE-425) | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts`, `src/embeds.ts` |
 | let a person or agent do anything | the action registry: an `ActionDef` in an `ActionSet`; the key and `act` both call it | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes | the pane model: the layout tree (PIE-412), n-ary splits by weight with spines (`fixed`), minimums, drawers that slide over or pin (`over`), floats, borders that follow the pointer; the desk and the board are on it, the river's strip next (PIE-412 slice 2). Every operation is a `pane.*` action (split, close, resize, zoom, float, pin) | `src/desk/layout.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts` |
@@ -20,7 +20,7 @@ three pane models and four searches (§4).
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
 | show a Resource's stored details in a note (a ticket under `jira::`, a ticket page) | resource projections (PIE-445): `projectionsOf` asks the service (`resources.projection.read`, capability `resources.projection`; nothing extra without it), `projectionLayout` is Detail's `resourceProjectionLayout` as drawn (parity-tested), the surface draws each region after its line through `DocEnv.after`, and `resource-catalog` events repaint the ones shown. The door never registers, refreshes or contacts a provider | `src/projection.ts`, `src/surface/note.ts`, `src/doc.ts` |
-| move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, resource projections, comment marks, an expanded thread's controls), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; a comment mark expands its thread under the passage (PIE-420: `expanded`, the person's reading state like `folded`; drawn as body rows; its Select, Reply, Resolve controls act through `CommentSession`, the thread list's code); an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow` | `src/surface/note.ts`, `src/surface/selection.ts` |
+| move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, resource projections, comment marks, an expanded thread's controls, checklist steps in the note and inside embeds), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; a comment mark expands its thread under the passage (PIE-420: `expanded`, the person's reading state like `folded`; drawn as body rows; its Select, Reply, Resolve controls act through `CommentSession`, the thread list's code); an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow`. A checklist step is an element too (PIE-472): its box is tagged (`task` in `DocEnv`) where the service's `checklist.query`, or an embed's projection, says a step is; ⏎ or a click opens its status choice (Detail's choices, `STEP_CHOICES`), drawn as body rows under it like an expanded thread; every change is `NoteSurface.changeStep` through `checklist.update` with the actor's provenance, Undo is `StepHistory`, and agents use `tasks`, `task.status`, `task.undo`, `task.link` (the board's steps overlay, `s`, is a card-level list over the same service calls) | `src/surface/note.ts`, `src/surface/selection.ts`, `src/steps.ts` |
 | select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, gated by `Capability` | `src/socket.ts` |
 
@@ -133,10 +133,12 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | completion | `[[`, `((`, `[file::` popup | `cmp`; wired at `note:592` | completion |
 | fold | Folded heading or list item (reader state) | `note:835` | Folding |
 | selection | Text selected in a reader (reading state; only `y`, `Y` or the copy control copy it) | `Selection` `sel:52` | text selection |
-| element | What `[ ]` stops on in a reader: a link, a fold, a figure row, an embed, a resource projection, a comment mark; one is current | `elements` `note` | none |
+| element | What `[ ]` stops on in a reader: a link, a fold, a figure row, an embed, a resource projection, a comment mark, a checklist step; one is current | `elements` `note` | none |
 | reading ruler | The tint under the block the current element is in | `RULER_BG` `sel` | none |
 | focus mark | A block (maybe a passage) someone marked for the person, in the ruler's tint, named in the header; door-local until PIE-423's service part | `focus.set` `note` | focus mark (PIE-423) |
-| embed | `!((id))` transclusion region | `src/embeds.ts` | generated embed |
+| embed | `!((id))` transclusion region; `!((id^fragment))` shows the fragment's slice; nested to the service's depth | `src/embeds.ts` | generated embed |
+| step | A checklist item (`- [ ]`, `[x]`, `[~]`, `[!]`) whose box is a control, in the note or an embed | `task` elements, `src/steps.ts` | checklist control (PIE-367) |
+| status choice | The menu a step's box opens: done, to do, waiting, problem, Copy step link, Make addressable | `picker` `note`, `STEP_CHOICES` | status picker |
 | resource projection | A Resource's stored details (a ticket: key, summary, allowed fields, status, fetched time and its age) drawn read-only under the `jira::` line that names it, or at the top of a ticket page; ⏎ or a click opens the ticket's page, `y` copies it as drawn | `projectionsOf`, `projectionRegion` (`src/projection.ts`) | resource projection (a Detail region) |
 
 ### Entity navigation
@@ -319,8 +321,9 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   (`message.next`, `message.previous`, `message.thread`); where they meet the surface's, the surface
   goes first (key audit below, under F4). A followed link opens as the next message reader on the screen
   stack; an agent's never opens over an edit, comment or panel the person is in.
-- River cards stay a list, but PIE-431 decides whether a full river column reads through the surface
-  too (it already edits through it).
+- River cards stay a list. A full river column's note body is drawn by the surface (`NoteSurface.digest`,
+  PIE-472: the same renderer, transclusions and step controls, inside the river's own column and scroll);
+  its header and replies are still the river's, and PIE-431 decides the rest (folds, comment marks).
 
 ### F2. Pane operations are re-implemented per view
 
@@ -362,6 +365,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | `f` | fold | fold | filter | fold |
 | `alt+⏎` | second detail | — | duplicate column | the next reader, as ⏎ |
 | `q` | — | menu | "quote isn't here" | back |
+| `space` | lanes: — · a reader: page (a current step: done / to do) | page (a current step: done / to do) | toggle replies (a column's current step: done / to do) | page (a current step: done / to do) |
+| `ctrl+z` | undo a step change | undo a step change | undo a step change | undo a step change |
 
 - Pane operations should get one key layer (the desk's `^W` is the most complete). Reader keys
   are already consistent because they come from the surface.
@@ -373,6 +378,15 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   stage is the board's outline drawer from any focus, so stage is `w` (the steps overlay's `w`
   "waiting" can't be open at the same time). A filter being typed holds every key, `t b g` included.
 - `c` collapses wherever something collapses, and `C` comments in every reader (PIE-440).
+- **Steps (PIE-472)** take no new key while reading. `⏎` or a click (or right-click) on a step's box opens
+  its status choice, as on any element. Inside the choice `x o w !` mark done, to do, waiting and problem
+  (the board's steps overlay already uses `x w !`), `y` copies the step link (`y` copies everywhere) and
+  `a` makes it addressable; the choice takes every key first on the board, the desk, the river and the
+  BBS reader until a choice or `esc`, so their `x` (close), `o` (pop out, add pane) and `w` (the
+  backlinks drawer's stage) can't fire. Outside it, `space` toggles a step only while the step is the
+  current element in view (as Detail's space on a focused checkbox); it pages the reader otherwise, and
+  in the river it only reaches the step through the column's `[ ]`. `ctrl+z` undoes the last step change
+  you made in this reader (Detail's binding); nothing else in the door binds it.
 - **The BBS message reader (PIE-426)** meets the surface's keys this way. An edit, a comment or the
   property panel takes every key (`q`, `n`, `esc` included) until it closes. Otherwise the surface goes
   first and the BBS keys take what it leaves:

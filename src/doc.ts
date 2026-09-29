@@ -11,8 +11,9 @@ import { EMBED, presentLinks, stripMarks } from "./refs";
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
   /**
-   * Draw the `n`th transclusion (`!((id))`, `!((id^fragment))`) of the document, `width` wide. Without it
-   * (inside an embed) the token stays text: embeds are never expanded recursively.
+   * Draw the `n`th transclusion (`!((id))`, `!((id^fragment))`) of the document, `width` wide (an embedded
+   * note's own are drawn by its region, nested as the service projects them). Without it the token stays
+   * text.
    */
   embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
   /**
@@ -47,6 +48,18 @@ export interface DocEnv {
    * region (src/projection.ts). Without it (an embed, a draft's preview) nothing is inserted.
    */
   after?: (line: number, width: number) => string[];
+  /**
+   * A list item's step box (`[ ]`, `[x]`, `[~]`, `[!]`) on body line `line`: the text to draw in its place
+   * (the reader tags it, so `[ ]` stops on it and a click opens its status choice, PIE-472), or null to
+   * leave it as text. The reader offers it only where the service reads a checklist step. Without it (a
+   * draft's preview) boxes are text.
+   */
+  task?: (line: number, box: string) => string | null;
+  /**
+   * Keep link tags in the returned lines (and leave `links` empty): an embed's body, drawn inside the
+   * note's own document, whose tags the note's render turns into places (src/embeds.ts).
+   */
+  keepTags?: boolean;
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
@@ -191,7 +204,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const fp = at.get(i);
     if (fp && env.folds) {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
-      const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i));
+      const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i), env.task && (box => env.task!(i, box)));
       heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
@@ -324,10 +337,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         continue;
       }
     }
-    out.push(...prose(line, W, undefined, lit(i)));
+    out.push(...prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box))));
   }
   mark();
   insert(src.length);
+  if (env.keepTags) return { lines: out.map(stripMarks), images, media: mediaRefs, links: [], source, heads };
   const { lines, ranges } = extractLinks(out.map(stripMarks));
   return { lines, images, media: mediaRefs, links: ranges, source, heads };
 }
@@ -339,8 +353,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 interface Disclosure { folded: boolean; selected: boolean; hidden: number }
 const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidden === 1 ? "" : "s"} folded` + RESET;
 
-/** Blockquote, heading, list item or paragraph. */
-function prose(line: string, W: number, fold?: Disclosure, literal = false): string[] {
+/** A list item's step box at the start of its text. */
+const BOX = /^\[[ xX~!]\](?=\s|$)/;
+
+/** Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). */
+function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null): string[] {
   const out: string[] = [];
   const inline = (s: string) => inlineOf(s, literal);
   if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
@@ -356,7 +373,9 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false): str
     // Deep indentation in a narrow reader keeps some room for the text: the indent gives way first.
     const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
     const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
-    const rows = wrap(li[3]!, W - lead.length);
+    const box = task ? li[3]!.match(BOX)?.[0] : undefined;
+    const drawn = box ? task!(box) : null;
+    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length);
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;
   }

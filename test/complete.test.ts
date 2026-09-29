@@ -11,7 +11,7 @@ import { DeliveryBoard } from "../src/desk/delivery";
 import type { ReaderPane } from "../src/desk/panes";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
-import { completionTargetAtCursor, fragmentCandidates, pageAddressCompletion } from "../src/completion";
+import { completionTargetAtCursor, pageAddressCompletion } from "../src/completion";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
@@ -42,16 +42,6 @@ describe("the pure half, as the outliner has it", () => {
     expect(pageAddressCompletion(w, "HOME-001|the squeak", "HOME").insertion).toBe("[[HOME-001|the squeak]]");
     expect(pageAddressCompletion({ ...w, title: "Oil [[the]] hinges" }, "HOME", "HOME").insertion).toBe("[[HOME-001]]");
     expect(pageAddressCompletion({ address: "seeds", blockId: "b", kind: "page", title: "Seed list" }, "se", "HOME")).toEqual({ label: "seeds · Seed list", insertion: "[[seeds]]" });
-  });
-
-  test("fragments: headings (anchored or not) and anchors, never inside fenced code", () => {
-    const text = "Plan\n## Beds ^beds\n## Paths\n- [ ] edge the lawn ^edge\n```\n## not a heading ^code\n```";
-    expect(fragmentCandidates(text, "", "heading")).toEqual([
-      { kind: "heading", label: "Beds", lineIndex: 1, fragmentId: "beds" },
-      { kind: "heading", label: "Paths", lineIndex: 2 },
-      { kind: "list-item", label: "[ ] edge the lawn", lineIndex: 3, fragmentId: "edge" },
-    ]);
-    expect(fragmentCandidates(text, "ed", "id").map(c => c.fragmentId)).toEqual(["beds", "edge"]);
   });
 });
 
@@ -251,6 +241,23 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     // Nothing was written anywhere yet: the anchor is in the draft until ctrl+s.
     expect((await board.get(ids.plan!))!.text).toBe("Allotment plan\n## Beds\nfour of them\n## Paths ^paths");
   });
+
+  test("fragments come from the service: another note's heading past the first 600 notes, its anchor added by the service as the person's", async () => {
+    // The heading's note is the oldest of more than 600, where a 500-note search never reached (PIE-295).
+    const old = await create("Seed catalogue\n## Winter squash\nKeep the seed dry.");
+    for (let i = 0; i < 620; i++) await create(`Filler note ${i}\n## Section ${i}\nSome prose.`);
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("((#winter squ");
+    const p = await e.settled();
+    expect(p.message).not.toContain("searched only");
+    expect(p.items).toEqual([expect.objectContaining({ blockId: old, fragmentId: "winter-squash", label: "Seed catalogue » # Winter squash · adds anchor" })]);
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the insertion");
+    expect(e.d.lines.at(-1)).toBe(`((${old}^winter-squash))`);
+    const now = (await board.get(old))!;
+    expect(now.text).toBe("Seed catalogue\n## Winter squash ^winter-squash\nKeep the seed dry.");
+    expect(board.sent).toContain("fragments.ensure");
+  }, 60_000);
 
   test("[file:: completes workspace paths: a folder keeps the token open, a file closes it", async () => {
     const e = await editing(ids.compost!);

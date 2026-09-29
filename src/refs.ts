@@ -6,6 +6,7 @@ import type { Source } from "./props";
 import { emphasis } from "./inline";
 import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
+import type { StepRef } from "./steps";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
 export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
@@ -126,7 +127,13 @@ export interface LinkView { text: string; missing: boolean }
  * projection's head (src/projection.ts), whose `url` is the ticket's page and `reason` says why there is
  * none.
  */
-export type LinkTarget = { block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource"; reason?: string };
+export type LinkTarget = {
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task"; reason?: string;
+  /** A checklist step's box (role "task", PIE-472): the step, where it is, and the revision it was read at. */
+  task?: StepRef;
+  /** A row of a step's open status choice (role "task"): which choice, from 0. */
+  choice?: number;
+};
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
@@ -146,8 +153,9 @@ export function pageView(address: string, label: string | undefined, r: PageReso
 
 /**
  * Body text with links replaced by how they read, between markers colourBody styles. Code fences and
- * inline code keep their text. Transclusions (`!((…))`) are left for the renderer when `embeds` is on;
- * inside an embed (off) they read as a link that says it isn't expanded: embeds are never recursive.
+ * inline code keep their text. Transclusions (`!((…))`) are left for the renderer when `embeds` is on
+ * (it nests them as the service projects them); off (a component's labels, a list's digest) they read as
+ * a link that says it isn't expanded there.
  */
 /** A live figure's first line (src/graphs.ts `isGraphStart`). */
 const GRAPH_START = /^\s*::graph-[a-z-]+\s*$/;
