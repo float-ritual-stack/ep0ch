@@ -12,6 +12,7 @@ import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { outlineChanged as outlineChangedForTest } from "../src/refs";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -203,6 +204,70 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     const link = await s.act("task.link", { id: "t-d4e5f6" }, host, { kind: "user" }) as any;
     expect(link.link).toBe(`((${n.garden.id}^t-d4e5f6))`);
     expect(copied.at(-1)).toBe(link.link);
+  }, 30_000);
+
+  test("an agent's change to the step the person is on keeps their [ ] there; space, space toggles it back and forth (S1)", async () => {
+    const errands = await create("Errands\n- [ ] Post the parcel\n- [ ] Return the library book");
+    const { s, host, draw } = reader();
+    s.show(await board.get(errands.id), host);
+    await settle(draw, t => t.includes("Post the parcel"), "the note");
+    await until(() => { draw(); return (s.describe().steps?.drawn ?? 0) === 2; }, "the note's steps");
+    s.key(char("]"), host); draw();
+    const on = () => s.describe().elements?.current?.label ?? "";
+    expect(on()).toContain("Post the parcel");
+    await s.act("task.status", { n: 1, to: "done" }, host, { kind: "agent", id: AGENT });
+    // Every render in the moment the steps are read again, and after, keeps the person on the step.
+    for (let i = 0; i < 20; i++) { draw(); expect(on()).toContain("Post the parcel"); await Bun.sleep(10); }
+    expect(await textOf(errands.id)).toMatch(/- \[x\] Post the parcel \^t-/);
+    s.key(char(" "), host);
+    await until(() => flashes.at(-1)?.includes("done → to do") ?? false, "space: back to to do");
+    draw(); expect(on()).toContain("Post the parcel");
+    s.key(char(" "), host);
+    await until(() => flashes.at(-1)?.includes("to do → done") ?? false, "space again: done");
+    draw(); expect(on()).toContain("Post the parcel");
+    expect(await textOf(errands.id)).toMatch(/- \[x\] Post the parcel \^t-[0-9a-f]+\n- \[ \] Return the library book$/);
+  }, 30_000);
+
+  test("steps without an id are themselves by their text: a reorder while a choice is open never changes another step (S2)", async () => {
+    const shop = await create("Shopping\n- [ ] Buy bread\n- [ ] Buy milk");
+    const { s, host, draw } = reader();
+    s.show(await board.get(shop.id), host);
+    await until(() => { draw(); return (s.describe().steps?.drawn ?? 0) === 2; }, "the steps");
+    s.key(char("]"), host); draw();
+    expect(s.describe().elements!.current!.label).toContain("Buy bread");
+    s.key({ kind: "enter" }, host); draw();
+    expect(s.picker).not.toBeNull();
+    // Someone else reorders the list: "Buy milk" now sits where "Buy bread" was.
+    const now = (await board.get(shop.id))!;
+    await board.update(shop.id, "Shopping\n- [ ] Buy milk\n- [ ] Buy bread", now.revision!);
+    s.refresh((await board.get(shop.id))!);
+    outlineChangedForTest([shop.id]);
+    await until(() => { draw(); return (s.describe().steps?.drawn ?? 0) === 2 && draw().join("\n").indexOf("Buy milk") < draw().join("\n").indexOf("Buy bread"); }, "the reordered note");
+    s.key(char("x"), host);
+    await until(() => s.picker === null, "the choice to land or close");
+    const text = await textOf(shop.id);
+    expect(text).toContain("- [ ] Buy milk\n");                      // untouched
+    expect(text).toMatch(/- \[x\] Buy bread \^t-|- \[ \] Buy bread$/); // the step under the choice, or nothing
+  }, 30_000);
+
+  test("an agent's link.follow never scrolls or marks the person's focused reader; elsewhere it's marked as the agent's (S3)", async () => {
+    const make = (focused: boolean) => {
+      const s = new NoteSurface();
+      const host: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate: m => { s.show(m, host); }, focused };
+      return { s, host, draw: () => s.render(160, 12, host).lines.map(plain) };
+    };
+    const long = await create(["Long notes", ...Array.from({ length: 40 }, (_, i) => `Line ${i}`), "## Far down ^far", "The end."].join("\n"));
+    const pointer = await create(`Pointer\nSee ((${long.id}^far)).`);
+    for (const focused of [true, false]) {
+      const { s, host, draw } = make(focused);
+      s.show((await board.get(pointer.id))!, host);
+      await until(() => draw().join("\n").includes("Long notes"), "the link's title");
+      await s.act("link.follow", { n: 1 }, host, { kind: "agent", id: AGENT });
+      expect(s.msg!.id).toBe(long.id);
+      await Bun.sleep(300); draw();
+      if (focused) { expect(s.scroll).toBe(0); expect(s.describe().focus).toBeNull(); }
+      else { expect(s.describe().focus).toMatchObject({ by: AGENT, marked: "^far" }); expect(draw().some(l => l.includes(`an agent (${AGENT}) followed it`))).toBe(true); }
+    }
   }, 30_000);
 
   test("a step changed elsewhere since it was read is refused, never overwritten", async () => {

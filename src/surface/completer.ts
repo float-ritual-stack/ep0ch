@@ -1,13 +1,13 @@
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, the way Tree, Detail and Quick Capture
-// do, from the same service lookups (`pages.complete`, `blocks.query`, `files.complete`,
-// `blocks.context`), so the door keeps no index of its own. Keep typing to filter, up/down choose,
+// do, from the same service lookups (`pages.complete`, `blocks.query`, `fragments.candidates`,
+// `files.complete`, `blocks.context`), so the door keeps no index and no fragment rules of its own. Keep typing to filter, up/down choose,
 // Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup never keeps a key it
 // doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do in a draft.
 import { subject, type Msg } from "../board";
 import {
-  completionTargetAtCursor, completionWindow, ensureHeadingFragment, fragmentCandidates, pageAddressCompletion,
-  pageCompletionLookupQuery, parseFragmentCompletionQuery, resolveFragment, type CompletionTarget,
+  completionTargetAtCursor, completionWindow, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
+  type CompletionTarget,
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
@@ -21,7 +21,7 @@ export const COMPLETION_ROWS = 8;
 export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inserts · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "findBlocks" | "blockContext" | "workIdPrefix">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "findBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment">;
 
 export interface CompletionItem {
   label: string;
@@ -33,8 +33,12 @@ export interface CompletionItem {
   fragmentId?: string;
   /** Where it sits (ancestors) and how its body starts; read for the selected candidate. */
   context?: string;
-  /** A heading in the draft's own note that gets its `^anchor` when chosen: that line's new text. */
-  anchor?: { lineIndex: number; line: string };
+  /**
+   * A heading without an anchor that gets one when chosen: in the draft's own note, that line's new text
+   * (the draft saves it); in another note, the service writes it (`fragments.ensure`), if that note is
+   * still at `revision`.
+   */
+  anchor?: { lineIndex: number; line: string; revision: number };
 }
 
 export interface CompletionLookup {
@@ -75,29 +79,20 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
       items = r.blocks.map(b => ({ label: title(b), blockId: b.id, kind: "block", context: snippet(b.text), insertion: `((${b.id}))` }));
       empty = "no matching blocks";
     } else {
-      // `((garden#beds` / `((garden^be`: the notes the block part finds (the draft's own note first, as
-      // typed), then their headings and anchors. A heading without an anchor is offered only in the draft's
-      // own note, where choosing it adds the anchor in the draft; another note's would need a write to it.
-      const r = await board.findBlocks(fragment.blockQuery || undefined, fragment.blockQuery ? 50 : 500);
-      if (r.truncated) partial = `searched only ${r.blocks.length} notes; more weren't checked`;
-      const blocks = r.blocks.filter(b => b.id !== own?.blockId);
-      const ownFirst = own && (!fragment.blockQuery || r.blocks.some(b => b.id === own.blockId)) ? [{ id: own.blockId, text: own.text } as Msg] : [];
-      let found = 0;
-      for (const b of [...ownFirst, ...blocks]) {
-        const mine = b.id === own?.blockId;
-        for (const c of fragmentCandidates(b.text, fragment.fragmentQuery, fragment.mode)) {
-          if (!c.fragmentId && !mine) continue;
-          if (++found > COMPLETION_LIMIT) continue;
-          const anchor = c.fragmentId ? null : ensureHeadingFragment(b.text, c.lineIndex);
-          const id = c.fragmentId ?? anchor!.fragmentId;
-          items.push({
-            label: `${title(b as Msg)} » ${c.kind === "heading" ? "#" : "^"} ${c.label}${c.fragmentId ? ` · ^${c.fragmentId}` : " · adds anchor"}`,
-            blockId: b.id, fragmentId: id, kind: "fragment", context: snippet(b.text), insertion: `((${b.id}^${id}))`,
-            ...(anchor?.created ? { anchor: { lineIndex: c.lineIndex, line: anchor.line } } : {}),
-          });
-        }
-      }
-      if (found > COMPLETION_LIMIT) { truncated = COMPLETION_LIMIT; partial = [partial, `showing the first ${COMPLETION_LIMIT} fragments`].filter(Boolean).join(" · "); }
+      // `((garden#beds` / `((garden^be`: the service searches every note by its own fragment rules
+      // (PIE-424), the draft's own note first as typed. A heading without an anchor comes with the anchor
+      // it would get; choosing it adds that anchor (in the draft, or through the service in another note).
+      const r = await board.fragmentCandidates({ ...(fragment.blockQuery ? { noteQuery: fragment.blockQuery } : {}), fragmentQuery: fragment.fragmentQuery, mode: fragment.mode, limit: COMPLETION_LIMIT, ...(own ? { draft: own } : {}) });
+      if (!r) return { items, truncated, message: "this service can't search fragments (it needs fragments.candidates)" };
+      items = r.items.map(c => {
+        const id = c.fragmentId ?? c.anchor!.fragmentId;
+        return {
+          label: `${c.title} » ${c.kind === "heading" ? "#" : "^"} ${c.label}${c.fragmentId ? ` · ^${c.fragmentId}` : " · adds anchor"}`,
+          blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
+          ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
+        };
+      });
+      if (r.completeness.kind === "truncated") { truncated = r.completeness.limit ?? COMPLETION_LIMIT; partial = `showing the first ${truncated} fragments`; }
       empty = "no matching fragments";
     }
   }
@@ -120,9 +115,19 @@ export async function insertCompletion(board: CompletionBoard, d: Draft, target:
     const ctx = await board.blockContext(item.blockId);
     if (!still()) return false;
     if (ctx && (!ctx.selected || ctx.selected.id !== item.blockId || ctx.selected.deleted)) throw new Error("that note is no longer there; search again");
-    if (item.fragmentId && !item.anchor) {
-      const source = own?.blockId === item.blockId ? own.text : ctx?.selected?.text;
-      if (source !== undefined && resolveFragment(source, item.fragmentId) !== "resolved") throw new Error("that fragment changed or is ambiguous; search again");
+    const mine = own?.blockId === item.blockId;
+    // Another note's fragment: the service says it's still there, once (the draft's own was read as typed).
+    if (item.fragmentId && !item.anchor && !mine) {
+      const f = await board.readFragment(item.blockId, item.fragmentId);
+      if (!still()) return false;
+      if (f && f.status !== "resolved") throw new Error("that fragment changed or is ambiguous; search again");
+    }
+    // Another note's heading gets its anchor from the service, if that note hasn't changed since it was offered.
+    if (item.fragmentId && item.anchor && !mine) {
+      const written = await board.ensureFragment(item.blockId, item.anchor.lineIndex, item.anchor.revision, by)
+        .catch((e: Error) => { throw new Error(`the anchor wasn't added: ${e.message}`); });
+      if (!still()) return false;
+      if (written.fragmentId !== item.fragmentId) throw new Error("that heading changed; search again");
     }
   }
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by);

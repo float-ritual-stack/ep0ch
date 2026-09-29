@@ -59,30 +59,59 @@ export interface StepRef { block: string; revision: number; step: ChecklistStep;
 
 interface Entry { read: ChecklistRead | null; at: number; asking: boolean; error?: string }
 const readsBy = new WeakMap<object, Map<string, Entry>>();
+const askingBy = new WeakMap<object, number>();
+/** Steps being read again on this connection: a reader keeps the person's `[ ]` on a step meanwhile. */
+export const stepsLoading = (board: object) => (askingBy.get(board) ?? 0) > 0;
 
 /**
- * The steps of `m` at its revision (`checklist.query`), asked in the background and kept until the note
- * changes; null until the answer arrives (then the reader is redrawn). A read of another revision is never
- * used for this one: a step is only offered where the service says it is.
+ * The steps of `m` (`checklist.query`), asked in the background and kept until the note changes, then
+ * asked again. Until the new answer lands the last one stays (it may be of an earlier revision: the reader
+ * offers a step from it only on a line that still reads the same, and the service checks every write
+ * against the step as read), so a change doesn't make the steps blink out. Null before the first answer.
  */
 export function stepsOf(m: Msg, src: Source | null | undefined): ChecklistRead | null {
   if (!src || m.partial || typeof (src.board as { checklist?: unknown }).checklist !== "function") return null;
   let cache = readsBy.get(src.board);
   if (!cache) readsBy.set(src.board, (cache = new Map()));
   const hit = cache.get(m.id), c = cache;
-  const usable = hit?.read && hit.read.revision === m.revision ? hit.read : null;
+  const usable = hit?.read ?? null;
   // Asked already, or answered since the note last changed (a read newer than the note shown waits for
   // the note to catch up; a refusal waits for the next change): no new question.
-  const settled = hit && !changedSince(hit.at, [m.id]) && (usable || hit.error || (hit.read && m.revision !== undefined && hit.read.revision > m.revision));
+  const settled = hit && !changedSince(hit.at, [m.id]) && ((usable && (usable.revision === m.revision || (m.revision !== undefined && usable.revision > m.revision))) || hit.error);
   if (hit && (hit.asking || settled)) return usable;
   const at = changeClock();
   cache.set(m.id, { read: hit?.read ?? null, at, asking: true });
   if (cache.size > 300) cache.delete(cache.keys().next().value!);
-  src.board.checklist(m.id, 1000).then(
-    read => { c.set(m.id, { read, at, asking: false }); src.redraw(); },
-    (e: Error) => { c.set(m.id, { read: hit?.read ?? null, at, asking: false, error: e.message }); },
+  const b = src.board;
+  askingBy.set(b, (askingBy.get(b) ?? 0) + 1);
+  const done = () => askingBy.set(b, Math.max(0, (askingBy.get(b) ?? 1) - 1));
+  b.checklist(m.id, 1000).then(
+    read => { done(); c.set(m.id, { read, at, asking: false }); src.redraw(); },
+    (e: Error) => { done(); c.set(m.id, { read: hit?.read ?? null, at, asking: false, error: e.message }); src.redraw(); },
   );
   return usable;
+}
+
+/**
+ * A step this door just changed (`checklist.update`'s receipt): the kept read of its note takes the step as
+ * it is now and the note's new revision at once, so the reader keeps offering it (with its new evidence)
+ * while the note is read again.
+ */
+export function stepChanged(board: object, blockId: string, before: ChecklistStep, after: ChecklistStep, revision: number | undefined) {
+  const e = readsBy.get(board)?.get(blockId);
+  if (!e?.read) return;
+  const same = (x: ChecklistStep) => (before.itemId ? x.itemId === before.itemId : x.span.start === before.span.start && x.evidence === before.evidence);
+  e.read = { ...e.read, ...(revision !== undefined ? { revision } : {}), items: e.read.items.map(x => (same(x) ? after : x)) };
+}
+
+/**
+ * Whether a step read from an earlier revision still stands on note line `line` of `text`: the line reads
+ * the same but for its box (a status change) and its anchor (a first change gives it an id).
+ */
+export function stepStillOn(step: ChecklistStep, text: string, line: number): boolean {
+  const plain = (l: string) => l.replace(/\[[ xX~!]\]/, "[ ]").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trimEnd();
+  const now = text.split("\n")[line];
+  return now !== undefined && plain(now) === plain(step.text.split("\n", 1)[0] ?? "");
 }
 
 // ── Undo ─────────────────────────────────────────────────────────────────────────────────────────────

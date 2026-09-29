@@ -23,7 +23,7 @@ const CLIENT_PROTOCOL = 82;
  */
 export type Capability = "blocks.read" | "properties.preview" | "views.read" | "query.expression" | "changes.since" | "references.backlinks.facets" | "resources.projection"
   /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
-  | "fragments.read" | "transclusions.read"
+  | "fragments.read" | "transclusions.read" | "fragments.candidates"
   /** An outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
   | HostCapability;
 
@@ -200,13 +200,21 @@ export type FragmentRead =
   | { blockId: string; fragmentId: string; revision: number; status: "missing" }
   | { blockId: string; fragmentId: string; revision: number; status: "duplicate"; duplicates: { kind: string; label: string; line: number }[] };
 
+/** A fragment completion can link to, as `fragments.candidates` finds it. */
+export interface FragmentCandidate {
+  blockId: string; title: string; revision: number; kind: "heading" | "paragraph" | "list-item"; label: string; lineIndex: number;
+  fragmentId?: string;
+  /** A heading without an anchor: the anchor it would get, and its line with it. */
+  anchor?: { fragmentId: string; line: string };
+}
+
 /**
  * One transclusion as the service projects it (`transclusions.read`): ready with its note (and a fragment's
  * slice), the steps inside what it shows and the embeds inside it, nested; or why not, in the service's words.
  */
 export interface TransclusionNode {
   blockId: string; fragmentId?: string; depth: number;
-  status: "ready" | "missing" | "deleted" | "failed" | "fragment-missing" | "fragment-duplicate" | "limit" | "depth-limit" | "cycle" | "budget";
+  status: "ready" | "missing" | "deleted" | "failed" | "fragment-missing" | "fragment-duplicate" | "limit" | "depth-limit" | "cycle" | "budget" | "too-large";
   message?: string; kind?: "note" | "fragment" | "view"; title?: string; revision?: number;
   block?: Msg; fragment?: FragmentSlice; checklist?: ChecklistStep[]; embeds?: TransclusionNode[];
 }
@@ -925,6 +933,20 @@ export class SocketBoard implements Board {
     return { block: toMsg(r.block), item: r.item, changed: r.changed };
   }
 
+  /**
+   * `((note#…` / `((note^…` completion over every note, by the service's fragment rules (PIE-424): each
+   * match with its note and, for a heading without an anchor, the anchor it would get. Null on a service
+   * without `fragments.candidates`.
+   */
+  fragmentCandidates(query: { noteQuery?: string; fragmentQuery: string; mode: "heading" | "id"; limit: number; draft?: { blockId: string; text: string } }) {
+    return this.optional<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", "fragments.candidates", { query });
+  }
+
+  /** Give the heading on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
+  ensureFragment(blockId: string, lineIndex: number, expectedRevision: number, actor: Actor = USER): Promise<{ fragmentId: string; created: boolean }> {
+    return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
+  }
+
   /** `((id^fragment))`'s slice of its note (PIE-424); null on a service without `fragments.read`. */
   readFragment(blockId: string, fragmentId: string): Promise<FragmentRead | null> {
     return this.optional<FragmentRead>("fragments.read", "fragments.read", { blockId, fragmentId });
@@ -936,11 +958,21 @@ export class SocketBoard implements Board {
    * they're embedded in (embedding it again is a cycle). Null on a service without it.
    */
   async readTransclusions(targets: { blockId: string; fragmentId?: string }[], hostBlockId?: string): Promise<TransclusionRead | null> {
-    type Wire = Omit<TransclusionNode, "block" | "embeds"> & { block?: WireBlock; embeds?: Wire[] };
-    const r = await this.optional<Omit<TransclusionRead, "results"> & { results: Wire[] }>("transclusions.read", "transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
+    // The service sends each note once (`blocks`) and its steps once (`checklists`, without their text);
+    // each projection names its note and the lines it shows. Put them back together per projection.
+    type Wire = Omit<TransclusionNode, "block" | "embeds" | "checklist"> & { shownLines?: { start: number; end: number }; embeds?: Wire[] };
+    type WireStep = Omit<ChecklistStep, "text">;
+    const r = await this.optional<Omit<TransclusionRead, "results"> & { results: Wire[]; blocks?: Record<string, WireBlock>; checklists?: Record<string, WireStep[]> }>("transclusions.read", "transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
     if (!r) return null;
-    const node = (n: Wire): TransclusionNode => ({ ...n, block: n.block ? toMsg(n.block) : undefined, embeds: n.embeds?.map(node) });
-    return { ...r, results: r.results.map(node) };
+    const blocks = new Map(Object.entries(r.blocks ?? {}).map(([id, b]) => [id, toMsg(b)]));
+    const node = (n: Wire): TransclusionNode => {
+      const block = blocks.get(n.blockId), lines = n.shownLines;
+      const checklist = block && lines ? (r.checklists?.[n.blockId] ?? [])
+        .filter(s => s.span.startLine >= lines.start && s.span.startLine <= lines.end)
+        .map(s => ({ ...s, text: block.text.slice(s.span.start, s.span.end).trimEnd() })) : undefined;
+      return { ...n, ...(n.status === "ready" && block ? { block } : {}), ...(checklist ? { checklist } : {}), embeds: n.embeds?.map(node) };
+    };
+    return { limits: r.limits, dependencies: r.dependencies, results: r.results.map(node) };
   }
 
   close(): void {

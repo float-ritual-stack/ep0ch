@@ -368,13 +368,15 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
 - **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
   aliases and Work IDs (`pages.complete`), `((` blocks by text (`blocks.query`), `((note#heading` or
-  `((note^id` their fragments, and `[file::` workspace paths (`files.complete`). The selected candidate
+  `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
+  door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
   `[[WORK-ID]]` when the title holds link delimiters), a page or alias `[[address]]`, a block
   `((id))`, a fragment `((id^fragment))`, a folder `[file::dir/` (its entries come next) and a file
-  `[file::path]`. Choosing checks the target still answers first. A heading in the note being edited
-  gets its `^anchor` in the draft when chosen; headings without one in other notes aren't offered (that
-  would write to them). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  `[file::path]`. Choosing checks the target still answers first (a fragment with `fragments.read`). A
+  heading without an anchor is offered with the anchor it would get: in the note being edited it's added
+  in the draft; in another note the service adds it when chosen (`fragments.ensure`, recorded as yours or
+  the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents. A service without a lookup says so in the popup, and typing carries on.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
@@ -514,7 +516,9 @@ element is current, and `esc` lets go of the element or selection first, then go
   note where links open, scrolled so the fragment is at the top, whatever folds hid it unfolded, and
   marked in the reading ruler's tint (`◆ ^beds · the fragment the link names`; `esc` lets go). Where the
   fragment is comes from the service (`fragments.read`). A missing or duplicate fragment opens the note
-  and says so. Back and forward work as for any link.
+  and says so. Back and forward work as for any link. The reveal belongs to that one follow; if you
+  scroll while it's looked up, your scroll stays. An agent's follow never scrolls or marks the reader you
+  have focused; elsewhere its mark names the agent (`· an agent (<id>) followed it`).
 - **Literal regions** (PIE-422). Between a `<!-- literal -->` line and a `<!-- /literal -->` line the
   service doesn't read properties, so the reader draws `[key::value]` there as text; links and Markdown
   work as anywhere else. The marker lines aren't drawn (edit mode shows them), and a title skips them, as
@@ -589,7 +593,11 @@ which items are steps and reads their status (`checklist.query`, and each embed'
 its own); each step's box is a control, and `[ ]` stops on it with the note's other elements. Every
 change is one `checklist.update` of that step in the note it's in, checked against the step as it was
 read (a step changed since is refused, never overwritten), and recorded as whoever made it: you, or an
-agent by its id. Every reader showing the note, or an embed of it, redraws from the change.
+agent by its id. Every reader showing the note, or an embed of it, redraws from the change. A step
+without an id is known by its text, never by where it sits: if the note is reordered while its status
+choice is open, the choice stays on that step, or closes ("that step changed…") if its text changed,
+and never acts on another. Your `[ ]` position stays on a step while the note is read again after a
+change (yours or an agent's).
 
 | Keys | Action |
 |---|---|

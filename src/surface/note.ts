@@ -11,11 +11,11 @@ import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
-import { embedRegion, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedStepChanged, SHADE, type EmbedBody } from "../embeds";
 import { projectionRegion, projectionsOf, type ResourceProjection } from "../projection";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, StepHistory, stepLink, stepsOf, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
 import { Draft, sameParty } from "../edit";
@@ -66,6 +66,8 @@ export interface SurfaceHost {
   history?: ReaderHistory;
   /** This is the reader the person has focused: an agent's `back` and `forward` are refused here. */
   focused?: boolean;
+  /** Whose action runs through this host: an agent's (NoteSurface.act sets it), else the person's. */
+  actor?: Actor;
 }
 
 /** Back and forward where a view keeps them (SurfaceHost.history). */
@@ -87,10 +89,12 @@ interface Place { msg: Msg; scroll: number; cur: string | null; link: number; fo
 const HISTORY = 50;
 
 /**
- * A fragment link just followed (PIE-425): whichever reader the host opens its note in (in place, a detail,
- * a new column) reveals the fragment when it shows the note, within a moment of the follow.
+ * A fragment link just followed (PIE-425), kept on the note object that follow handed its host: whichever
+ * reader the host shows that object in (in place, a detail, a new column) reveals the fragment, once. It's
+ * scoped to that navigation: another show of the same note (a refresh, another follow) is a different object.
+ * `by`: whose follow it was; an agent's never scrolls or marks the reader the person has focused.
  */
-let pending: { block: string; fragment: string; until: number } | null = null;
+const revealOn = new WeakMap<Msg, { fragment: string; by: Actor }>();
 
 /**
  * A reader's history keys (PIE-453): alt+←, backspace or the mouse's back button go back; alt+→ or its forward
@@ -454,8 +458,7 @@ export class NoteSurface {
     if (m.partial) this.readWhole(host);
     void this.loadComments(host);
     // A followed `((id^fragment))` opened here: the fragment comes into view, marked (PIE-425).
-    const f = pending && pending.block === m.id && Date.now() < pending.until ? pending : null;
-    if (f) void this.revealFragment(f.fragment, host);
+    this.takeReveal(m, host);
     host.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
       this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw();
@@ -527,7 +530,7 @@ export class NoteSurface {
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     ];
     if (this.panel) {
       const rows = this.rows(m);
@@ -596,7 +599,7 @@ export class NoteSurface {
     const marks = this.commentMarks(m, doc, noteLines);
     for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
     this.elems = this.elementsOf(doc, drawn, marks, controls, summary ? summaryLinks : [], points, top, head, summaryRow);
-    this.keepCurrent();
+    this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - top);
     this.maxScroll = Math.max(0, body.length - Math.max(1, room));
@@ -698,7 +701,9 @@ export class NoteSurface {
     return {
       embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id),
       task: (i, box) => {
-        const st = stepAt.get(noteLines[i] ?? -1);
+        const line = noteLines[i] ?? -1, st = stepAt.get(line);
+        // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
+        if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
         return st && steps ? LINK_ON + linkTag(drawn.push({ role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }) - 1) + box + LINK_END + LINK_OFF : null;
       },
     };
@@ -728,7 +733,7 @@ export class NoteSurface {
     });
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
     this.elems = this.elementsOf(doc, drawn, [], [], [], [], 0, [], 0);
-    this.keepCurrent();
+    this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
@@ -1763,10 +1768,20 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    if (l.fragment) pending = { block: target.id, fragment: l.fragment, until: Date.now() + 3000 };
+    if (l.fragment) revealOn.set(target, { fragment: l.fragment, by: host.actor ?? USER });
     this.track(() => host.navigate(target, how));
-    if (pending?.block === target.id && this.msg?.id === target.id) void this.revealFragment(pending.fragment, host);
+    // A host that kept the note in this reader without showing it again (it already showed it).
+    if (this.msg?.id === target.id) this.takeReveal(target, host);
     return target;
+  }
+
+  /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
+  private takeReveal(m: Msg, host: SurfaceHost) {
+    const r = revealOn.get(m);
+    if (!r) return;
+    if (r.by.kind === "agent" && host.focused !== false) return;
+    revealOn.delete(m);
+    void this.revealFragment(r.fragment, host, r.by);
   }
 
   /** `u`: the note's parent. */
@@ -1785,12 +1800,24 @@ export class NoteSurface {
    * until every place it's drawn has been read again (an embed a moment late) it may still be drawn under
    * its old name, and the person's `[ ]` position follows it either way.
    */
-  private keepCurrent() {
-    if (!this.cur || this.elems.some(e => e.key === this.cur)) return;
-    const a = this.stepRenamed;
-    const other = !a ? null : this.cur.startsWith(`${a.now}#`) ? a.was + this.cur.slice(a.now.length) : this.cur.startsWith(`${a.was}#`) ? a.now + this.cur.slice(a.was.length) : null;
-    if (other && this.elems.some(e => e.key === other)) { if (this.picker?.key === this.cur) this.picker.key = other; this.cur = other; return; }
-    this.letGo();
+  private keepCurrent(host?: SurfaceHost) {
+    const drawn = (key: string) => this.elems.some(e => e.key === key);
+    const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
+    if (this.cur && !drawn(this.cur)) {
+      const a = this.stepRenamed, cur = this.cur;
+      const other = !a ? null : cur.startsWith(`${a.now}#`) ? a.was + cur.slice(a.now.length) : cur.startsWith(`${a.was}#`) ? a.now + cur.slice(a.was.length) : null;
+      if (other && drawn(other)) { if (this.picker?.key === cur) this.picker.key = other; this.cur = other; }
+      // A step isn't let go of while the steps are read again: it's back once they are.
+      else if (!(cur.startsWith("task:") && loading)) this.letGo();
+    }
+    // The step under an open status choice changed (its text, or it's gone): the choice closes rather than
+    // act on whatever is there now.
+    const P = this.picker;
+    if (P && !drawn(P.key) && !loading && !P.busy) {
+      this.picker = null;
+      if (this.cur === P.key) this.letGo();
+      host?.ctx.flash("that step changed while its status choice was open · nothing was changed · choose again");
+    }
   }
 
   /** A step's status choice, opened on its box (⏎, a click): the person's, the current element meanwhile. */
@@ -1850,6 +1877,10 @@ export class NoteSurface {
       host.redraw();
       throw new ActionRefused(why);
     }
+    // The change is known now: every kept read of the note takes it at once (the re-read confirms it), so
+    // the step stays offered, with its new evidence, wherever it's drawn.
+    stepChanged(host.ctx.board, ref.block, ref.step, r.item, r.block.revision);
+    embedStepChanged(host.ctx.board, r.block, ref.step, r.item);
     outlineChanged([ref.block]);
     if (this.msg?.id === ref.block && !this.msg.partial) this.refresh({ ...r.block, childIds: this.msg.childIds });
     const was = taskBase(ref), now = taskBase({ ...ref, step: r.item });
@@ -1916,6 +1947,8 @@ export class NoteSurface {
       throw new ActionRefused(why);
     }
     this.stepHistory.drop(e);
+    stepChanged(host.ctx.board, e.block, step, r.item, r.block.revision);
+    embedStepChanged(host.ctx.board, r.block, step, r.item);
     outlineChanged([e.block]);
     if (this.msg?.id === e.block && !this.msg.partial) this.refresh({ ...r.block, childIds: this.msg.childIds });
     const said = `undid: "${e.title}" ${statusWord(e.to)} → ${statusWord(e.status)}`;
@@ -1987,10 +2020,11 @@ export class NoteSurface {
    * folds hide it unfolds, and it's scrolled to the top and marked in the reading ruler's tint until esc or
    * the reader moves on. Missing and duplicate fragments are said.
    */
-  async revealFragment(fragment: string, host: SurfaceHost) {
-    pending = null;
+  async revealFragment(fragment: string, host: SurfaceHost, by: Actor = USER) {
     const m = this.msg;
     if (!m) return;
+    // A scroll made while the fragment is looked up is the reader's own: it isn't undone.
+    const from = this.scroll;
     const read = await host.ctx.board.readFragment(m.id, fragment).catch((e: Error) => ({ error: e.message }));
     let now: Msg;
     try { now = await this.whole(); } catch { return; }
@@ -2004,8 +2038,8 @@ export class NoteSurface {
     const { points, lines } = this.foldsIn(now);
     const at = lines.indexOf(startLine);
     for (const p of points) if (this.folded.has(p.key) && at >= 0 && p.line < at && at < p.end) this.folded.delete(p.key);
-    this.focusMark = { by: USER, spec: { line: startLine + 1, to: endLine + 1 }, label: `^${fragment}`, at: Date.now(), fragment: true };
-    this.revealMark = true;
+    this.focusMark = { by, spec: { line: startLine + 1, to: endLine + 1 }, label: `^${fragment}`, at: Date.now(), fragment: true };
+    this.revealMark = this.scroll === from;
     host.redraw();
   }
 
@@ -2371,7 +2405,7 @@ export class NoteSurface {
     // comment under it, where the panel would take the keys meant for the agent's session.
     if (actor.kind === "agent" && this.panel && !this.draft && !this.session && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
-    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, agent: true }), startSession: undefined } : host;
+    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, agent: true }), startSession: undefined, actor } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }
 
@@ -2502,8 +2536,12 @@ export class NoteSurface {
   goUp(host: SurfaceHost) { return this.up(host); }
 }
 
-/** A step's element key, before its `#n` (which occurrence, the same step shown twice): by its id, or where it starts. */
-const taskBase = (t: StepRef) => `task:${t.block}|${t.step.itemId ?? `@${t.step.span.startLine}`}`;
+/**
+ * A step's element key, before its `#n` (which occurrence: the same step shown twice): by its id, or,
+ * without one, by its evidence (its text), never by where it sits, so a step moved by an edit elsewhere is
+ * still itself and another step that moved into its place is not it.
+ */
+const taskBase = (t: StepRef) => `task:${t.block}|${t.step.itemId ? `^${t.step.itemId}` : `ev:${t.step.evidence}`}`;
 /** Who a step change is for Undo: the person, or the agent by its id. */
 const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 

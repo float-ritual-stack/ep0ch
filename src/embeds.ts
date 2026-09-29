@@ -16,7 +16,7 @@ import { subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, type LinkTarget } from "./refs";
-import type { SocketBoard, TransclusionNode } from "./socket";
+import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
 import { C, fg, LINK_END, linkTag, pad, RESET } from "./style";
 import { readView, type ViewRead } from "./views";
 
@@ -36,6 +36,26 @@ type State =
 interface Entry { state: State; at: number; asking: boolean; deps: string[]; volatile: boolean }
 
 const cacheBy = new WeakMap<object, Map<string, Entry>>();
+const askingBy = new WeakMap<object, number>();
+/** Embeds being read again on this connection: a reader keeps the person's `[ ]` on a step inside one meanwhile. */
+export const embedsLoading = (board: object) => (askingBy.get(board) ?? 0) > 0;
+
+/**
+ * A step this door just changed in note `block`: every kept projection of that note takes its new text,
+ * revision and step at once (the redraw that follows re-reads them), so a step inside an embed stays
+ * offered, with its new evidence, in the moment between.
+ */
+export function embedStepChanged(board: object, block: Msg, before: ChecklistStep, after: ChecklistStep) {
+  const same = (x: ChecklistStep) => (before.itemId ? x.itemId === before.itemId : x.span.start === before.span.start && x.evidence === before.evidence);
+  const visit = (n: TransclusionNode) => {
+    if (n.blockId === block.id && n.status === "ready" && n.block) {
+      n.block = block; n.revision = block.revision;
+      if (n.checklist) n.checklist = n.checklist.map(x => (same(x) ? after : x));
+    }
+    n.embeds?.forEach(visit);
+  };
+  for (const e of cacheBy.get(board)?.values() ?? []) if (e.state.kind === "node") visit(e.state.node);
+}
 /** Everything changed: every embed is read again on the next render (what it showed stays meanwhile). */
 export function invalidateEmbeds() { outlineChanged(null); }
 
@@ -173,9 +193,12 @@ export function embedState(id: string, fragment: string | undefined, src: Source
   const at = changeClock();
   cache.set(k, { state: hit?.state ?? { kind: "loading" }, at, asking: true, deps: hit?.deps ?? [id], volatile: hit?.volatile ?? false });
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
+  const b = src.board;
+  askingBy.set(b, (askingBy.get(b) ?? 0) + 1);
+  const done = () => askingBy.set(b, Math.max(0, (askingBy.get(b) ?? 1) - 1));
   Promise.resolve().then(() => project(src.board, host, id, fragment)).then(
-    ({ state, deps, volatile }) => { c.set(k, { state, at, asking: false, deps, volatile }); src.redraw(); },
-    (e: Error) => { c.set(k, { state: { kind: "failed", error: e.message }, at, asking: false, deps: [id], volatile: false }); src.redraw(); },
+    ({ state, deps, volatile }) => { done(); c.set(k, { state, at, asking: false, deps, volatile }); src.redraw(); },
+    (e: Error) => { done(); c.set(k, { state: { kind: "failed", error: e.message }, at, asking: false, deps: [id], volatile: false }); src.redraw(); },
   );
   return hit?.state ?? { kind: "loading" };
 }
@@ -245,7 +268,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   const ref = shortRef(node.blockId, node.fragmentId);
   if (node.status !== "ready" || !node.block) {
     // Nesting limits are the note working as meant; failures are red.
-    const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget";
+    const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget" || node.status === "too-large";
     return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status).slice(0, 240)}` + RESET)];
   }
   const target = node.block;
@@ -258,7 +281,9 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();
   for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
-  const embed = (cid: string, cfrag: string | undefined, _n: number, width: number) => {
+  const embed = (cid: string, cfrag: string | undefined, n: number, width: number) => {
+    // The service stops listing a document's embeds at the one past the limit; the rest are the limit too.
+    if (n >= MAX_EMBEDS) return [shade(fg(C.yellow) + `${shortRef(cid, cfrag)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET, width)];
     const child = children.get(refOf(cid, cfrag))?.shift();
     return child ? nodeRegion(child, views, width, body, sink) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
   };

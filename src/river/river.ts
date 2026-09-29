@@ -947,7 +947,8 @@ export class River implements Screen {
     const current = p && !held && p.surface.msg?.id === this.noteOf(p)?.id ? p.surface.currentKind() : null;
     const undo = k.kind === "char" && !!k.ctrl && k.ch === "z";
     if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || undo || (current === "task" && c === " ") || ((linked || current) && (k.kind === "enter" || k.kind === "alt-enter")))) {
-      if (this.covers().get(this.focus) !== "full") return ctx.flash("this column is compressed; widen the pane to edit or comment here");
+      // A step change's Undo isn't an edit: it works in a compressed column too.
+      if (this.covers().get(this.focus) !== "full" && !undo) return ctx.flash("this column is compressed; widen the pane to edit or comment here");
       try {
         const s = this.ready(p), host = this.hostFor(p);
         // Starting an edit or a comment by key: the person is in it once it opens.
