@@ -59,7 +59,8 @@ export class NvimClient {
       s.once("connect", () => { this.sock = s; ok(); });
       s.once("error", no);
       s.on("data", (d: Buffer) => this.feed(new Uint8Array(d)));
-      s.on("close", () => { this.sock = null; for (const w of this.waiting.values()) w.no(new Error("nvim went away")); this.waiting.clear(); });
+      // Only the live socket's close counts: a failed attempt from while nvim was starting closes late.
+      s.on("close", () => { if (this.sock === s) this.gone(); });
     });
   }
 
@@ -119,5 +120,11 @@ export class NvimClient {
     `, [id, file ?? ""]);
   }
 
-  close() { this.sock?.destroy(); this.sock = null; }
+  close() { this.sock?.destroy(); this.gone(); }
+
+  private gone() {
+    this.sock = null;
+    for (const w of this.waiting.values()) w.no(new Error("nvim went away"));
+    this.waiting.clear();
+  }
 }

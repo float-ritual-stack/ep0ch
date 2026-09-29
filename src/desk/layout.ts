@@ -468,6 +468,7 @@ export function normalise<I>(n: LNode<I>, min = 0.05): LNode<I> {
   let kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k0, i) => {
     const k = normalise(k0, min);
+    if (k.t === "tabs" && !k.ids.length) return;   // a tab set with no tiles (a hand-edited save) has no place
     const w = good(n.weights[i]) ? n.weights[i]! : 1;
     if (k.t === "split" && k.dir === n.dir && !k.key && !n.key) {
       const sum = k.weights.reduce((a, x) => a + x, 0) || 1;

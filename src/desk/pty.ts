@@ -11,6 +11,7 @@
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
 import xterm from "@xterm/headless";
 import type { Subprocess } from "bun";
+import { unlink } from "node:fs/promises";
 import { basename } from "node:path";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
@@ -129,13 +130,17 @@ export class PtyPane implements Pane {
       this.proc = Bun.spawn(SETSID ? [SETSID, "-c", ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
       if (this.socket) this.attach(this.socket);
     } catch (e) {
+      if (this.socket) { void unlink(this.socket).catch(() => {}); this.socket = null; }
       this.exited = 127;
       term.write(`\r\ncan't start ${this.run.cmd.join(" ")}: ${(e as Error).message}\r\n`);
       return;
     }
     LIVE.add(this);
     const proc = this.proc;
+    const socket = this.socket;
     proc.exited.then(code => {
+      // nvim can leave its socket behind when it's killed: the one the door made for it goes with it.
+      if (socket) void unlink(socket).catch(() => {});
       if (this.proc !== proc) return;
       this.exited = code ?? 0;
       LIVE.delete(this);
@@ -164,6 +169,7 @@ export class PtyPane implements Pane {
 
   kill() {
     LIVE.delete(this);
+    this.socket = null;
     this.nvim?.close(); this.nvim = null;
     try { this.proc?.kill(); } catch { /* gone */ }
     try { this.pty?.close(); } catch { /* gone */ }

@@ -162,10 +162,10 @@ export class App implements Ctx {
 
   /** Hear every change to what the person sees. The first event is the whole state (`hello`). */
   subscribe(f: (e: ViewEvent) => void): () => void {
-    this.viewers.add(f);
     const s = this.stack.at(-1);
     const state = s?.viewState?.() ?? null;
     f({ type: "hello", at: Date.now(), screen: s?.title ?? null, state });
+    this.viewers.add(f);
     // Every subscriber starts from what the hello said: what changes after it comes as events.
     if (s && state && !this.shown) this.shown = this.snapshot(s.title, state);
     return () => { this.viewers.delete(f); };

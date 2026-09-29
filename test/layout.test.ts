@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import {
-  beside, dividerAt, dragTo, grow, insert, leaf, leaves, node, pair, place, placeScreen, remove, resize, revive, serialize, share, splitOf,
+  beside, dividerAt, dragTo, grow, insert, leaf, leaves, node, normalise, pair, place, placeScreen, remove, resize, revive, serialize, share, splitOf,
   type LNode,
 } from "../src/desk/layout";
 
@@ -178,6 +178,11 @@ describe("saved forms", () => {
     expect(revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "leaf" }], weights: [2] } as any, leafOf)).toMatchObject({ weights: [1, 1] });
     expect(revive({ t: "split", dir: "sideways", ratio: 7, a: { t: "leaf" }, b: { t: "leaf" } } as any, leafOf)).toMatchObject({ dir: "row", weights: [0.5, 0.5] });
     expect(revive({ t: "split", dir: "col", ratio: -1, a: { t: "leaf" }, b: { t: "leaf" } } as any, leafOf)).toMatchObject({ weights: [0.5, 0.5] });
+  });
+
+  test("review: a saved tab set with no tiles is dropped, not given an empty pane", () => {
+    const t = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "tabs", tabs: [], active: 0 }], weights: [1, 1] } as any, () => 1);
+    expect(normalise(t)).toEqual(leaf(1));
   });
 
   test("review: a sliding drawer's neighbours' borders are the tree's own splits, so a drag changes the tree", () => {

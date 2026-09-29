@@ -27,7 +27,7 @@ import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
-import { DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, saveLayout, TILE_KINDS, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, saveLayout, TILE_KINDS, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 
 /** desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open rule. */
 interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string }
@@ -165,6 +165,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (l.drawer) { over.add(id); if (l.drawer === "shut") shut.add(id); }
       return id;
     });
+    // A saved tree with no tiles in it (a hand-edited save): the desk's own layout instead.
+    if (!leaves(root).length) { this.names = oldNames; return this.build(builtin("desk")!, reuse); }
     let tree = normalise(root);
     // What the new layout has no place for: kept when it holds work, else closed.
     if (reuse) for (const [id, p] of old) {
