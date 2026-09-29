@@ -32,13 +32,15 @@ export function backupDatabase(path: string, dest: string): { integrity: string 
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
   const lines = [`ep0ch install · ${f.platform} · ${apply ? "applying" : "dry run: nothing changes; ep0ch install --apply runs the → steps"}`, ""];
-  plan.steps.forEach((s, i) => lines.push(...stepLines(s, i)));
+  plan.steps.forEach((s, i) => lines.push(...stepLines(s, i, false)));
   if (plan.notes.length) lines.push("", "not done by install:", ...plan.notes.map(n => `  · ${n}`));
   return lines.join("\n");
 }
 
-function stepLines(s: Step, i: number): string[] {
+/** A step as the plan shows it; while applying, its ✓ lines say what it did instead of the commands. */
+function stepLines(s: Step, i: number, applying: boolean): string[] {
   const out = [`${i + 1} ${MARK[s.status]} ${s.title}`, `    ${s.why}`];
+  if (applying && s.status === "do") return out;
   if (s.backups && s.status !== "skip") for (const b of s.backups) out.push(`    ${b.name}: ${b.path} → ${b.dest}`);
   for (const c of s.commands) if (!(s.backups && c.startsWith("sqlite3"))) out.push(`    $ ${c}`);
   return out;
@@ -176,7 +178,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
       current = { ...current, plugin, services, expected: plugin?.capabilities ?? current.expected };
       step = restartStep(current, options, false);
     }
-    stepLines(step, i).forEach(l => say(l));
+    stepLines(step, i, true).forEach(l => say(l));
     const done: string[] = [];
     if (step.status !== "do") { results.push(step); continue; }
     try {
