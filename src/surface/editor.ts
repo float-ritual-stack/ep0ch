@@ -72,7 +72,7 @@ export function writtenBy(d: Draft, verb: "save" | "send"): string | null {
   return `${names.join(" and ")} typed this · ${verb === "save" ? `saved as whoever saves it, naming ${all}` : `sent as the agent's, naming ${all}`}`;
 }
 
-export interface Suspender { suspend(run: () => void): void }
+export interface Suspender { suspend(run: () => void): void; editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean }
 
 /**
  * Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back, replacing the draft's text.
@@ -83,6 +83,19 @@ export function openInEditor(ctx: Suspender, d: Draft): void {
   const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
   writeFileSync(path, d.text + "\n");
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
+  if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { rmSync(dir, { recursive: true, force: true }); } })) {
+    d.note = `editing in ${editor} beside · the draft comes back when it exits`;
+    return;
+  }
+  function back(code: number | null) {
+    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
+    else {
+      const before = d.text;
+      d.replace(readFileSync(path, "utf8"));
+      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+    }
+  }
   let code: number | null = null;
   try {
     ctx.suspend(() => {

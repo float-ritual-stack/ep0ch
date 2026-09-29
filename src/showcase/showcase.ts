@@ -24,6 +24,9 @@ import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, 
 import { LastCallers, MessageReader, WhoOnline } from "../screens";
 import { leaf, pair, type LNode } from "../desk/layout";
 import { FramedScreen, ScreenPane } from "./frame";
+import { PreviewPane } from "../desk/preview";
+import { PtyPane } from "../desk/pty";
+import { ScreenTile } from "../desk/screen-tile";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -89,10 +92,32 @@ export const SECTIONS: Section[] = [
     aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is on the tree since PIE-412`,
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
-        layout: ([t, rd, h, a]) => pair("row", 0.24, leaf(t!), pair("row", 0.62, leaf(rd!), pair("col", 0.55, leaf(h!), leaf(a!)))),
+        layout: ([t, rd, h, a]) => pair("row", 0.24, leaf(t!), pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+    },
+  },
+  {
+    key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one", files: "src/desk/pty.ts, src/surface/editor.ts",
+    stage(n, show) {
+      const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; exec sh"], label: "shell" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "preview", need: "follow a tile's selection or a file in a reader", part: "the preview tile: the note surface with a source, tile:<name> or file:<path> (re-read on save)", files: "src/desk/preview.ts",
+    stage(n, show) {
+      const tree = new TreePane(), p = new PreviewPane({ tile: "tree" });
+      return deskOf({ title: "showcase · preview", panes: [tree, p], layout: ([a, b]) => row(0.4, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "screen", need: "put a whole screen in a tile (the board, the river, the brief)", part: "ScreenTile over FramedScreen: the screen itself in a rectangle, its selection followed by a preview tile", files: "src/desk/screen-tile.ts, src/showcase/frame.ts",
+    stage(n, show) {
+      const b = new ScreenTile("board"), p = new PreviewPane({ tile: "board" });
+      return deskOf({ title: "showcase · screen", panes: [b, p], layout: ([a, c]) => pair("col", 0.65, leaf(a!), leaf(c!)) }, show, []);
     },
   },
   {
@@ -307,7 +332,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string } }, Showcase>("showcase", {
   "section": {
-    summary: "show a section (name=<1-11> or its key: note, actions, edit, panes, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
+    summary: "show a section (name=<1-14> or its key: note, actions, edit, panes, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);

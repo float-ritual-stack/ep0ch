@@ -67,7 +67,7 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in eleven sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in fourteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
@@ -95,7 +95,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-11|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-14|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -130,7 +130,7 @@ embeds are live.
     ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
     ep0ch /path/to/outliner.sock
     ep0ch --ws /path/to/workspace   # the socket of that workspace's service
-    ep0ch --showcase | --desk | --river | --brief | --board [<hub-id>]
+    ep0ch --showcase | --desk | --layout <name> | --river | --brief | --board [<hub-id>]
 
 `ep0ch help` lists everything. Besides opening the door:
 
@@ -150,34 +150,81 @@ embeds are live.
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon (default: the main menu) |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
+| `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`) |
+| `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## The desk
 
-`D` on the menu, or `bun src/main.ts --desk` to skip the logon. The door owns the whole canvas:
-a tiling tree of panes it draws itself, so no multiplexer is needed for layout.
+`D` on the menu, `bun src/main.ts --desk` to skip the logon, or `--layout daily` to open it laid out by name.
+The door owns the whole canvas, and the canvas is **tiles** (PIE-413): views in one layout tree that you
+split, tab, drag, link and save, drawn by the door itself, so no multiplexer is needed for layout.
 
-| Pane | What it shows |
+| Tile | What it shows |
 |---|---|
-| outline | the tree; `←/→` fold, `⏎` read; reveals where a jumped-to block lives |
-| reader | the current block; follows the selection unless held (`p hold`, `p` again follows); `[ ]` step through its elements, `⏎` act on one (or click it), `alt+⏎` a link in a new reader, `u` parent, `( ) f F` fold |
-| thread | the current block's children as replies, and its comment threads with quoted passages |
-| last callers · live | `activity.recent`, refreshed on outline events |
-| who's online | `clients.list`, with what each client is reading |
-| bulletin | ep0ch art scaled into the pane (Kitty), `, .` for the next piece |
+| outline (`tree`) | the tree; `←/→` fold, `⏎` opens (into its link, if it has one) |
+| reader | the current note; follows the selection unless held (`p hold`, `p` again follows); `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold |
+| detail | a reader that keeps its note: it changes only by an open into it (its link, `open`, a click) |
+| preview | a reader that follows a source: a tile's selection (`tile:tree`, `tile:board`) or a file (`file:~/draft.md`), re-read when it's saved. Read-only for a file |
+| terminal (`pty`) | a program in a pty the door owns: nvim, claude, a shell. Click it or `⏎` to type in it; `ctrl+]` back to the door |
+| board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
+| thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
+
+| Keys (mouse) | Action |
+|---|---|
+| drag a tile's header | move it: onto a header or a tile's centre makes **tabs**; onto one of a tile's four triangles **splits** it that way; onto the window's outer left, right or bottom edge makes a **full-height column** or **full-width row**. The drop is outlined while you drag; `esc` lets go |
+| click a tab; drag a tab | show it; move it out, or to another place among its tabs |
+| drag a border | resize |
+| `alt+l`, then click a tile | this tile's opens land there (a link followed, the tree's `⏎`); click the tile itself to unlink; `h j k l` or a number work too |
+| ctrl-click or alt-click a link | open it beside, not in the link target |
+| click a drawer's `▸ name` (hint row) | slide it open |
 
 | Keys | Action |
 |---|---|
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
+| `alt+n` / `alt+p` | next / previous tab |
+| `alt+d` | load the `daily` layout |
+| `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `Ctrl+W` then `h j k l` | focus by direction |
-| `Ctrl+W` then `H J K L` | dock the pane along that whole edge |
+| `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |
+| `Ctrl+W` then `t` + `h j k l` | move into the tabs of the tile that way |
+| `Ctrl+W` then `T` | take this tab out of its tab set |
+| `Ctrl+W` then `H J K L` | move to that outer edge (a full-height column or full-width row) |
+| `Ctrl+W` then `[ ]` | previous / next tab |
 | `Ctrl+W` then `< > + -`, `=` | resize, even out |
 | `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
-| `Ctrl+W` then `o` + `t r h a w b` | add outline / reader / thread / activity / who / bulletin |
-| drag a border | resize |
+| `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin |
+| `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
+| `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
+| `Ctrl+W` then `p` / `d` | pin or unpin (a drawer slides over the others without moving them) / slide drawers open or shut |
+| `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
+| in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
+| `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
-| `q` / `Esc` | back to the menu |
+| `q` / `Esc` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
 
-The layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
+**Layouts** are saved by name in `~/.local/state/ep0ch-door/layouts.json` (`^W w`, `act layout.save name=…`)
+and loaded with `^W r`, `alt+d` for `daily`, or `act layout.load name=…`. Built in: `daily` (an agent
+terminal over the "now" detail; the outline over its preview, above the middle detail; the editor on the
+daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
+(the River screen in a tile, a preview following its card), `board` (the kanban with a preview tile
+following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
+a running program or an unsaved edit the new layout has no place for becomes a shut drawer, never ended.
+`EP0CH_DAILY_AGENT` (default `claude`) and `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state)
+set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+
+**What happens to programs in tiles:**
+
+| When | Programs in terminal tiles |
+|---|---|
+| `q`, `Esc`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
+| `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
+| loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
+| quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
+| SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
+| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
+
+The current layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
 ## The board
@@ -753,11 +800,15 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 
 ## Letting an agent see what you see, and do what you do
 
+The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
+[docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
+
 A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
 
     bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
     bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
+    bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
     bun src/main.ts act <action> [reader=<reader>] [key=value…] [--as <actor-id>]
 

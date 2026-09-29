@@ -37,8 +37,18 @@ export interface Ctx {
   /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on). */
   copy?(text: string): void;
   cycleVideo(): void;
+  /**
+   * The door is about to quit (the menu's logoff): true when it may. With programs running in a screen (even
+   * one in the background) or an unsaved edit, the first ask says so and refuses; again within 3s goes.
+   */
+  confirmQuit?(): boolean;
   /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
   suspend(run: () => void): void;
+  /**
+   * Run an editor on `path` in a terminal tile beside the note instead of suspending the door (PIE-417):
+   * true when the screen has tiles and opened one; `done` is called with its exit code when it ends.
+   */
+  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
 }
@@ -66,7 +76,40 @@ export interface Screen {
   actions?(): { actions: ActionInfo[]; readers: string[] };
   /** Run a named action as `actor`, through the same code as its keys (`ep0ch-door act`). */
   act?(req: ActRequest, actor: Actor): Promise<unknown>;
+  /** Every key is the screen's, ctrl+c included: the person is typing in a terminal tile (PIE-417). */
+  rawKeys?(): boolean;
+  /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
+  rawInput?(): ((bytes: string) => void) | null;
+  /** The screen takes a paste whole (`{kind:"paste"}`); otherwise App gives it the pasted text as keys. */
+  acceptsPaste?(): boolean;
+  /** Leaving the screen would end something (programs running in tiles): said, and asked twice. */
+  leaveWarning?(): string | null;
+  /**
+   * The screen is left (popped or replaced). It ends what it started, or answers "keep": it has programs
+   * running (the desk's terminal tiles) and stays alive in the background until it's opened again or the
+   * door quits.
+   */
+  dispose?(): void | "keep";
+  /** Why the screen can't be left now (it would end something and has no way back), or null. */
+  leaveRefusal?(): string | null;
+  /** See Ctx.editInTile. */
+  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
+  /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
+  viewState?(): ViewState;
 }
+
+/**
+ * What a screen shows, as `view.subscribe` publishes it: which tile has the keys (and what it shows), the
+ * layout's shape, each tile's viewport (what's in view) and cursor or selection, and the attention marks.
+ */
+export interface ViewState {
+  focus: { tile: string; block?: string | null; file?: string | null };
+  layout: unknown;
+  tiles: { tile: string; viewport: unknown; cursor?: unknown }[];
+  marks?: unknown;
+}
+/** One event of the live feed: `focus.changed`, `layout.changed`, `viewport`, `cursor`, `marks.changed`, `screen`. */
+export interface ViewEvent { type: string; at: number; [k: string]: unknown }
 
 /** An agent's actor id: what it calls itself, or `ep0ch-door:<host>:agent`. Kept to plain, short ids. */
 export function agentActor(as?: string): Actor {
@@ -99,6 +142,8 @@ export class App implements Ctx {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
+    // Raw input while the person types in a terminal tile: the screen says where it goes (Term keeps mouse and ctrl+]).
+    (term as { rawSink?: unknown }).rawSink = () => this.stack.at(-1)?.rawInput?.() ?? null;
     setLiveSource(board, () => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
@@ -108,23 +153,95 @@ export class App implements Ctx {
   get t() { return this.term.info; }
   get graphics() { return this.video !== "cells"; }
 
-  push(s: Screen) { this.stack.push(s); s.enter?.(this); this.redraw(); }
-  pop() { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); if (!this.stack.length) return this.quit(); this.redraw(); }
-  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.stack.pop(); this.push(s); }
+  /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
+  background: Screen[] = [];
+  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); }
+  pop() {
+    const last = this.stack.length === 1;
+    if (!this.leaving(last ? [...this.stack, ...this.background] : [this.stack.at(-1)], last)) return;
+    this.leave();
+    if (!this.stack.length) return this.quit();
+    this.redraw();
+  }
+  replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.leave(); this.push(s); }
+  /** The top screen goes: it ends what it started, or keeps running in the background (its programs). */
+  private leave() {
+    const top = this.stack.pop();
+    if (top?.dispose?.() === "keep") { this.background.push(top); this.flash(`${top.leaveWarning?.() ?? top.title} · still running · D on the menu comes back`, 6000); }
+  }
 
   /**
    * Closing screens that hold unsaved edits asks twice. The second time goes ahead, but the drafts are
    * copied to disk first, so typed text is never simply dropped.
    */
-  private leaving(screens: (Screen | undefined)[]): boolean {
+  /**
+   * Leaving screens (or, `quitting`, the door): an unsaved edit asks twice, and so does quitting while programs
+   * run in a screen. Leaving a screen that keeps its programs alive (the desk) doesn't ask: nothing ends.
+   * A screen that can't be left says why and stays.
+   */
+  private leaving(screens: (Screen | undefined)[], quitting = false): boolean {
+    const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
+    if (refusal) { this.flash(refusal); return false; }
     const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
-    if (!dirty.length) return true;
+    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) : null;
+    if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
-    this.flash("an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)");
+    this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
+  editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
+  confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
+
+  // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
+  private viewers = new Set<(e: ViewEvent) => void>();
+  private shown: { screen: string; focus: string; layout: string; tiles: Map<string, string>; cursors: Map<string, string>; marks: string } | null = null;
+
+  /** Hear every change to what the person sees. The first event is the whole state (`hello`). */
+  subscribe(f: (e: ViewEvent) => void): () => void {
+    const s = this.stack.at(-1);
+    const state = s?.viewState?.() ?? null;
+    f({ type: "hello", at: Date.now(), screen: s?.title ?? null, state });
+    this.viewers.add(f);
+    // Every subscriber starts from what the hello said: what changes after it comes as events.
+    if (s && state && !this.shown) this.shown = this.snapshot(s.title, state);
+    return () => { this.viewers.delete(f); };
+  }
+
+  private snapshot(screen: string, v: ViewState) {
+    return { screen, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.viewport)] as const)), cursors: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.cursor ?? null)] as const)), marks: JSON.stringify(v.marks ?? null) };
+  }
+
+  /** After paints: the feed is published at most every 50ms, from what's on screen then. */
+  private publishTimer: Timer | null = null;
+  private schedulePublish() {
+    if (!this.viewers.size) { this.shown = null; return; }
+    if (this.publishTimer) return;
+    this.publishTimer = setTimeout(() => { this.publishTimer = null; const s = this.stack.at(-1); if (s) this.publishView(s); }, 50);
+  }
+
+  /** After a paint: what changed since the last one, as events to every subscriber. */
+  private publishView(s: Screen) {
+    if (!this.viewers.size) { this.shown = null; return; }
+    const v = s.viewState?.();
+    const at = Date.now();
+    const send = (e: Omit<ViewEvent, "at">) => { for (const f of this.viewers) { try { f({ ...e, at } as ViewEvent); } catch { /* a subscriber's own problem */ } } };
+    if (!v) { if (this.shown?.screen !== s.title) send({ type: "screen", screen: s.title }); this.shown = { screen: s.title, focus: "", layout: "", tiles: new Map(), cursors: new Map(), marks: "" }; return; }
+    const was = this.shown?.screen === s.title ? this.shown : null;
+    const now = { screen: s.title, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map<string, string>(), cursors: new Map<string, string>(), marks: JSON.stringify(v.marks ?? null) };
+    if (this.shown && this.shown.screen !== s.title) send({ type: "screen", screen: s.title });
+    if (was?.layout !== now.layout) send({ type: "layout.changed", layout: v.layout });
+    if (was?.focus !== now.focus) send({ type: "focus.changed", ...v.focus });
+    for (const t of v.tiles) {
+      const vp = JSON.stringify(t.viewport), cu = JSON.stringify(t.cursor ?? null);
+      now.tiles.set(t.tile, vp); now.cursors.set(t.tile, cu);
+      if (was?.tiles.get(t.tile) !== vp) send({ type: "viewport", tile: t.tile, viewport: t.viewport });
+      if (t.cursor !== undefined && was?.cursors.get(t.tile) !== cu) send({ type: "cursor", tile: t.tile, cursor: t.cursor });
+    }
+    if (was?.marks !== now.marks && v.marks !== undefined) send({ type: "marks.changed", marks: v.marks });
+    this.shown = now;
+  }
   copy(text: string) { this.term.write(osc52(text)); }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
@@ -216,7 +333,7 @@ export class App implements Ctx {
    */
   terminate(): string[] {
     const kept: string[] = [];
-    for (const s of this.stack) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
+    for (const s of [...this.stack, ...this.background]) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
     this.keptOnExit = kept;
     this.quit();
     return kept;
@@ -226,12 +343,19 @@ export class App implements Ctx {
 
   quit() {
     if (this.timer) clearInterval(this.timer);
+    if (this.paintTimer) clearTimeout(this.paintTimer);
+    if (this.publishTimer) clearTimeout(this.publishTimer);
     this.kitty.dispose();
     this.done();
   }
 
   private key(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "c") { if (this.leaving(this.stack)) this.quit(); return; }
+    // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
+    if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
+      for (const ch of k.text.replace(/\r\n?/g, "\n")) this.key(ch === "\n" ? { kind: "enter" } : ch === "\t" ? { kind: "tab" } : { kind: "char", ch });
+      return;
+    }
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
     this.stack.at(-1)?.key(k, this);
   }
 
@@ -258,7 +382,21 @@ export class App implements Ctx {
     else this.redraw();
   }
 
+  /**
+   * A repaint: at most one a frame (16ms). The first comes at once; calls within the frame after it are one
+   * more paint at its end, so a busy terminal tile (or several) never renders the screen more than 60 times a second.
+   */
   redraw() {
+    if (this.paintTimer) return;
+    const since = Date.now() - this.lastPaint;
+    if (since >= 16) return this.paint();
+    this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, 16 - since);
+  }
+  private lastPaint = 0;
+  private paintTimer: Timer | null = null;
+
+  private paint() {
+    this.lastPaint = Date.now();
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
@@ -272,6 +410,7 @@ export class App implements Ctx {
     const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
     if (this.term.frame) this.term.frame(draw);
     else draw();
+    this.schedulePublish();
   }
 
   /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */

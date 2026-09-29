@@ -240,6 +240,8 @@ export class River implements Screen {
   /** A column holding an edit or a comment: it resists compression, and can't be closed. */
   private holds(c: Col) { return c.panes.some(p => p.surface.editing); }
   private get paneS() { const c = this.col; return c ? c.panes[c.pane] : undefined; }
+  /** What the river has selected (the focused column's card, else its note): a preview tile beside a river tile follows it. */
+  get current(): Msg | null { const p = this.paneS; return p?.items?.[p.sel] ?? p?.root ?? null; }
   private selected(): Msg | undefined { const p = this.paneS; return p ? this.flat(p)[p.sel]?.m : undefined; }
 
   // ── layout: progressive compression ───────────────────────────────────────

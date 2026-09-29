@@ -12,7 +12,10 @@ export type Key =
    * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
    */
   | { kind: "alt-left" | "alt-right" | "back" | "forward" }
-  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number };
+  /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
+  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number; mods?: number }
+  /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
+  | { kind: "paste"; text: string };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
@@ -51,7 +54,7 @@ export class Term {
     process.stdin.resume();
     process.stdin.on("data", (d: Buffer) => this.feed(this.decoder.decode(d, { stream: true })));
     process.stdout.on("resize", () => { this.measure(); this.last = []; this.resizeHandler(); });
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h");
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
     this.measure();
     const hint = kittyHint();
     await new Promise<void>(resolve => {
@@ -63,7 +66,7 @@ export class Term {
   }
 
   stop(): void {
-    this.write("\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
+    this.write("\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
     process.stdin.setRawMode?.(false);
     process.stdin.pause();
   }
@@ -73,7 +76,7 @@ export class Term {
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.pending = "";
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h");
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
     this.measure();
     this.invalidate();
   }
@@ -113,25 +116,64 @@ export class Term {
 
   invalidate() { this.last = []; }
 
+  /**
+   * Where raw input goes while the person types in a terminal tile (PIE-417): every byte as the terminal sent
+   * it (F-keys, shift- and ctrl-arrows, Insert, a bracketed paste), but mouse reports and the escape chord
+   * (ctrl+], 0x1d), which stay the door's. Null: decode keys as usual.
+   */
+  rawSink: (() => ((bytes: string) => void) | null) | null = null;
+
+  private mouseKey(m: RegExpMatchArray) {
+    const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
+    // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
+    if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); return; }
+    const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
+    this.keyHandler({ kind: "mouse", action, button: b & 3, x, y, ...(b & 28 ? { mods: b & 28 } : {}) });
+  }
+
+  /** Raw bytes to `sink` up to the next mouse report or escape chord; false when it must wait for more. */
+  private feedRaw(sink: (bytes: string) => void): boolean {
+    const p = this.pending;
+    let i = 0;
+    while (i < p.length) {
+      if (p[i] === "\x1d") break;
+      if (p.startsWith("\x1b[<", i)) {
+        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(p.slice(i))) break;
+        if (/^\x1b\[<[\d;]*$/.test(p.slice(i))) { if (i) sink(p.slice(0, i)); this.pending = p.slice(i); return false; }
+      }
+      i++;
+    }
+    if (i) sink(p.slice(0, i));
+    this.pending = p.slice(i);
+    if (!this.pending) return true;
+    if (this.pending[0] === "\x1d") { this.pending = this.pending.slice(1); this.keyHandler({ kind: "char", ch: "]", ctrl: true }); return true; }
+    const m = this.pending.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/)!;
+    this.pending = this.pending.slice(m[0].length);
+    this.mouseKey(m);
+    return true;
+  }
+
   private feed(s: string) {
     this.pending += s;
     while (this.pending.length) {
+      const sink = this.rawSink?.();
+      if (sink) { if (!this.feedRaw(sink)) return; continue; }
       const p = this.pending;
+      // A bracketed paste: the text between the markers is one piece (it may still be arriving).
+      if (p.startsWith("\x1b[200~")) {
+        const end = p.indexOf("\x1b[201~");
+        if (end < 0) return;
+        this.pending = p.slice(end + 6);
+        this.keyHandler({ kind: "paste", text: p.slice(6, end) });
+        continue;
+      }
       // Replies to our own queries.
       let m = p.match(/^\x1b_G([^\x1b]*)\x1b\\/);
       if (m) { if (this.probing && /i=31/.test(m[1]!)) { this.probing.kitty = /OK/.test(m[1]!); this.info.kitty = this.probing.kitty; } this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[6;(\d+);(\d+)t/);
       if (m) { this.info.cellH = Number(m[1]); this.info.cellW = Number(m[2]); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
-      if (m) {
-        const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
-        this.pending = p.slice(m[0].length);
-        // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
-        if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); continue; }
-        const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
-        this.keyHandler({ kind: "mouse", action, button: b & 3, x, y });
-        continue;
-      }
+      if (m) { this.pending = p.slice(m[0].length); this.mouseKey(m); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       if (/^\x1b(\[[<\d;?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
@@ -157,7 +199,8 @@ export class Term {
       // sequences, so an ESC before one of them keeps its old meaning.
       if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
-        const k = p.match(/^\x1b\[[\d;?]*[ -\/]*[@-~]/);
+        // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
+        const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);
         this.pending = p.slice(k ? k[0].length : 1);
         if (!k) this.keyHandler({ kind: "esc" });
         continue;
@@ -171,6 +214,8 @@ export class Term {
       if (c === "\r" || c === "\n") this.keyHandler({ kind: "enter" });
       else if (c === "\t") this.keyHandler({ kind: "tab" });
       else if (code === 127 || code === 8) this.keyHandler({ kind: "backspace" });
+      // ctrl+\ ] ^ _ are 28-31: named as the keys pressed (ctrl+] leaves a terminal tile, PIE-417).
+      else if (code >= 28 && code < 32) this.keyHandler({ kind: "char", ch: "\\]^_"[code - 28]!, ctrl: true });
       else if (code < 32) this.keyHandler({ kind: "char", ch: String.fromCharCode(code + 96), ctrl: true });
       else this.keyHandler({ kind: "char", ch: c });
     }

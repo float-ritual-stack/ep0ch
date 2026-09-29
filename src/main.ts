@@ -25,8 +25,10 @@ function writeLastCall(at: number) {
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
 
-  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --river | --brief | --showcase]
+  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --showcase]
                                    open the door (the logon, then the main menu, by default);
+                                   --layout daily opens the desk laid out as a named layout (daily,
+                                   river, board, desk, or one saved with ^W w);
                                    --brief opens the newest daily brief (type::daily-brief), and
                                    EP0CH_LANDING=brief lands on it after the logon.
                                    With an outline host running, --ws <name> opens that outline,
@@ -46,6 +48,8 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one
+  ep0ch subscribe [type,...]       the door's live feed: focus.changed, viewport, cursor, layout.changed,
+                                   marks.changed, one JSON event per line (docs/AGENT-INTERFACE.md)
   ep0ch --skill [--all] [<name>]
                                    the stack's skills (this door's and the installed Outliner's), or the
                                    path of one skill's SKILL.md; --all adds contributor skills
@@ -56,7 +60,7 @@ if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
-if (["peek", "snap", "open", "actions", "act"].includes(args[0] ?? "")) process.exit(await controlClient(args));
+if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 if (args[0] === "outline" || args[0] === "status") {
   const cmd = parseOutlineArgs(args[0] === "status" ? args : args.slice(1));
   if ("error" in cmd) { console.error(`ep0ch: ${cmd.error}`); process.exit(2); }
@@ -96,7 +100,9 @@ await term.start();
 const mirror = new Mirror(term.info.cols, term.info.rows);
 const rawWrite = term.write;
 term.write = (s: string) => { rawWrite(s); mirror.write(s); };
-process.stdout.on("resize", () => mirror.resize(term.info.cols, term.info.rows));
+// Before the door repaints for the new size: a mirror resized after the repaint would be blank until each
+// row changed again, and `snap` would show half a screen.
+process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
 const app = new App(term, board, lastCall, () => {

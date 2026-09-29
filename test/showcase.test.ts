@@ -31,7 +31,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -264,7 +264,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     note: ["Allotment notebook", "the same NoteSurface in the BBS message reader · src/screens.ts", "Subj: Allotment notebook"],
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "DESK_ACTIONS · src/desk/desk.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6", "parallel version, to consolidate: the board's composer"],
-    panes: ["outline", "thread", "last callers", "Kitchen sink"],
+    panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
+    terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
+    preview: ["preview · tree", "outline"],
+    screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved"],
     presence: ["who's online", "parallel version, to consolidate · WhoOnline", "parallel version, to consolidate · LastCallers"],
@@ -333,9 +336,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 10, key: "selection" });
+    expect(r).toEqual({ section: 13, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 10");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 13");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");

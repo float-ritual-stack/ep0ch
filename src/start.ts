@@ -23,6 +23,8 @@ export function startScreens(args: readonly string[], env: Record<string, string
   if (boardAt >= 0) return [new MainMenu(), new DeliveryBoard(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])];
   if (args.includes("--showcase")) return [new MainMenu(), new Showcase()];
   if (args.includes("--river")) return [new MainMenu(), new River()];
+  const layoutAt = args.indexOf("--layout");
+  if (layoutAt >= 0 && args[layoutAt + 1]) return [new MainMenu(), new Desk(undefined, { layout: args[layoutAt + 1] })];
   if (args.includes("--desk")) return [new MainMenu(), new Desk()];
   if (args.includes("--brief")) return [new MainMenu(), new Brief()];
   return [landingOf(env) === "brief" ? logon(() => new Brief()) : logon()];

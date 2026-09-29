@@ -65,6 +65,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get board() { return o().board; },
     get host() { return o().host; },
     get workspace() { return o().workspace; },
+    get outline() { return o().outline; },
     get video(): Video { return o().video; },
     get graphics() { return o().graphics; },
     get lastCall() { return o().lastCall; },
@@ -80,6 +81,7 @@ function frameCtx(f: FramedScreen): Ctx {
     copy: text => o().copy?.(text),
     cycleVideo: () => o().cycleVideo(),
     suspend: run => o().suspend(run),
+    editInTile: (path, cmd, done) => o().editInTile?.(path, cmd, done) ?? false,
   };
 }
 

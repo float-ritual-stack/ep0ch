@@ -436,6 +436,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       await act("open", { id: cards.beans.id });
       const rd = [...D.panes.values()].find((p: any) => p.kind === "reader") as ReaderPane;
       await whole(rd, cards.beans.id);
+      desk.focusOn("reader");                                             // an agent's open doesn't move the person's keys
       const readerId = D.focus;
       // Reading: keys and the wheel scroll it; the frame says how far down.
       key({ kind: "pgdn" });
@@ -479,6 +480,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const get = board.get.bind(board);
     try {
       await act("open", { id: cards.squash.id });
+      desk.focusOn("reader");                                             // an agent's open doesn't move the person's keys
       const rd = D.panes.get(D.focus) as ReaderPane;
       await whole(rd, cards.squash.id);
       (board as any).get = async (...a: Parameters<SocketBoard["get"]>) => { await Bun.sleep(250); return get(...a); };
