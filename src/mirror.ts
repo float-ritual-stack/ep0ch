@@ -51,7 +51,12 @@ export class Mirror {
   csi(p: string, f: string) {
     const n = p.split(";").map(Number);
     if (f === "H") { this.y = (n[0] || 1) - 1; this.x = (n[1] || 1) - 1; }
-    else if (f === "K" && p === "2") this.cells[this.y] = this.blankRow();
+    else if (f === "K" && this.y < this.rows) {
+      // Erase in line: to the right of the cursor (none or 0), to its left (1), or the whole row (2).
+      const row = this.cells[this.y]!, blank = this.blankRow();
+      const [from, to] = p === "2" ? [0, this.cols] : p === "1" ? [0, this.x + 1] : [this.x, this.cols];
+      for (let x = from; x < Math.min(to, this.cols); x++) row[x] = blank[x]!;
+    }
     else if (f === "J" && p === "2") this.cells = Array.from({ length: this.rows }, () => this.blankRow());
     else if (f === "m") {
       for (let k = 0; k < n.length; k++) {

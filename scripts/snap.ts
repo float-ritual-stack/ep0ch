@@ -11,7 +11,7 @@ import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { SocketBoard } from "../src/socket";
-import type { Key, TermInfo } from "../src/term";
+import { rowBytes, type Key, type TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
 
@@ -41,7 +41,7 @@ let last: string[] = [];
 const fakeTerm = {
   info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty } as TermInfo,
   write: (s: string) => { bytes += s.length; emu.write(s); },
-  paint(lines: string[]) { lines.forEach((l, r) => { if (last[r] !== l) this.write(`\x1b[${r + 1};1H\x1b[0m\x1b[2K${l}\x1b[0m`); }); last = lines; },
+  paint(lines: string[]) { lines.forEach((l, r) => { if (last[r] !== l) this.write(rowBytes(r, l, COLS)); }); last = lines; },
   invalidate() { last = []; },
   onKey(fn: (k: Key) => void) { keyFn = fn; },
   onResize() {},

@@ -1,6 +1,6 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
-import { width } from "./style";
+import { visible } from "./style";
 
 export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean }
@@ -32,7 +32,7 @@ export class Term {
   /**
    * Everything `draw` writes goes out as one synchronized update (DEC mode 2026), in one write: the terminal,
    * and Herdr in between, show the frame whole or not at all, never half painted (PIE-462). Nested frames
-   * join the outer one.
+   * join the outer one. `draw` must be synchronous: the frame is sent when it returns.
    */
   frame(draw: () => void): void {
     if (this.frameOut !== null) return draw();
@@ -109,14 +109,7 @@ export class Term {
     this.frame(() => this.write(this.row(r, line)));
   }
 
-  /**
-   * One row: its text first, then an erase of whatever is left to its right. Erasing the whole row first left
-   * it black until the text arrived, and a terminal could show that (PIE-462). Autowrap is off, so an erase
-   * from the last column would take the last character: a row that fills the width gets none.
-   */
-  private row(r: number, line: string): string {
-    return `\x1b[${r + 1};1H\x1b[0m${line}\x1b[0m${width(line) >= this.info.cols ? "" : "\x1b[K"}`;
-  }
+  private row(r: number, line: string): string { return rowBytes(r, line, this.info.cols); }
 
   invalidate() { this.last = []; }
 
@@ -182,4 +175,14 @@ export class Term {
       else this.keyHandler({ kind: "char", ch: c });
     }
   }
+}
+
+/**
+ * The bytes that paint one row: its text first, then an erase of whatever is left to its right. Erasing the
+ * whole row first left it black until the text arrived, and a terminal could show that (PIE-462). Autowrap
+ * is off, so an erase from the last column would take the last character: a row that fills the width gets
+ * none. Filling is measured in terminal cells (wide and joined characters, combining marks), not characters.
+ */
+export function rowBytes(r: number, line: string, cols: number): string {
+  return `\x1b[${r + 1};1H\x1b[0m${line}\x1b[0m${Bun.stringWidth(visible(line)) >= cols ? "" : "\x1b[K"}`;
 }

@@ -1,6 +1,7 @@
 // Painting: each frame is one synchronized write, and a row is never blank on its way to new text (PIE-462).
 import { afterEach, describe, expect, test } from "bun:test";
-import { Term } from "../src/term";
+import { Mirror } from "../src/mirror";
+import { rowBytes, Term } from "../src/term";
 
 const SYNC_ON = "\x1b[?2026h", SYNC_OFF = "\x1b[?2026l";
 let written: string[] = [];
@@ -69,4 +70,32 @@ describe("painting a frame", () => {
     t.write("\x1b[?25l");
     expect(written).toEqual(["\x1b[?25l"]);
   });
+
+  test("the door's own screen copy (peek, snap) clears what a shorter row leaves behind", () => {
+    const t = term(24, 2);
+    const mirror = new Mirror(24, 2);
+    t.paint(["a long row about the jars", "status"]);
+    t.paint(["short row", "status"]);
+    for (const w of written) mirror.write(w);
+    expect(mirror.text()[0]!.trimEnd()).toBe("short row");
+  });
+
+  test("the screen copy knows every erase in line: to the right, to the left, the whole row", () => {
+    const mirror = new Mirror(10, 1);
+    mirror.write("\x1b[1;1H0123456789\x1b[1;4H\x1b[K");
+    expect(mirror.text()[0]).toBe("012");                          // text() trims trailing blanks
+    mirror.write("\x1b[1;1H0123456789\x1b[1;4H\x1b[1K");
+    expect(mirror.text()[0]).toBe("    456789");
+    mirror.write("\x1b[1;1H0123456789\x1b[2K");
+    expect(mirror.text()[0]).toBe("");
+  });
+
+  test("filling the width is measured in terminal cells, not characters", () => {
+    // Combining marks and joined emoji take fewer cells than characters: still room to the right, so erase it.
+    expect(rowBytes(0, "cafe\u0301".padEnd(10), 10)).toEndWith("\x1b[K");
+    expect(rowBytes(0, "pair \u{1F469}\u200D\u{1F4BB}".padEnd(10), 10)).toEndWith("\x1b[K");
+    // Wide characters take two cells: a row of five fills ten columns, so no erase takes its last one.
+    expect(rowBytes(0, "\u6F22\u5B57\u6F22\u5B57\u6F22", 10)).not.toContain("\x1b[K");
+  });
 });
+
