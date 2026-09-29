@@ -1,0 +1,313 @@
+// `ep0ch doctor` and `ep0ch install` (PIE-450): the plan and the report from described machines (no real
+// stack is read), the platform, the PATH link chooser, backup naming, and the read-only probes on scratch
+// files. The sandboxed --apply run is in the PR; nothing here touches a real outline, Herdr or checkout.
+import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { backupDatabase, formatPlan, setupCommand } from "../src/setup/apply";
+import { OUTLINE_CAPABILITIES } from "../src/socket";
+import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
+import { databases, depsState, herdrKeys, hostUnit } from "../src/setup/facts";
+import { type Checkout, detectPlatform, type Facts, type ServiceFacts, staleness } from "../src/setup/model";
+import { backupName, buildPlan, checkoutStep, chooseLinkDir, linkCandidates, type PlanOptions, stamp } from "../src/setup/plan";
+
+const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+const HOME = "/Users/wren";
+/** What the fictional installed plugin offers: everything the door uses, and one more. */
+const CAPS = [...OUTLINE_CAPABILITIES, "mutations.provenance"];
+const now = new Date("2026-03-14T09:26:53.589Z");
+const opts = (o: Partial<PlanOptions> = {}): PlanOptions => ({ restartServices: false, now, backupDir: `${HOME}/backups/ep0ch`, ...o });
+
+const checkout = (root: string, o: Partial<Checkout> = {}): Checkout =>
+  ({ root, git: true, branch: "main", head: "1111111aaaa", upstream: "1111111aaaa", ahead: 0, behind: 0, dirty: false, ...o });
+
+/** A Homebrew Mac like the one in PIE-450: managed plugin behind, door behind, no ep0ch, a folder service on old code. */
+function laptop(o: Partial<Facts> = {}): Facts {
+  const pluginRoot = `${HOME}/.config/herdr/plugins/github/float.pi-outliner-0a1b2c`;
+  return {
+    platform: "macos", home: HOME, pathDirs: ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"],
+    bun: { path: "/opt/homebrew/bin/bun", version: "1.4.2" },
+    herdr: { path: "/opt/homebrew/bin/herdr", version: "0.9.1", server: true, configPath: `${HOME}/.config/herdr/config.toml`, inside: true,
+      keys: { "open-here": "prefix+u", "open-tree": "prefix+shift+u", "comment-selection": "prefix+shift+a", capture: "prefix+shift+c" } },
+    plugin: { id: "float.pi-outliner", kind: "github", root: pluginRoot, manifestPath: `${pluginRoot}/herdr-plugin.toml`, enabled: true,
+      source: { owner: "float-ritual-stack", repo: "pi-herdr-outliner", ref: "main", commit: "239aaaa0000" }, checkout: null,
+      remote: { commit: "246bbbb0000" }, protocol: 82, capabilities: CAPS, deps: { needed: false, why: "ok" }, actions: ["open-here", "open-tree", "comment-selection", "capture", "open"] },
+    door: { checkout: checkout(`${HOME}/projects/ep0ch-door`, { head: "40aaaaa", upstream: "49bbbbb", behind: 9 }), deps: { needed: false, why: "ok" }, entry: `${HOME}/projects/ep0ch-door/src/main.ts` },
+    ep0ch: { found: null, target: null, pointsHere: false },
+    linkDirs: [{ dir: `${HOME}/.local/bin`, onPath: false, writable: false }, { dir: "/opt/homebrew/bin", onPath: true, writable: true }, { dir: "/usr/local/bin", onPath: true, writable: false }],
+    host: { socket: `${HOME}/.local/state/pi-herdr-outliner/outliner.sock`, configured: false, running: false, outlines: [], unit: null },
+    services: [{ stateDir: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6`, socket: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sock`,
+      database: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite`, running: true, name: "seed-library", root: `${HOME}/seed-library`,
+      protocol: 82, capabilities: CAPS.filter(c => c !== "fragments.candidates"), paneId: "w2:p5" }],
+    databases: [{ name: "seed-library", path: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite`, from: "folder" }],
+    claude: { settingsPath: `${HOME}/.claude/settings.json`, settingsDirs: [`${pluginRoot}/claude-mod`], envDirs: null },
+    expected: CAPS,
+    ...o,
+  };
+}
+
+/** The same machine once everything is current. */
+function current(): Facts {
+  const f = laptop();
+  return { ...f, plugin: { ...f.plugin!, remote: { commit: "239aaaa0000" } }, door: { ...f.door, checkout: checkout(f.door.checkout.root) },
+    ep0ch: { found: "/opt/homebrew/bin/ep0ch", target: f.door.entry, pointsHere: true }, services: [{ ...f.services[0]!, capabilities: CAPS }] };
+}
+
+const statuses = (f: Facts, o = opts()) => buildPlan(f, o).steps.map(s => `${s.id}:${s.status}`);
+
+describe("platform", () => {
+  test("linux and darwin by name; anything else is other, and nothing assumes systemd or launchd", () => {
+    expect(detectPlatform("linux")).toBe("linux");
+    expect(detectPlatform("darwin")).toBe("macos");
+    expect(detectPlatform("win32")).toBe("other");
+  });
+
+  test("the host unit is looked for where the platform keeps them, by what it runs", () => {
+    const home = join(scratch, "unit-home");
+    mkdirSync(join(home, ".config/systemd/user"), { recursive: true });
+    mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+    writeFileSync(join(home, ".config/systemd/user/compost.service"), "[Service]\nExecStart=/usr/bin/true\n");
+    writeFileSync(join(home, ".config/systemd/user/garden-host.service"), "[Service]\nExecStart=bun /opt/outliner/src/host-main.ts\n");
+    writeFileSync(join(home, "Library/LaunchAgents/io.example.garden.plist"), "<string>/opt/outliner/src/host-main.ts</string>");
+    expect(hostUnit("linux", home)).toEqual({ kind: "systemd", path: join(home, ".config/systemd/user/garden-host.service") });
+    expect(hostUnit("macos", home)).toEqual({ kind: "launchd", path: join(home, "Library/LaunchAgents/io.example.garden.plist") });
+    expect(hostUnit("other", home)).toBeNull();
+  });
+});
+
+describe("the PATH link chooser", () => {
+  test("the first candidate that is on PATH and writable: Homebrew's bin on a Mac without ~/.local/bin on PATH", () => {
+    expect(chooseLinkDir(laptop().linkDirs)).toBe("/opt/homebrew/bin");
+  });
+  test("~/.local/bin first when it is on PATH and writable", () => {
+    expect(chooseLinkDir([{ dir: "/home/wren/.local/bin", onPath: true, writable: true }, { dir: "/usr/local/bin", onPath: true, writable: true }])).toBe("/home/wren/.local/bin");
+  });
+  test("writable but off PATH, or on PATH but not writable, doesn't count; none means null (never sudo)", () => {
+    expect(chooseLinkDir([{ dir: "/a", onPath: false, writable: true }, { dir: "/b", onPath: true, writable: false }])).toBeNull();
+  });
+  test("the candidates, in order", () => {
+    expect(linkCandidates("/home/wren")).toEqual(["/home/wren/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
+  });
+});
+
+describe("backup naming", () => {
+  test("<outline name>-<UTC timestamp>.sqlite; a second database of the same name gets -2", () => {
+    expect(stamp(now)).toBe("20260314T092653Z");
+    const taken = new Set<string>();
+    expect(backupName("seed-library", now, taken)).toBe("seed-library-20260314T092653Z.sqlite");
+    expect(backupName("seed-library", now, taken)).toBe("seed-library-20260314T092653Z-2.sqlite");
+    expect(backupName("Seed Library!", now)).toBe("seed-library-20260314T092653Z.sqlite");
+  });
+});
+
+describe("the plan", () => {
+  test("a behind laptop: backup first, then plugin, door and link; restarts only offered", () => {
+    const plan = buildPlan(laptop(), opts());
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:do", "link:do", "restart:offer"]);
+    const [backup, plugin, door, link, restart] = plan.steps;
+    expect(backup!.backups!.map(b => b.dest)).toEqual([`${HOME}/backups/ep0ch/seed-library-20260314T092653Z.sqlite`]);
+    expect(plugin!.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
+    expect(door!.commands[0]).toBe(`git -C ${HOME}/projects/ep0ch-door pull --ff-only origin main`);
+    expect(door!.why).toContain("9 commits behind");
+    expect(link!.commands).toEqual([`ln -s ${HOME}/projects/ep0ch-door/src/main.ts /opt/homebrew/bin/ep0ch`]);
+    expect(restart!.why).toContain("seed-library (missing fragments.candidates)");
+    expect(restart!.why).toContain("--restart-services");
+    expect(plan.notes.join("\n")).toContain("launchd");
+  });
+
+  test("--restart-services restarts the old services through their Herdr pane and the Outliner's own launcher", () => {
+    const restart = buildPlan(laptop(), opts({ restartServices: true })).steps[4]!;
+    expect(restart.status).toBe("do");
+    expect(restart.commands).toEqual(["herdr pane close w2:p5",
+      `OUTLINER_OPEN_WORKSPACE_ROOT=${HOME}/seed-library bun run ${HOME}/.config/herdr/plugins/github/float.pi-outliner-0a1b2c/src/herdr-open.ts --mode service-only`]);
+  });
+
+  test("outside Herdr, or without a recorded pane, a restart is left to the person", () => {
+    const outside = laptop({ herdr: { ...laptop().herdr, inside: false } });
+    expect(buildPlan(outside, opts({ restartServices: true })).steps[4]!.status).toBe("manual");
+    const noPane = laptop({ services: [{ ...laptop().services[0]!, paneId: undefined } as ServiceFacts] });
+    expect(buildPlan(noPane, opts({ restartServices: true })).steps[4]!.status).toBe("manual");
+  });
+
+  test("everything current: every step skipped, the backup too (a second run does nothing)", () => {
+    expect(statuses(current())).toEqual(["backup:skip", "plugin:skip", "door:skip", "link:skip", "restart:skip"]);
+  });
+
+  test("only a restart to do still backs up first", () => {
+    const f = { ...current(), services: laptop().services };
+    expect(statuses(f, opts({ restartServices: true }))).toEqual(["backup:do", "plugin:skip", "door:skip", "link:skip", "restart:do"]);
+  });
+
+  test("a plugin update makes running services candidates, checked again after it", () => {
+    const f = { ...current(), plugin: laptop().plugin };
+    const restart = buildPlan(f, opts()).steps[4]!;
+    expect(restart.status).toBe("offer");
+    expect(restart.why).toContain("checked again after the plugin update");
+  });
+
+  test("a managed install Herdr can't compare is left to the person, with the refresh command", () => {
+    const f = laptop({ plugin: { ...laptop().plugin!, remote: { commit: null, error: "could not resolve host" } } });
+    const step = buildPlan(f, opts()).steps[1]!;
+    expect(step.status).toBe("manual");
+    expect(step.why).toContain("managed, cannot compare (could not resolve host)");
+    expect(step.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
+  });
+
+  test("a linked checkout: fast-forward, bun install when needed, and the cases a person must handle", () => {
+    const root = "/home/wren/src/outliner";
+    expect(checkoutStep(checkout(root, { behind: 3 }), null, "x").commands[0]).toBe(`git -C ${root} pull --ff-only origin main`);
+    expect(checkoutStep(checkout(root), { needed: true, why: "node_modules is missing" }, "x")).toMatchObject({ status: "do", commands: [`(cd ${root} && bun install --frozen-lockfile)`] });
+    expect(checkoutStep(checkout(root, { branch: "sketch" }), null, "x").status).toBe("manual");
+    expect(checkoutStep(checkout(root, { branch: null }), null, "x").why).toContain("detached");
+    expect(checkoutStep(checkout(root, { ahead: 1, behind: 2 }), null, "x").why).toContain("diverged");
+    expect(checkoutStep(checkout(root, { behind: 2, dirty: true }), null, "x").why).toContain("local changes");
+    expect(checkoutStep(checkout(root, { ahead: 2 }), null, "x")).toMatchObject({ status: "skip" });
+    expect(checkoutStep(checkout(root, { git: false }), null, "x").status).toBe("manual");
+    expect(checkoutStep(checkout(root, { behind: 1, fetchError: "offline" }), null, "x").why).toContain("this one failed: offline");
+  });
+
+  test("ep0ch: another door checkout's link is left alone; a stranger on PATH or no writable directory needs the person", () => {
+    const other = laptop({ ep0ch: { found: "/opt/homebrew/bin/ep0ch", target: "/Users/wren/old/ep0ch-door/src/main.ts", pointsHere: false } });
+    expect(buildPlan(other, opts()).steps[3]).toMatchObject({ status: "skip" });
+    const stranger = laptop({ ep0ch: { found: "/usr/local/bin/ep0ch", target: "/usr/local/bin/ep0ch", pointsHere: false } });
+    expect(buildPlan(stranger, opts()).steps[3]!.status).toBe("manual");
+    const nowhere = laptop({ linkDirs: laptop().linkDirs.map(d => ({ ...d, writable: false })) });
+    expect(buildPlan(nowhere, opts()).steps[3]!.why).toContain("never uses sudo");
+    const broken = laptop({ linkDirs: [{ dir: "/opt/homebrew/bin", onPath: true, writable: true, existing: "broken-link" }] });
+    expect(buildPlan(broken, opts()).steps[3]!.commands).toEqual([`ln -sfn ${HOME}/projects/ep0ch-door/src/main.ts /opt/homebrew/bin/ep0ch`]);
+  });
+
+  test("the dry run prints each step with its mark and command", () => {
+    const f = laptop();
+    const text = formatPlan(f, buildPlan(f, opts()), false);
+    expect(text).toContain("dry run");
+    expect(text).toMatch(/^1 → Back up every local outline database$/m);
+    expect(text).toContain(`seed-library: ${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite → ${HOME}/backups/ep0ch/seed-library-20260314T092653Z.sqlite`);
+    expect(text).toMatch(/^5 \? Restart per-folder services running old code$/m);
+  });
+});
+
+describe("the doctor", () => {
+  const byName = (f: Facts) => Object.fromEntries(doctorChecks(f).map(c => [`${c.group}/${c.name}`, c]));
+
+  test("the laptop: what's behind, with the command that fixes it", () => {
+    const c = byName(laptop());
+    expect(c["plugin/installed"]).toMatchObject({ status: "behind", fix: "herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes" });
+    expect(c["door/checkout"]!.status).toBe("behind");
+    expect(c["door/ep0ch on PATH"]).toMatchObject({ status: "missing", fix: `ln -s ${HOME}/projects/ep0ch-door/src/main.ts /opt/homebrew/bin/ep0ch` });
+    expect(c["services/folder seed-library"]).toMatchObject({ status: "behind", fix: "ep0ch install --apply --restart-services" });
+    expect(c["services/folder seed-library"]!.detail).toContain("missing fragments.candidates: restart to pick up new features");
+    expect(c["services/outline host"]!.status).toBe("info");
+    expect(c["claude/claude-mod"]!.status).toBe("ok");
+    expect(formatDoctor(laptop())).toMatch(/^ {2}! installed/m);
+  });
+
+  test("all current is all ✓", () => {
+    expect(doctorChecks(current()).filter(c => c.status === "behind" || c.status === "missing")).toEqual([]);
+  });
+
+  test("a plugin older than the door says which capabilities the door would miss", () => {
+    const f = current();
+    f.plugin = { ...f.plugin!, capabilities: ["blocks.read"] };
+    expect(byName(f)["plugin/for the door"]!.detail).toContain("fragments.candidates");
+  });
+
+  test("a managed install that can't be compared says so, without failing", () => {
+    const c = byName(laptop({ plugin: { ...laptop().plugin!, remote: { commit: null, error: "offline" } } }));
+    expect(c["plugin/installed"]!.status).toBe("info");
+    expect(c["plugin/installed"]!.detail).toContain("managed, cannot compare");
+  });
+
+  test("a Claude mod from an older plugin root is stale; FORCE_HYPERLINK is noted", () => {
+    const f = current();
+    f.claude = { ...f.claude, settingsDirs: [`${HOME}/.config/herdr/plugins/github/float.pi-outliner-99ffee/claude-mod`], forceHyperlink: "1" };
+    const c = byName(f);
+    expect(c["claude/claude-mod"]).toMatchObject({ status: "behind" });
+    expect(c["claude/claude-mod"]!.fix).toContain("scripts/install-claude-mod.ts");
+    expect(c["claude/FORCE_HYPERLINK"]!.detail).toContain("PIE-486");
+  });
+
+  test("missing keys and a stopped Herdr server", () => {
+    const f = current();
+    f.herdr = { ...f.herdr, server: false, keys: { "open-here": "prefix+u" } };
+    const c = byName(f);
+    expect(c["herdr/server"]!.status).toBe("missing");
+    expect(c["herdr/keys"]!.detail).toContain("no key for open-tree, comment-selection, capture");
+  });
+
+  test("versions and staleness", () => {
+    expect(versionAtLeast("1.4.2", "1.3.0")).toBe(true);
+    expect(versionAtLeast("1.2.9", "1.3.0")).toBe(false);
+    expect(staleness({ protocol: 81, capabilities: ["a"] }, ["a", "b"], 82)).toEqual(["protocol 81 < 82", "b"]);
+    expect(staleness({ protocol: 82, capabilities: null }, ["a"], 82)).toEqual([]);
+  });
+});
+
+describe("read-only probes on scratch files", () => {
+  test("bun install is needed when node_modules or a package is missing, or a version differs from bun.lock", () => {
+    const root = join(scratch, "door");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies: { "@garden/trowel": "1.2.0" } }));
+    writeFileSync(join(root, "bun.lock"), `{\n  "packages": {\n    "@garden/trowel": ["@garden/trowel@1.2.0", "", {}, "sha512-x"],\n  }\n}\n`);
+    expect(depsState(root)).toEqual({ needed: true, why: "node_modules is missing" });
+    mkdirSync(join(root, "node_modules/@garden"), { recursive: true });
+    expect(depsState(root).why).toBe("@garden/trowel isn't installed");
+    mkdirSync(join(root, "node_modules/@garden/trowel"));
+    writeFileSync(join(root, "node_modules/@garden/trowel/package.json"), JSON.stringify({ version: "1.1.0" }));
+    expect(depsState(root).why).toBe("@garden/trowel is 1.1.0, bun.lock has 1.2.0");
+    writeFileSync(join(root, "node_modules/@garden/trowel/package.json"), JSON.stringify({ version: "1.2.0" }));
+    expect(depsState(root).needed).toBe(false);
+  });
+
+  test("Herdr keys are read from [[keys.command]] blocks naming the plugin's actions", () => {
+    const path = join(scratch, "config.toml");
+    writeFileSync(path, `onboarding = false\n\n[[keys.command]]\nkey = "prefix+u"\ntype = "plugin_action"\ncommand = "float.pi-outliner.open-here"\n\n[[keys.command]]\nkey = "prefix+g"\ntype = "plugin_action"\ncommand = "other.plugin.open-here"\n\n[theme]\nname = "x"\n`);
+    expect(herdrKeys(path)).toEqual({ "open-here": "prefix+u" });
+    expect(herdrKeys(join(scratch, "none.toml"))).toEqual({});
+  });
+
+  test("databases: host outlines by name (links followed), then folder services, each once", () => {
+    const base = join(scratch, "state");
+    mkdirSync(join(base, "outlines"), { recursive: true });
+    mkdirSync(join(base, "0123456789ab"), { recursive: true });
+    writeFileSync(join(base, "0123456789ab/outliner.sqlite"), "");
+    symlinkSync(join(base, "0123456789ab/outliner.sqlite"), join(base, "outlines/orchard.sqlite"));
+    mkdirSync(join(base, "ba9876543210"), { recursive: true });
+    writeFileSync(join(base, "ba9876543210/outliner.sqlite"), "");
+    const host = { socket: "", configured: true, running: false, outlines: [], unit: null };
+    const services: ServiceFacts[] = [
+      { stateDir: join(base, "0123456789ab"), socket: "", database: join(base, "0123456789ab/outliner.sqlite"), running: false, name: "orchard" },
+      { stateDir: join(base, "ba9876543210"), socket: "", database: join(base, "ba9876543210/outliner.sqlite"), running: false, name: "seed-library" },
+    ];
+    expect(databases(base, host, services).map(d => `${d.name}:${d.from}`)).toEqual(["orchard:host", "seed-library:folder"]);
+  });
+
+  test("a backup is a consistent copy of a live WAL database, integrity-checked, never overwriting", () => {
+    const src = join(scratch, "live.sqlite"), dest = join(scratch, "backups/live-copy.sqlite");
+    mkdirSync(join(scratch, "backups"));
+    const writer = new Database(src);
+    writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE notes(text); INSERT INTO notes VALUES ('plant the beans'), ('turn the compost');");
+    expect(backupDatabase(src, dest)).toEqual({ integrity: "ok" });
+    writer.close();
+    const copy = new Database(dest, { readonly: true });
+    expect(copy.query("SELECT count(*) AS n FROM notes").get()).toEqual({ n: 2 });
+    copy.close();
+    expect(statSync(dest).mode & 0o777).toBe(0o600);
+    expect(() => backupDatabase(src, dest)).toThrow("already exists");
+    expect(existsSync(src)).toBe(true);
+  });
+});
+
+describe("the command line", () => {
+  test("a flag that doesn't belong is refused before anything is read", async () => {
+    const said: string[] = [];
+    const io = { out: (s: string) => said.push(s), err: (s: string) => said.push(s) };
+    expect(await setupCommand(["doctor", "--apply"], io)).toBe(2);
+    expect(await setupCommand(["install", "--yes"], io)).toBe(2);
+    expect(said.every(s => s.includes("ep0ch install [--apply] [--restart-services]"))).toBe(true);
+  });
+});

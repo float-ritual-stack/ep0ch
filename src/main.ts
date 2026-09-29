@@ -12,6 +12,7 @@ import { skillCommand } from "./skills";
 import { resolveTarget } from "./discover";
 import { attachTarget, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
+import { setupCommand } from "./setup/apply";
 
 const STATE = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door", "lastcall.json");
 
@@ -41,6 +42,15 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    --ws <name>); stop releases its database; delete unlinks an adopted
                                    outline or moves a created one to deleted/, after asking
   ep0ch status [--json]            the outline host: its socket, default outline, open outlines
+  ep0ch doctor [--json]            every piece of the stack (bun, the Outliner plugin, this checkout, ep0ch on
+                                   PATH, outline services, Herdr and its keys, the Claude mod): ✓ current,
+                                   ! behind, ✗ missing, with the command that fixes each. Read-only
+  ep0ch install [--apply] [--restart-services] [--json]
+                                   bring the stack up to date: a dry run by default (the plan). --apply backs
+                                   up every outline database to ~/backups/ep0ch first, then updates the plugin
+                                   and this checkout (fast-forward only, bun install when needed) and links
+                                   ep0ch on PATH; each step is skipped when current. --restart-services also
+                                   restarts per-folder services running old code (they are working panes)
   ep0ch try --ws <root> [--copy --outliner <checkout>] [--hub <id>]
   ep0ch try --showcase [--reset] --outliner <checkout>
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
@@ -55,6 +65,7 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    path of one skill's SKILL.md; --all adds contributor skills
   ep0ch help`;
 if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+if (args[0] === "doctor" || args[0] === "install") process.exit(await setupCommand(args));
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
 if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });

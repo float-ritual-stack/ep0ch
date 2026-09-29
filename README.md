@@ -122,10 +122,70 @@ embeds are live.
   any other note opens beside it.
 - The showcase outline has two made-up briefs, so `scripts/try-it.sh --showcase` then `T` shows one.
 
+## Install and update
+
+The stack is Bun, Herdr, the Outliner plugin (pi-herdr-outliner, linked as a checkout or installed by
+Herdr), its outline services, this checkout and the `ep0ch` command. Two commands look after it, on
+macOS and Linux alike:
+
+    ep0ch doctor [--json]            every piece and its state, with the command that fixes it (read-only)
+    ep0ch install                    the plan: what would change, step by step (a dry run; nothing changes)
+    ep0ch install --apply            run it
+    ep0ch install --apply --restart-services
+                                     also restart per-folder services running old code
+
+`doctor` marks each piece ✓ current, ! behind, ✗ missing (· is information):
+
+- **bun**: its path and version.
+- **the plugin**: linked (a checkout: its commit against `origin/main`, after a `git fetch`) or managed
+  by Herdr (the commit Herdr installed against the source's branch on GitHub, by `git ls-remote`;
+  "managed, cannot compare" when that can't be reached), and its protocol and service capabilities.
+- **the door**: this checkout against `origin/main`, whether `bun install` is needed (a package missing,
+  or installed at a version other than `bun.lock`'s), and whether `ep0ch` on PATH runs this checkout.
+- **outline services**: the outline host (its socket, default outline and outlines, and its systemd
+  unit or launchd agent when there is one) and each per-folder service: running or not, and whether it
+  runs old code (a protocol or capability the installed plugin offers that the running service
+  doesn't, such as `fragments.candidates`: "restart to pick up new features").
+- **Herdr**: the server, and the keys for the plugin's actions in `config.toml`.
+- **Claude**: whether Claude Code's `CLAUDE_CODE_PLUGIN_DIRS` loads the installed plugin's `claude-mod`
+  (a managed reinstall can move the plugin's root; the Outliner's `scripts/install-claude-mod.ts` points
+  it again), and `FORCE_HYPERLINK`, a known issue (PIE-486).
+
+`install` runs these steps in order, each skipped when it's already current, each saying what it did:
+
+1. **Back up** every local outline database (the host's outlines and every folder service's) with
+   SQLite's `VACUUM INTO`, a consistent copy even while a service writes, into
+   `~/backups/ep0ch/<name>-<UTC timestamp>.sqlite`, integrity-checked. It runs before any other step
+   changes anything, and not at all when nothing else changes.
+2. **Update the plugin**: `git pull --ff-only` in a linked checkout (then `bun install` when needed), or
+   for a managed one the same `herdr plugin install <owner/repo> --ref <ref> --yes` again (Herdr has no
+   update command; reinstalling refreshes it).
+3. **Update this checkout**: `git pull --ff-only`, then `bun install --frozen-lockfile` when needed.
+4. **Link `ep0ch`** in the first directory that is on PATH and writable, of `~/.local/bin`,
+   `/opt/homebrew/bin` and `/usr/local/bin`, saying which. Never sudo. An `ep0ch` that already runs
+   another door checkout is left alone.
+5. **Restart per-folder services running old code**, only with `--restart-services` (they are working
+   panes): each service's Herdr pane is closed and the Outliner's own launcher starts it again
+   (`herdr-open.ts --mode service-only`, from inside Herdr); reopen its Tree and Detail afterwards.
+   After a plugin update the services are asked again.
+
+A checkout that isn't on `main`, has diverged, or is behind with local changes is left for you, with
+what to do. Install never writes a database (it only copies them), never creates or starts an outline,
+never edits Herdr's config or Claude's settings, and never touches systemd or launchd units: the outline
+host, its unit, the keys and the Claude mod are reported as notes. It stops at the first failure, with
+the recovery. `--json` gives agents the same report or plan.
+
+A door checkout from before `install` gets it by hand, once:
+
+    cd ~/projects/ep0ch-door && git pull --ff-only && bun install
+    bun src/main.ts doctor
+    bun src/main.ts install              # read the plan
+    bun src/main.ts install --apply      # then ep0ch is on PATH: ep0ch doctor
+
 ## Run
 
     bun install
-    ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (any directory on PATH)
+    ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (or: ep0ch install --apply)
 
     ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
     ep0ch /path/to/outliner.sock
@@ -136,6 +196,7 @@ embeds are live.
 
 | Command | What it does |
 |---|---|
+| `ep0ch doctor`, `ep0ch install [--apply]` | the stack's state, and bringing it up to date (see [Install and update](#install-and-update)) |
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the installed Outliner plugin's, found through Herdr), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
