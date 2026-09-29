@@ -77,15 +77,16 @@ export function pluginStep(f: Facts): Step {
   }
   if (p.kind === "local") return { id: "plugin", title: `${title} (linked checkout)`, ...checkoutStep(p.checkout ?? missingCheckout(p.root), p.deps, "the plugin checkout") };
   const source = p.source?.owner && p.source.repo ? `${p.source.owner}/${p.source.repo}` : PLUGIN_SOURCE;
-  const ref = p.source?.ref ?? "main";
-  const reinstall = `herdr plugin install ${source} --ref ${ref} --yes`;
+  // Compared with main, and refreshed from main, whatever ref it was installed from (a PR branch, a commit).
+  const reinstall = `herdr plugin install ${source} --ref main --yes`;
   const managed = `${title} (managed by Herdr)`;
+  const from = p.source?.ref && p.source.ref !== "main" ? `; installed from ${p.source.ref}, refreshed from main` : "";
   if (!p.remote?.commit || !p.source?.commit) {
     return { id: "plugin", title: managed, status: "manual",
       why: `managed, cannot compare (${!p.source?.commit ? "Herdr recorded no installed commit" : p.remote?.error ?? "the source couldn't be reached"}); to refresh it anyway:`, commands: [reinstall] };
   }
-  if (p.remote.commit === p.source.commit) return { id: "plugin", title: managed, status: "skip", why: `current at ${short(p.source.commit)} (${source}@${ref})`, commands: [] };
-  return { id: "plugin", title: managed, status: "do", why: `installed ${short(p.source.commit)}, ${source}@${ref} is at ${short(p.remote.commit)}; Herdr has no update command, so the same install refreshes it`, commands: [reinstall] };
+  if (p.remote.commit === p.source.commit) return { id: "plugin", title: managed, status: "skip", why: `current at ${short(p.source.commit)} (${source}@main)`, commands: [] };
+  return { id: "plugin", title: managed, status: "do", why: `installed ${short(p.source.commit)}, ${source}@main is at ${short(p.remote.commit)}${from}; Herdr has no update command, so installing again refreshes it`, commands: [reinstall] };
 }
 const missingCheckout = (root: string): Checkout => ({ root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false });
 

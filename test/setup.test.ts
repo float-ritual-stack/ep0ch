@@ -317,3 +317,10 @@ test("text output shows the home directory as ~ (JSON keeps whole paths)", () =>
     .toBe("ep0ch doctor · linux · ~\n  $ ln -s ~/door/src/main.ts ~/.local/bin/ep0ch (x ~)");
   expect(tilde("/home/wrenfield/x", "/home/wren")).toBe("/home/wrenfield/x");
 });
+
+test("a managed install from another ref (a PR branch) is compared with main and refreshed from main", () => {
+  const f = laptop({ plugin: { ...laptop().plugin!, source: { owner: "float-ritual-stack", repo: "pi-herdr-outliner", ref: "pr-239", commit: "239aaaa0000" } } });
+  const step = buildPlan(f, opts()).steps[1]!;
+  expect(step.why).toContain("installed from pr-239, refreshed from main");
+  expect(step.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
+});

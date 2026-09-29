@@ -97,7 +97,7 @@ async function execute(step: Step, f: Facts, env: Env, say: (s: string) => void)
         return;
       }
       const source = p.source?.owner && p.source.repo ? `${p.source.owner}/${p.source.repo}` : PLUGIN_SOURCE;
-      const ref = p.source?.ref ?? "main";
+      const ref = "main";
       await must([f.herdr.path!, "plugin", "install", source, "--ref", ref, "--yes"],
         `Herdr keeps the previously installed copy registered; retry: herdr plugin install ${source} --ref ${ref} --yes (herdr plugin log shows the build)`, { env });
       const now = await pluginFacts({ ...env, HERDR_BIN_PATH: f.herdr.path! }, false);

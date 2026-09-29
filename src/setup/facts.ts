@@ -89,7 +89,7 @@ export async function pluginFacts(env: Env, fetch: boolean): Promise<PluginFacts
   const [checkout, code, remote] = await Promise.all([
     kind === "local" || isGit ? inspectCheckout(root, fetch && kind === "local", env) : Promise.resolve(null),
     pluginCode(root),
-    kind === "github" && fetch && source?.owner && source.repo ? lsRemote(`https://github.com/${source.owner}/${source.repo}.git`, source.ref ?? "main", env) : Promise.resolve(kind === "github" ? { commit: null, error: fetch ? "Herdr recorded no source repository" : "not fetched" } : undefined),
+    kind === "github" && fetch && source?.owner && source.repo ? lsRemote(`https://github.com/${source.owner}/${source.repo}.git`, "main", env) : Promise.resolve(kind === "github" ? { commit: null, error: fetch ? "Herdr recorded no source repository" : "not fetched" } : undefined),
   ]);
   return { id: PLUGIN_ID, kind, root, manifestPath: p.manifest_path ?? join(root, "herdr-plugin.toml"), enabled: p.enabled !== false, ...(source ? { source } : {}),
     checkout, ...(remote ? { remote } : {}), ...code, deps: existsSync(root) ? depsState(root) : null,
