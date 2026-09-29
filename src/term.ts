@@ -158,7 +158,8 @@ export class Term {
       // sequences, so an ESC before one of them keeps its old meaning.
       if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
-        const k = p.match(/^\x1b\[[\d;?]*[ -\/]*[@-~]/);
+        // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
+        const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);
         this.pending = p.slice(k ? k[0].length : 1);
         if (!k) this.keyHandler({ kind: "esc" });
         continue;
