@@ -66,6 +66,32 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `layout.list` | the layouts that can be loaded, saved or built in |
 | `actions` | everything the screen can do |
 
+## The shell: screens and lists
+
+On every screen, before the screen's own actions: `screen.open name=<menu key, label or title>`,
+`screen.back`, `screen.list` (what the menu opens and the stack the person is on). On the BBS lists (a
+message list, Join, Last callers, File areas): `list.read` (rows numbered from 1, the lit one; moves nothing),
+`list.select n=`, `list.open [n=]`. The menu's letters, `⏎` and clicks, and `q`/`Esc`, `j k`, `⏎` and clicks on
+a list, run the same actions. On the menu or a list, the control socket's `open <id>` opens the note in a
+message reader over it.
+
+These change what the person looks at, so an agent's is a visible, attributed move made only while they're idle:
+
+- refused while the top screen holds their keys (an edit, a comment, the property panel, a terminal tile
+  they're typing in, a filter or palette being typed, a choice open: each screen's `holdsKeys`, on the
+  message reader, the desk and its views, the board, the river and the showcase), and within 2s of their last key or click (`SHELL_IDLE_MS`), so a key in flight never
+  lands on a screen they didn't choose; the refusal says why, and the agent tries again later;
+- said on the status bar ("an agent (<id>) · opened board stats · q goes back"); the screen is pushed over
+  theirs, so `q` brings them back where they were; a screen that starts programs or keeps a layout (the
+  desk, the board, the river, the brief, Waiting, the welcome, the showcase) is refused when it's already on
+  the stack (`screen.back` gets there);
+- never Goodbye: `screen.open name=G` is refused, and `screen.back` on the main menu is refused (the person's
+  `Esc` there only says "G logs off"; their `q` there is the Quay, as it always was).
+
+    ep0ch act screen.open name=J --as claude-7
+    ep0ch act list.read --as claude-7
+    ep0ch act list.open n=3 --as claude-7
+
 ## Commands
 
 The desk's commands, by what they change. `reader=<tile>` names a tile by name (`middle`), by its number on
@@ -128,6 +154,7 @@ at, and what it does while they're typing:
 | `layout.load` (`layout.restore`) | rebuilds the desk | refused |
 | `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
 | `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
+| `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
 | `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |
@@ -196,5 +223,6 @@ Still direct, next:
   "in" a terminal tile or a reader's edit. What they end in is a command.
 - **Other screens.** The board has `card.*` and `reader.*` for most of what its keys do (lane focus and the
   lane cursor aren't actions). The river has `RIVER_ACTIONS` for columns, but not its filter, `#` or `/`
-  jump. The BBS list screens (News, Conferences, Who's Online, Last Callers, Stats) have none. See
+  jump. The BBS lists have `list.*` and every screen the shell's `screen.*` (PIE-489); Who's Online's `r`, the art
+viewer's keys and a message list's `t` aren't actions yet. See
   `docs/UI-GRAMMAR.md` §3, where the `·` in `kma` marks each missing agent action.

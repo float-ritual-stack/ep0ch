@@ -467,6 +467,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const f = this.panes.get(this.focus);
     return !!this.search || !!this.picker || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing || this.inPty() || (f instanceof ScreenTile && f.holdsKeys());
   }
+  /** Screen.holdsKeys: the same, for a frame around the desk (a brief tile) and the shell's agentMayMove (PIE-489). */
+  holdsKeys(): boolean { return this.personTyping(); }
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return this.inPty(); }

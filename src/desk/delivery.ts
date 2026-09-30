@@ -538,6 +538,19 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
 
   unsaved() { return this.readers().some(r => r.unsaved()) || !!this.composer?.draft.dirty; }
+  /**
+   * Screen.holdsKeys: the person's keys are the board's own business right now: an edit, a comment or the
+   * property panel they're in (or one of theirs still opening), a step's status choice, a new card or note
+   * being written, a backlinks filter being typed, or the mover or steps overlay. A tile around the board
+   * gives it every key then, and an agent doesn't move the person's screen (agentMayMove, PIE-489).
+   */
+  holdsKeys(): boolean {
+    const rd = this.focusedReader();
+    return !!this.pending || (!!rd && !this.shut.has(rd) && !!this.personIn())
+      || this.readers().some(r => r.surface.choosing && !this.shut.has(r))
+      || !!this.composer || (this.linkView.draft !== null && this.focus === "backlinks" && !!this.links)
+      || !!this.steps || !!this.mover;
+  }
   keepDrafts() {
     const c = this.composer;
     return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.copyOut(c.kind === "card" ? `new-card-${slug(c.lane.name)}` : `new-note-${c.parent.id.slice(0, 8)}`)] : [])];
@@ -2119,14 +2132,14 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     }
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area"
+      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area · |15q|08 menu"
       : this.focus === "backlinks"
         ? this.linkView.draft !== null
           ? "|08 type to filter the backlinks · |15⏎|08 keep · |15esc|08 undo · |15backspace ctrl+u|08 erase"
           : "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15B|08 pin · |15tab|08 area · |15esc|08 close"
       : this.focus.startsWith("float")
         ? "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 dock · |15x|08 close · |15tab|08 area"
-        : "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15esc|08 lanes";
+        : "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15q esc|08 lanes";
     return pad(undo + paint(base + (this.status ? ` · |14${this.status}` : "")), W);
   }
 
@@ -2195,7 +2208,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (k.kind === "down" || c === "j") P.sel = Math.min(P.items.length - 1, P.sel + 1);
       else if (k.kind === "up" || c === "k") P.sel = Math.max(0, P.sel - 1);
       else if (k.kind === "enter") { void this.useHub(P.items[P.sel]!.hub); return; }
-      else if (k.kind === "esc") { if (this.hub) this.picker = null; else return ctx.pop(); }
+      else if (k.kind === "esc" || c === "q") { if (this.hub) this.picker = null; else return ctx.pop(); }
       return this.redraw();
     }
     if (k.kind === "mouse") return this.mouse(k);
@@ -2237,7 +2250,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (c === "V") return ctx.cycleVideo();
     // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.
     if (k.kind === "esc" && rd && !rd.holdsKeys && !shut && rd.key(k, this)) return this.redraw();
-    if (k.kind === "esc") {
+    // q is back, as on every screen (PIE-489): the same steps as Esc, drawers and areas first, then the menu.
+    if (k.kind === "esc" || c === "q") {
       if (this.focus === "tree" && !this.treePinned) { this.treeOpen = false; this.focus = "lanes"; return this.redraw(); }
       if (this.focus === "backlinks" && !this.linksPinned) { this.links = null; this.focus = "lanes"; return this.redraw(); }
       if (this.focus !== "lanes") { this.focus = "lanes"; return this.redraw(); }
