@@ -69,9 +69,15 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[] }>();
+
 /** The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. */
 function previewRows(d: Draft, render: (text: string, w: number) => string[], w: number, h: number): string[] {
-  const body = render(d.text, Math.max(1, w - 2));
+  // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
+  // or after a moment, for link titles that arrived since.
+  const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
+  const body = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 ? hit.body : render(text, pw);
+  if (body !== hit?.body) previewCache.set(d, { text, w: pw, at: now, body });
   const room = Math.max(0, h - 1);
   const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
   return [rule(w, "preview · ctrl+p hides"), ...body.slice(at, at + room).map(l => " " + l)];

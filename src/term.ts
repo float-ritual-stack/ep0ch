@@ -3,7 +3,8 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 import { visible } from "./style";
 
 export type Key =
-  | { kind: "char"; ch: string; ctrl?: boolean }
+  /** `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. */
+  | { kind: "char"; ch: string; ctrl?: boolean; pasted?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
   | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
@@ -18,6 +19,11 @@ export type Key =
   | { kind: "paste"; text: string }
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
   | { kind: "enter" | "tab"; pasted: true };
+
+/** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
+export function pasteKeys(text: string): Key[] {
+  return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
+}
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 

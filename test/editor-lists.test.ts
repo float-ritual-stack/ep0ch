@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Draft, DRAFT_ACTIONS, listLead, unsent, unsentAll, wrapRows } from "../src/edit";
+import { Draft, DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, listLead, shelve, unsent, unsentAll, wrapRows } from "../src/edit";
+import { pasteKeys } from "../src/term";
 import { editHint, renderEditor } from "../src/surface/editor";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { cellsOf } from "../src/surface/selection";
@@ -58,6 +59,13 @@ describe("Enter keeps the list going", () => {
     enter(b); expect(b.lines.at(-1)).toBe("  - ");
     enter(b); expect(b.lines.at(-1)).toBe("- ");
     enter(b); expect(b.lines.at(-1)).toBe("");
+  });
+  test("Enter with the cursor on an item's marker opens a line above it and leaves the item whole", () => {
+    for (const at of [0, 1, 3]) {
+      const d = at_end("  - rope\n  - tarp");
+      d.place(1, at); enter(d);
+      expect(d.lines).toEqual(["  - rope", "", "  - tarp"]);
+    }
   });
   test("an indented line keeps its indent; a line of spaces steps back out", () => {
     const d = at_end("    under the item");
@@ -246,12 +254,12 @@ describe("no way out of a draft loses its text", () => {
 describe("agents", () => {
   test("an agent can indent in a draft it alone writes, never in the person's", async () => {
     const mine = at_end("- a\n- b");
-    mine.wrote(AGENT);
+    mine.openedBy = AGENT; mine.wrote(AGENT);
     await DRAFT_ACTIONS.runUntyped("draft.indent", { from: 2 }, mine, AGENT);
     expect(mine.lines[1]).toBe("  - b");
     const theirs = at_end("- a\n- b");
     type(theirs, "!");
-    expect(() => DRAFT_ACTIONS.runUntyped("draft.indent", { from: 2 }, theirs, AGENT)).toThrow("someone else is typing");
+    expect(() => DRAFT_ACTIONS.runUntyped("draft.indent", { from: 2 }, theirs, AGENT)).toThrow("the person's");
     expect(theirs.lines[1]).toBe("- b!");
   });
 });
@@ -313,5 +321,98 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
     expect(s.draft!.text).toBe("- a\n  - b");
     s.key(char("!"), h);
     expect(() => s.act("draft.outdent", { from: 2 }, h, AGENT)).toThrow();
+  });
+});
+
+// Review of PIE-496: paste through the App's key path, agents and the person's put-aside text, the
+// unsent index's bound.
+describe("review: nothing reformatted, nothing mixed up, nothing unbounded", () => {
+  test("a bracketed paste typed out as keys by the App is never reformatted", () => {
+    const d = new Draft("n1", 1, "");
+    const text = "- - [ ] the list, quoted\n1. 2. 3. counting\n\t- tabbed";
+    for (const k of pasteKeys(text)) d.key(k);
+    expect(d.lines).toEqual(text.split("\n"));
+    // CRLF from a Windows clipboard is one break.
+    const c = new Draft("n1", 1, "");
+    for (const k of pasteKeys("- a\r\n- b")) c.key(k);
+    expect(c.lines).toEqual(["- a", "- b"]);
+  });
+
+  test("an agent's own draft is only copied when it's put aside: the person's C never brings it back as theirs", () => {
+    const key = "comment:note-rope";
+    const a = new Draft("comment", 0, "");
+    a.shelf = { key, back: "C brings it back" };
+    a.replace("- the agent's summary", AGENT);
+    const copy = a.keep();
+    expect(readFileSync(copy, "utf8")).toBe("- the agent's summary\n");
+    expect(unsent(key)).toBeNull();
+    const mine = new Draft("comment", 0, "");
+    mine.shelf = { key, back: "C brings it back" };
+    expect(mine.restore()).toBe(false);
+    expect(mine.text).toBe("");
+  });
+
+  test("an agent's draft put aside never covers the person's put-aside text", () => {
+    const key = "edit:note-tarp";
+    const p = new Draft("note-tarp", 2, "Tarp");
+    p.shelf = { key, back: "e brings it back" };
+    type(p, " and pegs");
+    p.keep();
+    const a = new Draft("note-tarp", 2, "Tarp");
+    a.shelf = { key, back: "e brings it back" };
+    a.replace("Tarp, by the agent", AGENT);
+    a.keep();
+    expect(unsent(key)?.text).toBe("Tarp and pegs");
+  });
+
+  test("text brought back keeps who wrote it: a save names the agent that had a hand in it", () => {
+    const key = "edit:note-lamp";
+    const d = new Draft("note-lamp", 1, "Lamp");
+    d.shelf = { key, back: "e brings it back" };
+    type(d, " oil");
+    d.replace(`${d.text}\n- wick, from the agent`, AGENT);
+    d.keep();
+    const again = new Draft("note-lamp", 1, "Lamp");
+    again.shelf = { key, back: "e brings it back" };
+    expect(again.restore()).toBe(true);
+    expect(again.writers.map(w => w.kind)).toEqual(["user", "agent"]);
+    expect(again.recordAs(USER)).toEqual({ kind: "user", with: [AGENT.id] } as Actor);
+  });
+
+  test("the unsent index is bounded like the draft copies: old entries past the newest DRAFT_KEEP go", () => {
+    const old = Date.now() - (DRAFT_DAYS + 5) * 86_400_000;
+    for (let i = 0; i < DRAFT_KEEP + 10; i++) {
+      const d = new Draft(`n${i}`, 1, "");
+      d.shelf = { key: `edit:bulk-${i}`, back: "e" };
+      type(d, `text ${i}`);
+      shelve(`edit:bulk-${i}`, d, null, old + i);
+    }
+    const fresh = new Draft("fresh", 1, "");
+    fresh.shelf = { key: "edit:bulk-fresh", back: "e" };
+    type(fresh, "today");
+    fresh.keep();
+    const all = unsentAll();
+    expect(all.length).toBe(DRAFT_KEEP);
+    expect(all[0]!.key).toBe("edit:bulk-fresh");
+    expect(all.some(u => u.key === "edit:bulk-0")).toBe(false);
+  });
+});
+
+describe("review: an agent never moves the person's draft", () => {
+  const TEXT = "Rope\nhow long, and where it goes.";
+  const msg = () => ({ id: "7f7f7f7f-1111-4222-8333-444455556666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: {} });
+  test("the person opened the edit and hasn't typed yet: draft.place, scroll and preview are refused", async () => {
+    const h: SurfaceHost = {
+      ctx: { board: { ancestors: async () => [], comments: async () => [], get: async () => msg() }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
+      redraw() {}, navigate() {},
+    };
+    const s = new NoteSurface();
+    s.show(msg(), h);
+    await s.edit(h);
+    const at = [s.draft!.row, s.draft!.col];
+    expect(() => s.act("draft.place", { line: 1, col: 1 }, h, AGENT)).toThrow();
+    expect(() => s.act("draft.preview", {}, h, AGENT)).toThrow();
+    expect([s.draft!.row, s.draft!.col]).toEqual(at);
+    expect(s.draft!.preview).toBe(false);
   });
 });

@@ -283,7 +283,7 @@ export class CommentSession {
   }
 
   /** Enter on a picked passage: write the comment under it. The comment's text carries over from an earlier pick. */
-  write(restore = true): string | null {
+  write(by: Actor = USER): string | null {
     const p = this.passage;
     if (this.mode !== "select" || !p) return "no passage is being picked";
     if (!p.quote.trim()) return "nothing selected";
@@ -292,21 +292,24 @@ export class CommentSession {
       // A comment put aside on this note (esc twice, a closed screen) comes back under the new passage.
       this.composer = new Draft("comment", 0, "");
       this.composer.shelf = { key: `comment:${this.msg.id}`, back: "C and a passage bring it back", label: `${this.msg.id.slice(0, 8)}-comment` };
-      if (restore) this.composer.restore();
+      // An agent's comment is its own: the person's put-aside text stays put aside.
+      this.composer.openedBy = by;
+      if (by.kind !== "agent") this.composer.restore();
     }
     this.back = "select"; this.mode = "compose"; this.error = null; this.stale = false;
     return null;
   }
 
   /** `r` on a thread: write a reply to it. */
-  replyTo(i: number, restore = true): string | null {
+  replyTo(i: number, by: Actor = USER): string | null {
     const t = this.threads[i];
     if (!t) return "no such thread";
     this.sel = i;
     this.target = { kind: "reply", thread: t };
     this.composer = new Draft("reply", 0, "");
     this.composer.shelf = { key: `reply:${t.id}`, back: "r on the thread brings it back", label: `${this.msg.id.slice(0, 8)}-reply` };
-    if (restore) this.composer.restore();
+    this.composer.openedBy = by;
+    if (by.kind !== "agent") this.composer.restore();
     this.back = "threads"; this.mode = "compose"; this.note = "";
     return null;
   }

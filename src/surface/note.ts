@@ -959,6 +959,7 @@ export class NoteSurface {
     // An edit put aside on this note (esc twice, a closed screen, the door quitting) comes back here.
     this.draft.shelf = { key: `edit:${fresh.id}`, back: "e brings it back", label: fresh.id.slice(0, 8) };
     // Only for the person: an agent's edit never picks up the person's put-aside text.
+    this.draft.openedBy = host.actor ?? USER;
     if (host.actor?.kind !== "agent") this.draft.restore();
     host.redraw();
     if (external) this.external(host);
@@ -2534,8 +2535,8 @@ export class NoteSurface {
     if (d.busy) throw new ActionRefused("the save is still landing");
     let keptAt: string | undefined;
     if (d.dirty) {
-      if (!discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (copied to disk first)");
-      keptAt = d.copyOut();
+      if (!discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+      keptAt = d.keep();
     }
     this.closeDraft();
     return { closed: true, keptAt };
@@ -3069,7 +3070,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "edit.close": {
-    summary: "close the edit; unsaved changes need discard=true (and are copied to disk)", keys: "esc (twice when unsaved)",
+    summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsaved changes" } },
     run({ discard }, { surface, host }) { const r = surface.closeDraftAction(!!discard); host.redraw(); return r; },
   },
@@ -3198,7 +3199,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
       if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
       // An agent's comment is its own: the person's put-aside text stays put aside.
-      if (s.mode === "select") { const why = s.write(actor.kind !== "agent"); if (why) throw new ActionRefused(why); }
+      if (s.mode === "select") { const why = s.write(actor); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");
       const kept = surface.setComposerText(s, body, actor);
       host.redraw();
@@ -3224,15 +3225,15 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "comment.close": {
-    summary: "close the comment session; unsent text needs discard=true (and is copied to disk)", keys: "esc",
+    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: "esc",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
     run({ discard }, { surface, host }) {
       const s = surface.session;
       if (!s) return { closed: false };
       let keptAt: string | undefined;
       if (s.dirty) {
-        if (!discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (copied to disk first)");
-        keptAt = s.composer!.copyOut(`${s.blockId.slice(0, 8)}-comment`);
+        if (!discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+        keptAt = s.composer!.keep();
       }
       surface.closeSession(); host.redraw();
       return { closed: true, keptAt };
@@ -3267,7 +3268,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", about: "the reply's text" } },
     async run({ thread, body }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
-      const why = s.replyTo(findThread(s, thread), actor.kind !== "agent");
+      const why = s.replyTo(findThread(s, thread), actor);
       if (why) throw new ActionRefused(why);
       on.surface.setComposerText(s, body, actor);
       return sendComment(on.surface, on.host, actor);
