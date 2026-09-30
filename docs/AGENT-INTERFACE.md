@@ -130,6 +130,12 @@ message list, Join, Last callers, File areas): `list.read` (rows numbered from 1
 a list, run the same actions. On the menu or a list, the control socket's `open <id>` opens the note in a
 message reader over it.
 
+`screen.shell` (drop to shell: the menu's `!`, the desk's `^W !`) is listed with them but is the person's
+only: an agent's is refused, since the shell would take their terminal. While the person is in it, the door
+keeps running under it (its tiles, its control socket): `peek` says `suspended: "shell"`, screen moves are
+refused, and the shell's programs see `EP0CH_IN_DOOR=1`, `EP0CH_CONTROL` and an `EP0CH_NEST` ending in
+`shell:<door pid>` (`ep0ch where` checks that layer).
+
 These change what the person looks at, so an agent's is a visible, attributed move made only while they're idle:
 
 - refused while the top screen holds their keys (an edit, a comment, the property panel, a terminal tile

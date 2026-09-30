@@ -10,6 +10,7 @@ import { DeliveryBoard } from "../src/desk/delivery";
 import { River } from "../src/river/river";
 import { Conferences, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { SocketBoard } from "../src/socket";
+import { shellRunner } from "../src/drop";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -42,7 +43,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     await make(null, "Seed library");
     hub = await make(null, "Chores board");
     await make(hub.id, "To do [type::virtual-branch] [query::type=chore stage=todo]");
-    const term = { info: { cols: 160, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 160, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stops: 0, stop() { this.stops++; }, resume() {} };
     app = new App(term as any, board, Date.now(), () => { quits++; });
     board.subscribe(e => app.event(e));
     app.push(new MainMenu());
@@ -130,11 +131,49 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     });
   });
 
+  describe("drop to shell (screen.shell): the person's, never an agent's", () => {
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    test("an agent's is refused, and the terminal stays the door's", async () => {
+      home(); idle();
+      const stops = A().term.stops ?? 0;
+      await expect(act("screen.shell")).rejects.toThrow(/an agent doesn't drop the person to a shell/);
+      expect(A().term.stops ?? 0).toBe(stops);
+      expect(app.suspended()).toBeNull();
+      expect(message()).toContain("screen.shell refused");
+      // Nor through the menu's item: `screen.open !` is the same action.
+      await expect(act("screen.open", { name: "!" })).rejects.toThrow(/an agent doesn't drop the person to a shell/);
+    });
+
+    test("the person's `!`: the door suspends for the shell, waits for it, and comes back where it was", async () => {
+      home();
+      idle();
+      await act("screen.open", { name: "stats" });
+      key(char("q"));                         // back at the menu, as the person left it
+      const was = shellRunner.run;
+      const seen: unknown[] = [];
+      let release: (code: number) => void = () => {};
+      shellRunner.run = () => { seen.push(app.suspended(), (app.describe() as any).suspended); return new Promise(r => { release = r; }); };
+      try {
+        key(char("!"));
+        await tick();
+        expect(seen).toEqual(["shell", "shell"]);
+        // While the shell runs, an agent doesn't move the person's screen, and nothing is painted.
+        idle();
+        await expect(act("screen.open", { name: "stats" })).rejects.toThrow(/door's shell/);
+        release(3);
+        await tick(); await tick();
+        expect(app.suspended()).toBeNull();
+        expect(titles()).toEqual(["main menu"]);
+        expect(message()).toBe("back from the shell · it exited 3");
+      } finally { shellRunner.run = was; }
+    });
+  });
+
   describe("F3: the menu and the lists are actions", () => {
     test("the menu lists the shell's actions", () => {
       home();
       const names = app.actions().actions.map((a: any) => a.name);
-      expect(names).toEqual(expect.arrayContaining(["screen.open", "screen.back", "screen.list"]));
+      expect(names).toEqual(expect.arrayContaining(["screen.open", "screen.back", "screen.list", "screen.shell"]));
     });
 
     test("screen.list says what the menu opens and where the person is", async () => {

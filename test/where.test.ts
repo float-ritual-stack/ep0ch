@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { agentConfig } from "../src/desk/herdr-agent";
 import { tileEnv } from "../src/desk/pty";
+import { loginShell, shellCwd, shellEnv } from "../src/drop";
 import { appendNest, doorLayer, NEST_MAX, NEST_SEP, nestLayers, outerLayers, parseLayer } from "../src/nest";
 import { formatWhere, where, type WhereDeps } from "../src/where";
 
@@ -31,6 +32,20 @@ describe("EP0CH_NEST", () => {
     expect(parseLayer("ssh:192.0.2.4")).toMatchObject({ kind: "ssh", tty: null, from: "192.0.2.4" });
     expect(parseLayer("herdr:w1:p1")).toMatchObject({ kind: "herdr", pane: "w1:p1" });
     expect(parseLayer("mosh:x").kind).toBe("other");
+    expect(parseLayer("shell:4242")).toEqual({ kind: "shell", raw: "shell:4242", pid: 4242 });
+  });
+
+  test("the drop shell's environment: the door's own, marked in the door, its control socket, a shell layer", () => {
+    const door = { HOME: "/home/someone", SSH_TTY: "/dev/pts/5", HERDR_PANE_ID: "w1:p1", HERDR_WORKSPACE_ID: "w1", EP0CH_STATE: "/tmp/door-state",
+      EP0CH_LANDING: "welcome", EP0CH_DAILY_AGENT: "agent.sh", EP0CH_TILE: "outer", EP0CH_TILE_ID: "t9", EP0CH_CONTROL: "/c/outer.sock", TERM: "xterm-ghostty" };
+    const env = shellEnv(door, "/c/door.sock", 4242);
+    expect(env).toMatchObject({ EP0CH_IN_DOOR: "1", EP0CH_CONTROL: "/c/door.sock", EP0CH_STATE: "/tmp/door-state", HERDR_PANE_ID: "w1:p1", TERM: "xterm-ghostty" });
+    expect(env.EP0CH_NEST).toBe(`ssh:pts/5${NEST_SEP}herdr:w1:p1${NEST_SEP}shell:4242`);
+    for (const gone of ["EP0CH_LANDING", "EP0CH_DAILY_AGENT", "EP0CH_TILE", "EP0CH_TILE_ID"]) expect(env[gone]).toBeUndefined();
+    expect(shellEnv({ EP0CH_CONTROL: "/c/other.sock" }, null, 1).EP0CH_CONTROL).toBeUndefined();
+    expect(loginShell({ SHELL: "/bin/zsh" })).toBe("/bin/zsh");
+    expect(loginShell({})).toBe("sh");
+    expect(shellCwd("/no/such/folder/here", "/home/someone")).toBe("/home/someone");
   });
 
   test("the outer layers: ssh then the Herdr pane, each only when the nest lacks it", () => {
@@ -93,6 +108,19 @@ function deps(env: Record<string, string>, o: { peek?: any; panes?: any[] | null
 }
 
 describe("ep0ch where", () => {
+  test("in the door's drop shell: the shell layer is live, and the keys are the shell's while the door waits", async () => {
+    const env = { EP0CH_NEST: "ssh:pts/5 › shell:4242", EP0CH_CONTROL: "/c/door.sock", EP0CH_IN_DOOR: "1" };
+    const peek = { screen: { screen: "main menu", pid: 4242, suspended: "shell", state: { kind: "main menu" } } };
+    const w = await where(deps(env, { alive: [4242], ttys: ["pts/5"], peek }));
+    expect(w.inDoor).toBe(true);
+    expect(w.layers.map(l => [l.kind, l.live])).toEqual([["ssh", true], ["shell", true]]);
+    expect(w.layers[1]!.why).toBe("the door's drop shell · the door waits under it");
+    expect(w.keys).toMatchObject({ mine: true, typing: true });
+    expect(formatWhere(w)).toMatch(/✓ shell door pid 4242/);
+    const gone = await where(deps(env, { ttys: ["pts/5"] }));
+    expect(gone.layers.at(-1)).toMatchObject({ kind: "shell", live: false, why: "the door is gone" });
+  });
+
   test("no door: says so, with the ssh and Herdr layers the environment shows", async () => {
     const d = deps({ SSH_TTY: "/dev/pts/5", HERDR_PANE_ID: "w1:p1", HERDR_WORKSPACE_ID: "w1" }, { panes: [{ pane_id: "w1:p1", focused: true }], ttys: ["pts/5"] });
     const w = await where(d);

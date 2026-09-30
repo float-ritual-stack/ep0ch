@@ -15,6 +15,17 @@ Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An age
 `screen.open`, `screen.back` and, on a list, `list.select`, `list.open`, `list.read` (see
 [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)).
 
+**Drop to shell.** `!` on the menu (or a click on `! Shell` on its key line; `^W !` on the desk) is the BBS's
+drop to DOS: the door steps aside and your login shell (`$SHELL -l`, else `sh`) runs in your own terminal, in
+the door's folder, under the line `ep0ch · shell · exit returns to the door`. `exit` (whatever its code) brings
+the door back where it was: the same screen, layout and tiles, whose programs keep running meanwhile. Start or
+attach agents there however you like (`claude --resume`, …). The shell gets the door's environment plus
+`EP0CH_IN_DOOR=1` (a login shell's landing guard, such as float-2's `~/.bashrc`, doesn't start a second door),
+`EP0CH_CONTROL` (this door) and `EP0CH_NEST` ending in `shell:<door pid>`, so what you start there knows where it
+is (`ep0ch where`). It is the person's only: an agent's `screen.shell` is refused, since it would take your
+terminal. For a shell that stays alongside the door instead, `^W o s` on the desk opens one in a tile (a
+terminal tile's program gets `EP0CH_IN_DOOR=1` too, so that shell doesn't open a door inside the door either).
+
 The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
@@ -305,6 +316,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
 | `Ctrl+W` then `p` / `d` | pin or unpin (a drawer slides over the others without moving them) / slide drawers open or shut |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
+| `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
@@ -328,6 +340,7 @@ the mark counts its `claude` tile as the agent when its command is the plain `cl
 | When | Programs in terminal tiles |
 |---|---|
 | `q`, `Esc`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
+| `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
@@ -1017,6 +1030,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 
 | Action | Arguments | Keys it stands for |
 |---|---|---|
+| `screen.shell` | none. The person's only: an agent's is refused (it would take their terminal); open a terminal tile instead (`tile.open kind=pty`) | `!` on the menu, a click on `! Shell`, `^W !` on the desk |
 | `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
 | `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |

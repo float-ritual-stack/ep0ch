@@ -62,7 +62,7 @@ export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
 /**
  * A terminal tile's environment: the person's own (a shell in a tile is their shell, keys and all), without
  * the door's Herdr pane and tab and without how this door was started; with the terminal it runs in and
- * the door and tile it is in (EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID). Everything else passes through on
+ * the door and tile it is in (EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID), and EP0CH_IN_DOOR=1. Everything else passes through on
  * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
  * An inherited EP0CH_TILE_ID is always dropped: a door run in a tile mustn't hand its own tiles the outer
  * tile's id.
@@ -75,7 +75,9 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
   const out: Record<string, string> = {};
   const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID"]);
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
-  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile });
+  // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
+  // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
+  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile, EP0CH_IN_DOOR: "1" });
   if (tileId) out.EP0CH_TILE_ID = tileId;
   if (control) out.EP0CH_CONTROL = control;
   out.EP0CH_NEST = appendNest(doorNest(env), doorLayer(pid, place, tileId, tile));

@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import type { Ctx, Screen } from "../src/app";
 import type { Msg } from "../src/board";
 import { Brief } from "../src/brief/brief";
+import { shellRunner } from "../src/drop";
 import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, LastCallers, Logon, MainMenu, MessageList, MessageReader, Stats, WhoOnline } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
@@ -81,6 +82,30 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     expect(s.top()).toBeInstanceOf(Showcase);
   });
 
+  test("! Shell, drop to shell, is on the key line: a click runs screen.shell as the person, as ! does", async () => {
+    const d = door();
+    const ran: string[] = [];
+    let flashed = "";
+    Object.assign(d.ctx, {
+      suspend: async (run: () => Promise<unknown>, what?: string) => { ran.push(`suspend ${what}`); await run(); ran.push("resume"); },
+      flash: (m: string) => { flashed = m; },
+    });
+    const was = shellRunner.run;
+    shellRunner.run = async () => { ran.push("shell"); return 0; };
+    try {
+      const s = on(new MainMenu(), d);
+      expect(s.lines().slice(0, 23).join("\n")).not.toContain("Shell");   // no slot in the art
+      s.click("! Shell");
+      await tick(); await tick();
+      expect(ran).toEqual(["suspend shell", "shell", "resume"]);
+      expect(flashed).toBe("back from the shell");
+      expect(s.stack.length).toBe(1);
+      s.key({ kind: "char", ch: "!" });
+      await tick(); await tick();
+      expect(ran.filter(r => r === "shell")).toHaveLength(2);
+    } finally { shellRunner.run = was; }
+  });
+
   test("the other keys on the key line are clickable too", () => {
     const s = on(new MainMenu());
     const p = s.at("(NJKRWLFSQBDG)");
@@ -119,8 +144,8 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     s.mouse("wheel-down", 0, 0);
     expect(selected(m)).toBe("J");
     s.mouse("wheel-up", 0, 0); s.mouse("wheel-up", 0, 0);
-    expect(selected(m)).toBe("C");
-    expect(s.lines().some(l => l.includes(": Welcome"))).toBe(true);
+    expect(selected(m)).toBe("!");
+    expect(s.lines().some(l => l.includes(": Shell"))).toBe(true);
     expect(s.stack.length).toBe(1);
   });
 
