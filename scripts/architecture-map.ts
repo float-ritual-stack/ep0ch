@@ -7,12 +7,18 @@
 //   bun scripts/architecture-map.ts --check         check only
 //   bun scripts/architecture-map.ts --no-check      draw without checking (a draft)
 //
+//   bun scripts/architecture-map.ts --allow-dirty   draw from a checkout with changes, stamped "dirty"
+//
 // The outliner checkout is EP0CH_OUTLINER (as for the tests), else ../pi-herdr-outliner.
-// The page works without script: CSS draws the frames and steps the trace; a small script adds stepping
-// controls and chapter keys. It stores nothing. The ep0ch logo is drawn as text from the WoE packs when they
-// are present (EP0CH_PACKS), through the welcome screen's own cropping, which drops contact lines.
+// Every GitHub link is pinned: a citation to the full commit it was checked at, a finding's "then" to the
+// commits its review read. A checkout with uncommitted changes isn't a commit, so the run refuses unless told.
+// With script the page is an isometric walk (scripts/architecture-map/: iso.ts places the blocks, app.js and
+// app.css draw them); without it, the same content as one page of text, where CSS steps the trace. It stores
+// nothing. The ep0ch logo is drawn as text from the WoE packs when they are present (EP0CH_PACKS), through
+// the welcome screen's own cropping, which drops contact lines.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { isoLayout, type IsoTuning } from "./architecture-map/iso";
 
 type RepoId = "door" | "outliner";
 type Ladder = "accidental" | "recognised" | "provisional" | "shared" | "stable";
@@ -30,19 +36,52 @@ interface MapData {
   verified: { door: string; outliner: string; on: string };
   repos: Record<RepoId, { name: string; url: string; branch: string }>;
   ladder: { id: Ladder; about: string }[];
-  groups: { id: string; name: string; about: string }[];
-  reviews: Record<string, { name: string; path: string }>;
+  groups: { id: string; name: string; motto?: string; about: string }[];
+  /** Each review, and the commits it read ("then"). */
+  reviews: Record<string, { name: string; path: string; at: Record<RepoId, string> }>;
   routes: Record<string, string>;
   findings: Finding[];
   chapters: { id: string; title: string; lede: string }[];
   structures: Structure[];
   trace: { title: string; about: string; steps: Step[] };
+  iso?: IsoTuning;
+}
+/** The commits links point at: full SHAs, never a branch. `dirty` names what the checkouts hold uncommitted. */
+export interface Pins {
+  now: Record<RepoId, string>;
+  reviews: Record<string, Record<RepoId, string>>;
+  dirty: string[];
 }
 
 const ROOT = resolve(import.meta.dir, "..");
 const MAP = join(ROOT, "docs/architecture/map.json");
 const OUTLINER = resolve(process.env.EP0CH_OUTLINER ?? join(ROOT, "../pi-herdr-outliner"));
 const CHECKOUT: Record<RepoId, string> = { door: ROOT, outliner: OUTLINER };
+
+function git(dir: string, ...args: string[]): string | undefined {
+  const r = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+  return r.exitCode === 0 ? r.stdout.toString().trim() : undefined;
+}
+const SHA = /^[0-9a-f]{40}$/;
+
+/** The full commits behind every link: each checkout's HEAD, and each review's commits resolved in its repo. */
+export function resolvePins(d: MapData, checkout = CHECKOUT): Pins {
+  const full = (r: RepoId, rev: string) => {
+    const sha = git(checkout[r], "rev-parse", "--verify", `${rev}^{commit}`);
+    if (!sha || !SHA.test(sha)) throw new Error(`can't resolve ${rev} in the ${r} checkout at ${checkout[r]}`);
+    return sha;
+  };
+  const dirty: string[] = [];
+  for (const r of ["door", "outliner"] as const) {
+    const st = Bun.spawnSync(["git", "-C", checkout[r], "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe" }).stdout.toString();
+    for (const line of st.split("\n").filter(Boolean)) dirty.push(`${r} ${line.slice(3)}`);
+  }
+  return {
+    now: { door: full("door", "HEAD"), outliner: full("outliner", "HEAD") },
+    reviews: Object.fromEntries(Object.entries(d.reviews).map(([k, v]) => [k, { door: full("door", v.at.door), outliner: full("outliner", v.at.outliner) }])),
+    dirty,
+  };
+}
 
 // ── the data, and whether it holds ─────────────────────────────────────────────────────────────────────────
 
@@ -72,9 +111,17 @@ export function shapeProblems(d: MapData): string[] {
   }
   for (const f of d.findings) {
     if (!(f.id.split("-")[0]! in d.reviews)) out.push(`${f.id}: no review ${f.id.split("-")[0]}`);
+    else if (!d.reviews[f.id.split("-")[0]!]!.at?.door || !d.reviews[f.id.split("-")[0]!]!.at?.outliner) out.push(`${f.id}: its review names no commits (at)`);
     if (f.route && !(f.route in d.routes)) out.push(`${f.id}: no route ${f.route}`);
   }
   for (const st of d.trace.steps) if (!ids.has(st.at)) out.push(`trace "${st.label}": no structure ${st.at}`);
+  for (const id of Object.keys(d.iso?.place ?? {})) if (!ids.has(id)) out.push(`iso.place: no structure ${id}`);
+  const cells = new Map<string, string>();
+  for (const [id, at] of Object.entries(d.iso?.place ?? {})) {
+    const g = d.structures.find(s => s.id === id)?.group, key = `${g}:${at[0]},${at[1]}`;
+    if (cells.has(key)) out.push(`iso.place: ${id} and ${cells.get(key)} share a cell`);
+    cells.set(key, id);
+  }
   return out;
 }
 
@@ -134,19 +181,32 @@ const prose = (s: string) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
 const sid = (id: string) => `s-${id.replace(/\./g, "-")}`;
 const DOTS = ".".repeat(240);
 
-function refUrl(d: MapData, ref: Ref): string {
-  const repo = d.repos[ref.r];
-  return `${repo.url}/blob/${repo.branch}/${ref.p}#L${ref.l}`;
+/** A citation at the commit it was checked at. */
+function refUrl(d: MapData, pins: Pins, ref: Ref): string {
+  return `${d.repos[ref.r].url}/blob/${pins.now[ref.r]}/${ref.p}#L${ref.l}`;
 }
-function refLink(d: MapData, ref: Ref): string {
-  const where = `${ref.r === "outliner" ? "outliner " : ""}${ref.p}:${ref.l}`;
-  return `<a class="ref" href="${esc(refUrl(d, ref))}">${esc(where)}</a>`;
+const refWhere = (ref: Ref) => `${ref.r === "outliner" ? "outliner " : ""}${ref.p}:${ref.l}`;
+function refLink(d: MapData, pins: Pins, ref: Ref): string {
+  return `<a class="ref" href="${esc(refUrl(d, pins, ref))}">${esc(refWhere(ref))}</a>`;
 }
-function findingLink(d: MapData, id: string): string {
+/** A finding in its review, now: the review document at the commit the map was checked at. */
+function findingUrl(d: MapData, pins: Pins, id: string): string {
   const f = d.findings.find(x => x.id === id);
   const review = d.reviews[id.split("-")[0]!]!;
-  const url = `${d.repos.door.url}/blob/${d.repos.door.branch}/${review.path}#L${f?.line ?? 1}`;
-  return `<a class="fid" href="${esc(url)}" title="${esc(f?.title ?? "")}">${esc(id)}</a>`;
+  return `${d.repos.door.url}/blob/${pins.now.door}/${review.path}#L${f?.line ?? 1}`;
+}
+/** What the review read, then: each repo's tree at the review's commit. */
+function thenUrls(d: MapData, pins: Pins, id: string): { door: string; outliner: string; label: string } {
+  const k = id.split("-")[0]!, at = pins.reviews[k]!;
+  return {
+    door: `${d.repos.door.url}/tree/${at.door}`,
+    outliner: `${d.repos.outliner.url}/tree/${at.outliner}`,
+    label: `${at.door.slice(0, 7)} · ${at.outliner.slice(0, 7)}`,
+  };
+}
+function findingLink(d: MapData, pins: Pins, id: string): string {
+  const f = d.findings.find(x => x.id === id);
+  return `<a class="fid" href="${esc(findingUrl(d, pins, id))}" title="${esc(f?.title ?? "")}">${esc(id)}</a>`;
 }
 
 /** A dotted Shypht frame: `::.... title ....::` across the top, the same along the bottom. */
@@ -161,21 +221,21 @@ function frame(title: string, body: string, cls = "", id = ""): string {
 const ladderBadge = (s: Structure) =>
   `<span class="lad l-${s.ladder}">${s.was && s.was !== s.ladder ? `<s>${s.was}</s> → ` : ""}${s.ladder}</span>`;
 
-function card(d: MapData, s: Structure): string {
+function card(d: MapData, pins: Pins, s: Structure): string {
   const byId = new Map(d.structures.map(x => [x.id, x]));
   const deps = s.dependsOn.map(id => `<a class="chip g-${byId.get(id)!.group}" href="#${sid(id)}">${esc(byId.get(id)!.name)}</a>`).join(" ");
   const qs = (s.questions ?? []).map(q => {
     const f = q.finding ? d.findings.find(x => x.id === q.finding) : undefined;
     const st = f?.status ?? "open";
     const route = q.route ?? f?.route;
-    return `<li><span class="st st-${st.replace(" ", "-")}">${esc(st)}</span> ${prose(q.text)}${q.finding ? ` ${findingLink(d, q.finding)}` : ""}${route ? ` <span class="route" title="${esc(d.routes[route] ?? "")}">→ ${esc(route)}</span>` : ` <span class="route none">not routed</span>`}</li>`;
+    return `<li><span class="st st-${st.replace(" ", "-")}">${esc(st)}</span> ${prose(q.text)}${q.finding ? ` ${findingLink(d, pins, q.finding)}` : ""}${route ? ` <span class="route" title="${esc(d.routes[route] ?? "")}">→ ${esc(route)}</span>` : ` <span class="route none">not routed</span>`}</li>`;
   }).join("");
   const tree = s.tree === "outside" ? `<span class="tree t-out">outside the layout tree</span>` : s.tree === "own" ? `<span class="tree t-own">its own tree host</span>` : "";
   return `<article class="card g-${s.group} l-${s.ladder}${dashed(s.ladder) ? " dashed" : ""}" id="${sid(s.id)}">
 <header><span class="grp">${esc(s.group)}</span><h3>${esc(s.name)}</h3>${ladderBadge(s)}${tree}</header>
 <p class="does">${prose(s.does)}</p>
 <p class="built"><span class="k">built</span> ${prose(s.built)}</p>
-<p class="refs">${s.refs.map(r => refLink(d, r)).join(" ")}</p>
+<p class="refs">${s.refs.map(r => refLink(d, pins, r)).join(" ")}</p>
 ${deps ? `<p class="deps"><span class="k">rests on</span> ${deps}</p>` : ""}
 ${qs ? `<ul class="qs">${qs}</ul>` : ""}
 </article>`;
@@ -206,7 +266,7 @@ function treeDiagram(d: MapData): string {
 </div>`;
 }
 
-function chapter(d: MapData, i: number): string {
+function chapter(d: MapData, pins: Pins, i: number): string {
   const c = d.chapters[i]!;
   const here = d.structures.filter(s => s.chapter === c.id);
   const prev = i > 0 ? `<a href="#ch-${i}" rel="prev">← ${esc(d.chapters[i - 1]!.title)}</a>` : `<a href="#top">↑ top</a>`;
@@ -214,7 +274,7 @@ function chapter(d: MapData, i: number): string {
   const body = `<p class="lede">${prose(c.lede)}</p>
 ${stack(d, i)}
 ${c.id === "screens" ? treeDiagram(d) : ""}
-<div class="cards">${here.map(s => card(d, s)).join("\n")}</div>
+<div class="cards">${here.map(s => card(d, pins, s)).join("\n")}</div>
 <nav class="chnav">${prev}<span class="sp"></span>${next}</nav>`;
   return frame(`${String(i + 1).padStart(2, "0")} · ${esc(c.title)}`, body, "chapter", `ch-${i + 1}`);
 }
@@ -226,14 +286,14 @@ function laneOf(d: MapData, at: string): keyof typeof LANE {
   return g === "service" ? "service" : "door";
 }
 
-function trace(d: MapData): string {
+function trace(d: MapData, pins: Pins): string {
   const n = d.trace.steps.length, per = 1.6;
   const steps = d.trace.steps.map((st, i) => {
     const s = d.structures.find(x => x.id === st.at)!;
     const lane = laneOf(d, st.at);
     return `<li class="step lane-${lane}${st.gap ? " gap" : ""}" style="--i:${i}" id="t-${i + 1}">
 <span class="num">${String(i + 1).padStart(2, "0")}</span><b class="lbl">${esc(st.label)}</b> <a class="chip g-${s.group}" href="#${sid(s.id)}">${esc(s.name)}</a>
-<p>${prose(st.what)}</p><p class="refs">${refLink(d, st.ref)}${st.gap ? ` <span class="st st-open">gap</span>` : ""}</p></li>`;
+<p>${prose(st.what)}</p><p class="refs">${refLink(d, pins, st.ref)}${st.gap ? ` <span class="st st-open">gap</span>` : ""}</p></li>`;
   }).join("\n");
   const body = `<p class="lede">${prose(d.trace.about)}</p>
 <div class="tr-lanes" aria-hidden="true"><span>door</span><span>the socket</span><span>service</span></div>
@@ -242,12 +302,14 @@ function trace(d: MapData): string {
   return frame(`the trace · ${esc(d.trace.title)}`, body, "tracebox", "trace");
 }
 
-function findings(d: MapData): string {
+function findings(d: MapData, pins: Pins): string {
   const byReview = Object.entries(d.reviews).map(([k, r]) => {
     const fs = d.findings.filter(f => f.id.startsWith(`${k}-`));
     const open = fs.filter(f => f.status === "open" || f.status === "partial").length;
-    const rows = fs.map(f => `<tr class="st-row-${f.status.replace(" ", "-")}"><td>${findingLink(d, f.id)}</td><td>${prose(f.title)}${f.note ? `<div class="note">${prose(f.note)}</div>` : ""}</td><td><span class="st st-${f.status.replace(" ", "-")}">${esc(f.status)}</span></td><td>${f.by ? `by ${esc(f.by)}` : ""}${f.route ? ` <span class="route" title="${esc(d.routes[f.route] ?? "")}">→ ${esc(f.route)}</span>` : f.status === "open" || f.status === "partial" ? ` <span class="route none">not routed</span>` : ""}</td></tr>`).join("");
+    const rows = fs.map(f => `<tr class="st-row-${f.status.replace(" ", "-")}"><td>${findingLink(d, pins, f.id)}</td><td>${prose(f.title)}${f.note ? `<div class="note">${prose(f.note)}</div>` : ""}</td><td><span class="st st-${f.status.replace(" ", "-")}">${esc(f.status)}</span></td><td>${f.by ? `by ${esc(f.by)}` : ""}${f.route ? ` <span class="route" title="${esc(d.routes[f.route] ?? "")}">→ ${esc(f.route)}</span>` : f.status === "open" || f.status === "partial" ? ` <span class="route none">not routed</span>` : ""}</td></tr>`).join("");
+    const then = pins.reviews[k]!;
     return `<details${k === "A" ? " open" : ""}><summary>review ${k} · ${esc(r.name)} · ${fs.length} findings, ${open} open</summary>
+<p class="then">then: read at <a href="${esc(`${d.repos.door.url}/tree/${then.door}`)}">door ${esc(then.door.slice(0, 7))}</a> and <a href="${esc(`${d.repos.outliner.url}/tree/${then.outliner}`)}">outliner ${esc(then.outliner.slice(0, 7))}</a> · now: <a href="${esc(`${d.repos.door.url}/tree/${pins.now.door}`)}">door ${esc(pins.now.door.slice(0, 7))}</a> and <a href="${esc(`${d.repos.outliner.url}/tree/${pins.now.outliner}`)}">outliner ${esc(pins.now.outliner.slice(0, 7))}</a></p>
 <div class="tablewrap"><table><thead><tr><th>finding</th><th>what</th><th>now</th><th>by / next</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
   }).join("\n");
   const routes = Object.entries(d.routes).map(([k, v]) => `<li><b>${esc(k)}</b> ${prose(v)}</li>`).join("");
@@ -286,12 +348,79 @@ const FALLBACK_LOGO = `<span style="color:#555555">::...........................
 <span style="color:#555555">::</span>  <span style="color:#ffffff">e p 0 c h</span>   <span style="color:#aaaaaa">architecture map</span>          <span style="color:#555555">::</span>
 <span style="color:#555555">::......................................::</span>`;
 
+// ── the isometric walk ─────────────────────────────────────────────────────────────────────────────────────
+
+/** What app.js draws from: the map with its places, pinned links and prose already made safe as HTML. */
+export function payload(d: MapData, pins: Pins) {
+  const layout = isoLayout(d);
+  const at = new Map(layout.placed.map(p => [p.id, p]));
+  const chapterAt = new Map(d.chapters.map((c, i) => [c.id, i]));
+  const ref = (r: Ref) => ({ label: refWhere(r), url: refUrl(d, pins, r), m: r.m });
+  const c = counts(d);
+  const gap = d.trace.steps.find(s => s.gap);
+  const gapRoute = gap ? d.structures.find(s => s.id === gap.at)?.questions?.find(q => q.route)?.route : undefined;
+  return {
+    title: d.title,
+    verified: d.verified.on,
+    system: {
+      door: { name: d.repos.door.name, branch: d.repos.door.branch, commit: pins.now.door.slice(0, 7) },
+      outliner: { name: d.repos.outliner.name, branch: d.repos.outliner.branch, commit: pins.now.outliner.slice(0, 7) },
+    },
+    dirty: pins.dirty,
+    counts: c,
+    groups: d.groups.map(g => ({ id: g.id, name: g.name, motto: g.motto ?? g.name, about: g.about })),
+    ladder: d.ladder,
+    chapters: d.chapters.map(ch => ({ id: ch.id, title: ch.title, lede: prose(ch.lede) })),
+    lanes: layout.lanes,
+    cols: layout.cols,
+    structures: d.structures.map(s => {
+      const p = at.get(s.id)!;
+      return {
+        id: s.id, tag: p.tag, name: s.name, group: s.group, ch: chapterAt.get(s.chapter)!, ladder: s.ladder, was: s.was ?? null, tree: s.tree ?? null,
+        deps: s.dependsOn, does: prose(s.does), built: prose(s.built), refs: s.refs.map(ref),
+        qs: (s.questions ?? []).map(q => {
+          const f = q.finding ? d.findings.find(x => x.id === q.finding) : undefined;
+          const route = q.route ?? f?.route ?? null;
+          return {
+            text: prose(q.text), status: f?.status ?? "open", route, routeAbout: route ? d.routes[route] ?? "" : "",
+            finding: f ? { id: f.id, title: f.title, url: findingUrl(d, pins, f.id), then: thenUrls(d, pins, f.id) } : null,
+          };
+        }),
+        col: p.col, row: p.row, size: p.size, dependents: p.dependents,
+      };
+    }),
+    findings: d.findings.map(f => ({
+      id: f.id, title: prose(f.title), status: f.status, by: f.by ?? null, note: f.note ? prose(f.note) : null, route: f.route ?? null,
+      url: findingUrl(d, pins, f.id), then: thenUrls(d, pins, f.id),
+      at: d.structures.filter(s => s.questions?.some(q => q.finding === f.id)).map(s => s.id),
+    })),
+    reviews: Object.entries(d.reviews).map(([k, r]) => ({ id: k, name: r.name, then: thenUrls(d, pins, `${k}-`) })),
+    now: {
+      door: `${d.repos.door.url}/tree/${pins.now.door}`, outliner: `${d.repos.outliner.url}/tree/${pins.now.outliner}`,
+      label: `${pins.now.door.slice(0, 7)} · ${pins.now.outliner.slice(0, 7)}`,
+    },
+    routes: d.routes,
+    gapRoute: gapRoute ?? null,
+    trace: {
+      title: d.trace.title, about: prose(d.trace.about),
+      steps: d.trace.steps.map(st => ({ label: st.label, at: st.at, what: prose(st.what), gap: !!st.gap, ref: ref(st.ref) })),
+    },
+  };
+}
+/** JSON that can sit inside a <script> element. */
+const scriptJson = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+const ISO_DIR = join(import.meta.dir, "architecture-map");
+
 // ── the page ───────────────────────────────────────────────────────────────────────────────────────────────
 
-export async function render(d: MapData, opts: { logo?: string | null; commits?: Partial<Record<RepoId, string>> } = {}): Promise<string> {
+export async function render(d: MapData, opts: { logo?: string | null; pins?: Pins } = {}): Promise<string> {
   const c = counts(d);
   const art = opts.logo === undefined ? await logo() : opts.logo;
-  const commits = { door: opts.commits?.door ?? d.verified.door, outliner: opts.commits?.outliner ?? d.verified.outliner };
+  const pins = opts.pins ?? resolvePins(d);
+  const commits = { door: pins.now.door.slice(0, 7), outliner: pins.now.outliner.slice(0, 7) };
+  const appCss = readFileSync(join(ISO_DIR, "app.css"), "utf8");
+  const appJs = readFileSync(join(ISO_DIR, "app.js"), "utf8");
+  const dirty = pins.dirty.length ? `<span class="dirty" title="${esc(pins.dirty.join("\n"))}">dirty: ${pins.dirty.length} uncommitted file${pins.dirty.length === 1 ? "" : "s"} (${esc(pins.dirty.slice(0, 3).join(", "))}${pins.dirty.length > 3 ? ", …" : ""})</span>` : "";
   const ladderLegend = d.ladder.map(l => `<li><span class="lad l-${l.id}">${l.id}</span> <b>${c.ladder[l.id]}</b> <span class="dim">${esc(l.about)}</span></li>`).join("");
   const groupLegend = d.groups.map(g => `<li><span class="grp g-${g.id}">${esc(g.name)}</span> <b>${d.structures.filter(s => s.group === g.id).length}</b> <span class="dim">${esc(g.about)}</span></li>`).join("");
   const toc = d.chapters.map((ch, i) => `<li><a href="#ch-${i + 1}"><span class="ln">${String(i + 1).padStart(2, "0")}</span> ${esc(ch.title)}</a> <span class="dim">${d.structures.filter(s => s.chapter === ch.id).length}</span></li>`).join("");
@@ -300,6 +429,7 @@ export async function render(d: MapData, opts: { logo?: string | null; commits?:
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ep0ch architecture map</title>
+<script>document.documentElement.classList.add("js")</script>
 <meta name="description" content="${esc(d.about)}">
 <style>
 :root{color-scheme:dark;
@@ -308,7 +438,7 @@ export async function render(d: MapData, opts: { logo?: string | null; commits?:
 --bg:var(--c0);--fg:var(--c7);--hi:var(--c15);--dim:var(--c8);
 --mono:"Px437 IBM VGA 9x16","Perfect DOS VGA 437",ui-monospace,"DejaVu Sans Mono","Cascadia Mono",Menlo,Consolas,monospace}
 *{box-sizing:border-box}
-html{background:var(--bg);scroll-behavior:smooth}
+html{background:var(--bg)}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--mono);-webkit-text-size-adjust:100%}
 a{color:var(--c11);text-decoration:none}a:hover,a:focus{color:var(--hi);text-decoration:underline}
 code{color:var(--c14);font-family:var(--mono)}
@@ -356,7 +486,7 @@ h4{color:var(--hi);margin:16px 0 6px}
 .chip:hover{background:var(--c1);color:var(--hi);text-decoration:none}
 /* cards */
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
-.card{border:1px solid var(--lc);padding:8px 12px 10px;background:var(--c0);scroll-margin-top:48px}
+.card{border:1px solid var(--lc);padding:8px 12px 10px;background:var(--c0)}
 .card.dashed{border-style:dashed}
 .card:target{outline:2px solid var(--c14);outline-offset:2px}
 .card header{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-bottom:6px}
@@ -418,6 +548,10 @@ td .note{color:var(--dim);font-size:12px}
 .st-row-resolved td:nth-child(2),.st-row-no-action td:nth-child(2){color:var(--dim)}
 .routes{margin:0;padding-left:2ch}.routes b{color:var(--c13);font-weight:normal}
 footer{color:var(--dim);font-size:12px;text-align:center;margin-top:20px}
+.then{font-size:12px;color:var(--dim);margin:4px 0}
+.dirty{background:var(--c4);color:var(--c15);padding:0 6px}
+/* a jump lands below the sticky bar, at once: a smooth scroll under a sticky bar is what left the old page blank */
+.fr,.card,.step{scroll-margin-top:84px}
 /* phones */
 @media (max-width:720px){
   body{font-size:13px}
@@ -432,8 +566,14 @@ footer{color:var(--dim);font-size:12px;text-align:center;margin-top:20px}
   .step.lane-socket{margin-left:2ch}.step.lane-service{margin-left:4ch}
   .step::before{left:2ch}
 }
+${appCss}
 </style></head>
-<body id="top"><main>
+<body id="top">
+<div id="app" class="app"></div>
+<template id="logo-art">${art ?? FALLBACK_LOGO}</template>
+<script type="application/json" id="map-data">${scriptJson(payload(d, pins))}</script>
+<div id="page"><main>
+<button type="button" class="totext" id="totext">◂ back to the map</button>
 <header class="mast">
 <pre class="logo" aria-label="ep0ch">${art ?? FALLBACK_LOGO}</pre>
 <h1>architecture map</h1>
@@ -444,18 +584,21 @@ footer{color:var(--dim);font-size:12px;text-align:center;margin-top:20px}
 <span><span class="k">built on top</span> <b>${c.built}</b></span>
 <span><span class="k">structures shown</span> <b>${c.structures}</b></span>
 <span><span class="k">open questions</span> <b>${c.open}</b> open · <b>${c.routed}</b> routed</span>
-<span class="sp"></span>
+${dirty}<span class="sp"></span>
 <a href="#trace">trace</a> <a href="#findings">findings</a>
 </nav>
 ${frame("the map", `<p class="lede">${prose(d.about)}</p>
 <p class="lede">Since the three reviews: ${c.resolved} findings resolved, ${c.moved} structures moved up the ladder (struck through: where the review found them). Dashed: still accidental, recognised or provisional.</p>
 <div class="legend"><ul>${ladderLegend}</ul><ul>${groupLegend}</ul></div>
 <h4>chapters</h4><ol class="toc">${toc}<li><a href="#trace"><span class="ln">→</span> the trace: ${esc(d.trace.title)}</a></li><li><a href="#findings"><span class="ln">→</span> the findings, then and now</a></li></ol>`, "", "about")}
-${d.chapters.map((_, i) => chapter(d, i)).join("\n")}
-${trace(d)}
-${findings(d)}
+${d.chapters.map((_, i) => chapter(d, pins, i)).join("\n")}
+${trace(d, pins)}
+${findings(d, pins)}
 <footer>generated from <code>docs/architecture/map.json</code> by <code>bun scripts/architecture-map.ts</code> · every file:line checked against the checkouts · ← → step chapters</footer>
-</main>
+</main></div>
+<script>
+${appJs}
+</script>
 <script>
 (() => {
   // Stepping for the trace, and ← → between chapters. Nothing is stored.
@@ -477,7 +620,10 @@ ${findings(d)}
     show(0); play();
   }
   const chapters = [...document.querySelectorAll(".chapter, #trace, #findings")];
+  const root = document.documentElement;
   document.addEventListener("keydown", e => {
+    // With the map up, its own keys; these are the page's, when it's read as text or without the map.
+    if (root.classList.contains("js") && !root.classList.contains("text")) return;
     if (e.altKey || e.ctrlKey || e.metaKey || /input|textarea|select/i.test(e.target.tagName)) return;
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     // The chapter whose top is at or above the fold is the current one; → goes to the next, ← to the one before.
@@ -485,7 +631,7 @@ ${findings(d)}
     let cur = -1;
     chapters.forEach((c, k) => { if (c.offsetTop <= y) cur = k; });
     const to = e.key === "ArrowRight" ? chapters[cur + 1] : cur > 0 ? chapters[cur - 1] : document.body;
-    if (to) { e.preventDefault(); to.scrollIntoView({ behavior: "smooth" }); }
+    if (to) { e.preventDefault(); to.scrollIntoView(); }
   });
 })();
 </script>
@@ -495,14 +641,9 @@ ${findings(d)}
 
 // ── the command ────────────────────────────────────────────────────────────────────────────────────────────
 
-function head(dir: string): string | undefined {
-  const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--short=7", "HEAD"], { stdout: "pipe", stderr: "pipe" });
-  return r.exitCode === 0 ? r.stdout.toString().trim() : undefined;
-}
-
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const onlyCheck = args.includes("--check"), noCheck = args.includes("--no-check");
+  const onlyCheck = args.includes("--check"), noCheck = args.includes("--no-check"), allowDirty = args.includes("--allow-dirty");
   const outAt = args.indexOf("--out");
   const out = resolve(outAt >= 0 && args[outAt + 1] ? args[outAt + 1]! : join(ROOT, "out/architecture-map.html"));
   const d = loadMap();
@@ -517,7 +658,12 @@ if (import.meta.main) {
     console.log(`architecture map: ${c.structures} structures (${ladder}); every citation holds`);
     process.exit(0);
   }
-  const html = await render(d, { commits: { door: head(ROOT), outliner: head(OUTLINER) } });
+  const pins = resolvePins(d);
+  if (pins.dirty.length && !allowDirty) {
+    console.error(`architecture map: the links would pin commits that don't hold what was checked; commit first, or pass --allow-dirty to stamp the page\n${pins.dirty.map(f => `  ${f}`).join("\n")}`);
+    process.exit(1);
+  }
+  const html = await render(d, { pins });
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, html);
   console.log(`architecture map: ${out} (${(html.length / 1024).toFixed(0)} KB) · ${c.structures} structures (${ladder}) · ${c.open} open questions, ${c.routed} routed`);
