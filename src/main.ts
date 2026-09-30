@@ -14,6 +14,7 @@ import { Mirror } from "./mirror";
 import { setupCommand } from "./setup/apply";
 import { alive, claimState, readState, writeState } from "./state";
 import { recoverEdits } from "./surface/editor";
+import { whereCommand } from "./where";
 
 const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json")?.at) || 0;
 const writeLastCall = (at: number) => writeState("lastcall.json", { at });
@@ -55,6 +56,9 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one
+  ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
+                                   checked (the door's pid and control socket, the Herdr pane, the tile), and where
+                                   the person's keys are. Read-only; "not in a door" outside one
   ep0ch subscribe [type,...]       the door's live feed: focus.changed, viewport, cursor, layout.changed,
                                    marks.changed, one JSON event per line (docs/AGENT-INTERFACE.md)
   ep0ch --skill [--all] [<name>]
@@ -68,6 +72,7 @@ if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
+if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));
 if (args[0] === "outline" || args[0] === "status") {
   const cmd = parseOutlineArgs(args[0] === "status" ? args : args.slice(1));

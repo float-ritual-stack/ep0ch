@@ -370,9 +370,12 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   `EP0CH_CONTROL`, the program's name in the layout as `EP0CH_TILE`, and the tile's id as `EP0CH_TILE_ID`.
   Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
   how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
+  - It also gets `EP0CH_NEST`, the layers it runs in (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`),
+    and `ep0ch where` checks each one and says where your keys are ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
-  - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
+  - The agent's pane gets `EP0CH_NEST` (the tile's, then `herdr:door-claude`), `EP0CH_TILE` and an
+    `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
   - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still

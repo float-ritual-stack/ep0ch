@@ -12,7 +12,8 @@
 // - Herdr not installed, no server answering (or one not answering in 10s), or the pane couldn't be made: the
 //   agent runs in the tile directly, as before.
 //
-// The agent's pane gets EP0CH_TILE (so tools know they're in a door tile) and EP0CH_CONTROL: a link in the
+// The agent's pane gets EP0CH_NEST (the tile's, then `herdr:<pane label>`: src/nest.ts), EP0CH_TILE (so tools
+// know they're in a door tile) and EP0CH_CONTROL: a link in the
 // door's state that this wrapper points at the attached door's control socket each time it attaches, so
 // `ep0ch act` (and the outliner's `show`) from the agent reach the door it is shown in, whichever that is.
 // When the attach ends (detached, or the door quit or crashed) the link is dropped if it's still this door's,
@@ -21,6 +22,7 @@ import { spawn as spawnDetached } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
+import { appendNest } from "../nest";
 import { alive, stateDir } from "../state";
 
 export interface Ran { code: number; out: string; err: string }
@@ -38,7 +40,7 @@ export interface AgentConfig {
   cwd: string;
   /** The agent's command line, as the pane's shell runs it (after `exec`). */
   cmd: string;
-  /** The env a new pane gets (EP0CH_TILE, EP0CH_CONTROL). */
+  /** The env a new pane gets (EP0CH_TILE, EP0CH_CONTROL, and EP0CH_NEST ending in `herdr:<pane label>`). */
   env: Record<string, string>;
   /** The link EP0CH_CONTROL names in the pane, re-pointed at each attach. */
   link: string;
@@ -56,7 +58,9 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     workspace: env.EP0CH_HERDR_WORKSPACE || "door",
     cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || env.PWD || process.cwd(),
     cmd: env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude"),
-    env: { EP0CH_TILE: env.EP0CH_TILE || "claude", EP0CH_CONTROL: link },
+    // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later
+    // (`ep0ch where` follows EP0CH_CONTROL to the door that shows it now).
+    env: { EP0CH_TILE: env.EP0CH_TILE || "claude", EP0CH_CONTROL: link, EP0CH_NEST: appendNest(env.EP0CH_NEST, `herdr:${pane}`) },
     link,
     lock: `${link}.lock`,
   };

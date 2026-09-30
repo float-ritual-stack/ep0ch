@@ -350,3 +350,50 @@ describe("offline says offline (F24, C F17)", () => {
     }
   }, 60_000);
 });
+
+describe("where am I, from a tile (ep0ch where)", () => {
+  test("a program in a tile reads its stack, each layer checked, and whether the person's keys are in its tile", async () => {
+    const { dir, env } = sandbox();
+    // A door reached over ssh, inside a Herdr pane (a fake herdr that only lists panes): what it inherited
+    // is recorded before the pane's variables are dropped.
+    const fake = join(dir, "herdr");
+    writeFileSync(fake, `#!/bin/sh\n[ "$1 $2" = "pane list" ] && echo '{"result":{"panes":[{"pane_id":"w9:p9","focused":true}]}}' && exit 0\nexit 1\n`);
+    chmodSync(fake, 0o755);
+    const door = new Door({ ...env, SSH_TTY: "/dev/pts/nonexistent-77", HERDR_PANE_ID: "w9:p9", HERDR_WORKSPACE_ID: "w9", EP0CH_HERDR_BIN: fake });
+    try {
+      await door.up();
+      const probe = join(dir, "probe.sh");
+      writeFileSync(probe, `bun ${MAIN} where --json > ${dir}/a.json\nwhile [ ! -e ${dir}/go ]; do sleep 0.1; done\nbun ${MAIN} where --json > ${dir}/b.json\nbun ${MAIN} where > ${dir}/b.txt\nsleep 30\n`);
+      const opened = await door.cli("act", "tile.open", "kind=pty", "name=probe", `cmd=sh ${probe}`);
+      expect(opened.code).toBe(0);
+      await until(() => existsSync(join(dir, "a.json")) && readFileSync(join(dir, "a.json"), "utf8").trim().endsWith("}"), "the first where", 20_000);
+      const a = JSON.parse(readFileSync(join(dir, "a.json"), "utf8"));
+      expect(a.nest).toMatch(new RegExp(`^ssh:pts/nonexistent-77 › herdr:w9:p9 › door:${door.proc.pid}/desk/t\\d+:probe$`));
+      expect(a.layers.map((l: any) => [l.kind, l.live])).toEqual([["ssh", false], ["herdr", true], ["door", true], ["tile", true]]);
+      expect(a.door).toMatchObject({ pid: door.proc.pid, answers: true, moved: false, tile: { name: "probe", found: true, descends: true } });
+      // An agent's tile.open never took the keys.
+      expect(a.keys.mine).toBe(false);
+
+      // The person clicks into the tile... here: gives it the keys and enters it (⏎).
+      expect((await door.cli("act", "tile.focus", "reader=probe")).code).toBe(0);
+      door.pty.write("\r");
+      await Bun.sleep(500);
+      writeFileSync(join(dir, "go"), "");
+      await until(() => existsSync(join(dir, "b.txt")) && readFileSync(join(dir, "b.txt"), "utf8").includes("keys:"), "the second where", 20_000);
+      const b = JSON.parse(readFileSync(join(dir, "b.json"), "utf8"));
+      expect(b.keys).toMatchObject({ mine: true, typing: true });
+      expect(readFileSync(join(dir, "b.txt"), "utf8")).toContain("keys: the person is typing in this tile");
+    } finally {
+      door.kill("SIGTERM");
+      await door.ended();
+    }
+  }, 60_000);
+
+  test("outside a door: not in a door, and nothing is asked of a door", async () => {
+    const { env } = sandbox();
+    const p = Bun.spawn(["bun", MAIN, "where"], { env: { PATH: env.PATH!, HOME: env.HOME! }, stdout: "pipe", stderr: "pipe" });
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    expect(code).toBe(0);
+    expect(out).toContain("not in a door");
+  });
+});

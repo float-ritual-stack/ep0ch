@@ -12,6 +12,7 @@ import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
+import { doorNest } from "./nest";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -297,7 +298,8 @@ export class App implements Ctx {
     const b = this.board;
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
-    return { screen: s?.title, stack: this.stack.map(x => x.title), video: this.video, host: this.host, workspace: this.workspace,
+    // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), service, state: s?.describe?.() ?? null };
   }
 

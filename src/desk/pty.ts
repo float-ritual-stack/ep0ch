@@ -17,6 +17,7 @@ import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath } from "../control";
+import { appendNest, doorLayer, doorNest } from "../nest";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -65,14 +66,19 @@ export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
  * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
  * An inherited EP0CH_TILE_ID is always dropped: a door run in a tile mustn't hand its own tiles the outer
  * tile's id.
+ *
+ * EP0CH_NEST (src/nest.ts) gets this door's layer, `door:<pid>/<place>/<tile id>:<tile name>`, after the ssh
+ * session and Herdr pane the door inherited (recorded here, before the pane's variables are dropped), so the
+ * program can say where it runs (`ep0ch where`).
  */
-export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null): Record<string, string> {
+export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null, place?: string | null, pid = process.pid): Record<string, string> {
   const out: Record<string, string> = {};
   const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID"]);
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
   Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile });
   if (tileId) out.EP0CH_TILE_ID = tileId;
   if (control) out.EP0CH_CONTROL = control;
+  out.EP0CH_NEST = appendNest(doorNest(env), doorLayer(pid, place, tileId, tile));
   return out;
 }
 
@@ -99,6 +105,8 @@ export class PtyPane implements Pane {
   herdr: { pane: string } | null = null;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
+  /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
+  place: string | null = null;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -161,7 +169,7 @@ export class PtyPane implements Pane {
     });
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
-    const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId);
+    const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId, this.place);
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
       // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.
