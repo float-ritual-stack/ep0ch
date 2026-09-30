@@ -10,6 +10,23 @@ import { SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
+import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "./vendor/draft-patch-compare";
+
+/** How long an agent's patch stays lit in the draft, with who made it (ms). */
+export const PATCH_FLASH_MS = 2500;
+/** How many agent patches a draft keeps for ctrl+z. */
+const PATCH_UNDO_KEEP = 20;
+
+/**
+ * An agent's patch applied to a draft (PIE-501): one undo unit. Each span is where its replacement sits in
+ * the text just after it, with the text it replaced and a little text either side for undo's own compare.
+ */
+interface PatchUnit { patchId: string; by: Actor; spans: { start: number; text: string; was: string; before: string; after: string }[] }
+/** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
+export interface PatchFlash { start: number; end: number; label: string; until: number }
+/** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
+export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; mark?: string; force?: boolean }
+export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
 export type DraftAction = "keep" | "save" | "editor" | "reload" | "close";
 
@@ -50,6 +67,11 @@ export class Draft {
 
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
+
+  /** Agents' patches applied to this draft, newest last: ctrl+z (`draft.undo`) takes back the last one. */
+  patches: PatchUnit[] = [];
+  /** Where agents' patches just landed, lit until `until`. */
+  flashes: PatchFlash[] = [];
 
   constructor(readonly blockId: string, public base: number, text: string, props: Record<string, string> = {}) {
     this.baseProps = props;
@@ -196,6 +218,7 @@ export class Draft {
       if (k.ch === "e") return "editor";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
+      if (k.ch === "z") { void DRAFT_ACTIONS.run("draft.undo", {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); }); return "keep"; }
       if (k.ch === "a") { this.anchor = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
       return "keep";
@@ -414,6 +437,141 @@ export class Draft {
     return moved;
   }
 
+  // ── an agent's patch (PIE-501): compare-and-swap on a span, while the person types ──
+
+  /** The UTF-16 offset of line `row`, column `col` in the draft's text. */
+  offsetOf(row: number, col: number): number {
+    let o = 0;
+    for (let r = 0; r < row && r < this.lines.length; r++) o += this.lines[r]!.length + 1;
+    return o + col;
+  }
+
+  /** The line and column of a UTF-16 offset in the draft's text (clamped). */
+  placeOf(offset: number): { row: number; col: number } {
+    let o = Math.max(0, offset);
+    for (let r = 0; r < this.lines.length; r++) {
+      const n = this.lines[r]!.length;
+      if (o <= n || r === this.lines.length - 1) return { row: r, col: Math.min(o, n) };
+      o -= n + 1;
+    }
+    return { row: 0, col: 0 };
+  }
+
+  /**
+   * An agent's patch, if its compare holds against the text as typed now: every span's observed text still
+   * there, at or near where it was seen; the draft still on the revision the agent read; and every span
+   * above the mark (the `@request` line) or, without one, above the block the cursor is in, and none around
+   * the cursor. Then the text changes, the cursor, selection and view move with it so nothing on screen
+   * jumps, and the change is one undo unit, lit for a moment with who made it. `force`: "apply anyway",
+   * the person's own choice, placed as well as it can be and not held to the mark.
+   */
+  applyPatch(p: DraftPatchRequest, by: Actor): DraftPatchAnswer {
+    const no = (reason: string): DraftPatchAnswer => ({ applied: false, reason });
+    if (this.busy) return no("the draft is being saved");
+    if (!p.force && p.revision !== this.base) return no(`the draft is on revision ${this.base}, not the ${p.revision} it was read at`);
+    const text = this.text;
+    const located = locateSpans(text, p.patches, !!p.force);
+    if (!located.ok) return no(located.reason);
+    if (!p.force) {
+      const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
+      if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
+      const limit = p.mark !== undefined ? markStart(text, p.mark) : blockStartAt(text, Math.min(c, a));
+      if (limit < 0) return no("the mark isn't in the draft");
+      if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${p.mark !== undefined ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
+    }
+    this.commitPatch(located.spans, by, p.patchId);
+    return { applied: true };
+  }
+
+  /**
+   * A line the service puts in for a proposal (`!((id))`): after the mark line, or at the end without one.
+   * The cursor at the very place it goes stays before it, so typing at the end of the note carries on.
+   */
+  insertLine(line: string, mark: string | undefined, by: Actor, patchId = `embed-${Date.now()}`): DraftPatchAnswer {
+    if (this.busy) return { applied: false, reason: "the draft is being saved" };
+    const at = mark?.trim() ? this.lines.findIndex(l => l.trim() === mark.trim()) : -1;
+    const offset = at >= 0 ? this.offsetOf(at, this.lines[at]!.length) : this.text.length;
+    const add = (this.text ? "\n" : "") + line;
+    this.commitPatch([{ start: offset, end: offset, replacement: add }], by, patchId, o => (o <= offset ? o : o + add.length));
+    return { applied: true };
+  }
+
+  /** Take back the patch `patchId` (the service reverting a patch that didn't apply everywhere, or undo). */
+  revertPatch(patchId: string, by: Actor = USER): boolean {
+    const i = this.patches.findIndex(u => u.patchId === patchId);
+    if (i < 0) return false;
+    const u = this.patches[i]!;
+    // Undo is a compare-and-swap too: the patched text (and a little either side) must still be there.
+    const spans: DraftPatchSpan[] = u.spans.map(sp => {
+      const start = sp.start - sp.before.length;
+      const observed = sp.before + sp.text + sp.after;
+      return { observed, replacement: sp.before + sp.was + sp.after, range: { start, end: start + observed.length } };
+    });
+    const located = locateSpans(this.text, spans);
+    if (!located.ok) return false;
+    this.patches.splice(i, 1);
+    this.commitPatch(located.spans, by, null);
+    this.flashes = this.flashes.filter(f => !u.spans.some(sp => f.start === sp.start));
+    return true;
+  }
+
+  /** ctrl+z: take back the last agent patch (an agent only its own). Says what it did, or why not. */
+  undoPatch(by: Actor): string {
+    const u = [...this.patches].reverse().find(x => by.kind === "user" || sameParty(x.by, by));
+    if (!u) throw new ActionRefused(by.kind === "user" ? "no agent edit to undo in this draft" : "this agent has no edit to undo in this draft");
+    if (!this.revertPatch(u.patchId, by)) throw new ActionRefused(`couldn't undo ${patchLabel(u.by)}'s edit: the text changed around it since`);
+    return this.note = `undid ${patchLabel(u.by)}'s edit`;
+  }
+
+  /** Replace `spans` of the text; the cursor, selection, view and lit patches move with it. */
+  private commitPatch(spans: LocatedSpan[], by: Actor, patchId: string | null, map: (o: number) => number = o => mapOffset(o, spans)) {
+    const before = this.text, after = applyLocated(before, spans);
+    // What stays put on screen: the cursor's row while it's in view, else the top row's text.
+    const w = this.shown.w;
+    let keep: { offset: number; screen: number } | null = null;
+    if (w) {
+      const rows = this.layout(w), at = this.cursorIn(rows);
+      if (at.vi >= this.top && at.vi < this.top + this.shown.h) keep = { offset: this.offsetOf(this.row, this.col), screen: at.vi - this.top };
+      else { const r = rows[this.top]; if (r) keep = { offset: this.offsetOf(r.line, [...this.lines[r.line]!].slice(0, r.start).join("").length), screen: 0 }; }
+    }
+    const cursor = map(this.offsetOf(this.row, this.col));
+    const anchor = this.anchor ? map(this.offsetOf(this.anchor.row, this.anchor.col)) : null;
+    const flashes = this.flashes.map(f => ({ ...f, start: map(f.start), end: map(f.end) }));
+    this.lines = after.split("\n");
+    const c = this.placeOf(cursor);
+    this.row = c.row; this.col = c.col;
+    this.anchor = anchor === null ? null : this.placeOf(anchor);
+    if (keep && w) {
+      const p = this.placeOf(map(keep.offset)), rows = this.layout(w);
+      this.top = Math.max(0, this.viOf(rows, p.row, p.col) - keep.screen);
+    }
+    this.flashes = flashes;
+    if (patchId !== null) {
+      let delta = 0;
+      const unit: PatchUnit = { patchId, by, spans: [] };
+      for (const sp of spans) {
+        const start = sp.start + delta;
+        delta += sp.replacement.length - (sp.end - sp.start);
+        unit.spans.push({ start, text: sp.replacement, was: before.slice(sp.start, sp.end), before: after.slice(Math.max(0, start - 8), start), after: after.slice(start + sp.replacement.length, start + sp.replacement.length + 8) });
+        const lit = sp.replacement.replace(/^\n/, "");
+        this.flashes.push({ start: start + (sp.replacement.length - lit.length), end: start + sp.replacement.length, label: `${patchLabel(by)} · just now`, until: Date.now() + PATCH_FLASH_MS });
+      }
+      this.patches.push(unit);
+      if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
+    }
+    this.discardArmed = false;
+    if (this.text !== before) this.wrote(by);
+  }
+
+  /** The visual row a place is drawn on. */
+  private viOf(rows: VRow[], row: number, col: number): number {
+    const cp = [...(this.lines[row] ?? "").slice(0, col)].length;
+    let vi = rows.findIndex(r => r.line === row);
+    if (vi < 0) return 0;
+    while (vi + 1 < rows.length && rows[vi + 1]!.line === row && rows[vi + 1]!.start <= cp) vi++;
+    return vi;
+  }
+
   // ── the selection (a drag in the draft) ────────────────────────────────────
 
   /** Where a selection started; the cursor is its other end. */
@@ -529,6 +687,14 @@ export class Draft {
     this.top = Math.max(0, Math.min(this.top, Math.max(0, rows.length - h)));
     this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
     const out: string[] = [];
+    // Agents' patches just landed: their text lit, and who made it at the end of their last row.
+    const now = Date.now();
+    this.flashes = this.flashes.filter(f => f.until > now);
+    const lit = this.flashes.map(f => {
+      const a = this.placeOf(f.start), b = this.placeOf(f.end);
+      const cp = (p: { row: number; col: number }) => [...this.lines[p.row]!.slice(0, p.col)].length;
+      return { a: { row: a.row, cp: cp(a) }, b: { row: b.row, cp: cp(b) }, label: f.label };
+    });
     for (let vi = this.top; vi < Math.min(rows.length, this.top + h); vi++) {
       const r = rows[vi]!, chars = [...this.lines[r.line]!];
       const cells = chars.slice(r.start, r.end).map(c => (c === "\t" || c < " " ? " " : c));
@@ -542,13 +708,20 @@ export class Draft {
       }
       const cx = vi === at.vi ? at.x - r.indent : -1;
       if (cx >= cells.length) cells.push(" ");
+      const glow = lit.map(f => ({
+        from: (f.a.row < r.line ? 0 : f.a.row === r.line ? f.a.cp : Infinity) - r.start,
+        to: (f.b.row > r.line ? Infinity : f.b.row === r.line ? f.b.cp : -1) - r.start,
+        last: f.b.row === r.line && f.b.cp >= r.start && (f.b.cp <= r.end || r.end === chars.length), label: f.label,
+      }));
       let line = " ".repeat(r.indent) + fg(C.white), style = "";
       cells.forEach((c, j) => {
-        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : "";
+        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? bg(C.magenta) + fg(C.white) : "";
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
-      out.push(line + RESET);
+      const said = glow.find(g => g.last)?.label;
+      const room = w1 - r.indent - cells.length - 2;
+      out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ("@" + said).slice(0, room) + RESET : ""));
     }
     return out;
   }
@@ -675,6 +848,7 @@ export interface DraftActionArgs {
   "draft.place": { line: number; col?: number; extend?: boolean };
   "draft.scroll": { by: number };
   "draft.preview": { on?: boolean };
+  "draft.undo": Record<string, never>;
 }
 
 /**
@@ -719,12 +893,20 @@ export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
     args: { by: { type: "number", about: "rows, negative up" } },
     run({ by }, d, actor) { agentMay(d, actor); d.scrollBy(by); return { following: d.follow }; },
   },
+  "draft.undo": {
+    summary: "take back the last edit an agent's draft.patch made in this draft (an agent: only its own); one patch is one undo", keys: "ctrl+z",
+    args: {},
+    async run(_, d, actor) { const said = d.undoPatch(actor); return { undone: said, left: d.patches.length }; },
+  },
   "draft.preview": {
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
     run({ on }, d, actor) { agentMay(d, actor); d.preview = on ?? !d.preview; return { preview: d.preview }; },
   },
 });
+
+/** How a patch's writer is named where it landed: `tidy` for an agent, `you` for the person. */
+export const patchLabel = (a: Actor) => (a.kind === "agent" ? a.id : "you");
 
 /** The same party: the person, or the same agent. */
 export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);

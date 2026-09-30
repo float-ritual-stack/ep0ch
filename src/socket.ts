@@ -31,7 +31,12 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * a card into a lane, and what a new card there is born with. `query.matches` tests a query against
    * given blocks; `ping.propertyGrammar` reports the token grammar src/vendor/property-grammar.ts copies.
    */
-  "views.planWrite", "query.matches", "ping.propertyGrammar"] as const;
+  "views.planWrite", "query.matches", "ping.propertyGrammar",
+  /**
+   * draft.patch (pi-herdr-outliner PIE-501): the door holds each live draft on a lease (`drafts.hold`), so an
+   * agent's compare-and-swap on a span lands in the draft being typed; `draft.proposal.apply` is "apply anyway".
+   */
+  "drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "ping.draftPatchCompare"] as const;
 /** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
 export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
@@ -114,6 +119,22 @@ export interface Change {
  * `reset` (reload everything: the service has no feed, or its history doesn't reach back far enough)
  * and `reconnected` (caught up; `caughtUp` changes were replayed as ordinary events first).
  */
+/** The spans of a `draft.patch` as the service passes them on (src/vendor/draft-patch-compare.ts). */
+export type { DraftPatchSpan } from "./vendor/draft-patch-compare";
+import type { DraftPatchSpan } from "./vendor/draft-patch-compare";
+
+/** What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. */
+export type DraftRequest =
+  | { kind: "read"; requestId: string; holdId: string; blockId: string }
+  | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean }
+  | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string }
+  | { kind: "embed"; requestId: string; holdId: string; blockId: string; line: string; mark?: string; mutation: { author: string; actorId?: string } };
+export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };
+/** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
+export interface DraftHoldHandle { revise(revision: number): void; release(): void }
+/** Lease and heartbeat of a draft hold (ms): a door that dies loses its holds within the lease. */
+export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
+
 export interface OutlineEvent {
   domain: string; action: string; blockId?: string; sequence: number;
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
@@ -123,6 +144,8 @@ export interface OutlineEvent {
   catchUp?: boolean;
   reason?: string;
   caughtUp?: number;
+  /** On a `draft` event: what the service asks the door holding that draft (PIE-501). */
+  draft?: DraftRequest;
 }
 /** views.read's answer (PIE-397), blocks as list rows. */
 export interface SavedViewRead {
@@ -864,6 +887,8 @@ export class SocketBoard implements Board {
       if (r.id === "sub") {
         if (!r.ok) return;
         subscribed = true; sub.attempt = 0;
+        // A new subscription is a new client on the service: its drafts are held again.
+        if (reconnect) for (const h of this.drafts.values()) void this.holdOn(h);
         if (!reconnect) { this.lastSequence = Math.max(this.lastSequence, Number(r.sequence) || 0); return; }
         void this.catchUp(Number(r.sequence) || 0).then(({ replayed, reset }) => {
           if (this.sub !== sub) return;                   // closed while catching up
@@ -875,6 +900,8 @@ export class SocketBoard implements Board {
         return;
       }
       if (!r.event) return;
+      // A request to the door about a draft it holds is answered here, never queued behind a catch-up.
+      if (r.event.domain === "draft") { void this.answerDraft(r.event.draft); return; }
       if (held) held.push(r.event); else this.deliver(r.event);
     });
     s.on("data", d => lines.feed(d));
@@ -1109,7 +1136,77 @@ export class SocketBoard implements Board {
     return { limits: r.limits, dependencies: r.dependencies, results: r.results.map(node) };
   }
 
+  // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
+
+  private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; gone: boolean }>();
+
+  /**
+   * Hold a live draft of `blockId` on the service: while it's held, an agent's `draft.patch` on that note comes
+   * here (`answer`) instead of to the saved note, and a lease the door renews lets go of it if the door dies.
+   * Null when the service can't hold drafts (older than PIE-501); the draft works as before.
+   */
+  holdDraft(blockId: string, revision: number, answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>): DraftHoldHandle | null {
+    if (this.supports("drafts.hold") === false || !this.sub) return null;
+    const old = this.drafts.get(blockId);
+    if (old) this.letGo(old);
+    const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, gone: false };
+    this.drafts.set(blockId, h);
+    void this.holdOn(h);
+    h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
+    (h.timer as { unref?: () => void }).unref?.();
+    return {
+      revise: revision => { h.revision = revision; void this.renew(h); },
+      release: () => this.letGo(h),
+    };
+  }
+
+  private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
+    try {
+      const r = await this.optional<{ holdId: string }>("drafts.hold", "drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS });
+      if (h.gone) { if (r) void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
+      h.holdId = r?.holdId ?? null;
+    } catch { h.holdId = null; /* tried again at the next heartbeat */ }
+  }
+
+  private async renew(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
+    if (h.gone) return;
+    if (!h.holdId) return this.holdOn(h);
+    try { await this.request("drafts.heartbeat", { holdId: h.holdId, revision: h.revision }); }
+    catch { h.holdId = null; await this.holdOn(h); }
+  }
+
+  private letGo(h: { blockId: string; holdId: string | null; timer: Timer | null; gone: boolean }) {
+    h.gone = true;
+    if (h.timer) clearInterval(h.timer);
+    if (this.drafts.get(h.blockId) === h) this.drafts.delete(h.blockId);
+    if (h.holdId) void this.request("drafts.release", { holdId: h.holdId }).catch(() => {});
+  }
+
+  /** The service asked about a draft this door holds: answer from the draft itself. */
+  private async answerDraft(r: DraftRequest | undefined) {
+    if (!r?.requestId) return;
+    const h = [...this.drafts.values()].find(x => x.holdId === r.holdId || (x.blockId === r.blockId && !x.gone));
+    let answer: DraftAnswer | undefined, error: string | undefined;
+    try {
+      if (!h) throw new Error("this door holds no draft of that note any more");
+      answer = await h.answer(r);
+    } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    await this.request("drafts.answer", { requestId: r.requestId, clientId: this.clientId, ...(answer ? { answer } : { error }) }).catch(() => {});
+  }
+
+  /** A note's text as the draft someone holds has it now, or as saved (`drafts.read`). */
+  readDraft(blockId: string): Promise<{ route: "draft" | "saved"; text: string; revision: number }> {
+    return this.request("drafts.read", { blockId });
+  }
+
+  /** "Apply anyway": a proposal's patch as an ordinary edit by `actor` (`draft.proposal.apply`). */
+  async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[] }> {
+    if (this.supports("draft.proposal.apply") === false) throw new Refused("this outline service can't apply proposals (it has no draft.proposal.apply)");
+    return this.request("draft.proposal.apply", { proposalId, mutation: actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" } });
+  }
+
   close(): void {
+    for (const h of [...this.drafts.values()]) this.letGo(h);
     this.closing = true;
     if (this.sub?.retry) clearTimeout(this.sub.retry);
     this.sub = null;

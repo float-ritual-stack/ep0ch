@@ -4,7 +4,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { DRAFT_ACTIONS, keepCopy, type Draft } from "../edit";
+import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
@@ -104,7 +104,8 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · tab indent · shift+tab out · ctrl+p preview`;
+  const last = d.patches.at(-1);
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

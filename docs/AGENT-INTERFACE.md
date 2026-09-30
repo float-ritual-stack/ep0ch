@@ -284,7 +284,35 @@ at, and what it does while they're typing:
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `tile.herdr` | no | allowed |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
+| an agent's `draft.patch` on the service (below) | no: it lands in the draft only above the mark and never around the cursor; the cursor, selection and view shift with it | allowed, compared against the text as typed |
+| `proposal.apply` | no | allowed, recorded as whoever runs it |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
+
+## Editing above the person while they type: `draft.patch` (PIE-501)
+
+An agent that wants to change text in a note the person may be writing in doesn't use the door at all: it
+asks the outline service, which routes it. `draft.patch` is compare-and-swap on a span of text: the text the
+agent observed and the revision it read (a range is a hint, in `utf16` units or `utf8` bytes), the
+replacement, the agent's `mutation`, and a mark (the `@request` line) the span must end above.
+
+- **The door holds its drafts.** A note's open draft is held on the service (`drafts.hold`, renewed by
+  `drafts.heartbeat` every 5 s on a 15 s lease, `drafts.release` when it closes). A held note's patch comes
+  to the door as a `draft` event; a door that quits or stops answering loses the hold, and patches go to
+  the saved note under a revision check. `drafts.read` gives the note as the draft has it now.
+- **The door runs the compare** (`Draft.applyPatch`, with the service's own `src/draft-patch-compare.ts`,
+  vendored): the observed text at or near its range, the draft on the revision read, every span above the
+  mark (without one, above the block the cursor is in), none around the cursor. Then the cursor, the
+  selection and the view shift by the change (the cursor's row stays where it was on screen), the change is
+  lit for a moment (`@tidy · just now`) and is one undo unit (`draft.undo`, ctrl+z). The draft's writers
+  gain the agent, so the person's save names it. `peek` shows it: `editing.held`, `editing.cursor`,
+  `editing.patches`, `editing.lit`.
+- **A failed compare changes nothing.** The service keeps the proposal as a reply block under the note,
+  attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
+  `proposal.apply` (`A`) applies it anyway, as an ordinary edit by whoever runs it.
+- The structural policy (a prose edit keeps every `^anchor`, `[[page]]`, `((ref))` and `[key::value]`) is
+  the service's; the door never re-checks the grammar.
+
+    outliner patch-demo --block <id> --tidy-above "@tidy tidy this"    # the proof agent, not the @-watcher
 
 ## Names
 
