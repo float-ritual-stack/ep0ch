@@ -703,6 +703,14 @@ The board's new-card composer is the same control too.
   connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
   over a newer note: the reader says where its copy is. An agent's edit or comment never picks up your
   put-aside text.
+- **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
+  leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a drawer).
+  An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's
+  refused (it changed elsewhere, offline, refused) keeps the text as **unsent**, and the status bar says
+  `not saved: … · the edit to “…” was kept as unsent · e brings it back`. A comment, a reply or a new card
+  is kept as unsent, never sent or created: sending is `Ctrl+S`. On the desk `^W` does the same by keys:
+  the window key after it leaves the edit and runs (`Esc` after it stays in; `Tab` indents). An agent never
+  saves or closes your draft this way (`session.leave`, `composer.leave` are yours).
 
 - **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
@@ -1157,6 +1165,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `pane.split`, `pane.zoom` | `kind=reader\|tree\|thread\|activity\|who\|art`, `dir=row\|col`; `on=true\|false`. Desk only for now: the board's details open with a note (`open reader=new-detail`) and it has no zoom yet (PIE-428). An agent zooms only the pane that has your keys | desk `^W o`, `^W z` |
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
+| `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (otherwise `edit.text` or `comment.write`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
 | `draft.undo` | none: the last agent patch in the reader's draft (an agent: only its own) | `Ctrl+Z` in a draft |
 | `proposal.apply` | `id` (default: the embed that is the current element, else the note shown): apply anyway, as an edit by whoever runs it | `A` |

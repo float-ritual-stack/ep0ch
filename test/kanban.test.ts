@@ -277,17 +277,30 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().treePinned).toBe(false);
   });
 
-  test("esc on a typed card asks twice; a click can't take the keys; an agent's create never touches it", async () => {
+  test("esc on a typed card asks twice; a click away keeps it unsent, never created; an agent's create never touches it", async () => {
     await settled();
     B().focus = "lanes"; B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     type("Paint the railings");
+    // An agent can't close it: it's the person's.
+    await expect(act("composer.leave", {})).rejects.toThrow("the person's");
+    expect(B().composer.draft.text).toBe("Paint the railings");
+    // A click outside it leaves it as unsent (never created: creating is ctrl+s), and n brings it back.
+    const before = (await board.children(queue.id)).length;
     press({ kind: "mouse", action: "down", button: 0, x: 5, y: 5 });
-    expect(B().composer).not.toBeNull();
+    press({ kind: "mouse", action: "up", button: 0, x: 5, y: 5 });
+    expect(B().composer).toBeNull();
+    expect(message()).toBe("the new card in Doing was kept as unsent, not created · n in Doing brings it back");
+    expect((await board.children(queue.id)).length).toBe(before);
+    B().focus = "lanes"; B().lane = laneIndex("Doing");
+    press({ kind: "char", ch: "n" });
+    await until(() => !!B().composer, "the composer");
+    expect(B().composer.draft.text).toBe("Paint the railings");
+    type(" too");
     const r: any = await act("card.create", { lane: "Doing", text: "Sweep the chimney [project::ep0ch-door] [priority::high] [arc::home] [track::roof]" });
     expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: `agent ${AS}` });
-    expect(B().composer.draft.text).toBe("Paint the railings");
+    expect(B().composer.draft.text).toBe("Paint the railings too");
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     expect(message()).toBe(`an agent (${AS}) · created ${r.workId} in Doing · Sweep the chimney · priority=high arc=home track=roof project=ep0ch-door`);
     press({ kind: "esc" });
@@ -298,7 +311,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(message()).toContain("put aside as unsent · n in Doing brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
-    expect(B().composer.draft.text).toBe("Paint the railings");
+    expect(B().composer.draft.text).toBe("Paint the railings too");
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().composer).toBeNull();
     expect(message()).toContain("dropped the unsent draft · a copy stays at");

@@ -20,7 +20,7 @@ import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../a
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
-import { Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, unsent, whenPut, type DraftActionArgs } from "../edit";
+import { agentMay, Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, tidy, unsent, whenPut, type DraftActionArgs } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type PropertyRecord } from "../socket";
@@ -1070,7 +1070,7 @@ export class NoteSurface {
    * The write is recorded as whoever wrote the text (Draft.recordAs), which is not always `actor`, the
    * one who pressed save; returns that, or null when nothing was written.
    */
-  async save(host: SurfaceHost, actor: Actor = USER): Promise<Actor | null> {
+  async save(host: SurfaceHost, actor: Actor = USER, away = false): Promise<Actor | null> {
     const d = this.draft;
     if (!d || d.busy) return null;
     if (!d.dirty) { this.closeDraft(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
@@ -1085,6 +1085,8 @@ export class NoteSurface {
       if (this.draft !== d || d.text !== text) { host.redraw(); return null; }
       const change = next ? propertyChange(d.baseProps, next) : "";
       if (change) {
+        // Leaving by a click isn't the second save a property change asks for: the caller keeps it unsent.
+        if (away) { d.note = `it changes properties (${change}); ctrl+s twice saves it`; return null; }
         d.propertyWarned = text;
         d.note = `this save changes properties: ${change} · ctrl+s again saves`;
         host.redraw();
@@ -1117,6 +1119,67 @@ export class NoteSurface {
     } finally {
       host.redraw();
     }
+  }
+
+  /**
+   * Why a click can't leave what the person is in here, or null when it can. Only a changed property value
+   * holds on: it has no unsent place to be put aside in (⏎ saves it, esc cancels it).
+   */
+  leaveRefusal(): string | null {
+    const f = this.panel?.field;
+    return f && f.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null;
+  }
+
+  /**
+   * The person clicked (or ^W'd) away from the edit or comment they're in, as in any editor: nothing typed is
+   * lost and nothing is posted. An unchanged edit closes. A changed one is saved against the revision it
+   * started from; one that can't be (a conflict, offline, refused, or a property change not yet confirmed)
+   * is put aside as unsent, where `e` brings it back, and the flash says so. A comment or reply being
+   * written is put aside unsent, never sent: sending is an explicit act. Either way the draft's hold
+   * (`drafts.hold`) is let go as the draft closes. An agent may leave only a session it opened.
+   */
+  async leave(host: SurfaceHost, actor: Actor = USER): Promise<LeaveResult> {
+    const d = this.draft, s = this.session, title = this.msg ? `“${subject(this.msg).slice(0, 40)}”` : "the note";
+    // An agent leaves only a draft it opened and alone typed in (the draft actions' rule, agentMay).
+    const mine = d ?? s?.composer;
+    if (actor.kind === "agent" && (d || s)) {
+      if (!mine || !sameParty(mine.openedBy, actor)) throw new ActionRefused("the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)");
+      agentMay(mine, actor);
+    }
+    const why = this.leaveRefusal();
+    if (why) throw new ActionRefused(why);
+    if (this.panel?.field) { this.panel.field = null; host.redraw(); }
+    if (s) {
+      // A send already on its way lands (or is refused) as it would have; the session waits in the reader.
+      if (s.busy) return { left: "sending" };
+      const c = s.composer;
+      const keptAt = c?.dirty ? c.keep() : undefined;
+      this.closeSession();
+      host.redraw();
+      if (c && keptAt) {
+        const said = `the ${c.blockId === "reply" ? "reply" : "comment"} on ${title} was kept as unsent, not sent · ${c.shelf?.back ?? `a copy is at ${tidy(keptAt)}`}`;
+        host.ctx.flash(said, 8000);
+        return { left: "kept", keptAt, said };
+      }
+      return { left: "closed" };
+    }
+    if (!d) return { left: "nothing" };
+    // A save already on its way closes the draft when it lands, or keeps it here with the reason.
+    if (d.busy) return { left: "saving" };
+    if (!d.dirty) { this.closeDraft(); host.redraw(); return { left: "closed" }; }
+    const by = await this.save(host, actor, true);
+    if (by) return { left: "saved", revision: this.msg?.revision };
+    if (this.draft !== d) return { left: "closed" };
+    // Not saved: put aside where it was written (with a copy on disk), and the reader is back to reading.
+    // On a conflict the note moved on, so `e` opens its current text and says where this one is (Draft.restore).
+    const reason = d.conflict ? "it changed elsewhere since you started" : d.note.replace(/^not saved: /, "") || "refused";
+    const keptAt = d.keep();
+    this.closeDraft();
+    host.redraw();
+    const back = d.conflict ? `a copy is at ${tidy(keptAt)}` : d.shelf?.back ?? `a copy is at ${tidy(keptAt)}`;
+    const said = `not saved: ${reason} · the edit to ${title} was kept as unsent · ${back}`;
+    host.ctx.flash(said, 10000);
+    return { left: "kept", why: reason, keptAt, said };
   }
 
   /** Drop the draft for the note's current text. Typed work is copied to disk first. */
@@ -2329,6 +2392,9 @@ export class NoteSurface {
 
   clearSelections() { this.selection = null; this.agentSelection = null; this.gesture.cancel(); this.dragging = false; }
 
+  /** The last press placed the cursor in a draft the person opened here (not an agent's): a click that enters it. */
+  get pressedIntoOwn(): boolean { const d = this.editing ? this.writing() : null; return this.editPress && !!d && d.openedBy.kind === "user"; }
+
   /**
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
    * selected), except a second or third press on the same cell: it selects the word, then the row.
@@ -2894,6 +2960,21 @@ const patchActor = (m: { author: string; actorId?: string }): Actor => (m.author
 
 interface On { surface: NoteSurface; host: SurfaceHost }
 
+/**
+ * What leaving an edit or comment by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as
+ * unsent (with why and the copy on disk), or left alone while a save or send already on its way lands.
+ */
+export type LeaveResult =
+  | { left: "closed" | "nothing" | "saving" | "sending" }
+  | { left: "saved"; revision?: number }
+  | { left: "kept"; keptAt: string; why?: string; said: string };
+
+/**
+ * What a host says once the click that left a session has done what it does (its own flash, a focus, came
+ * after the leave's): the kept-as-unsent line, so it isn't lost under it.
+ */
+export const leaveSaid = (r: unknown): string | null => (r && typeof r === "object" && "said" in r && typeof r.said === "string" ? r.said : null);
+
 /** Each action's arguments. */
 export interface NoteActionArgs extends DraftActionArgs {
   "edit": { external?: boolean };
@@ -2901,6 +2982,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "edit.save": Record<string, never>;
   "edit.reload": Record<string, never>;
   "edit.close": { discard?: boolean };
+  "session.leave": Record<string, never>;
   "link.select": { n: number };
   "elements": Record<string, never>;
   "element.select": { n: number };
@@ -3214,6 +3296,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsaved changes" } },
     run({ discard }, { surface, host }) { const r = surface.closeDraftAction(!!discard); host.redraw(); return r; },
+  },
+  "session.leave": {
+    summary: "leave the edit or comment as a click elsewhere does: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's gesture: an agent leaves only a session it opened",
+    keys: "a click outside it, ^W then a window key (desk)",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.leave(host, actor),
   },
   "link.select": {
     summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",

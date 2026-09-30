@@ -21,7 +21,7 @@ import type { Draft } from "../edit";
 import type { CommentSession } from "../comment";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
-import { historyKey, historyRow, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
+import { historyKey, historyRow, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
@@ -1253,6 +1253,15 @@ export class River implements Screen {
       this.editDrag = null;
       const h = this.hits.find(h => inside(h.rect));
       const cr = this.colRects.find(c => inside(c.rect));
+      // A click on another pane leaves the edit or comment the person is in, as any editor does
+      // (session.leave: saved, closed, or kept as unsent), then does what it does. Its own pane keeps it.
+      const was = this.paneS;
+      if (was && was.surface.editing && this.isEntered(was) && (!h || this.cols[h.col]?.panes[h.pane] !== was)) {
+        const why = was.surface.leaveRefusal();
+        if (why) { this.ctx.flash(why); return this.ctx.redraw(); }
+        this.entered = null;
+        was.surface.act("session.leave", {}, this.hostFor(was), USER).then(r => { const said = leaveSaid(r); if (said) this.ctx.flash(said, 10000); this.ctx.redraw(); }, e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.ctx.redraw(); });
+      }
       // Only a click in the column that already has the keys can open a card: the first one only focuses.
       const wasIn = !!h && this.focus === h.col && this.cols[h.col]!.pane === h.pane;
       // A click in a column gives it the keys and nothing else: no column moves, widens or scrolls. A click
