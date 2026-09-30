@@ -207,7 +207,8 @@ export function embedState(id: string, fragment: string | undefined, src: Source
 
 /** A shaded region's background (a dim navy under the default text), and the gutter that marks it. */
 export const SHADE = "\x1b[48;2;18;24;44m";
-const GUTTER = fg(C.cyan) + "▌";
+// A quiet bar: embedding is ordinary here, so an embed is set apart, not announced.
+const GUTTER = fg(C.dark) + "▌";
 
 /** One shaded line: the background survives the resets inside `s`, and fills the whole width. */
 export function shade(s: string, w: number): string {
@@ -239,20 +240,22 @@ const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.sl
 /** Tag `text` as link `to` in `sink` (or leave it as text without one). */
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
 
-function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.lcyan) {
-  return shade(fg(colour) + "\x1b[1m" + tagged(sink, { block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + "\x1b[22m" + RESET, w);
+/** The embed's source line: a dim, clickable "↳ note" (a view's "⌕ view"). Problems keep their loud colour. */
+function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.dark) {
+  const loud = colour !== C.dark;
+  return shade(fg(colour) + (loud ? "\x1b[1m" : "") + tagged(sink, { block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + (loud ? "\x1b[22m" : "") + RESET, w);
 }
 
 /** A virtual branch's results, as Detail lists them. */
 function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
   const S = (line: string) => shade(line, w), title = printable(subject(target));
   const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
-  if (v.status === "invalid") return [head(`Embedded view · ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-  if (v.status !== "ready") return [head(`Embedded view · ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-  if (!v.items.length) return [head(`Embedded view · ${title} · EMPTY`)];
+  if (v.status === "invalid") return [head(`⌕ ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
+  if (v.status !== "ready") return [head(`⌕ ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
+  if (!v.items.length) return [head(`⌕ ${title} · EMPTY`)];
   const count = `${v.items.length} result${v.items.length === 1 ? "" : "s"}${v.truncated ? ` · TRUNCATED at ${v.limit}` : ""}`;
   const keys = viewSummaryKeys(target) ?? [];
-  return [head(`Embedded view · ${title} · ${count}`), ...v.items.map(m => {
+  return [head(`⌕ ${title} · ${count}`), ...v.items.map(m => {
     const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
     return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, { block: m.id, role: "row" }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
   })];
@@ -277,7 +280,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     return v ? viewRegion(target, v, w, sink) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
   }
   const title = printable(node.title ?? subject(target));
-  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `Embedded fragment · ${title} ^${node.fragmentId}` : `Embedded block · ${title}`, w, sink)];
+  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `↳ ${title} ^${node.fragmentId}` : `↳ ${title}`, w, sink)];
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();
   for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
@@ -312,7 +315,7 @@ function legacyRegion(st: Exclude<State, { kind: "node" }>, id: string, fragment
     case "view": return viewRegion(st.target, st.view, w, sink);
     case "note": {
       const title = printable(subject(st.target));
-      const out = [heading(id, fragment, fragment ? `Embedded fragment · ${title} ^${fragment}` : `Embedded block · ${title}`, w, sink)];
+      const out = [heading(id, fragment, fragment ? `↳ ${title} ^${fragment}` : `↳ ${title}`, w, sink)];
       if (fragment) out.push(S(fg(C.dark) + "the whole note: this service can't slice fragments" + RESET));
       const none = (cid: string, cfrag: string | undefined, _n: number, width: number) => [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not nested with this service` + RESET, width)];
       for (const l of body(st.target, null, Math.max(4, w - 2), { embed: none, task: () => null })) out.push(S(" " + l));

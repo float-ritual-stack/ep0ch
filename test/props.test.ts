@@ -120,8 +120,8 @@ describe("transclusions", () => {
     const region = (id: string, frag?: string, n = 0) => embedRegion(id, frag, n, 60, src, body).map(strip).map(l => l.trimEnd());
     for (const [id, frag] of [[A], [A, "beds"], [A, "nope"], [T], [GONE], ["ffffffff-dead-4000-8000-000000000000"]] as [string, string?][]) region(id, frag);
     await Bun.sleep(10);
-    expect(region(A)).toEqual(["▌Embedded block · Garden plan", "▌ Beans along the fence.", "▌ ## Beds ^beds", "▌ Two beds."]);
-    expect(region(A, "beds").slice(0, 2)).toEqual(["▌Embedded fragment · Garden plan ^beds", "▌the whole note: this service can't slice fragments"]);
+    expect(region(A)).toEqual(["▌↳ Garden plan", "▌ Beans along the fence.", "▌ ## Beds ^beds", "▌ Two beds."]);
+    expect(region(A, "beds").slice(0, 2)).toEqual(["▌↳ Garden plan ^beds", "▌the whole note: this service can't slice fragments"]);
     expect(region(A, "nope")).toEqual(["▌!((aaaaaaaa…^nope)) · MISSING FRAGMENT"]);
     expect(region(T)).toEqual(["▌!((bbbbbbbb…)) · IN TRASH · Old shed"]);
     expect(region(GONE)).toEqual(["▌!((cccccccc…)) · MISSING TARGET"]);
@@ -163,7 +163,7 @@ describe("the surface: summary, panel and embeds at any width", () => {
     expect(lines[1]!.trim()).toBe("stage doing · priority high · track soil, tools · i 6 properties");
     expect(lines.join("\n")).not.toContain("[work-stage::");
     expect(lines.join("\n")).toContain("A bin by Garden plan.");
-    expect(lines.join("\n")).toContain("Embedded block · Garden plan");
+    expect(lines.join("\n")).toContain("↳ Garden plan");
     expect(lines.join("\n")).toContain("MISSING TARGET");
     s.key(char("i"), h);
     expect(s.holdsKeys && !s.editing).toBe(true);
@@ -293,23 +293,23 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   });
 
   test("title, the lane's summary line, then the body: no metadata lines, links by title, every embed state", async () => {
-    await until(() => { const s = shown(120); return s.includes("Embedded view · Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("Embedded block · Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
+    await until(() => { const s = shown(120); return s.includes("⌕ Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("↳ Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
     const s = shown(120), lines = s.split("\n");
     expect(lines[0]!.trim()).toBe("GDN-12 Build the compost bin");
     expect(lines[1]!.trim()).toBe("priority high · track soil, tools · i 8 properties");   // the lane's [summary-properties::]
     expect(s).not.toContain("[type::");
     expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 · Missing target.");
     expect(s).toContain("owner:: the allotment group");                                   // a line-scope property is body text
-    for (const want of ["Embedded block · Garden plan", "Embedded fragment · Garden plan ^beds",
+    for (const want of ["↳ Garden plan", "↳ Garden plan ^beds",
       "MISSING FRAGMENT", "∙ Plant the beans · priority high", "IN TRASH · Old shed notes", "!((0badc0de…)) · MISSING TARGET",
       `EMBED LIMIT · maximum 16`]) expect(s).toContain(want);
     expect(s.match(/EMBED LIMIT/g)).toHaveLength(1);                                         // 17 embeds: the 17th is refused
     // The fragment is its slice (the section, not the note's first line); the nested note's embed is expanded in it.
-    const at = lines.findIndex(l => l.includes("Embedded fragment · Garden plan ^beds"));
+    const at = lines.findIndex(l => l.includes("↳ Garden plan ^beds"));
     expect(lines.slice(at + 1, at + 3).map(l => l.trim())).toEqual(["▌ ## Beds", "▌ Two raised beds."]);
-    const nested = lines.findIndex(l => l.includes("Embedded block · Nested note"));
+    const nested = lines.findIndex(l => l.includes("↳ Nested note"));
     expect(lines[nested + 1]!.trim()).toBe("▌ It embeds the plan:");
-    expect(lines[nested + 2]!.trim()).toBe("▌ ▌Embedded block · Garden plan");
+    expect(lines[nested + 2]!.trim()).toBe("▌ ▌↳ Garden plan");
     expect(s).not.toContain("## Beds ^beds");                                               // anchors are hidden when read
   });
 
@@ -384,7 +384,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       counts[k] = (counts[k] ?? 0) + 1;
       return request(action, params);
     };
-    const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("Embedded view · Queued chores") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
+    const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("⌕ Queued chores") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
     try {
       await act("open", { id: ids.card });
       await act("props.close");

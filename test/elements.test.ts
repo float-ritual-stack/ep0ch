@@ -99,7 +99,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await whole(B().preview, n.jobs.id);
     await until(() => B().preview.surface.comments?.length === 1, "the comment");
     await shows("preview", "Stake the beans");                          // its links resolved to titles
-    await shows("preview", "Embedded block · Paint the shed");
+    await shows("preview", "↳ Paint the shed");
     await shows("preview", "Turn the compost");
     B().focus = "preview";
   };
@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await whole(d, n.jobs.id);
     await until(() => d.surface.comments?.length === 1, "the comment in the detail");
     await shows("detail0", "Stake the beans");
-    await shows("detail0", "Embedded block · Paint the shed");
+    await shows("detail0", "↳ Paint the shed");
     await shows("detail0", "Turn the compost");
     expect(B().focus).toBe("detail0");
     return d;
@@ -159,7 +159,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       "fold - dig the north bed",
       "row Water the seedlings",
       "row Turn the compost",
-      "embed Embedded block · Paint the shed",
+      "embed ↳ Paint the shed",
     ]);
     const seen: string[] = [];
     for (let i = 0; i < 9; i++) { key(char("]")); frame(); seen.push(current(p)!.kind); }
@@ -193,7 +193,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     key({ kind: "enter" });
     await whole(d, n.compost.id);
     d = await detail();
-    stepTo(d, "Embedded block");
+    stepTo(d, "↳ ");
     key({ kind: "enter" });
     await whole(d, n.shed.id);
     d = await detail();
@@ -209,7 +209,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   }, 40_000);
 
   test("⏎ in the preview: links, rows and embeds open in a detail and the preview stays; a fold toggles there; a comment mark expands its thread there", async () => {
-    for (const [label, target] of [["Garden plan", "plan"], ["Water the seedlings", "water"], ["Embedded block", "shed"]] as const) {
+    for (const [label, target] of [["Garden plan", "plan"], ["Water the seedlings", "water"], ["↳ ", "shed"]] as const) {
       await fresh();
       const p = B().preview as ReaderPane;
       stepTo(p, label);
@@ -331,7 +331,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await expect(act("focus.set", { line: 3, quote: "x" }, "preview", AS)).rejects.toThrow("say what to mark");
     // A block it embeds: the embed's region is tinted. The note itself with a passage: the passage's lines.
     await act("focus.set", { block: n.shed.id.slice(0, 8) }, "preview", AS);
-    expect(frame().filter(l => l.includes(RULER_BG)).map(plain).some(l => l.includes("Embedded block · Paint the shed"))).toBe(true);
+    expect(frame().filter(l => l.includes(RULER_BG)).map(plain).some(l => l.includes("↳ Paint the shed"))).toBe(true);
     expect(await act("focus.set", { block: n.jobs.id, quote: "dig the north bed" }, "preview", AS)).toMatchObject({ marked: "\"dig the north bed\"" });
     await expect(act("focus.set", { block: n.shed.id, quote: "Two coats" }, "preview", AS)).rejects.toThrow("a passage is found in the note this reader shows");
     expect(await act("focus.clear", {}, "preview", AS)).toMatchObject({ cleared: true, by: AS });
