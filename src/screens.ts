@@ -18,8 +18,8 @@ import { Waiting } from "./hub/waiting";
 import { Welcome } from "./hub/welcome";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
-import { ActionRefused, ActionSet, asActor, type ActRequest } from "./surface/actions";
-import { USER, type Actor, type OutlineEvent } from "./socket";
+import { ActionRefused, ActionSet, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
+import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -192,6 +192,8 @@ export class Logon implements Screen {
       else if (k.action === "up" && this.pressed) { this.pressed = false; this.key(ENTER, ctx); }
       return;
     }
+    // Esc never logs off (PIE-489): here it only says how. Q is the hang-up the screen offers.
+    if (k.kind === "esc") { ctx.flash("ENTER logs on · Q hangs up"); return; }
     if (isBack(k)) return ctx.push(new Goodbye());
     if (k.kind === "enter" || k.kind === "char") {
       const total = this.script.join("\n").length + 40;
@@ -299,7 +301,9 @@ export class MainMenu implements Screen {
     else if (k.kind === "up") this.sel = (this.sel + ITEMS.length - 1) % ITEMS.length;
     else if (k.kind === "down" || k.kind === "tab") this.sel = (this.sel + 1) % ITEMS.length;
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
-    else if (k.kind === "esc") return ctx.push(new Goodbye());
+    // Esc and q are back, as everywhere; the menu is the top, so they stay here and say so (PIE-489).
+    // Goodbye is G (or a click on it). Q, shifted, is the Quay.
+    else if (k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) return shellKey("screen.back", {}, this, ctx);
     else if (k.kind === "char" && k.ch.toUpperCase() === "V") { ctx.cycleVideo(); return; }
     else if (k.kind === "char" && k.ch === "?") return ctx.push(new Help());
     else if (k.kind === "char") {
@@ -308,14 +312,211 @@ export class MainMenu implements Screen {
     }
     ctx.redraw();
   }
-  private open(item: MenuItem, ctx: Ctx) { openItem(item, ctx); }
+  /** A menu item, by key, ⏎ or click: `screen.open`, as an agent's is. */
+  private open(item: MenuItem, ctx: Ctx) { shellKey("screen.open", { name: item.key }, this, ctx); }
   describe() { return { kind: "main menu", selected: ITEMS[this.sel]!.key, items: ITEMS.map(i => `${i.key} ${i.label}`) }; }
 }
 
-/** Open a menu item's screen over the current one. */
-function openItem(item: MenuItem, ctx: Ctx) {
+/** Open a menu item's screen over the current one; the screen opened. */
+function openItem(item: MenuItem, ctx: Ctx): Screen | null {
   const s = item.open(ctx);
   if (s) ctx.push(s); else ctx.redraw();
+  return s;
+}
+
+// ── the shell's actions (PIE-489): open a screen, go back, list them; on every screen ─
+
+/** What the shell's actions run on: the door, and the screen they act from (the top one). */
+export interface ShellOn { ctx: Ctx; here?: Screen }
+
+/** How long the person has to have been away from the keys and the mouse before an agent changes their screen. */
+export const SHELL_IDLE_MS = 2000;
+
+/**
+ * An agent may change what the person sees (another screen, back, a list's lit row) only when it can't land
+ * on something they're doing: never over an edit, a comment, the property panel or a terminal tile they're
+ * typing in, and never within SHELL_IDLE_MS of their last key or click (the key in flight would land on a
+ * screen they didn't choose). Otherwise it's refused with the reason, and the agent tries again later.
+ * What it does is said on the status bar ("an agent (<id>) · …"), and q brings the person back.
+ */
+export function agentMayMove(here: Screen | undefined, ctx: Ctx, actor: Actor, leaving = false) {
+  if (actor.kind !== "agent") return;
+  if (!here) throw new ActionRefused("no screen is shown");
+  if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
+  if (here.rawKeys?.()) throw new ActionRefused(`the person is typing in a terminal tile on the ${here.title}; not moved`);
+  if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title}; not moved`);
+  if (leaving && here.unsaved?.()) throw new ActionRefused(`the ${here.title} holds unsaved text; not left`);
+  const refusal = leaving ? here.leaveRefusal?.() : null;
+  if (refusal) throw new ActionRefused(refusal);
+  const idle = ctx.idleFor?.() ?? Infinity;
+  if (idle < SHELL_IDLE_MS) throw new ActionRefused(`the person is at the keys (last key ${(idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`);
+}
+
+/** A menu item by its key (`S`), its label (`Stats`) or another name for its screen (`board stats`, `river`). */
+function itemNamed(name: string): MenuItem | undefined {
+  const n = name.trim().toLowerCase();
+  return ITEMS.find(i => i.key.toLowerCase() === n) ?? ITEMS.find(i => i.label.toLowerCase() === n || SCREEN_NAMES[i.key]?.includes(n));
+}
+/** Other names for what a menu item opens: its screen's title and the words the README uses. */
+const SCREEN_NAMES: Record<string, string[]> = {
+  N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
+  L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
+  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"],
+};
+
+type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never> };
+
+/** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
+export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
+  "screen.open": {
+    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters, ⏎, a click on a menu item",
+    args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
+    run({ name }, { ctx, here }, actor) {
+      const item = itemNamed(name);
+      if (!item) throw new ActionRefused(`no screen ${JSON.stringify(name)} on the menu; screen.list lists them`);
+      if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
+      agentMayMove(here, ctx, actor);
+      const s = openItem(item, ctx);
+      if (actor.kind === "agent") ctx.flash(`opened ${s?.title ?? item.label} · q goes back`, 6000);
+      return { opened: s?.title ?? null, key: item.key };
+    },
+  },
+  "screen.back": {
+    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q, Esc",
+    args: {},
+    run(_, { ctx, here }, actor) {
+      if (here instanceof MainMenu) {
+        if (actor.kind === "agent") throw new ActionRefused("already at the main menu; an agent doesn't log the person off");
+        ctx.flash("you're at the main menu · G logs off");
+        return { at: here.title };
+      }
+      agentMayMove(here, ctx, actor, true);
+      const from = here?.title ?? null;
+      ctx.pop();
+      const to = ctx.screens?.().at(-1)?.title ?? null;
+      if (actor.kind === "agent") ctx.flash(`went back from the ${from} to the ${to}`, 6000);
+      return { from, to };
+    },
+  },
+  "screen.list": {
+    summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first", keys: "?",
+    args: {},
+    run(_, { ctx }) {
+      return { stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })) };
+    },
+  },
+});
+
+/** A person's key or click: the same action, as `you`; a refusal is said on the status bar. */
+function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
+  const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
+  try { SHELL_ACTIONS.run(name, args, { ctx, here }, USER).catch(say); } catch (e) { say(e); }
+}
+
+/** q and Esc on a BBS screen: `screen.back`. */
+const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
+
+/** `open <id>` on a screen with no readers of its own (the menu, a list): a message reader over it. */
+export function shellOpenBlock(m: Msg, ctx: Ctx, here: Screen | undefined) {
+  agentMayMove(here, ctx, { kind: "agent", id: AGENT_ACTOR_ID });
+  ctx.push(new MessageReader([m], 0));
+}
+
+// ── the BBS lists' actions: select, open, read (PIE-489) ─────────────────────
+
+/** One row of a BBS list, as `list.read` gives it. */
+export interface ListRow { n: number; title: string; id?: string; [k: string]: unknown }
+
+/** A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. */
+interface BbsList extends Screen {
+  sel: number;
+  listRows(): ListRow[] | null;
+  /** ⏎ on row `i`: the screen it opens, pushed; or a refusal. */
+  openRow(i: number, ctx: Ctx): void;
+}
+interface ListOn { list: BbsList; ctx: Ctx }
+type ListArgs = { "list.select": { n: number }; "list.open": { n?: number }; "list.read": { from?: number; limit?: number } };
+
+const rowsOf = (list: BbsList) => {
+  const rows = list.listRows();
+  if (!rows) throw new ActionRefused(`the ${list.title} is still loading`);
+  return rows;
+};
+const rowAt = (list: BbsList, n: number) => {
+  const rows = rowsOf(list);
+  if (!rows.length) throw new ActionRefused(`the ${list.title} is empty`);
+  if (!Number.isInteger(n) || n < 1 || n > rows.length) throw new ActionRefused(`the ${list.title} has ${rows.length} row${rows.length === 1 ? "" : "s"}; n is 1-${rows.length}, not ${n}`);
+  return rows[n - 1]!;
+};
+
+/** The lists' actions: j k ↑↓ PgUp PgDn and the wheel run list.select, ⏎ and a click on the lit row list.open. */
+export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
+  "list.select": {
+    summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
+    args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
+    run({ n }, { list, ctx }, actor) {
+      const row = rowAt(list, n);
+      agentMayMove(list, ctx, actor);
+      list.sel = n - 1;
+      if (actor.kind === "agent") ctx.flash(`lit row ${n}: ${row.title.slice(0, 50)}`);
+      ctx.redraw();
+      return { selected: n, row };
+    },
+  },
+  "list.open": {
+    summary: "open a row as ⏎ does (read, join, browse): the lit one, or row n", keys: "⏎, a click on the lit row",
+    args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
+    run({ n }, { list, ctx }, actor) {
+      const at = n ?? list.sel + 1;
+      const row = rowAt(list, at);
+      agentMayMove(list, ctx, actor);
+      list.sel = at - 1;
+      list.openRow(at - 1, ctx);
+      const opened = ctx.screens?.().at(-1);
+      if (actor.kind === "agent") ctx.flash(`opened row ${at}: ${row.title.slice(0, 50)} · q goes back`, 6000);
+      return { opened: opened && opened !== list ? opened.title : null, row };
+    },
+  },
+  "list.read": {
+    summary: "the list's rows (numbered from 1) and which one is lit; moves nothing",
+    args: { from: { type: "number", optional: true, about: "the first row, from 1 (default 1)" }, limit: { type: "number", optional: true, about: "how many rows (default 100)" } },
+    run({ from, limit }, { list }) {
+      const rows = rowsOf(list);
+      const start = Math.max(1, from ?? 1);
+      return { screen: list.title, selected: rows.length ? list.sel + 1 : null, of: rows.length, rows: rows.slice(start - 1, start - 1 + Math.max(1, limit ?? 100)) };
+    },
+  },
+});
+
+/** A list's keys and clicks: the same actions, as `you`. */
+function listKey<K extends keyof ListArgs & string>(list: BbsList, name: K, args: ListArgs[K], ctx: Ctx) {
+  const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
+  try { LIST_ACTIONS.run(name, args, { list, ctx }, USER).catch(say); } catch (e) { say(e); }
+}
+
+/** A list's keys: q Esc back, ⏎ open, the movement keys select. False when the key isn't one of these. */
+function listKeys(list: BbsList, k: Key, ctx: Ctx, page: number): boolean {
+  if (isBack(k)) { back(list, ctx); return true; }
+  const count = list.listRows()?.length ?? 0;
+  if (!count) return false;
+  if (k.kind === "enter") { listKey(list, "list.open", {}, ctx); return true; }
+  const to = nav(k, count, list.sel, page);
+  if (to !== list.sel) { listKey(list, "list.select", { n: to + 1 }, ctx); return true; }
+  return false;
+}
+
+/** What a list shows, for `peek`: the lit row and the first rows (list.read has them all). */
+function listDescribe(list: BbsList) {
+  const rows = list.listRows();
+  return { kind: "list", title: list.title, selected: rows?.length ? list.sel + 1 : null, of: rows?.length ?? null, rows: rows?.slice(0, 20) ?? null };
+}
+
+/** `actions` and `act` on a list screen: the list's actions (the shell's come from App). */
+function listActions(): { actions: ActionInfo[]; readers: string[] } { return { actions: LIST_ACTIONS.list(), readers: [] }; }
+function listAct(list: BbsList, ctx: Ctx | null, req: ActRequest, actor: Actor): Promise<unknown> {
+  if (!ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`);
+  if (req.reader) throw new ActionRefused(`the ${list.title} has no readers; list.open opens a row`);
+  return LIST_ACTIONS.runUntyped(req.action, req.args ?? {}, { list, ctx: asActor(ctx, actor) }, actor);
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
@@ -337,15 +538,17 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 
 // ── message lists and the reader ─────────────────────────────────────────────
 
-export class MessageList implements Screen {
+export class MessageList implements BbsList {
   private items: Msg[] | null = null;
   private error = "";
-  private sel = 0;
+  sel = 0;
+  private ctx: Ctx | null = null;
   private receiving: { started: number; limit: number } | null = null;
   private readonly ptr = new Pointer();
   /** `paged` loaders take a limit: a quick first page, then the full scan behind it. */
   constructor(readonly title: string, private readonly load: (limit: number) => Promise<Msg[]>, private readonly caption = "", private readonly paged = true) {}
   enter(ctx: Ctx) {
+    this.ctx = ctx;
     const fail = (e: any) => { this.error = String(e?.message ?? e); this.receiving = null; ctx.redraw(); };
     if (!this.paged) { this.load(0).then(m => { this.items = m; ctx.redraw(); }, fail); return; }
     this.load(40).then(first => {
@@ -383,15 +586,21 @@ export class MessageList implements Screen {
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
+    this.ctx = ctx;
     const list = this.items ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => { this.sel = i; }, key => this.key(key, ctx));
-    if (isBack(k)) return ctx.pop();
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
+    if (listKeys(this, k, ctx, ctx.t.rows - 10)) return;
     if (!list.length) return;
-    if (k.kind === "enter") return ctx.push(new MessageReader(list, this.sel));
     if (k.kind === "char" && k.ch.toLowerCase() === "t") return ctx.push(new MessageList(`thread: ${subject(list[this.sel]!).slice(0, 30)}`, () => ctx.board.children(list[this.sel]!.id), "", false));
-    this.sel = nav(k, list.length, this.sel, ctx.t.rows - 10);
     ctx.redraw();
   }
+  listRows(): ListRow[] | null {
+    return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) ?? null;
+  }
+  openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.items!, i)); }
+  describe() { return listDescribe(this); }
+  actions() { return listActions(); }
+  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
 }
 
 /** What a message reader's own actions (MESSAGE_ACTIONS) run on. */
@@ -523,13 +732,13 @@ export class MessageReader implements Screen {
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
-    if (c === "q" || c === "Q") return ctx.pop();
+    if (c === "q" || c === "Q") return back(this, ctx);
     if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
     // What the surface doesn't take: the BBS keys. ⏎ is "next" unless an element is current (the surface's).
     const run = (name: "message.next" | "message.previous" | "message.thread") => {
       Promise.resolve().then(() => MESSAGE_ACTIONS.run(name, {}, { r: this, ctx }, USER)).catch((e: Error) => ctx.flash(e.message)).finally(() => ctx.redraw());
     };
-    if (k.kind === "esc") return ctx.pop();
+    if (k.kind === "esc") return back(this, ctx);
     if (c === "n" || c === "N" || k.kind === "enter" || k.kind === "right") return run("message.next");
     if (c === "p" || c === "P" || k.kind === "left") return run("message.previous");
     if (c === "t" || c === "T") return run("message.thread");
@@ -614,12 +823,13 @@ export const MESSAGE_ACTIONS = new ActionSet<{ "message.next": Record<string, ne
   },
 });
 
-export class Conferences implements Screen {
+export class Conferences implements BbsList {
   title = "join conference";
   private confs: Msg[] | null = null;
-  private sel = 0;
+  sel = 0;
+  private ctx: Ctx | null = null;
   private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
+  enter(ctx: Ctx) { this.ctx = ctx; ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
     this.ptr.frame();
@@ -634,16 +844,20 @@ export class Conferences implements Screen {
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
+    this.ctx = ctx;
     const list = this.confs ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => { this.sel = i; }, key => this.key(key, ctx));
-    if (isBack(k)) return ctx.pop();
-    if (k.kind === "enter" && list[this.sel]) {
-      const c = list[this.sel]!;
-      return ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
-    }
-    this.sel = nav(k, list.length, this.sel, 10);
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
+    if (listKeys(this, k, ctx, 10)) return;
     ctx.redraw();
   }
+  listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: c.props.type ?? null })) ?? null; }
+  openRow(i: number, ctx: Ctx) {
+    const c = this.confs![i]!;
+    ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
+  }
+  describe() { return listDescribe(this); }
+  actions() { return listActions(); }
+  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
 }
 
 export class Search implements Screen {
@@ -702,16 +916,17 @@ export class WhoOnline implements Screen {
   }
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
-    if (isBack(k) || k.kind === "enter") ctx.pop(); else if (k.kind === "char" && k.ch === "r") this.load(ctx);
+    if (isBack(k) || k.kind === "enter") back(this, ctx); else if (k.kind === "char" && k.ch === "r") this.load(ctx);
   }
 }
 
-export class LastCallers implements Screen {
+export class LastCallers implements BbsList {
   title = "last callers";
   private rows: Activity[] | null = null;
-  private sel = 0;
+  sel = 0;
+  private ctx: Ctx | null = null;
   private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { ctx.board.activity(80).then(r => { this.rows = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
+  enter(ctx: Ctx) { this.ctx = ctx; ctx.board.activity(80).then(r => { this.rows = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;
     this.ptr.frame();
@@ -737,21 +952,29 @@ export class LastCallers implements Screen {
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
+    this.ctx = ctx;
     const rows = this.rows ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, rows.length, i => { this.sel = i; }, key => this.key(key, ctx));
-    if (isBack(k)) return ctx.pop();
-    if (k.kind === "enter" && rows.length) return ctx.push(new MessageReader(rows.map(r => r.block), this.sel));
-    this.sel = nav(k, rows.length, this.sel, ctx.t.rows - 10);
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, rows.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
+    if (listKeys(this, k, ctx, ctx.t.rows - 10)) return;
     ctx.redraw();
   }
+  listRows(): ListRow[] | null {
+    return this.rows?.map((r, i) => ({ n: i + 1, title: subject(r.block), id: r.block.id, actor: r.actor, author: r.author, did: r.kind, at: r.at })) ?? null;
+  }
+  openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.rows!.map(r => r.block), i)); }
+  describe() { return listDescribe(this); }
+  actions() { return listActions(); }
+  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
 }
 
 // ── file areas: the WOE packs, straight out of their zips ────────────────────
 
-export class FileAreas implements Screen {
+export class FileAreas implements BbsList {
   title = "file areas";
   private list = packs();
-  private sel = 0;
+  sel = 0;
+  private ctx: Ctx | null = null;
+  enter(ctx: Ctx) { this.ctx = ctx; }
   private diz = new Map<string, string[]>();
   private readonly ptr = new Pointer();
   render(ctx: Ctx): Frame {
@@ -775,16 +998,20 @@ export class FileAreas implements Screen {
     return { lines };
   }
   key(k: Key, ctx: Ctx) {
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, this.list.length, i => { this.sel = i; }, key => this.key(key, ctx));
-    if (isBack(k)) return ctx.pop();
-    if (k.kind === "enter" && this.list[this.sel]) {
-      const m = members(this.list[this.sel]!).filter(x => /\.(ans|asc)$/i.test(x.path));
-      if (m.length) ctx.push(new ArtViewer(m)); else ctx.flash("no ANSI or ASCII in that pack");
-      return;
-    }
-    this.sel = nav(k, this.list.length, this.sel, 5);
+    this.ctx = ctx;
+    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, this.list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
+    if (listKeys(this, k, ctx, 5)) return;
     ctx.redraw();
   }
+  listRows(): ListRow[] { return this.list.map((p, i) => ({ n: i + 1, title: basename(p), description: (this.diz.get(p) ?? readDiz(p))[0] ?? "" })); }
+  openRow(i: number, ctx: Ctx) {
+    const m = members(this.list[i]!).filter(x => /\.(ans|asc)$/i.test(x.path));
+    if (!m.length) throw new ActionRefused("no ANSI or ASCII in that pack");
+    ctx.push(new ArtViewer(m));
+  }
+  describe() { return listDescribe(this); }
+  actions() { return listActions(); }
+  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
 }
 
 function readDiz(pack: string): string[] {
@@ -849,7 +1076,7 @@ export class ArtViewer implements Screen {
       if (k.action === "wheel-up" || k.action === "wheel-down") return this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, ctx);
       return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
     }
-    if (isBack(k)) return ctx.pop();
+    if (isBack(k)) return back(this, ctx);
     const c = k.kind === "char" ? k.ch : "";
     if (c === "." || c === ">" || k.kind === "right") { this.index = (this.index + 1) % this.items.length; this.load(); }
     else if (c === "," || c === "<" || k.kind === "left") { this.index = (this.index + this.items.length - 1) % this.items.length; this.load(); }
@@ -894,7 +1121,7 @@ export class Stats implements Screen {
   }
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
-    if (isBack(k) || k.kind === "enter") ctx.pop();
+    if (isBack(k) || k.kind === "enter") back(this, ctx);
   }
 }
 
@@ -912,6 +1139,7 @@ export class Help implements Screen {
         "", paint("|08   Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
+        paint("|08   |15q|08 or |15Esc|08 goes back on every screen. The menu is the top: only |15G|08 logs off."),
       ],
     };
   }
@@ -925,7 +1153,7 @@ export class Help implements Screen {
     this.ptr.mouse(k, { sel: -1, select() {}, send: key => {
       const item = key.kind === "char" ? ITEMS.find(i => i.key === key.ch) : undefined;
       ctx.pop();
-      if (item) openItem(item, ctx);
+      if (item) shellKey("screen.open", { name: item.key }, this, ctx);
     } });
   }
 }
