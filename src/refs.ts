@@ -157,6 +157,10 @@ export type LinkTarget = {
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
   block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task"; reason?: string;
+  /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
+  refresh?: string;
+  /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */
+  refreshLine?: number;
   /** A checklist step's box (role "task", PIE-472): the step, where it is, and the revision it was read at. */
   task?: StepRef;
   /** A row of a step's open status choice (role "task"): which choice, from 0. */

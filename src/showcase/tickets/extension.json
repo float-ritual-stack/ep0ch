@@ -1,0 +1,14 @@
+{
+  "contract": 2,
+  "id": "jira",
+  "version": 2,
+  "name": "Jira",
+  "run": ["bun", "tickets.ts"],
+  "configSchema": {
+    "type": "object",
+    "properties": { "tickets": { "type": "string", "minLength": 1 } },
+    "required": ["tickets"],
+    "additionalProperties": false
+  },
+  "handlers": [{ "key": "jira", "kind": "resource", "effects": "read", "record": true, "staleAfter": "15m", "pollEvery": "12m" }]
+}

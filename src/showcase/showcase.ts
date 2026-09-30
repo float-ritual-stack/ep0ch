@@ -152,8 +152,8 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
-    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read, laid out in Detail's words, drawn under the jira:: line or at a ticket page's top ([ ] ⏎ click y)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
-    aside: "made-up tickets from a made-up extension (src/showcase/tickets); the door only reads what the service stored",
+    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
+    aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
       const r = new ReaderPane(), th = new ThreadPane();
       return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });

@@ -8,11 +8,12 @@
 // Answers are kept per connection and per note, like embeds (src/embeds.ts): read again when the note (or
 // the block its key came from) changes, or when a `resource-catalog` event names a Resource it shows.
 // Without the `resources.projection` capability nothing is read and nothing extra is drawn.
-import type { Msg } from "./board";
+import { subject, type Msg } from "./board";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
-import type { SocketBoard } from "./socket";
+import { LIST_FIELDS, type SocketBoard } from "./socket";
+import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
 import { C, fg, LINK_END, linkTag, RESET } from "./style";
 import { wrap } from "./text";
 
@@ -39,6 +40,17 @@ export interface ResourceProjection {
   updatedAt?: string;
   fetchedAt?: string;
   externalUrl?: string;
+  /** How old the stored copy reads: `stale` past the provider's stale age (15 minutes for Jira). */
+  freshness?: string;
+  /** The service is fetching it now (the save's or the open's background fetch, or `r`). */
+  fetching?: boolean;
+  /** Why the service's last fetch failed ("no Jira credentials on this machine"). */
+  fetchError?: string;
+  /**
+   * The block the ticket is kept as (the extension's record, pi-herdr-outliner src/extension-records.ts),
+   * its comment blocks, and when the service last wrote or confirmed it.
+   */
+  record?: { blockId: string; pageBlockId: string; syncedAt: string; commentBlockIds: readonly string[] };
 }
 export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[] }
 
@@ -47,7 +59,8 @@ export interface ResourceProjectionRead { blockId: string; revision: number; pro
  * Only a note that mentions one is asked about: this is a cheap filter, never the service's parse.
  */
 export const PROJECTION_KEYS = ["jira"] as const;
-const MENTIONS = new RegExp(`(?:${PROJECTION_KEYS.join("|")})::`, "i");
+// A provider line (`jira::`) or a ticket block's own `[jira.key::…]`, which shows its ticket's header.
+const MENTIONS = new RegExp(`(?:${PROJECTION_KEYS.join("|")})(?:\\.key)?::`, "i");
 export const mayHaveProjections = (text: string) => text.includes("::") && MENTIONS.test(text);
 
 // ── Detail's layout (src/detail-embeds.ts), as it reads once drawn ──────────────────────────────────
@@ -129,11 +142,129 @@ export function projectionLayout(p: ResourceProjection): ProjectionLayout {
       ? `ambiguous: ${(p.candidates ?? []).map(drawnInline).join(", ")}`
       : STATUS_LABELS[p.status] ?? drawnInline(String(p.status));
     add("head", `- ${title} · ${status}`);
-    if (reason) add("reason", `  ${reason}`);
+    // A fetch that failed says why below; "saving fetches it" would only contradict it.
+    const fetchSays = !!p.fetchError && (p.status === "not-registered" || p.status === "not-fetched");
+    if (reason && !fetchSays) add("reason", `  ${reason}`);
   }
-  if (p.options.comments !== undefined) add("note", "  Comments are not stored yet; --comments shows them once the provider returns them.");
+  if (p.fetching) add("note", "  fetching…");
+  else if (p.fetchError) add("reason", `  can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}`);
+  // Detail's words: a ticket kept as a block draws its comments from its blocks instead (ticketRegion).
+  if (p.options.comments !== undefined && !p.record) add("note", "  Comments are not stored yet; --comments shows them once the provider returns them.");
   for (const option of p.options.unknown) add("note", `  unknown option ${drawnInline(option)}`);
   return { lines, kinds, ...(fetchedLine !== undefined ? { fetchedLine } : {}), key, title };
+}
+
+// ── a ticket kept as a block (the extension's record, PIE-445 wave A) ────────────────────────────────
+
+/** The ticket's own blocks as the door read them: the record and its comments (oldest first). */
+export interface TicketBlocks { record: Msg; comments: Msg[] }
+
+/** Where a ticket region sits: under a page's line (all of it), or on the ticket block itself (its header on top, its comments below). */
+export type TicketPart = "page" | "head" | "comments";
+
+/** A comment block's first line and its words: `Lee Park · 2026-01-02 10:00` then what they wrote. */
+function commentParts(m: Msg): { who: string; body: string } {
+  const [first = "", ...rest] = m.text.split("\n");
+  const body = rest.map(l => withoutPropertyTokens(l)).join(" ").replace(/\s+/g, " ").trim();
+  return { who: first.replace(/^\\/, ""), body };
+}
+
+/** The ticket's fields as a compact line, from its block's `jira.*` properties, in the order people scan them. */
+export function ticketFields(record: Msg | null, p: ResourceProjection): string {
+  const props = record?.properties ?? [];
+  const all = (key: string) => props.filter(x => x.key === `jira.${key}`).map(x => x.value);
+  const one = (key: string) => all(key)[0];
+  if (!record) return p.fields.map(f => drawnInline(f.value)).join(" · ");
+  const labels = all("label");
+  return [one("status"), one("assignee"), one("sprint"), one("priority"), one("type"), labels.length ? labels.join(", ") : undefined]
+    .filter((v): v is string => !!v).map(drawnInline).join(" · ");
+}
+
+/** The body's first lines, without the title and property lines, for a page's excerpt. */
+function excerpt(record: Msg, rows: number): string[] {
+  const lines = record.text.split("\n").slice(1).filter(l => !isPropertyTokenLine(l));
+  return lines.map(l => l.trimEnd()).filter((l, i, a) => l || (i > 0 && a[i - 1])).join("\n").trim().split("\n").filter(Boolean).slice(0, rows);
+}
+
+/** What the age line says: fetching, why it can't, or how old the copy is, with `r` to refresh. */
+function ageLine(p: ResourceProjection, now: number): { text: string; bad: boolean } {
+  const when = p.fetchedAt ?? p.record?.syncedAt;
+  const age = when ? `fetched ${relativeAge(when, now)}` : "";
+  if (p.fetching) return { text: [age, "fetching…"].filter(Boolean).join(" · "), bad: false };
+  if (p.fetchError) return { text: `can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}${age ? ` · ${age}` : ""}`, bad: true };
+  return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · r refresh`, bad: false };
+}
+
+/**
+ * The rows of a ticket region, `w` wide: the head (its title opens the ticket block), the fields, the age
+ * (a click refreshes), then on a page the body's first lines, then the comments. On the ticket block itself
+ * the head part leaves the body to the note and the comments part is only the comments.
+ */
+export function ticketRegion(p: ResourceProjection, t: TicketBlocks | null, part: TicketPart, w: number, indent: number, now: number, link?: (to: LinkTarget, text: string) => string): string[] {
+  const out: string[] = [];
+  const lead = " ".repeat(Math.max(0, Math.min(indent, Math.floor(w / 3))));
+  const inner = Math.max(8, w - 1 - lead.length);
+  const row = (text: string, colour: number, prefix = "  ") => { for (const r of wrap(text, inner - 2)) out.push(shade(lead + prefix + fg(colour) + r + RESET, w)); };
+  const label = [drawnInline(p.label ?? p.provider), p.key ? drawnInline(p.key) : ""].filter(Boolean).join(" ");
+  if (part !== "comments") {
+    const summary = drawnInline(t ? subject(t.record) : p.summary ?? "");
+    const openIt: LinkTarget = p.record ? { block: p.record.blockId, role: "resource", label } : projectionTarget(p);
+    const title = link && part === "page" ? link(openIt, label) : label;
+    wrap(`${title}${summary ? ` · ${summary}` : ""}`, inner - 2).forEach((r, k) => {
+      const body = k ? r : r.replace(title, fg(C.lcyan) + "\x1b[1m" + title + "\x1b[22m" + fg(C.white));
+      out.push(shade(lead + (k ? "  " : fg(C.lcyan) + "∙ ") + fg(C.white) + body + RESET, w));
+    });
+    const compact = part === "page" && !!p.options.compact;
+    const fields = ticketFields(t?.record ?? null, p);
+    if (fields && !compact) row(fields, C.brown);
+    const age = ageLine(p, now);
+    const refreshOf = p.record?.pageBlockId ?? p.resolvedFrom?.blockId;
+    const onPage = !(part === "head" && p.record);
+    const shown = link && refreshOf
+      ? link({ refresh: onPage ? refreshOf : p.record!.blockId, ...(onPage && p.anchor.kind !== "page" ? { refreshLine: p.anchor.line } : {}), label: `refresh ${label}`, role: "resource" }, age.text)
+      : age.text;
+    // --compact: the head, the fields on one line, the age only when something is wrong or running.
+    if (compact) { if (fields) row(fields, C.brown); if (age.bad || p.fetching) row(shown, age.bad ? C.yellow : C.dark); }
+    else row(shown, age.bad ? C.yellow : C.dark);
+    if (part === "page" && t && !compact) for (const l of excerpt(t.record, 4)) row(`│ ${printable(l)}`, C.grey);
+  }
+  if (part !== "head" && t) {
+    for (const c of t.comments) {
+      const { who, body } = commentParts(c);
+      // ` · `, not a dash: the CRT font draws `—` as `?`.
+      row(`${printable(who)}${body ? ` · ${printable(body)}` : ""}`, C.grey);
+    }
+  }
+  return out;
+}
+
+// The ticket blocks, per connection: read again when one of them changes or the service rewrote them.
+interface TicketEntry { blocks: TicketBlocks | null; at: number; synced: string; asking: boolean }
+const ticketsBy = new WeakMap<object, Map<string, TicketEntry>>();
+
+/** The record and comment blocks a projection names, from the last read (asked again in the background). */
+export function ticketBlocksOf(p: ResourceProjection, src: Source | null | undefined): TicketBlocks | null {
+  if (!p.record || !src) return null;
+  let cache = ticketsBy.get(src.board);
+  if (!cache) ticketsBy.set(src.board, (cache = new Map()));
+  const id = p.record.blockId, ids = [id, ...p.record.commentBlockIds];
+  const hit = cache.get(id);
+  const fresh = hit && (hit.asking || (!changedSince(hit.at, ids) && hit.synced === p.record.syncedAt && (hit.blocks?.comments.length ?? 0) === p.record.commentBlockIds.length));
+  if (!fresh) {
+    const entry: TicketEntry = { blocks: hit?.blocks ?? null, at: changeClock(), synced: p.record.syncedAt, asking: true };
+    const c = cache;
+    c.set(id, entry);
+    if (c.size > 200) c.delete(c.keys().next().value!);
+    Promise.resolve().then(() => src.board.readMany(ids, [...LIST_FIELDS, "text"])).then(
+      read => {
+        const record = read.find(m => m.id === id) ?? null;
+        c.set(id, { ...entry, asking: false, blocks: record ? { record, comments: p.record!.commentBlockIds.flatMap(cid => read.filter(m => m.id === cid)) } : null });
+        src.redraw();
+      },
+      () => { c.set(id, { ...entry, asking: false }); },
+    );
+  }
+  return cache.get(id)?.blocks ?? null;
 }
 
 /** The layout with the age painted after the fetched time, as Detail's reader paints it. */
