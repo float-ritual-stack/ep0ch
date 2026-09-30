@@ -1,10 +1,13 @@
 // Drive the real door against the live outline and snapshot what a Kitty terminal would show.
 // src/mirror.ts consumes the exact bytes the door writes and composites them into a PNG.
 //   bun scripts/snap.ts [cells] → out/snap-*.png
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Mirror } from "../src/mirror";
+
+/** A control socket for a scenario: in a fresh 0700 temp dir, as the control socket requires (PIE-488). */
+const privateSocket = (name: string) => join(mkdtempSync(join(tmpdir(), "ep0ch-snap-")), `${name}.sock`);
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
@@ -913,7 +916,7 @@ if (scenario === "agent") {
   board.subscribe(e => app.event(e));
   const B = new DeliveryBoard(hub.id), S = B as any;
   app.push(new MainMenu()); app.push(B);
-  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/agent-door.sock");
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("agent-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
     const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
     let buf = "";
@@ -985,7 +988,7 @@ if (scenario === "river-write") {
   board.subscribe(e => app.event(e));
   const R = new River(), S = R as any;
   app.push(new MainMenu()); app.push(R);
-  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, "out/river-door.sock");
+  const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("river-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
     const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
     let buf = "";

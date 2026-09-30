@@ -71,6 +71,8 @@ export interface Screen {
   unsaved?(): boolean;
   /** The screen is being closed with unsaved drafts: copy them to disk, return where they went. */
   keepDrafts?(): string[];
+  /** The door is ending (any way): copy what an editor still has open for a draft (ctrl+e) to disk, return where. */
+  keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
   holdsKeys?(): boolean;
   /** What this screen shows, for agents (`ep0ch-door peek`). */
@@ -348,12 +350,14 @@ export class App implements Ctx {
     for (const s of [...this.stack, ...this.background]) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
     this.keptOnExit = kept;
     this.quit();
-    return kept;
+    return this.keptOnExit;
   }
-  /** Where `terminate` copied unsaved text, for the exit message. */
+  /** Where `terminate` (and any quit, for ctrl+e editors) copied unsaved text, for the exit message. */
   keptOnExit: string[] = [];
 
   quit() {
+    // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
+    for (const s of [...this.stack, ...this.background]) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);

@@ -1,10 +1,11 @@
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
 // status line, wherever text is written — a note's whole text, a comment, a reply. Ctrl+E hands any of
 // them to $VISUAL/$EDITOR and back through the same path.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { Draft } from "../edit";
+import { basename, dirname, join } from "node:path";
+import { keepCopy, type Draft } from "../edit";
+import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
 import { rule } from "../text";
 import { agentLabel } from "./actions";
@@ -79,9 +80,11 @@ export interface Suspender { suspend(run: () => void): void; editInTile?(path: s
  * The base revision stays: the service still judges the save.
  */
 export function openInEditor(ctx: Suspender, d: Draft): void {
-  const dir = mkdtempSync(join(tmpdir(), "ep0ch-edit-"));
+  // In the door's state (edit/<pid>-…, private), not /tmp: if the door ends first, the file is copied to
+  // drafts/ and said (keepEditFile), or, after a kill -9, by the next door (recoverEdits).
+  const dir = mkdtempSync(join(stateSub("edit") ?? tmpdir(), `${process.pid}-`));
   const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
-  writeFileSync(path, d.text + "\n");
+  writeFileSync(path, d.text + "\n", { mode: 0o600 });
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
   // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
   if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { rmSync(dir, { recursive: true, force: true }); } })) {
@@ -110,4 +113,36 @@ export function openInEditor(ctx: Suspender, d: Draft): void {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The door is ending while an editor still has a ctrl+e file open: its text is copied to drafts/ (the same
+ * place and pruning as a draft's copy) and the file's folder removed. Returns where it went, or null.
+ */
+export function keepEditFile(path: string): string | null {
+  try {
+    if (!existsSync(path)) return null;
+    return keepCopy(readFileSync(path, "utf8"), `${basename(path, ".md")}-editor`);
+  } catch { return null; }
+  finally { if (basename(dirname(path)).startsWith(`${process.pid}-`)) rmSync(dirname(path), { recursive: true, force: true }); }
+}
+
+/**
+ * ctrl+e files left by doors that ended without copying them (kill -9, a power cut): each is copied to
+ * drafts/ and its folder removed. A folder whose door still runs is left alone. Returns the copies.
+ */
+export function recoverEdits(alive: (pid: number) => boolean): string[] {
+  const root = stateSub("edit");
+  if (!root) return [];
+  const kept: string[] = [];
+  for (const d of readdirSync(root)) {
+    const pid = Number(d.split("-")[0]);
+    if (!pid || pid === process.pid || alive(pid)) continue;
+    const dir = join(root, d);
+    try {
+      for (const f of readdirSync(dir).filter(f => f.endsWith(".md"))) kept.push(keepCopy(readFileSync(join(dir, f), "utf8"), `${basename(f, ".md")}-editor`));
+      rmSync(dir, { recursive: true, force: true });
+    } catch { /* the next door tries again */ }
+  }
+  return kept;
 }

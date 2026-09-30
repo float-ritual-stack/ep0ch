@@ -18,8 +18,12 @@ An agent sees what the person sees, live, and can change anything except where t
 
 ## The control socket
 
-`EP0CH_CONTROL` names it (default `~/.local/state/ep0ch-door/door.sock`; a second door serves on
-`door-<pid>.sock`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
+`EP0CH_CONTROL` names it (default `door.sock` in the door's state, `$EP0CH_STATE` or
+`~/.local/state/ep0ch-door`; a second door serves on `door-<pid>.sock`, and a starting door sweeps sockets
+no door listens on). **The socket is the door's shell:** a client can do what the person can, including
+start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is only a claimed name. So it is
+0600, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
+else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
 reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
 README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
@@ -27,7 +31,8 @@ one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":
 | Request | Answer | CLI |
 |---|---|---|
 | `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()` | `ep0ch peek` |
-| `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent | `ep0ch snap x.png` |
+| `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
+| `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
 | `{"cmd":"act","action":"…","args":{…},"reader":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … reader=<tile> [--as id]` |
 | `{"cmd":"open","id":"<block>"}` | puts a block in front of the person | `ep0ch open <id>` |
@@ -185,14 +190,16 @@ at, and what it does while they're typing:
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
 | `layout.load` | same-named tiles keep their programs; others running become shut drawers | replaced |
 | quitting the door (ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
-| SIGTERM, SIGHUP, a crash | ended with the door (drafts copied out on a signal) | kept; written whole (temp file, rename) |
+| SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception | ended with the door, after drafts, comments and an open `ctrl+e` editor's text are copied to `drafts/`; the terminal is put back and the socket removed | kept; written whole (temp file, rename) |
+| `kill -9` | ended by the pty's hangup; a watcher puts the terminal back; the next door sweeps the socket and keeps the `ctrl+e` file | kept |
 | a restart | started again from the layout; a `ctrl+e` edit tile isn't restored | read back |
 
 ## Marks
 
 `block.mark` is the door side of PIE-423's focus mark, kept in a `MarkStore` (`src/desk/marks.ts`):
 - The store is door-local for now, in the door's `marks.json`. PIE-423's service-backed store replaces it,
-  so Detail and other clients show marks too.
+  so Detail and other clients show marks too. Two doors on one state dir share the file: each change reads it
+  first, so neither loses the other's marks or reuses a number (a door sees the other's marks on its next read).
 - A marked note is framed in magenta, and labelled `◆ <reason> · by <who>` in the header of every tile that
   shows it.
 - `alt+m` steps through marks: to a tile showing it, else it opens where the focused tile's opens go.
