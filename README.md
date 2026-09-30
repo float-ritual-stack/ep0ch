@@ -133,16 +133,19 @@ ones, by title. The service finds them (`blocks.query`, filter `welcome`, block 
 - **The screen** is one composition: an ep0ch logo from the WoE packs across the top (Shypht's own, drawn from
   the `.ANS` files in place; `L` or a click on it shows the next; a signature line with a phone number is never
   drawn), a tab per welcome note under it, the list of them down the side, **the detail** (the note read) in the
-  middle, **the preview** beside it, and the detail's **backlinks** along the bottom. Frames are the logos' dotted
+  middle with its **backlinks** under it, and **the preview** the full height beside them. Frames are the logos' dotted
   `::....::`. At 30 rows the logo gives way to the reading panes; the tabs stay.
 - **Picking a note:** `1`–`9` and `0` (the tenth) pick by tab; a click on a tab too. Past ten, a `… n more` tab
-  gives the list the keys; `j` `k` there, `⏎` reads it. Tiles are focused with `Tab`, a click or `^W h j k l`
-  here (the digits are the tabs'). The detail has the keys when the screen opens.
+  gives the list the keys; `j` `k` there, `⏎` reads it. Tiles are focused with `Tab` (list → detail → backlinks
+  → preview), a click or `^W h j k l` here (the digits are the tabs', so the tiles aren't numbered). The detail
+  has the keys when the screen opens.
 - **Links:** `⏎` on a link in the detail (or a click) opens it in the preview; `⏎` with nothing picked yet takes
   the first link. `alt+⏎`, a ctrl-click or an alt-click reads it in the detail instead (the door's "open fresh",
-  here: make it the thing read); `alt+←` or backspace goes back. Links in the preview open in the preview.
-- **Backlinks** of the detail's note, grouped as Detail groups them, every group open: `j` `k` show the selected
-  one in the same preview, `⏎` or a click too, `alt+⏎` or a ctrl-click reads it in the detail. `s K w h n .` and
+  here: make it the thing read); `alt+←` or backspace goes back. Links in the preview open in the preview;
+  `alt+⏎` there with no link picked, or a click on its `⇱ read here`, reads the preview's own note in the detail.
+  Reading another note yourself empties the preview (an agent's leaves it).
+- **Backlinks** of the detail's note, grouped as Detail groups them, every group open: landing on them (`Tab`,
+  a click) shows the selected one in the same preview, and so do `j` `k` as they move, `⏎` or a click too, `alt+⏎` or a ctrl-click reads it in the detail. `s K w h n .` and
   the status line's controls change the view as on the board's drawer.
 - **No welcome notes:** the list says how to tag one, and the detail shows the `[[claude-now]]` page meanwhile
   (the page `C` used to pin).

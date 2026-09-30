@@ -5,6 +5,9 @@ import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
 import { densest, logoCells, orderWelcome, placeOfKey, tabKey, Welcome } from "../src/hub/welcome";
+import { BacklinksPane } from "../src/desk/backlinks-pane";
+import { Desk } from "../src/desk/desk";
+import { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens } from "../src/start";
@@ -38,6 +41,11 @@ describe("the logo band", () => {
     expect(c.rows.map(r => String.fromCharCode(...r.map(x => x.code)))).toEqual(["::....::", ":: ep ::", "::....::"]);
     expect(c.width).toBe(8);
     expect(logoCells(art(["abc", "555-0199 x", "def"]), { file: "x", rows: [0, 2] }).rows.length).toBe(1);
+  });
+  test("any way a phone number is written crops its line; a year or a baud rate stays", () => {
+    const lines = ["::a::", "(905) 555.0199", "::b::", "+1 905 555 0199", "::c::", "call 9055550199", "::d::", "555 0199 ::", "est. 1996 - 1997", "28800 baud"];
+    const kept = logoCells(art(lines), { file: "x" }).rows.map(r => String.fromCharCode(...r.map(x => x.code)).trim());
+    expect(kept).toEqual(["::a::", "::b::", "::c::", "::d::", "est. 1996 - 1997", "28800 baud"]);
   });
   test("a short band keeps the rows with the most ink, not the dotted frame", () => {
     const rows = art([":......:", ":  ::  :", ":$$$$$$:", ":$$  $$:", ":......:"]).rows;
@@ -154,7 +162,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => top().detail.msg?.id === n.kettle.id, "the ctrl-click: detail");
   });
 
-  test("the detail's backlinks run along the bottom and show in the same preview; alt+⏎ reads one here", async () => {
+  test("the detail's backlinks run under it and show in the same preview; alt+⏎ reads one here", async () => {
     await until(() => top().backlinks.data !== null && top().backlinks.target?.id === n.kettle.id, "the kettle's backlinks");
     await until(() => screen().includes("Tea shelf"), "the backlinks drawn");
     expect(screen()).toContain("Start here");
@@ -174,9 +182,55 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => top().detail.msg?.id === n.kettle.id, "back to the kettle");
     // By the mouse: a click on a backlink row shows it in the preview.
     top().preview.show(null, top());
+    await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks, read again");
     const r = at("Tea shelf", at("backlinks · The kettle").y);
     mouse(r.x, r.y);
     await until(() => top().preview.msg?.id === n.shelf.id, "the clicked backlink in the preview");
+  });
+
+  test("Tab goes detail → backlinks → preview → list; landing on the backlinks shows the selected row", async () => {
+    ch("1");
+    await until(() => top().detail.msg?.id === n.start.id && focus() === "detail", "the start note");
+    await app.act({ action: "welcome.read", args: { id: n.kettle.id } });
+    await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks");
+    top().preview.show(null, top());
+    top().backlinks.sel = top().backlinks.rows().findIndex(r => r.kind === "source");
+    const first = (top().backlinks.rows()[top().backlinks.sel] as any).source.blockId as string;
+    const before = JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect));
+    const order: string[] = [];
+    for (let i = 0; i < 4; i++) { press({ kind: "tab" }); order.push(focus()); }
+    expect(order).toEqual(["backlinks", "preview", "welcome", "detail"]);
+    await until(() => top().preview.msg?.id === first, "the selected backlink shown on landing");
+    // Giving a tile the keys never moves a tile.
+    expect(JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect))).toBe(before);
+    // No tile numbers in the headers: the digits pick notes here.
+    expect(screen()).toContain("backlinks · The kettle");
+    expect(screen()).not.toMatch(/\.\. ?\d (welcome|backlinks|preview)/);
+  });
+
+  test("the preview's note is read in the detail by alt+⏎ or a click on ⇱ read here", async () => {
+    await until(() => !!top().preview.msg, "something in the preview");
+    const shown = top().preview.msg!.id;
+    while (focus() !== "preview") press({ kind: "tab" });
+    press({ kind: "alt-enter" });
+    await until(() => top().detail.msg?.id === shown, "alt+⏎ in the preview: read in the detail");
+    expect(focus()).toBe("detail");
+    press({ kind: "backspace" });
+    await until(() => top().detail.msg?.id === n.kettle.id, "back");
+    top().preview.show(n.rules, top());
+    const c = at("⇱ read here");
+    mouse(c.x + 2, c.y);
+    await until(() => top().detail.msg?.id === n.rules.id, "a click on ⇱ read here");
+  });
+
+  test("alt+l, then a digit, links a tile (the desk's), not a welcome pick", async () => {
+    ch("1");
+    await until(() => top().detail.msg?.id === n.start.id, "the start note");
+    press({ kind: "alt", ch: "l" });
+    ch("2");
+    expect(top().detail.msg?.id).toBe(n.start.id);
+    await Bun.sleep(50);
+    expect(top().detail.msg?.id).toBe(n.start.id);
   });
 
   test("agents pick, read and preview without taking the person's keys; never while they type", async () => {
@@ -225,4 +279,37 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => top().detail.msg?.id === n.start.id, "the first welcome note again");
     expect(focus()).toBe("detail");
   });
+});
+
+describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App;
+  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+
+  test("moving its selection shows the row where its selection goes; the reader it lists the backlinks of stays", async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    const term = { info: { cols: 160, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    const lamp = await board.createBlock(null, "The lamp\nIt flickers.");
+    const a = await board.createBlock(null, `Porch\nThe ((${lamp.id}|lamp)) by the door.`);
+    const b = await board.createBlock(null, `Hall\nAnother ((${lamp.id}|lamp)).`);
+    const reader = new ReaderPane(true), bl = new BacklinksPane("reader", true);
+    const desk = new Desk({ panes: [reader, bl], names: ["reader", "backlinks"] });
+    app.push(desk);
+    desk.setCurrent(lamp);
+    await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "source"), "the lamp's backlinks");
+    await app.act({ action: "tile.focus", reader: "backlinks" });
+    const d = desk as any;
+    d.key({ kind: "char", ch: "j" }, d.ctx);
+    d.key({ kind: "char", ch: "k" }, d.ctx);
+    await Bun.sleep(200);
+    expect(reader.msg?.id).toBe(lamp.id);
+    expect(bl.target?.id).toBe(lamp.id);
+    // ⏎ opens it: the reader follows the current note, as an open from any list does.
+    await app.act({ action: "backlinks.pick", args: { id: a.id, open: true } });
+    await until(() => reader.msg?.id === a.id, "⏎: the source is the current note");
+    void b;
+  }, 30_000);
 });

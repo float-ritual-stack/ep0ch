@@ -36,9 +36,10 @@ interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: 
  * Panes a view puts on a desk of its own, and how they're laid out (default: side by side). `names`: each
  * pane's tile name, in order (what `act reader=`, links and previews call it); `links`: [from, to] by place
  * in `panes`, where the first's opens land (PIE-473); `focus`: the place of the pane that starts with the
- * keys; `frame`: the glyphs its tiles' frames are drawn with.
+ * keys; `frame`: the glyphs its tiles' frames are drawn with; `digits: false`: the digits are the view's own
+ * (the welcome's notes), so the headers don't number the tiles and 1-9 don't focus them.
  */
-export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string; names?: string[]; links?: [number, number][]; focus?: number; frame?: BoxGlyphs }
+export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string; names?: string[]; links?: [number, number][]; focus?: number; frame?: BoxGlyphs; digits?: false }
 
 /** ^W o <key>: the tile a key adds. */
 const ADD: Record<string, PaneKind> = { t: "tree", r: "reader", d: "detail", p: "preview", e: "pty", s: "pty", h: "thread", a: "activity", w: "who", b: "art", k: "board", v: "river", f: "brief", l: "backlinks" };
@@ -323,6 +324,19 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.redraw();
   }
 
+  /**
+   * A selection moved in `from` (a backlinks tile's row): the previews following it, and its link, show `m`.
+   * The current note stays, so a reader that follows it (maybe the tile `from` lists the backlinks of) doesn't move.
+   */
+  showFrom(from: Pane, m: Msg, agent = false) {
+    const id = this.idOf(from);
+    if (id === undefined) return;
+    for (const [pid, p] of this.panes) if (pid !== id && p instanceof PreviewPane && "tile" in p.source && this.idNamed(p.source.tile) === id) p.follow(m, this);
+    const to = this.links.get(id);
+    if (to !== undefined && this.panes.has(to)) this.openInto(to, m, agent);
+    this.redraw();
+  }
+
   /** Opens from `pane` land somewhere else (a link, the river's rule): a held reader doesn't follow them in place. */
   routes(pane: Pane): boolean {
     const id = this.idOf(pane);
@@ -593,6 +607,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { lines: canvas.lines(), placements };
   }
 
+  /** alt+l is waiting for the tile to link to: its next key (a tile's number, h j k l) is the desk's. */
+  protected linkingNow(): boolean { return !!this.linking; }
   /** Rows kept above the tiles for a view's own art (none on the desk itself). */
   protected bandRows(_cols: number, _rows: number): number { return 0; }
   /** Draw the band above the tiles in `r`; its images, if any. */
@@ -642,15 +658,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
         const on = i === set.active;
-        put(` ${this.numberOf(t)} ${this.nameOf(t)} `, on ? bg(focused ? C.blue : C.dark) + fg(C.white) : fg(C.grey), t);
+        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? bg(focused ? C.blue : C.dark) + fg(C.white) : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as it always did: its number, then its title.
-      put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
+      if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
-      put(` ${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
+      put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
       return this.headerTail(id, put, xNow, r.row);
-    } else put(`${this.numberOf(id)} ${this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
+    } else put(`${this.numLabel(id)}${this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
     const what = p instanceof ReaderPane && p.msg && !(p instanceof PreviewPane && "file" in p.source) ? `${p.title()} · ${subject(p.msg)}` : p.title();
@@ -659,6 +675,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
 
   /** A name the desk gave by kind (reader, reader2): not worth saying before the title. */
+  /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
+  private get numbered() { return this.preset?.digits !== false; }
+  private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
   private plainName(id: number) { const k = this.panes.get(id)!.kind, n = this.nameOf(id); return n === k || new RegExp(`^${k}\\d+$`).test(n); }
 
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number): string {
@@ -835,7 +854,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (k.kind === "char" && !k.ctrl) {
       if (k.ch === "/") { this.search = new SearchOverlay(); return this.redraw(); }
       if (k.ch === "V") return ctx.cycleVideo();
-      if (/^[1-9]$/.test(k.ch)) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) return this.cmd("tile.focus", {}, this.nameOf(id)); return; }
+      if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) return this.cmd("tile.focus", {}, this.nameOf(id)); return; }
       if (k.ch === "q") { this.pending = null; return ctx.pop(); }
     }
     if (k.kind === "esc") {
@@ -1053,8 +1072,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   focusTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
     if (t.id !== this.focus) this.mayMoveKeys(actor, "move their keys");
-    if (t.id !== this.focus) this.entered.clear();
+    const moved = t.id !== this.focus;
+    if (moved) this.entered.clear();
     this.focus = t.id;
+    if (moved) this.panes.get(t.id)?.focused?.(this, actor);
     activate(this.root, t.id);
     if (this.over.has(t.id)) this.shut.delete(t.id);
     this.zoom = this.zoom !== null ? t.id : null;

@@ -1,7 +1,8 @@
 // Backlinks as a tile (PIE-432, PIE-442): the notes that link to what another tile shows (its `source`, a
-// tile's name), grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection
-// shows the source where this tile's selection goes (a preview following it, or its link); ⏎ or a click
-// opens it there too, and alt+⏎ or a ctrl- or alt-click opens it "fresh", as a link's alt+⏎ does.
+// tile's name), grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection,
+// or giving the tile the keys, shows the selected source where this tile's selection goes (a preview
+// following it, or its link) without moving the current note (so the tile it lists the backlinks of stays
+// put); ⏎ or a click opens it, and alt+⏎ or a ctrl- or alt-click opens it "fresh", as a link's alt+⏎ does.
 //
 // The rows and the status line are drawn by `backlinkRowLine` and `layoutBacklinkStatus`, which the board's
 // backlinks drawer draws with too: one drawing of Detail's view, not two.
@@ -11,7 +12,7 @@ import {
   describeBacklinkView, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkStatusPart, type BacklinkViewOptions,
 } from "../backlinks";
-import { USER, type Actor } from "../socket";
+import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { bg, C, fg, pad, RESET, width } from "../style";
 import type { Key } from "../term";
@@ -80,6 +81,8 @@ export class BacklinksPane implements Pane {
   private reload: Timer | null = null;
   private asked = 0;
   private openedFor: string | null = null;
+  /** Given the keys before its rows were read: the selected row shows once they are (and as whom). */
+  private showOnLoad: Actor | null = null;
 
   /**
    * `source`: the tile whose note's backlinks this lists. `openGroups`: every kind group starts open (a screen
@@ -121,13 +124,28 @@ export class BacklinksPane implements Pane {
       if (this.openGroups && this.openedFor !== m.id) { this.openedFor = m.id; for (const k of backlinkView(data, { ...this.options, kind: null }).kinds) this.expanded.add(k.kind); }
       const rows = this.rows(), kept = was ? rows.findIndex(r => rowKey(r) === was) : -1;
       this.sel = kept >= 0 ? kept : Math.max(0, rows.findIndex(r => r.kind === "source"));
+      const by = this.showOnLoad;
+      this.showOnLoad = null;
+      if (by) this.showSelected(desk, by);
       desk.redraw();
     }, (e: Error) => { if (n === this.asked) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
   }
 
-  /** Something changed in the outline: the list is asked again (once per burst), its selection kept. */
-  onEvent(desk: DeskApi) {
-    if (!this.target) return;
+  /** The tile was given the keys: the selected source shows where its selection goes, as moving to it would. */
+  focused(desk: DeskApi, actor: Actor) {
+    if (this.data) this.showSelected(desk, actor);
+    else if (this.target) this.showOnLoad = actor;
+  }
+
+  /** Show the selected row's source (a group's header shows nothing). */
+  private showSelected(desk: DeskApi, actor: Actor) {
+    if (this.rows()[this.sel]?.kind !== "source") return;
+    void this.pick(this.sel, "show", desk, actor).catch(() => {});
+  }
+
+  /** Something changed in the outline: the list is asked again (once per burst), its selection kept. A draft isn't a change to what links here. */
+  onEvent(desk: DeskApi, e?: OutlineEvent) {
+    if (!this.target || e?.change?.kind === "draft") return;
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.load(this.target, desk, true); }, 500);
   }
@@ -180,7 +198,10 @@ export class BacklinksPane implements Pane {
     // The selection may have moved on while the source was read: only the latest pick shows.
     if (rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     const agent = actor.kind === "agent";
-    desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), ...(agent ? { agent: true } : {}) });
+    // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
+    // follows it, whose backlinks these are, would move to the row and the list with it.
+    if (how === "show" && desk.showFrom) desk.showFrom(this, m, agent);
+    else desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), ...(agent ? { agent: true } : {}) });
     desk.redraw();
     return { row: i + 1, id: m.id };
   }

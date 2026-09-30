@@ -126,7 +126,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane", files: "src/surface/note.ts, src/desk/panes.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
-    aside: "backlinks: only the board's drawer today (section 5, b), grouped and filtered as Detail does (src/backlinks.ts, PIE-442) · resources: no list yet (PIE-432)",
+    aside: "backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442) · resources: no list yet (PIE-432)",
     stage(n, show) {
       const r = new ReaderPane(true), th = new ThreadPane();
       return deskOf({ title: "showcase · entity", panes: [r, th], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.shed) d.setCurrent(n.shed); });

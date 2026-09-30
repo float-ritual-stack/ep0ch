@@ -3,7 +3,7 @@
 // opens. A band across the top holds an ep0ch logo from the WoE packs and a tab per note: 1…9, then 0 for the
 // tenth, and "… n more" beyond that (the list down the side shows them all). A link followed in the detail
 // (⏎ or a click) opens in the preview beside it; alt+⏎ or a ctrl- or alt-click reads it in the detail instead
-// (the door's "open fresh" chord, here: make it the thing read). The detail's backlinks run along the bottom
+// (the door's "open fresh" chord, here: make it the thing read). The detail's backlinks run under it
 // and show in the same preview. It is a constrained surface on purpose: one note read, one preview.
 //
 // Built on the desk (a preset, as the brief and Waiting are): the tiles, their frames, the reader's sessions,
@@ -24,7 +24,7 @@ import { artNamed } from "../packs";
 import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { artLines, bg, C, fg, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
-import { bbsDate } from "../text";
+import { bbsDate, wrap } from "../text";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { BacklinksPane } from "../desk/backlinks-pane";
@@ -72,8 +72,12 @@ export interface Logo { file: string; rows?: [number, number] }
 /** The minimal ones with the dotted `::....::` frames first: that was his style. */
 export const LOGOS: readonly Logo[] = [{ file: "SHY-EPO!.ANS" }, { file: "SHY-EP0C.ANS", rows: [0, 10] }, { file: "X!-EPOCH.ANS" }];
 
-/** A signature line with contact details (a phone number) is never drawn. */
-const CONTACT = /\d{3}[-. ]\d{3}[-. ]\d{4}|\b\d{3}-\d{4}\b/;
+/**
+ * A signature line with contact details is never drawn: seven or more digits in a run, however they're
+ * written (905-555-0199, (905) 555.0199, 555 0199, +1 905 555 0199, 9055550199), with at most two
+ * separators between any two digits. A year or a date on its own ("1997", "est. 1996 - 1997") stays.
+ */
+const CONTACT = /\d(?:[\s().\/+-]{0,2}\d){6,}/;
 const rowText = (r: Cell[]) => String.fromCharCode(...r.map(c => c.code));
 const blank = (r: Cell[]) => !rowText(r).replace(/[\x00\s\xff]/g, "");
 
@@ -122,10 +126,10 @@ export class WelcomeList implements Pane {
     if (!s.items) return { lines: [fg(C.dark) + "asking the outline…" + RESET] };
     if (!s.items.length) return {
       lines: [
-        ...wrapTo("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
+        ...wrap("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
         ...[`Tag one [${WELCOME_KEY}::1] (then 2, 3…; any value counts) and it opens here, first.`, "",
           s.fallback ? `Meanwhile the detail shows [[${WELCOME_FALLBACK}]].` : `No [[${WELCOME_FALLBACK}]] page either.`]
-          .flatMap(t => (t ? wrapTo(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET),
+          .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET),
       ],
     };
     this.rows = s.items.flatMap((_, i): ListRow[] => (i === 10 ? [{ more: s.items!.length - 10 }, { i }] : [{ i }]));
@@ -203,28 +207,57 @@ export class WelcomeDetail extends DetailPane {
   }
 }
 
-/** The preview: what a link in the detail, or a backlink, points at. Its own links open in it. */
+/** What the preview's title row offers: the note it shows, read in the detail. */
+const READ_HERE = " ⇱ read here ";
+
+/**
+ * The preview: what a link in the detail, or a backlink, points at. Its own links open in it. alt+⏎ with no
+ * link picked, or a click on "⇱ read here" in its title row, reads the note it shows in the detail.
+ */
 export class WelcomePreview extends PreviewPane {
+  screen: Welcome | null = null;
+  /** Where "⇱ read here" starts in the title row as last drawn (null: not drawn). */
+  private readFrom: number | null = null;
   constructor() { super({ tile: "backlinks" }); }
   override title() { return this.msg ? `preview · ${subject(this.msg)}` : "preview"; }
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
+    this.readFrom = null;
     if (!this.msg) return {
       lines: ["⏎ or a click on a link in the detail, or a backlink, shows it here.", "", "alt+⏎, or a ctrl- or alt-click, reads it in the detail instead."]
-        .flatMap(t => (t ? wrapTo(t, w) : [""])).map(l => fg(C.dark) + pad(l, w) + RESET),
+        .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.dark) + pad(l, w) + RESET),
     };
-    return super.render(w, h, focused, desk);
+    const v = super.render(w, h, focused, desk);
+    const lw = width(READ_HERE);
+    if (v.lines.length && !this.holdsKeys && w >= lw + 8) {
+      this.readFrom = w - lw;
+      v.lines[0] = fg(C.white) + pad(subject(this.msg), w - lw) + bg(C.magenta) + fg(C.white) + READ_HERE + RESET;
+    }
+    return v;
+  }
+
+  /** Read the note shown here in the detail (welcome.read, as the person). */
+  private promote(desk: DeskApi) {
+    const s = this.screen, m = this.msg;
+    if (!s || !m) return;
+    Promise.resolve().then(() => WELCOME_ACTIONS.runUntyped("welcome.read", { id: m.id }, s, USER))
+      .catch(e => desk.ctx.flash(e instanceof Error ? e.message : String(e)))
+      .finally(() => desk.redraw());
+  }
+
+  override key(k: Key, desk: DeskApi): boolean {
+    if (super.key(k, desk)) return true;
+    if (k.kind === "alt-enter" && this.msg && !this.holdsKeys) { this.promote(desk); return true; }
+    return false;
+  }
+
+  override release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
+    if (y === 0 && this.readFrom !== null && x >= this.readFrom) { this.promote(desk); return true; }
+    return super.release(x, y, desk, open);
   }
 }
 
-function wrapTo(text: string, w: number): string[] {
-  const out: string[] = [];
-  let line = "";
-  for (const word of text.split(" ")) {
-    if (line && line.length + 1 + word.length > w) { out.push(line); line = word; } else line = line ? `${line} ${word}` : word;
-  }
-  if (line) out.push(line);
-  return out;
-}
+/** Changes that never make a note a welcome note or stop it being one. */
+const QUIET = new Set(["annotate", "reorder", "move", "draft"]);
 
 // ── the screen ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -255,18 +288,22 @@ export class Welcome extends Desk {
   constructor() {
     const list = new WelcomeList(), detail = new WelcomeDetail(), preview = new WelcomePreview(), backlinks = new BacklinksPane("detail", true);
     super({
-      title: "welcome", panes: [list, detail, preview, backlinks], names: ["welcome", "detail", "preview", "backlinks"],
-      // The detail's opens land in the preview; the preview follows the backlinks' selection.
-      links: [[1, 2]], focus: 1, frame: DOTTED_BOX,
-      layout: ([l, d, p, b]): LNode => ({
-        t: "split", dir: "row", weights: [0.16, 0.84], kids: [
+      title: "welcome", panes: [list, detail, backlinks, preview], names: ["welcome", "detail", "backlinks", "preview"],
+      // The detail's opens land in the preview; the preview follows the backlinks' selection. The digits pick
+      // welcome notes here, so the tiles aren't numbered.
+      links: [[1, 3]], focus: 1, frame: DOTTED_BOX, digits: false,
+      // The list, the detail with its backlinks under it, the preview the whole height: in reading order,
+      // so Tab goes list → detail → backlinks → preview, as it follows reading order on the desk.
+      layout: ([l, d, b, p]): LNode => ({
+        t: "split", dir: "row", weights: [0.16, 0.48, 0.36], kids: [
           { t: "leaf", id: l! },
-          { t: "split", dir: "col", weights: [0.72, 0.28], kids: [{ t: "split", dir: "row", weights: [0.58, 0.42], kids: [{ t: "leaf", id: d! }, { t: "leaf", id: p! }] }, { t: "leaf", id: b! }] },
+          { t: "split", dir: "col", weights: [0.75, 0.25], kids: [{ t: "leaf", id: d! }, { t: "leaf", id: b! }] },
+          { t: "leaf", id: p! },
         ],
       }),
     });
     this.list = list; this.detail = detail; this.preview = preview; this.backlinks = backlinks;
-    list.screen = this; detail.screen = this;
+    list.screen = this; detail.screen = this; preview.screen = this;
   }
 
   override enter(ctx: Ctx) {
@@ -314,9 +351,12 @@ export class Welcome extends Desk {
   readHere(m: Msg, actor: Actor, focus = true): Shown {
     if (actor.kind === "agent" && this.personTyping()) throw new ActionRefused("the person is typing here; the detail stays");
     if (this.detail.holdsKeys || this.detail.editing) throw new ActionRefused("the detail holds an edit or a comment; save or close it first");
-    if (this.detail.msg?.id !== m.id) this.detail.surface.track(() => this.detail.hold(m, this));
-    // What the preview showed is the thing read now: the preview empties rather than repeat it.
-    if (this.preview.msg?.id === m.id) this.preview.show(null, this);
+    // Another note read by the person: what the preview showed came from the one before (its link, its
+    // backlink), so it empties rather than show something the detail no longer points at. An agent's leaves
+    // what the person may be reading there. Either way the preview never repeats the note read.
+    const other = this.detail.msg?.id !== m.id;
+    if (other) this.detail.surface.track(() => this.detail.hold(m, this));
+    if (this.preview.msg?.id === m.id || (other && actor.kind !== "agent")) this.preview.show(null, this);
     if (focus && actor.kind !== "agent" && !this.personTyping()) this.focusTile("detail", actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: m.props[WELCOME_KEY] ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
@@ -361,8 +401,9 @@ export class Welcome extends Desk {
   override onEvent(e: OutlineEvent) {
     super.onEvent(e);
     // A note tagged, untagged, renamed, trashed or restored anywhere: the list is asked again (once per burst).
-    // Without a change record (a service with no feed, a reset) it could be anything, so it's asked too.
-    if (e.change && (e.change.kind === "annotate" || e.change.kind === "reorder" || e.change.kind === "draft")) return;
+    // Without a change record (a service with no feed, a reset) it could be anything, so it's asked too. A
+    // comment, a lane's order, a move or a draft doesn't change which notes carry the property, or their titles.
+    if (e.change && QUIET.has(e.change.kind)) return;
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.load(); }, 300);
   }
@@ -390,16 +431,21 @@ export class Welcome extends Desk {
     return (this.band = logo ? logo.rows.length + 1 : 1);
   }
 
-  /** The list is about 30 columns (narrower on a small terminal), the backlinks about a fifth of the height; set once per size. */
+  /**
+   * The list is about 30 columns (narrower on a small terminal), the detail a little wider than the preview,
+   * the backlinks about a fifth of the height; set once per size, and only while the tiles are where the
+   * screen put them (a person who moved them keeps their arrangement).
+   */
   private fit(cols: number, rows: number) {
     const size = `${cols}x${rows}`;
-    if (size === this.sizedFor || this.root.t !== "split") return;
+    const root = this.root, mid = root.t === "split" ? root.kids[1] : undefined;
+    if (size === this.sizedFor || root.t !== "split" || root.kids.length !== 3 || mid?.t !== "split" || mid.kids.length !== 2) return;
     this.sizedFor = size;
     const list = Math.max(0.12, Math.min(0.24, 30 / cols));
-    this.root.weights = [list, 1 - list];
-    const right = this.root.kids[1];
+    root.weights = [list, (1 - list) * 0.57, (1 - list) * 0.43];
     const area = Math.max(10, rows - 2 - (this.logoFor(rows)?.rows.length ?? 1) - 1);
-    if (right?.t === "split") { const b = Math.max(5, Math.min(12, Math.round(area * 0.22))) / area; right.weights = [1 - b, b]; }
+    const b = Math.max(7, Math.min(12, Math.round(area * 0.3))) / area;
+    mid.weights = [1 - b, b];
   }
 
   protected override drawBand(canvas: Canvas, r: Rect): Placement[] {
@@ -475,7 +521,7 @@ export class Welcome extends Desk {
   }
 
   protected override screenHint(): string {
-    return `|15 1-9 0|08 notes · |15⏎|08 link → preview · |15alt+⏎|08 or |15ctrl-click|08 read it here · |15alt+←|08 back · |15q|08 menu · |15Tab|08 panes · |15L|08 logo`;
+    return `|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 panes · |15L|08 logo · |15q|08 menu`;
   }
 
   override key(k: Key, ctx: Ctx) {
@@ -489,7 +535,7 @@ export class Welcome extends Desk {
       return;
     }
     const c = ch(k);
-    if (!this.personTyping() && !this.picking()) {
+    if (!this.personTyping() && !this.picking() && !this.linkingNow()) {
       if (/^[0-9]$/.test(c)) return this.runWelcome({ action: "welcome.select", args: { n: placeOfKey(c) + 1 } });
       if (c === "L") return this.runWelcome({ action: "welcome.logo" });
     }
