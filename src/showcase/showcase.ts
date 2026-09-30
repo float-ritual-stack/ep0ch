@@ -65,7 +65,7 @@ function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | un
 export const SECTIONS: Section[] = [
   {
     key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
-    aside: "the notebook's embeds read quietly: a dim, clickable ↳ source line and a dim bar (src/embeds.ts); only a problem heading stays loud",
+    aside: "the notebook's embeds read quietly: a dim, clickable » source line and a dim bar (src/embeds.ts); only a problem heading stays loud",
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.

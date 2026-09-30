@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
     await whole(B().preview, n.jobs.id);
-    await shows("preview", "↳ Paint the shed");
+    await shows("preview", "» Paint the shed");
   };
 
   beforeAll(async () => {
@@ -156,7 +156,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
       ["[[page]]", "Garden plan", 0],
       ["[[Work ID]]", workId, 1],                                            // the first is the summary's
       ["summary value (Work ID)", workId, 0],
-      ["embed title", "↳ Paint the shed", 0],
+      ["embed title", "» Paint the shed", 0],
     ];
     const targets = [n.beans, n.plan, n.hinge, n.hinge, n.shed];
     for (const [i, [kind, text, nth]] of kinds.entries()) {
