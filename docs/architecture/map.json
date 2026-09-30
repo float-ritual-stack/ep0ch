@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch-door + pi-herdr-outliner: the architecture map",
   "about": "Every structure in the two repos, where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes with `bun scripts/architecture-map.ts`; the generator checks every file:line below against the checkouts before it draws anything.",
-  "verified": { "door": "07d82c9", "outliner": "51707a7", "on": "2026-09-30" },
+  "verified": { "door": "187e099", "outliner": "3b81e66", "on": "2026-09-30" },
   "repos": {
     "door": { "name": "ep0ch-door", "url": "https://github.com/float-ritual-stack/ep0ch-door", "branch": "main" },
     "outliner": { "name": "pi-herdr-outliner", "url": "https://github.com/float-ritual-stack/pi-herdr-outliner", "branch": "main" }
@@ -15,15 +15,15 @@
     { "id": "stable", "about": "a contract others build on; changes are additive" }
   ],
   "groups": [
-    { "id": "kept", "name": "kept", "about": "what the system stands on and didn't build: kept as it is" },
-    { "id": "service", "name": "service", "about": "pi-herdr-outliner's service: the outline and what it answers" },
-    { "id": "door", "name": "door", "about": "ep0ch-door: the BBS door, its desk, board, river and agent interface" },
-    { "id": "clients", "name": "clients", "about": "other programs that talk to the service or to the door" }
+    { "id": "kept", "name": "kept", "motto": "stood on, not built", "about": "what the system stands on and didn't build: kept as it is" },
+    { "id": "service", "name": "service", "motto": "one engine", "about": "pi-herdr-outliner's service: the outline and what it answers" },
+    { "id": "door", "name": "door", "motto": "the door on top", "about": "ep0ch-door: the BBS door, its desk, board, river and agent interface" },
+    { "id": "clients", "name": "clients", "motto": "talk, never own", "about": "other programs that talk to the service or to the door" }
   ],
   "reviews": {
-    "A": { "name": "architecture", "path": "docs/review/2026-10-architecture.md" },
-    "B": { "name": "portability", "path": "docs/review/2026-10-portability.md" },
-    "C": { "name": "interaction", "path": "docs/review/2026-10-interaction.md" }
+    "A": { "name": "architecture", "path": "docs/review/2026-10-architecture.md", "at": { "door": "c6887a0", "outliner": "9e32c9f" } },
+    "B": { "name": "portability", "path": "docs/review/2026-10-portability.md", "at": { "door": "c6887a0", "outliner": "9e32c9f" } },
+    "C": { "name": "interaction", "path": "docs/review/2026-10-interaction.md", "at": { "door": "c6887a0", "outliner": "9e32c9f" } }
   },
   "routes": {
     "PIE-492": "one key layer: keys bind through ActionDefs, one keymap, hints and ? generated, right-click menus (wave 2)",
@@ -313,7 +313,7 @@
         { "r": "door", "p": "src/screens.ts", "l": 377, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 463, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 349, "m": "export function agentMayMove" },
-        { "r": "door", "p": "src/app.ts", "l": 326, "m": "async act(req" }
+        { "r": "door", "p": "src/app.ts", "l": 328, "m": "async act(req" }
       ]
     },
     {
@@ -433,7 +433,7 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 168, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/app.ts", "l": 169, "m": "background: Screen[]" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 355, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
@@ -456,16 +456,16 @@
       "id": "kept.herdr", "name": "Herdr", "group": "kept", "chapter": "terminal", "ladder": "stable", "dependsOn": [],
       "does": "The terminal multiplexer the outliner's panes run in. A Herdr pane outlives the door; the door attaches to it.",
       "built": "Called through its CLI with a timeout.",
-      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 184, "m": "export function herdrRunner" } ]
+      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 188, "m": "export function herdrRunner" } ]
     },
     {
       "id": "door.pty", "name": "Terminal tile", "group": "door", "chapter": "terminal", "ladder": "recognised", "dependsOn": ["kept.xterm", "door.desk"],
       "does": "A program beside the notes: keys go to it while you're in it, ctrl+] leaves, the mouse goes to it when it asked. Its environment says which door and which tile it runs in.",
       "built": "PtyPane over Bun.Terminal and @xterm/headless; tileEnv is the one list of what a program doesn't inherit.",
       "refs": [
-        { "r": "door", "p": "src/desk/pty.ts", "l": 83, "m": "export class PtyPane" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 147, "m": "new Bun.Terminal" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 69, "m": "export function tileEnv" }
+        { "r": "door", "p": "src/desk/pty.ts", "l": 89, "m": "export class PtyPane" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 155, "m": "new Bun.Terminal" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 74, "m": "export function tileEnv" }
       ],
       "questions": [
         { "text": "Bun 1.3.5 is needed; the doctor checks 1.3.0 and the constructor sits outside the try.", "finding": "B-F12", "route": "PIE-494" },
@@ -478,10 +478,10 @@
       "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 290, "m": "export async function main" },
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 208, "m": "export function tellDoor" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 294, "m": "export async function main" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 212, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 259, "m": "\"tile.herdr\"" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 99, "m": "herdr: { pane: string } | null" }
+        { "r": "door", "p": "src/desk/pty.ts", "l": 105, "m": "herdr: { pane: string } | null" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -490,9 +490,9 @@
       "does": "SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception or rejection: drafts and ctrl+e text are copied to drafts/, the terminal is put back, the socket removed, and the door says where the text went.",
       "built": "Every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9.",
       "refs": [
-        { "r": "door", "p": "src/main.ts", "l": 126, "m": "process.on(sig" },
-        { "r": "door", "p": "src/main.ts", "l": 137, "m": "uncaughtException" },
-        { "r": "door", "p": "src/app.ts", "l": 348, "m": "terminate()" }
+        { "r": "door", "p": "src/main.ts", "l": 131, "m": "process.on(sig" },
+        { "r": "door", "p": "src/main.ts", "l": 142, "m": "uncaughtException" },
+        { "r": "door", "p": "src/app.ts", "l": 350, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -617,8 +617,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the shell's actions first, then the screen's; App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 326, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 215, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 328, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 216, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },
@@ -652,7 +652,7 @@
       "does": "Outliner tools inside Claude Code; `show` opens a note in the door from Claude's own tile, where that tile's opens land.",
       "built": "register.ts registers the tools; door-open --from $EP0CH_TILE, with --reader middle only for a door older than open from=.",
       "refs": [
-        { "r": "outliner", "p": "claude-mod/hooks/register.ts", "l": 340, "m": "'--from', door.tile" },
+        { "r": "outliner", "p": "claude-mod/hooks/register.ts", "l": 412, "m": "'--from', door.tile" },
         { "r": "outliner", "p": "src/door-control.ts", "l": 70, "m": "export async function openInDoor" }
       ]
     },
@@ -679,7 +679,7 @@
       "id": "door.exthost", "name": "Programs that drive the door", "group": "door", "chapter": "extensions", "ladder": "accidental", "dependsOn": ["door.pty", "door.control"],
       "does": "The de facto plugin API: any program in a terminal tile can drive its door over EP0CH_CONTROL as EP0CH_TILE. The Claude mod and the Herdr agent use it.",
       "built": "tileEnv gives the program its door and its tile; everything else is act.",
-      "refs": [ { "r": "door", "p": "src/desk/pty.ts", "l": 69, "m": "export function tileEnv" } ],
+      "refs": [ { "r": "door", "p": "src/desk/pty.ts", "l": 74, "m": "export function tileEnv" } ],
       "questions": [
         { "text": "A third party can't add a tile kind: it needs the registry, Pane.actions and a loader (tile manifests of terminal programs).", "finding": "A-F15", "route": "PIE-493" },
         { "text": "A tile kind can't declare keys or mouse spots.", "finding": "C-F13", "route": "PIE-492" }
@@ -701,6 +701,14 @@
       ]
     }
   ],
+  "iso": {
+    "about": "Where the blocks stand: scripts/architecture-map/iso.ts places them by lane and dependency depth; place sets a cell by hand, [column, row inside the lane].",
+    "rows": { "kept": 1, "clients": 3 },
+    "gap": 0.4,
+    "place": {
+      "kept.sqlite": [1, 0], "kept.terminal": [2, 0], "kept.nvim": [3, 0], "kept.xterm": [4, 0], "kept.herdr": [5, 0], "kept.packs": [7, 0]
+    }
+  },
   "trace": {
     "title": "m moves a card",
     "about": "The path the code takes today when the person presses m on a board card and picks a lane. The key doesn't go through an ActionDef: card.move exists and reaches the same moveTo, but the key calls openMover directly. That's the gap PIE-492 closes.",
@@ -722,7 +730,7 @@
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",
         "ref": { "r": "outliner", "p": "src/server.ts", "l": 2650, "m": "private publishChanges" } },
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
-        "ref": { "r": "door", "p": "src/main.ts", "l": 161, "m": "board.subscribe(e => app!.event(e))" } },
+        "ref": { "r": "door", "p": "src/main.ts", "l": 166, "m": "board.subscribe(e => app!.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
         "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 485, "m": "private changed(c: Change)" } },
       { "label": "lanes repaint", "at": "door.board", "what": "The marked lanes are read again with views.read and drawn. In the door that moved it, moveTo's finally reloads the source and target lanes.",
