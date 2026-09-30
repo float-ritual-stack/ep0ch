@@ -128,7 +128,12 @@ const end = (code: number, crash?: unknown) => {
 };
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 } as const;
 // SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
-for (const [sig, n] of Object.entries(SIGNALS)) process.on(sig, () => end(sig === "SIGTERM" || sig === "SIGHUP" ? 0 : 128 + n));
+// While the drop shell has the terminal, ctrl+c and ctrl+\ are its (a shell without job control shares the
+// door's process group): the door doesn't end under it.
+for (const [sig, n] of Object.entries(SIGNALS)) process.on(sig, () => {
+  if ((sig === "SIGINT" || sig === "SIGQUIT") && app?.suspended() === "shell") return;
+  end(sig === "SIGTERM" || sig === "SIGHUP" ? 0 : 128 + n);
+});
 // "Couldn't ask the outline" is never a crash: an Offline that no caller caught (a key or a click that reads
 // a note first, while the service is down) is said, and the door carries on.
 // A write to a terminal that has gone (EIO, EPIPE: the ssh connection dropped before its SIGHUP was handled)

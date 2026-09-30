@@ -46,8 +46,15 @@ export interface Ctx {
    * one in the background) or an unsaved edit, the first ask says so and refuses; again within 3s goes.
    */
   confirmQuit?(): boolean;
-  /** Hand the terminal to another program ($EDITOR) for the duration of `run`, then repaint. */
+  /**
+   * Hand the terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e) runs in
+   * it synchronously; the drop shell (`screen.shell`) returns a promise, and the door waits for it with its
+   * event loop running (tiles read, the control socket answering) and nothing painted. `what` is said by `peek`.
+   */
   suspend(run: () => void): void;
+  suspend(run: () => Promise<unknown>, what?: string): Promise<void>;
+  /** What has the terminal while the door is suspended ("shell", "editor"), or null. */
+  suspended?(): string | null;
   /**
    * Run an editor on `path` in a terminal tile beside the note instead of suspending the door (PIE-417):
    * true when the screen has tiles and opened one; `done` is called with its exit code when it ends.
@@ -277,13 +284,25 @@ export class App implements Ctx {
     this.flash(`video: ${this.video}`);
   }
 
-  suspend(run: () => void) {
+  /** What has the terminal while the door is suspended, or null (see Ctx.suspend). */
+  private away: string | null = null;
+  suspended(): string | null { return this.away; }
+  suspend(run: () => void): void;
+  suspend(run: () => Promise<unknown>, what?: string): Promise<void>;
+  suspend(run: () => void | Promise<unknown>, what = "editor"): void | Promise<void> {
+    if (this.away) throw new Error(`the terminal is already handed over (${this.away})`);
     this.kitty.dispose();                  // images don't survive the screen switch; the next paint re-uploads
     this.term.stop();
-    try { run(); } finally {
+    this.away = what;
+    const back = () => {
+      this.away = null;
       this.term.resume();
       this.redraw();
-    }
+    };
+    let r: void | Promise<unknown>;
+    try { r = run(); } catch (e) { back(); throw e; }
+    if (r instanceof Promise) return r.then(() => {}).finally(back);
+    back();
   }
 
   event(e: OutlineEvent) {
@@ -314,7 +333,7 @@ export class App implements Ctx {
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
-    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, video: this.video, host: this.host, workspace: this.workspace,
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(), state: s?.describe?.() ?? null };
   }
 
@@ -456,6 +475,7 @@ export class App implements Ctx {
   private paintTimer: Timer | null = null;
 
   private paint() {
+    if (this.away) return;                 // another program has the terminal; resume repaints
     this.lastPaint = Date.now();
     const s = this.stack.at(-1);
     if (!s) return;

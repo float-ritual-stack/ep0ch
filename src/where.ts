@@ -100,6 +100,8 @@ export async function where(d: WhereDeps): Promise<Where> {
   const herdrs = parsed.filter((l): l is Extract<Layer, { kind: "herdr" }> => l.kind === "herdr");
   // The Herdr agent's pane: the nest ends in the launcher's `herdr:<label>` after the door that made it.
   const agentPane = parsed.at(-1)?.kind === "herdr" && inner ? (parsed.at(-1) as Extract<Layer, { kind: "herdr" }>).pane : null;
+  // A door's drop shell (`screen.shell`): the nest ends in `shell:<door pid>`, with the door waiting under it.
+  const inShell = parsed.at(-1)?.kind === "shell";
 
   const [peek, panes] = await Promise.all([
     control ? d.peek(control) : Promise.resolve(null),
@@ -156,10 +158,15 @@ export async function where(d: WhereDeps): Promise<Where> {
         : control ? "running · its control socket doesn't answer" : "running";
       layers.push({ kind: "door", raw: l.raw, label: `pid ${l.pid} · ${l.place}${isInner && peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: up, why });
       if (isInner && !agentPane) layers.push(tileLayer(l.tileId, l.tile, door!.tile, peek, desk, moved));
+    } else if (l.kind === "shell") {
+      const up = d.alive(l.pid);
+      const waits = l === parsed.at(-1) && peek?.screen?.suspended === "shell";
+      layers.push({ kind: "shell", raw: l.raw, label: `door pid ${l.pid}`, live: up,
+        why: !up ? "the door is gone" : waits ? "the door's drop shell · the door waits under it" : "the door's drop shell · the door is running" });
     } else layers.push({ kind: "other", raw: l.raw, label: l.raw, live: null, why: l.raw === ELIDED ? "older layers left out (EP0CH_NEST keeps the first and the newest)" : "not a layer this door knows" });
   }
   // A door older than EP0CH_NEST: the tile from its variables alone.
-  if (!inner && control) {
+  if (!inner && control && !inShell) {
     layers.push({ kind: "door", raw: "", label: `${answeringPid ? `pid ${answeringPid}` : "a door"}${peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: peek ? true : null, why: peek ? "its control socket answers (a door older than EP0CH_NEST)" : "its control socket doesn't answer" });
     layers.push(tileLayer(myTileId, myTileName ?? "?", door!.tile, peek, desk, false));
   }
@@ -170,7 +177,9 @@ export async function where(d: WhereDeps): Promise<Where> {
       live: peek ? !!t?.found : null, why: !peek ? "no door answers on EP0CH_CONTROL (the agent runs on in Herdr)" : t?.found ? "the tile attached to this pane" : "no tile of the door shows this pane" });
   }
 
-  const keys = keysOf(peek, desk, door, agentPane, paneList, env);
+  const keys = inShell && peek?.screen?.suspended === "shell"
+    ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
+    : keysOf(peek, desk, door, agentPane, paneList, env);
   const summary = summaryOf(nest, layers, keys, inDoor);
   return { inDoor, recorded, nest, layers, door, keys, summary };
 }

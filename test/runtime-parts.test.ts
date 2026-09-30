@@ -104,7 +104,7 @@ describe("one env list for terminal tiles (F6)", () => {
     const env = tileEnv({ PATH: "/bin", HOME: "/home/someone", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", HERDR_PANE_ID: "p1", HERDR_TAB_ID: "t1", EP0CH_DAILY_AGENT: "claude", EP0CH_LANDING: "brief", EP0CH_DAILY_CWD: "~/garden", EP0CH_HERDR_AGENT_CMD: "door-helper", EP0CH_NOW_PAGE: "briefing" }, "editor", "/c/door.sock");
     for (const k of [...HERDR_PANE_VARS, ...DOOR_START_VARS]) expect(env[k]).toBeUndefined();
     expect(env).toMatchObject({ PATH: "/bin", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", EP0CH_DAILY_CWD: "~/garden", EP0CH_HERDR_AGENT_CMD: "door-helper", EP0CH_NOW_PAGE: "briefing",
-      EP0CH_TILE: "editor", EP0CH_CONTROL: "/c/door.sock", TERM: "xterm-256color", COLORTERM: "truecolor" });
+      EP0CH_TILE: "editor", EP0CH_CONTROL: "/c/door.sock", TERM: "xterm-256color", COLORTERM: "truecolor", EP0CH_IN_DOOR: "1" });
     expect(tileEnv({ EP0CH_CONTROL: "/elsewhere.sock" }, "x", null).EP0CH_CONTROL).toBe("/elsewhere.sock");
   });
 
