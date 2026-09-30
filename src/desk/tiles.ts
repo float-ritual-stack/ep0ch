@@ -73,13 +73,7 @@ export function tileNameProblem(name: string): string | null {
  * named it follow. A spec with good names comes back as it was.
  */
 export function migrateNames(spec: LayoutSpec): LayoutSpec {
-  const all: TileSpec[] = [];
-  const walk = (n: any) => {
-    if (!n || typeof n !== "object") return;
-    if (n.t === "leaf") { all.push(n); return; }
-    for (const k of [n.a, n.b, ...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : [])]) walk(k);
-  };
-  walk(spec.root);
+  const all = savedLeaves(spec.root);
   const bad = all.filter(l => typeof l.name === "string" && tileNameProblem(l.name));
   if (!bad.length) return spec;
   const taken = new Set(all.map(l => l.name).filter((n): n is string => !!n && !tileNameProblem(n)));
@@ -92,15 +86,52 @@ export function migrateNames(spec: LayoutSpec): LayoutSpec {
     taken.add(n); renamed.set(l.name!, n);
   }
   const to = (x: string | undefined) => (x !== undefined && renamed.has(x) ? renamed.get(x)! : x);
+  const root = mapLeaves(spec.root, (n: any) => {
+    const src = typeof n.source === "string" && n.source.startsWith("tile:") ? `tile:${to(n.source.slice(5))}` : n.source;
+    return { ...n, ...(n.name !== undefined ? { name: to(n.name) } : {}), ...(n.link !== undefined ? { link: to(n.link) } : {}), ...(src !== undefined ? { source: src } : {}) };
+  });
+  return { ...spec, root, ...(typeof spec.focus === "string" ? { focus: to(spec.focus) } : {}) };
+}
+
+/**
+ * A desk saved from built-in layout `from` before PIE-491 (no tile has an id yet) gets the links that layout
+ * has gained since, on tiles of the same name and kind that have none: the daily layout's claude tile now
+ * links to middle, so an agent's `open from=claude` lands in middle, as the Claude mod's `--reader middle`
+ * did. Once saved with ids, a link the person took away stays away.
+ */
+export function migrateLinks(spec: LayoutSpec, from: string | undefined): LayoutSpec {
+  const preset = from ? builtin(from) : null;
+  const all = savedLeaves(spec.root);
+  if (!preset || all.some(l => l.id)) return spec;
+  const names = new Set(all.map(l => l.name));
+  const want = new Map(savedLeaves(preset.root).filter(l => l.name && l.link).map(l => [l.name!, l] as const));
+  const root = mapLeaves(spec.root, (l: TileSpec) => {
+    const w = l.name ? want.get(l.name) : undefined;
+    return !l.link && w && w.kind === l.kind && names.has(w.link) && w.link !== l.name ? { ...l, link: w.link } : l;
+  });
+  return { ...spec, root };
+}
+
+/** Every tile spec in a saved tree (either form, tab sets too). */
+function savedLeaves(root: SavedTree): TileSpec[] {
+  const all: TileSpec[] = [];
+  const walk = (n: any) => {
+    if (!n || typeof n !== "object") return;
+    if (n.t === "leaf") { all.push(n); return; }
+    for (const k of [n.a, n.b, ...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : [])]) walk(k);
+  };
+  walk(root);
+  return all;
+}
+
+/** A saved tree with each tile spec replaced by `f`'s (a copy; the tree it was given is left as it was). */
+function mapLeaves(root: SavedTree, f: (l: TileSpec) => TileSpec): SavedTree {
   const fix = (n: any): any => {
     if (!n || typeof n !== "object") return n;
-    if (n.t === "leaf") {
-      const src = typeof n.source === "string" && n.source.startsWith("tile:") ? `tile:${to(n.source.slice(5))}` : n.source;
-      return { ...n, ...(n.name !== undefined ? { name: to(n.name) } : {}), ...(n.link !== undefined ? { link: to(n.link) } : {}), ...(src !== undefined ? { source: src } : {}) };
-    }
+    if (n.t === "leaf") return f(n);
     return { ...n, ...(n.a ? { a: fix(n.a), b: fix(n.b) } : {}), ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(Array.isArray(n.tabs) ? { tabs: n.tabs.map(fix) } : {}) };
   };
-  return { ...spec, root: fix(spec.root), ...(typeof spec.focus === "string" ? { focus: to(spec.focus) } : {}) };
+  return fix(root);
 }
 
 export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief", "backlinks"];

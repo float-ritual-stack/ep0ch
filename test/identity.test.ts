@@ -222,4 +222,86 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     again.dispose();
     await daily();
   });
+
+  // Review of #61: a desk.json saved from the daily layout before the claude tile had a link.
+  const oldDaily = (withIds: boolean) => ({
+    focus: 0, rule: "current", layout: "daily",
+    root: {
+      t: "split", dir: "row", kids: [
+        { t: "leaf", kind: "pty", name: "claude", cmd: ["sh"], ...(withIds ? { id: "t1" } : {}) },
+        { t: "split", dir: "col", ratio: 0.5, a: { t: "leaf", kind: "tree", name: "tree", link: "middle", ...(withIds ? { id: "t2" } : {}) }, b: { t: "leaf", kind: "detail", name: "now", link: "middle", ...(withIds ? { id: "t3" } : {}) } },
+        { t: "leaf", kind: "detail", name: "middle", ...(withIds ? { id: "t4" } : {}) },
+      ], weights: [1, 1, 1],
+    },
+  });
+  const fromSaved = (saved: unknown) => {
+    app.pop(); D().dispose();
+    writeFileSync(join(state(), "desk.json"), JSON.stringify(saved));
+    desk = new Desk();
+    app.push(desk); app.redraw(); desk.render(D().ctx);
+  };
+
+  test("a daily desk.json saved before ids gets the claude tile's link, so open from=claude lands in middle, not the first reader", async () => {
+    fromSaved(oldDaily(false));
+    const g = await get();
+    expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
+    expect(g.tiles.find((t: any) => t.name === "now").link).toBe("middle");
+    expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("middle");
+    // Saved with ids, a desk whose claude tile has no link keeps none: the person's own choice.
+    fromSaved(oldDaily(true));
+    expect((await get()).tiles.find((t: any) => t.name === "claude").link).toBeUndefined();
+    await daily();
+  });
+
+  test("the revision never repeats across a restart, saved or not", async () => {
+    const r0 = (await get()).rev;
+    await Bun.sleep(2);
+    // A door started again without having saved (a named layout it didn't change).
+    const again = new Desk(undefined, { layout: "daily" });
+    expect((again as any).layoutGet().rev).toBeGreaterThan(r0);
+    again.dispose();
+    // One that saved: the saved revision is where it goes on from, even with the clock behind it.
+    await mine("layout.even");
+    writeFileSync(join(state(), "desk.json"), JSON.stringify({ ...JSON.parse(await Bun.file(join(state(), "desk.json")).text()), rev: Date.now() + 60_000 }));
+    const later = new Desk();
+    expect((later as any).layoutGet().rev).toBeGreaterThan(Date.now() + 59_000);
+    later.dispose();
+    await daily();
+  });
+
+  test("a closed tile's id isn't given to a tile from a saved layout, nor after a restart", async () => {
+    await act("layout.save", { name: "keep491" });
+    const side = (await get()).tiles.find((t: any) => t.name === "side");
+    await mine("tile.close", {}, "side");
+    // Saved with side's id in it; loaded after side closed, the side it makes is another tile.
+    await mine("layout.load", { name: "keep491" });
+    const back = (await get()).tiles.find((t: any) => t.name === "side");
+    expect(back.id).not.toBe(side.id);
+    // Restarted: the ids go on from the saved ones.
+    await mine("tile.close", {}, "side");
+    const gone = back.id;
+    const again = new Desk();
+    const ids = (again as any).layoutGet().tiles.map((t: any) => t.id);
+    expect(ids).not.toContain(gone);
+    // The next tile made gets a number past every one given before.
+    expect((again as any).nextId).toBeGreaterThan(Math.max(Number(gone.slice(1)), Number(side.id.slice(1))));
+    again.dispose();
+    await daily();
+  });
+
+  test("an open by #number is resolved against the layout expected= checked, not one moved while the note was fetched", async () => {
+    const g = await get();
+    const n = g.tiles.find((t: any) => t.name === "middle").n;
+    const slow = board.get.bind(board);
+    (board as any).get = async (id: string) => { await Bun.sleep(150); return slow(id); };
+    try {
+      const opening = act("open", { id: notes.shed.id, expected: g.rev }, `#${n}`);
+      await Bun.sleep(30);
+      // The person moves middle while the agent's open waits for the service: #n is another tile now.
+      await mine("layout.move", { where: "edge-left" }, "middle");
+      expect((await get()).tiles.find((t: any) => t.n === n).name).not.toBe("middle");
+      expect((await opening as any).reader).toBe("middle");
+    } finally { (board as any).get = slow; }
+    await daily();
+  });
 });

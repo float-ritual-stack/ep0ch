@@ -132,7 +132,8 @@ export class PtyPane implements Pane {
     });
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door.
     const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: this.run.label ?? "", ...(this.tileId ? { EP0CH_TILE_ID: this.tileId } : {}) };
-    for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID"]) delete env[k];
+    // EP0CH_TILE_ID too: a door run in a tile mustn't hand its own tiles the outer tile's id.
+    for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID", ...(this.tileId ? [] : ["EP0CH_TILE_ID"])]) delete env[k];
     // This door's control socket: `ep0ch act` from the program reaches the door it runs in.
     if (controlPath) env.EP0CH_CONTROL = controlPath;
     try {

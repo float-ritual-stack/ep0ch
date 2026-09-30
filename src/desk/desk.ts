@@ -19,7 +19,7 @@ import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { dropAt, type Drop, type DropTile } from "./drop";
-import { activate, besideSlot, cycle, describeTree, dividerAt, dragShare, edge, even, leaf, leaves, move, neighbour, normalise, pair, placeScreen, remove, resize, revive, serialize, shown, split, tabInto, tabsOf, type Axis, type Dir, type Divider, type Grab, type LNode, type Place, type Placed } from "./layout";
+import { activate, besideSlot, cycle, describeTree, dividerAt, dragShare, edge, even, forgetIds, leaf, leaves, move, neighbour, normalise, pair, placeScreen, remove, resize, revive, serialize, shown, split, tabInto, tabsOf, type Axis, type Dir, type Divider, type Grab, type LNode, type Place, type Placed } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, TreePane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type SessionKind } from "./panes";
 import { PreviewPane, sourceName } from "./preview";
@@ -28,10 +28,14 @@ import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
-import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, migrateNames, saveLayout, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, migrateLinks, migrateNames, saveLayout, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 
-/** desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open rule. */
-interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string }
+/**
+ * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
+ * rule; and (PIE-491) the layout's revision and the next tile and split ids, so a restarted door never gives
+ * out a revision or an id an agent may still hold from before (a Herdr agent outlives the door).
+ */
+interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number } }
 /**
  * Panes a view puts on a desk of its own, and how they're laid out (default: side by side). `names`: each
  * pane's tile name, in order (what `act reader=`, links and previews call it); `links`: [from, to] by place
@@ -121,6 +125,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   constructor(private readonly preset?: DeskPreset, opts: { layout?: string } = {}) {
     this.marksStore = new LocalMarks(!preset);
     if (preset) {
+      this.resume(null);
       const ids = preset.panes.map((p, i) => this.put(p, preset.names?.[i]));
       this.root = preset.layout ? preset.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, { t: "leaf", id }), { t: "leaf", id: ids[0]! });
       for (const [from, to] of preset.links ?? []) if (ids[from] !== undefined && ids[to] !== undefined) this.links.set(ids[from]!, ids[to]!);
@@ -128,12 +133,26 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (preset.title) this.title = preset.title;
       return;
     }
-    this.root = leaf(0); this.focus = 0;
     const named = opts.layout ? layoutNamed(opts.layout) : null;
-    const saved = named ? null : readState<SavedDesk>("desk.json");
+    const last = readState<SavedDesk>("desk.json");
+    this.resume(last);
+    this.root = leaf(0); this.focus = 0;
+    const saved = named ? null : last;
     if (named) { this.build(named.spec); this.layoutName = opts.layout!; }
-    else if (saved?.root) { this.build({ root: saved.root, focus: saved.focus, rule: saved.rule }); this.layoutName = saved.layout ?? null; }
+    else if (saved?.root) { this.build(migrateLinks({ root: saved.root, focus: saved.focus, rule: saved.rule }, saved.layout), false, true); this.layoutName = saved.layout ?? null; }
     else this.build(layoutNamed("desk")!.spec);
+  }
+
+  /**
+   * Go on from the last door's revision and ids (PIE-491). The revision starts at the clock (milliseconds), or
+   * at the saved one if that's later, so it never repeats one an agent read before a restart, even when that
+   * door saved nothing; the next tile and split ids go on from the saved ones, so a closed tile's id isn't reused.
+   */
+  private resume(last: SavedDesk | null) {
+    const n = (x: unknown) => (typeof x === "number" && Number.isInteger(x) && x > 0 ? x : 0);
+    this.rev = Math.max(n(last?.rev), Date.now());
+    this.nextId = Math.max(this.nextId, n(last?.next?.tile));
+    this.nextNode = Math.max(this.nextNode, n(last?.next?.node));
   }
 
   private put(p: Pane, name?: string): number {
@@ -183,8 +202,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    * it is; one the layout has no place for that holds work (a running program, an unsaved edit) is kept as
    * a shut drawer on the right, and the rest are closed.
    */
-  private build(spec0: LayoutSpec, reuse = false): void {
+  private build(spec0: LayoutSpec, reuse = false, restore = false): void {
     const spec = migrateNames(spec0);
+    // A saved id is the tile's, split's or tab set's own only when this is desk.json coming back (`restore`) or
+    // it was never given out here: a layout loaded from layouts.json never hands a gone tile's id to another.
+    const mine = (n: number, next: number) => n > 0 && (restore || n >= next);
     const old = new Map(this.panes);
     const oldNames = new Map(this.names);
     const byName = new Map([...this.names].map(([id, n]) => [n, id] as const));
@@ -204,7 +226,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
         const saved = /^t(\d+)$/.exec(l.id ?? "");
         const n = saved ? Number(saved[1]) : 0;
-        id = n > 0 && !this.panes.has(n) ? n : this.nextId++;
+        id = mine(n, this.nextId) && !this.panes.has(n) ? n : this.nextId++;
         this.nextId = Math.max(this.nextId, id + 1);
         this.panes.set(id, pane);
         names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : this.autoName(kind));
@@ -217,6 +239,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     });
     // A saved tree with no tiles in it (a hand-edited save): the desk's own layout instead.
     if (!leaves(root).length) { this.names = oldNames; return this.build(builtin("desk")!, reuse); }
+    if (!restore) forgetIds(root, id => !mine(id, this.nextNode));
     let tree = normalise(root);
     // What the new layout has no place for: kept when it holds work, else closed.
     if (reuse) for (const [id, p] of old) {
@@ -311,7 +334,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private save() {
     if (this.preset) return;
     const root = serialize(this.savedRoot(), id => this.specOf(id));
-    writeState("desk.json", { root, focus: leaves(this.root).indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}) } satisfies SavedDesk);
+    writeState("desk.json", { root, focus: leaves(this.root).indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), rev: this.rev, next: { tile: this.nextId, node: this.nextNode } } satisfies SavedDesk);
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────
@@ -570,9 +593,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   /** `open`: the note becomes the desk's current note (unpinned readers follow) and the reader gets the keys. */
   async openIn(id: string, sel?: string, actor: Actor = USER): Promise<{ reader: string; id: string }> {
+    // The reader is picked before the note is fetched: `expected=` was checked against the layout as it is
+    // now, so a `#2` means this layout's second tile, not whatever moved there while the service answered.
+    const r = this.pickReader(sel);
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
-    const r = this.pickReader(sel);
+    if (!leaves(this.root).includes(r.id) || this.panes.get(r.id) !== r.pane) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
     // An open into a reader is part of its history (PIE-453): back returns to what it showed.
     r.pane.surface.track(() => {
       this.setCurrent(m, { reveal: actor.kind !== "agent", agent: actor.kind === "agent" });

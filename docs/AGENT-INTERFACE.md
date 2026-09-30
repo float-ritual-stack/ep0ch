@@ -99,19 +99,24 @@ thing after someone else's change.
 
 - **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t7`) has an id, in `layout.get` and the feed. It
   stays with its split, tab set or tile through moves, tabs, resizes and saves (`desk.json` and
-  `layouts.json` keep them, so a restarted door gives the same ones), and is never given to another. A split
+  `layouts.json` keep them, so a restarted door gives the same ones), and is never given to another:
+  `desk.json` keeps the next ids too, and a tile made by loading a layout from `layouts.json` gets its saved
+  id only if no tile had it before in this door. A split
   that's gone (its tiles moved or closed) is refused by id, never swapped for another.
 - **Names.** A tile's name starts with a letter, then letters, digits, `.`, `-` or `_`, at most 40 (`middle`,
   `claude`, `reader2`), and isn't shaped like an id (`t`, `s` or `g`, then digits). So a name is never a number,
   never an id, and never holds the `:` of a `tile:<name>` source. `tile.open name=1` and `name=s2` are refused.
   (Ids have no sigil because the CLI reads a value starting with `@` from a file.) A layout saved before this
   rule with a tile named `2` (or `t2`) loads with that tile renamed to its kind (`detail`, or `detail2` when
-  taken), and its links, sources and focus follow.
+  taken), and its links, sources and focus follow. A `desk.json` saved from the `daily` layout before ids gets the
+  links that layout has gained since (the claude tile's, to `middle`), on tiles that have none.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
 - **`reader=<tile>`** takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
   place.
 - **The revision.** `layout.get` gives `rev`, a number that changes whenever the tree's shape does: a split,
-  tab set or tile added, taken away or moved. A resize or showing another tab doesn't change it. Any desk
+  tab set or tile added, taken away or moved. A resize or showing another tab doesn't change it. It only goes
+  up, and never repeats across a restart (it starts from the clock, or from the one `desk.json` saved), so an
+  agent that outlives the door (the Herdr agent) is refused, not misled, after one. Any desk
   action takes `expected=<rev>`; if the layout changed since, it's refused and nothing is done ("the layout
   changed since revision 7 …"). Pass it whenever you name something by place: a `path`, or a `#number`.
 - **The board's readers** are `preview`, `detail1`, `detail2`, `float1`…: a detail keeps its name while it

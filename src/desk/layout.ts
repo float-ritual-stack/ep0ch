@@ -453,6 +453,14 @@ export function reorder<I>(root: LNode<I>, id: I, index: number): LNode<I> | nul
   return out;
 }
 
+/** Drop the ids (`s<n>`, `g<n>`) of the splits and tab sets whose number `gone` says was given out already. */
+export function forgetIds<I>(n: LNode<I>, gone: (num: number) => boolean): void {
+  if (n.t === "leaf") return;
+  const m = n.id ? /^[sg](\d+)$/.exec(n.id) : null;
+  if (n.id && (!m || gone(Number(m[1])))) delete n.id;
+  if (n.t === "split") for (const k of n.kids) forgetIds(k, gone);
+}
+
 /** A copy of the tree's shape (the ids themselves are kept). */
 export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
