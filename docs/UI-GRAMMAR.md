@@ -618,7 +618,7 @@ collapsed to its headings. So the river keeps two things apart:
   move it and its highlight only; every column's place, width, cover and scroll stay cell for cell. A column
   off the strip altogether is the one exception: `h` `l` bring it on, one step.
 - **The wide column** is what the layout is built around (`describe()`'s `wide`). Only an explicit shift
-  moves it: `w`, a click on a column's **header** (its top border; a spine's top cell), the `widen` action,
+  moves it: `w`, a click on a column's **header** (its top border; anywhere on a spine, which is all title strip, as a click on a board spine opens it), the `widen` action,
   and an open that couldn't otherwise show the new column full. The column the person was reading (the one
   they were in before) stays full beside it when there's room; a dock (`p`) outranks it.
 - **Why these inputs:** the first click must be harmless, so the shift needs a different target, not a second

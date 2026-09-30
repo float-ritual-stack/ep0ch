@@ -53,6 +53,8 @@ interface PaneS {
   surface: NoteSurface;
   /** The agents that acted in the surface's current edit or comment (`of`); stale once that ends. */
   agents: { of: Draft | CommentSession | null; ids: Set<string> };
+  /** A covered column's last digest of its note, reused while nothing it depends on has changed (`River.gen`). */
+  digest?: { key: string; m: Msg; s: Msg | null; dg: ReturnType<NoteSurface["digest"]> };
   /** When the property notice or agent line now showing was first drawn. */
   shown?: { key: string; at: number };
   /** Every row the pane drew last (not just those in view), for selecting text (PIE-419). */
@@ -159,13 +161,20 @@ export class River implements Screen {
   private indexing: number | null = null;
   private lastIndex = 0;
   private lastTick = 0;
+  /**
+   * Bumped by everything that can change what a note's digest draws without the note itself changing: a
+   * surface's redraw (a title or an embed read, a fold, a step, a comment) and every outline event. A
+   * covered (peek) column reuses its digest while this, its width, its note and its cursor stay the same,
+   * so a long note under its neighbour costs nothing per frame (a key over ssh repaints every column).
+   */
+  private gen = 0;
   private mode: "" | "filter" | "palette" | "tags" | "help" = "";
   private input = "";
   private matches: IndexBlock[] = [];
   private msel = 0;
   private tagChoices: [string, string][] = [];
   private hits: Hit[] = [];
-  private colRects: { col: number; rect: Rect }[] = [];
+  private colRects: { col: number; rect: Rect; cover: Cover }[] = [];
   private reloads = new Map<PaneS, Timer>();
   private pid = 1;
   /**
@@ -324,7 +333,8 @@ export class River implements Screen {
    */
   private widen(ci: number) {
     const col = this.cols[ci];
-    if (!col) return;
+    // Already the wide one: nothing moves (w or its header again is never a second shift).
+    if (!col || ci === this.anchor) return;
     // Keep full the column the person was reading: the one they were in before this one, else the old wide one.
     const read = this.cols.find(c => c.uid === this.readUid && c !== col) ?? this.cols[this.anchor];
     if (read && read !== col) this.keepUid = read.uid;
@@ -359,7 +369,7 @@ export class River implements Screen {
       // neighbour, which is drawn next and slides over it like a drawer.
       const rect: Rect = { col: x, row: 0, cols: width, rows: H };
       const box: Rect = { ...rect, cols: natural };
-      this.colRects.push({ col: ci, rect });
+      this.colRects.push({ col: ci, rect, cover });
       x += width;
       const focused = ci === this.focus;
       canvas.clear({ ...box, cols: Math.min(box.cols, W - box.col) });
@@ -383,7 +393,7 @@ export class River implements Screen {
           body = { ...r, row: r.row + 1, rows: r.rows - 1 };
         }
         // A peek draws the same view as a full column, at the same width, so nothing rewraps or jumps when it widens.
-        const view = this.full(p, body, focused && pi === col.pane);
+        const view = this.full(p, body, focused && pi === col.pane, cover === "peek");
         view.lines.forEach((l, i) => canvas.text(body.col, body.row + i, l, body.cols));
         // What a click can reach: the part of the pane in view (a peek's right side is under its neighbour).
         const seen: Rect = { ...body, cols: Math.max(0, Math.min(body.cols, rect.col + rect.cols - 1 - body.col)) };
@@ -416,7 +426,7 @@ export class River implements Screen {
     for (let y = r.row; y < r.row + r.rows; y++) canvas.text(edge, y, fg(C.dark) + "▒" + RESET, 1);
   }
 
-  private full(p: PaneS, r: Rect, active: boolean): { lines: string[]; rows: Hit["rows"] } {
+  private full(p: PaneS, r: Rect, active: boolean, covered = false): { lines: string[]; rows: Hit["rows"] } {
     const w = r.cols;
     // Editing, quoting, the thread list: the shared surface, drawn in the column.
     if (p.surface.editing && p.surface.msg) return { lines: p.surface.render(w, r.rows, this.hostFor(p)).lines, rows: [] };
@@ -438,8 +448,11 @@ export class River implements Screen {
       // column scrolls, so nothing is cut short or sent elsewhere (PIE-465).
       const host = this.hostFor(p);
       if (p.surface.msg?.id !== m.id) p.surface.show(m, host);
-      const dg = p.surface.digest(m, w - 1, host), at = all.length;
-      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: dg.links.filter(x => x.row === i).map(x => ({ from: x.from + 1, to: x.to + 1, link: x.link })) }));
+      const dg = this.digestOf(p, m, w - 1, host, covered), at = all.length;
+      // The links by row, once (a long note has thousands of each: filtering per row was quadratic).
+      const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
+      for (const x of dg.links) { const at = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (at) at.push(l); else byRow.set(x.row, [l]); }
+      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: byRow.get(i) ?? [] }));
       // The element `[ ]` just stepped to comes into view (only when it changed: the wheel still reads on).
       if (dg.key !== (p.shownElem ?? null)) {
         p.shownElem = dg.key;
@@ -481,6 +494,19 @@ export class River implements Screen {
     this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
     return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history })) };
+  }
+
+  /**
+   * The note's digest through the shared surface. A covered column reuses its last one while nothing it
+   * depends on changed (see `gen`): a peek draws the whole note, and rendering a long one every frame would
+   * make every key cost as much as the longest note under a neighbour.
+   */
+  private digestOf(p: PaneS, m: Msg, w: number, host: SurfaceHost, reuse: boolean): ReturnType<NoteSurface["digest"]> {
+    const key = `${this.gen}|${w}|${m.revision ?? ""}|${p.surface.cursorKey}`, d = p.digest;
+    if (reuse && d && d.key === key && d.m === m && d.s === p.surface.msg) return d.dg;
+    const dg = p.surface.digest(m, w, host);
+    p.digest = { key, m, s: p.surface.msg, dg };
+    return dg;
   }
 
   /** Scroll a column by lines; the next draw keeps it within the column's content. */
@@ -617,7 +643,7 @@ export class River implements Screen {
       "m              the note's comment threads (r reply · x resolve)",
       "[ ] u          select a link (⏎ follows it beside) · the parent",
       "               the column's note: the one it opened on; in the Library and a #tag, the selected one",
-      "click          in a column: its keys, a note, replies · on its header: widen it",
+      "click          in a column: its keys, a note, replies · on its header or a spine: widen it",
     ];
     help.forEach((l, i) => canvas.text(r.col + 1, r.row + i, fg(C.grey) + l + RESET, r.cols - 1));
   }
@@ -734,7 +760,7 @@ export class River implements Screen {
   private hostFor(p: PaneS, actor?: Actor): SurfaceHost {
     return {
       ctx: this.ctx,
-      redraw: () => this.ctx.redraw(),
+      redraw: () => { this.gen++; this.ctx.redraw(); },
       // alt+⏎ (PIE-441) opens it in a new column even when one shows it already.
       navigate: (m, how) => {
         const at = this.cols.findIndex(c => c.panes.includes(p));
@@ -979,6 +1005,7 @@ export class River implements Screen {
     const t = this.pick(sel);
     const moved = this.focus !== t.ci || this.cols[t.ci]!.pane !== t.pi;
     this.focus = t.ci; this.cols[t.ci]!.pane = t.pi;
+    this.reveal(t.ci);                         // as h l: a column off the strip altogether is brought on, nothing else moves
     if (moved) this.entered = null;          // the person comes back to an edit by moving: they enter it again
     this.save(); this.ctx.redraw();
     return { focus: t.name, at: t.at };
@@ -1031,6 +1058,7 @@ export class River implements Screen {
   }
 
   onEvent(e: OutlineEvent) {
+    this.gen++;
     this.refreshSurfaces(e);
     if (e.action === "reset") {                        // reconnected without a catch-up: every pane again
       for (const c of this.cols) for (const p of c.panes) this.load(p);
@@ -1205,11 +1233,12 @@ export class River implements Screen {
       // Only a click in the column that already has the keys can open a card: the first one only focuses.
       const wasIn = !!h && this.focus === h.col && this.cols[h.col]!.pane === h.pane;
       // A click in a column gives it the keys and nothing else: no column moves, widens or scrolls. A click
-      // on its header (the top border, a spine's top cell) is the shift: it takes the wide place too.
+      // on its header (the top border) is the shift: it takes the wide place too. A spine is all title strip,
+      // header and nothing else, so a click anywhere on it is the shift, as a click on a board spine opens it.
       if (cr) {
         if (cr.col !== this.focus && this.cols[this.focus]) this.readUid = this.cols[this.focus]!.uid;
         this.focus = cr.col;
-        if (k.y === cr.rect.row) this.shift(cr.col);
+        if (k.y === cr.rect.row || cr.cover === "spine") this.shift(cr.col);
       }
       this.down = null;
       if (h) {

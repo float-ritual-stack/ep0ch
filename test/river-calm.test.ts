@@ -172,4 +172,52 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     key({ kind: "alt-right" });
     expect(focusedTitle()).toBe("Harbour log");
   });
+
+  test("w or a header click on the column that's already wide moves nothing", () => {
+    // The keys in a peek, then in the wide column: before, a widen here made the peek the kept column.
+    const peek = cols().find(c => c.cover === "peek")!.panes[0].title as string;
+    const p = rectOf(peek);
+    click(p.col + 3, p.row + 10);
+    const wide = wideTitle(), r = rectOf(wide);
+    click(r.col + 3, r.row + 10);
+    const before = geometry();
+    key(char("w"));
+    expect(geometry()).toBe(before);
+    click(r.col + 4, r.row);
+    expect(geometry()).toBe(before);
+    expect(wideTitle()).toBe(wide);
+  });
+
+  test("a click anywhere on a spine widens it: a spine is all title strip, as a board spine opens on a click", () => {
+    const t = (app as any).term.info, was = t.cols;
+    t.cols = 120;                                                // narrow enough for spines
+    try {
+      draw();
+      const spine = cols().find(c => c.cover === "spine")!.panes[0].title as string;
+      const s = rectOf(spine);
+      click(s.col + 1, s.row + 15);                              // the middle of the spine, not its top cell
+      expect(focusedTitle()).toBe(spine);
+      expect(wideTitle()).toBe(spine);
+      expect(coverOfTitle(spine)).toBe("full");
+    } finally { t.cols = was; draw(); }
+  });
+
+  test("a peek reuses its note's digest from frame to frame, and a change to the note still shows", async () => {
+    const i = cols().findIndex(c => c.cover === "peek" && c.panes[0].source.kind === "block");
+    expect(i).toBeGreaterThanOrEqual(0);
+    const p = R().cols[i].panes[0], s = p.surface;
+    const real = s.digest.bind(s);
+    let calls = 0;
+    s.digest = (...a: any[]) => { calls++; return real(...a); };
+    try {
+      draw(); calls = 0;
+      for (let n = 0; n < 5; n++) draw();
+      expect(calls).toBe(0);                                     // nothing changed: the peek's note isn't rendered again
+      // Another client's edit of that note reaches the covered column.
+      const id = p.source.id, now = (await board.request("blocks.context", { blockId: id })).selected;
+      await board.request("update", { blockId: id, text: now.text + "\n\nA line added from the quay.", expectedRevision: now.revision, mutation: { author: "agent", actorId: "calm-writer" } });
+      await until(() => plain(draw().join("\n")).includes("A line added from"), "the edit in the peek", 5000);
+      expect(calls).toBeGreaterThan(0);
+    } finally { s.digest = real; }
+  });
 });
