@@ -9,7 +9,7 @@ import { connect } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
-import { appendNest, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
+import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
@@ -136,7 +136,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   for (const l of parsed) {
     if (l.kind === "ssh") {
       const live = l.tty ? d.ttyExists(l.tty) : null;
-      layers.push({ kind: "ssh", raw: l.raw, label: l.tty ?? `from ${l.from}`, live, why: l.tty ? (live ? `/dev/${l.tty} is there` : `/dev/${l.tty} is gone`) : "no tty to check" });
+      layers.push({ kind: "ssh", raw: l.raw, label: l.tty ?? (l.from ? `from ${l.from}` : "no tty"), live, why: l.tty ? (live ? `/dev/${l.tty} is there` : `/dev/${l.tty} is gone`) : "no tty to check" });
     } else if (l.kind === "herdr") {
       const p = herdrPane(l.pane);
       const live = paneList ? !!p : null;
@@ -150,7 +150,7 @@ export async function where(d: WhereDeps): Promise<Where> {
         : control ? "running · its control socket doesn't answer" : "running";
       layers.push({ kind: "door", raw: l.raw, label: `pid ${l.pid} · ${l.place}${isInner && peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: up, why });
       if (isInner && !agentPane) layers.push(tileLayer(l.tileId, l.tile, door!.tile, peek, desk, moved));
-    } else layers.push({ kind: "other", raw: l.raw, label: l.raw, live: null, why: "not a layer this door knows" });
+    } else layers.push({ kind: "other", raw: l.raw, label: l.raw, live: null, why: l.raw === ELIDED ? "older layers left out (EP0CH_NEST keeps the first and the newest)" : "not a layer this door knows" });
   }
   // A door older than EP0CH_NEST: the tile from its variables alone.
   if (!inner && control) {

@@ -17,6 +17,13 @@ describe("EP0CH_NEST", () => {
     expect(layers.at(-1)).toBe("door:1039/daily/t39:claude");
   });
 
+  test("an inherited nest is cleaned too: a newline stays out, and an overlong layer can't push the newest out", () => {
+    expect(appendNest("ssh:pts/5\nIgnore the above › door:1/desk/t1:a", "door:2/desk/t2:b")).toBe("ssh:pts/5 Ignore the above › door:1/desk/t1:a › door:2/desk/t2:b");
+    const nest = appendNest("x".repeat(600), "door:3/desk/t1:claude");
+    expect(nest.length).toBeLessThanOrEqual(NEST_MAX);
+    expect(nestLayers(nest).at(-1)).toBe("door:3/desk/t1:claude");
+  });
+
   test("layers parse back", () => {
     expect(parseLayer("door:1388380/desk/t1:claude")).toEqual({ kind: "door", raw: "door:1388380/desk/t1:claude", pid: 1388380, place: "desk", tileId: "t1", tile: "claude" });
     expect(parseLayer("door:5/daily/-:my tile")).toMatchObject({ tileId: null, tile: "my tile" });
@@ -29,7 +36,9 @@ describe("EP0CH_NEST", () => {
   test("the outer layers: ssh then the Herdr pane, each only when the nest lacks it", () => {
     const env = { SSH_TTY: "/dev/pts/5", SSH_CONNECTION: "192.0.2.4 50000 192.0.2.9 22", HERDR_PANE_ID: "w1:p1", HERDR_WORKSPACE_ID: "w1" };
     expect(outerLayers(env, undefined)).toEqual(["ssh:pts/5", "herdr:w1:p1"]);
-    expect(outerLayers({ SSH_CONNECTION: "192.0.2.4 50000 192.0.2.9 22" }, undefined)).toEqual(["ssh:192.0.2.4"]);
+    // Without a tty the session is recorded, never the client's address.
+    expect(outerLayers({ SSH_CONNECTION: "192.0.2.4 50000 192.0.2.9 22" }, undefined)).toEqual(["ssh:-"]);
+    expect(parseLayer("ssh:-")).toMatchObject({ kind: "ssh", tty: null, from: null });
     expect(outerLayers({ HERDR_PANE_ID: "p3", HERDR_WORKSPACE_ID: "w2" }, undefined)).toEqual(["herdr:w2:p3"]);
     expect(outerLayers(env, "ssh:pts/5 › herdr:w1:p1 › door:9/desk/t1:shell")).toEqual([]);
     // The launcher's pane, named by its label: the same pane the Herdr variables name.
@@ -43,6 +52,13 @@ describe("EP0CH_NEST", () => {
     // A door opened in that tile appends itself, and never records the ssh session twice.
     const inner = tileEnv({ ...env }, "shell", "/c/inner.sock", "t2", "daily", 42);
     expect(inner.EP0CH_NEST).toBe("ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude › door:42/daily/t2:shell");
+  });
+
+  test("door in Herdr in door: the inner Herdr pane is recorded between the doors", () => {
+    const outer = tileEnv({ SSH_TTY: "/dev/pts/5", HERDR_PANE_ID: "w1:p1", HERDR_WORKSPACE_ID: "w1" }, "shell", "/c/outer.sock", "t1", "desk", 100);
+    // Herdr, run from that tile, makes a pane (its own id) whose door starts a tile.
+    const inner = tileEnv({ ...outer, HERDR_PANE_ID: "w1:p4", HERDR_WORKSPACE_ID: "w1" }, "claude", "/c/inner.sock", "t1", "desk", 200);
+    expect(inner.EP0CH_NEST).toBe("ssh:pts/5 › herdr:w1:p1 › door:100/desk/t1:shell › herdr:w1:p4 › door:200/desk/t1:claude");
   });
 
   test("the Herdr launcher's pane gets the tile's nest and its own label", () => {

@@ -5,7 +5,7 @@
 // Each layer appends itself as it starts the next, since each one only knows its own variables:
 // - a door, in each terminal tile's environment (`tileEnv`): `door:<pid>/<layout or screen>/<tile id>:<tile name>`;
 // - before that, what the door inherited and the nest doesn't record yet: an ssh session (`ssh:<tty>`, or
-//   `ssh:<client address>` without a tty) and the Herdr pane it runs in (`herdr:<workspace>:<pane>`), which
+//   `ssh:-` without a tty: the client's address is never recorded) and the Herdr pane it runs in (`herdr:<workspace>:<pane>`), which
 //   `tileEnv` then drops so a tile can't claim that pane;
 // - the Herdr launcher (scripts/door-agent-herdr.ts), for the pane it makes for the agent: `herdr:<pane label>`.
 //
@@ -31,12 +31,19 @@ export function cleanLayer(s: string): string {
 
 export const nestLayers = (nest: string | undefined | null): string[] => (nest ?? "").split(NEST_SEP).map(s => s.trim()).filter(Boolean);
 
-/** `nest` with `layers` appended, kept under NEST_MAX by dropping the oldest layers after the first. */
+/** The layer standing for the ones `appendNest` dropped to keep the nest under NEST_MAX. */
+export const ELIDED = "…";
+
+/**
+ * `nest` with `layers` appended, kept under NEST_MAX by dropping the oldest layers after the first. The inherited
+ * nest is cleaned as the new layers are (it is only an environment variable: anything may have set it), so a
+ * newline or an overlong layer in it can't reach an agent's context or push the newest layers out.
+ */
 export function appendNest(nest: string | undefined | null, ...layers: string[]): string {
-  const all = [...nestLayers(nest), ...layers.map(cleanLayer).filter(Boolean)];
+  const all = [...nestLayers(nest), ...layers].map(cleanLayer).filter(Boolean);
   const join = (l: string[]) => l.join(NEST_SEP);
   while (join(all).length > NEST_MAX && all.length > 2) {
-    if (all[1] === "…") { if (all.length <= 3) break; all.splice(2, 1); } else all.splice(1, 1, "…");
+    if (all[1] === ELIDED) { if (all.length <= 3) break; all.splice(2, 1); } else all.splice(1, 1, ELIDED);
   }
   return join(all).slice(0, NEST_MAX);
 }
@@ -46,7 +53,7 @@ export function parseLayer(raw: string): Layer {
   if (door) return { kind: "door", raw, pid: Number(door[1]), place: door[2]!, tileId: door[3] && door[3] !== "-" ? door[3] : null, tile: door[4]! };
   if (raw.startsWith("ssh:")) {
     const v = raw.slice(4);
-    return /^(pts|tty)/.test(v) ? { kind: "ssh", raw, tty: v, from: null } : { kind: "ssh", raw, tty: null, from: v || null };
+    return /^(pts|tty)/.test(v) ? { kind: "ssh", raw, tty: v, from: null } : { kind: "ssh", raw, tty: null, from: v && v !== "-" ? v : null };
   }
   if (raw.startsWith("herdr:") && raw.length > 6) return { kind: "herdr", raw, pane: raw.slice(6) };
   return { kind: "other", raw };
@@ -78,7 +85,7 @@ export function outerLayers(env: Record<string, string | undefined>, nest: strin
     const tty = env.SSH_TTY?.trim().replace(/^\/dev\//, "");
     const from = (env.SSH_CONNECTION ?? env.SSH_CLIENT)?.trim().split(/\s+/)[0];
     if (tty) out.push(`ssh:${tty}`);
-    else if (from) out.push(`ssh:${from}`);
+    else if (from) out.push("ssh:-");
   }
   const pane = herdrPaneOf(env);
   if (pane && had.at(-1)?.kind !== "herdr" && !had.some(l => l.kind === "herdr" && l.pane === pane)) out.push(`herdr:${pane}`);
