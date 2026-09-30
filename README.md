@@ -434,8 +434,10 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   none): a Nordic, German or British keyboard types some of these characters with keys of their own, so
   there they stay letters. `EP0CH_OPTION_KEYS=us` or `off` decides it instead. The chip's click works in every terminal.
 - **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
-  above does too, and a click in the drawer goes back in. Inside it, every key is the agent's except
-  `ctrl+]`, `alt+a` and `alt+A`.
+  above does too. Going back in: a click in the drawer, or `ctrl+]` again (right away, it also sends the agent
+  a `ctrl+]`, as in a terminal tile; in a desk's terminal tile you're typing in, `ctrl+]` is that tile's).
+  Inside it, every key is the agent's except `ctrl+]`, `alt+a` and `alt+A`. While the drawer has the agent,
+  the desk's `claude` tile isn't entered: `⏎` or a click there says it's in the drawer.
 - **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
 - **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
 - **One agent.** It runs what the daily layout's agent tile runs (`EP0CH_DAILY_AGENT`: with the Herdr launcher,

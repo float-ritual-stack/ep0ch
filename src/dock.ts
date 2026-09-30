@@ -39,6 +39,8 @@ export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
 export const HEIGHT_STEPS = [0.4, 0.5, 0.6, 0.75] as const;
 /** A drawer is never shorter than this many rows (its frame and two of the program's). */
 const MIN_ROWS = 4;
+/** A second ctrl+] within this long is the chord's second press (the terminal tile's window too). */
+const CHORD_MS = 1500;
 /** How long after the program's last output the chip still says `working` (no Herdr status to ask). */
 const WORKING_MS = 1500;
 /** How often Herdr is asked for the agent's state while the drawer shows a Herdr pane. */
@@ -78,6 +80,12 @@ export class AgentDock implements SharedAgent {
   chipAt: { from: number; to: number; row: number } | null = null;
   private p: PtyPane | null = null;
   private viewers = new Set<{ redraw(): void }>();
+  /**
+   * ctrl+]: when the person last left the drawer with it (a second one within CHORD_MS goes back in and sends
+   * the agent a ctrl+], as a terminal tile's does), and when one last went by to the screen (its own second).
+   */
+  private leftAt = 0;
+  private passedAt = 0;
   /** The top edge is being dragged; the program has the mouse until the button comes up. */
   private dragging = false;
   private capture: Rect | null = null;
@@ -128,6 +136,7 @@ export class AgentDock implements SharedAgent {
   isShared(p: unknown): boolean { return !!p && p === this.p; }
   /** The drawer shows it now: a desk tile of the same program draws a note instead (one size at a time). */
   drawnElsewhere(p: unknown): boolean { return this.isShared(p) && this.shown; }
+  personIn(p: unknown): boolean { return this.isShared(p) && this.shown && this.entered; }
   watch(v: { redraw(): void }) { this.viewers.add(v); }
   unwatch(v: { redraw(): void }) { this.viewers.delete(v); }
 
@@ -247,7 +256,7 @@ export class AgentDock implements SharedAgent {
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
       : this.entered
       ? `${fg(C.yellow)}every key goes to ${DOCK_NAME} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
-      : `${fg(C.dark)}click in it to type · alt+a or Esc puts it away · alt+A height`;
+      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+a or Esc puts it away · alt+A height`;
     canvas.box(box, fg(this.entered ? C.yellow : C.brown), title, hint);
     const inner = { cols: cols - 2, rows: r.rows - 2 };
     if (inner.cols >= 2 && inner.rows >= 1) {
@@ -276,7 +285,11 @@ export class AgentDock implements SharedAgent {
     if (k.kind === "mouse") return this.mouse(k, rows, run);
     if (this.shown && this.entered) {
       const p = this.pane();
-      if (isEscapeChord(k)) { this.entered = false; this.host.flash(`back to the ${screen?.title ?? "screen"} · click in ${DOCK_NAME} to type again · Esc or alt+a puts it away`); this.host.redraw(); return true; }
+      if (isEscapeChord(k)) {
+        this.entered = false; this.leftAt = Date.now();
+        this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${DOCK_NAME}) · Esc or alt+a puts it away`);
+        this.host.redraw(); return true;
+      }
       if (isAlt(k, "a")) { run("agent.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
       if (!p.running) {
@@ -288,16 +301,35 @@ export class AgentDock implements SharedAgent {
       return true;
     }
     if (isAlt(k, "a")) { run("agent.toggle", {}); return true; }
+    if (this.shown && isEscapeChord(k)) return this.chordBack(screen);
     if (this.shown && isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
     if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("agent.toggle", { open: false }); return true; }
     return false;
   }
 
+  /**
+   * ctrl+] with the drawer up and the person out of it: back in (the keyboard's way, as a click is), or, right
+   * after leaving it with ctrl+], back in with a ctrl+] sent to the agent. A screen's own ctrl+] comes first: in
+   * its terminal tile it leaves the tile, and its second right after goes to that tile's program.
+   */
+  private chordBack(screen: Screen | undefined): boolean {
+    const now = Date.now();
+    if (now - this.leftAt < CHORD_MS && this.p?.running) {
+      this.leftAt = 0; this.entered = true; this.openedBy = null;
+      this.p.input("\x1d");
+      this.host.flash(`sent ${ESCAPE_CHORD} to ${DOCK_NAME}`); this.host.redraw(); return true;
+    }
+    if (screen?.rawKeys?.() || now - this.passedAt < CHORD_MS) { this.passedAt = now; return false; }
+    this.leftAt = 0; this.entered = true; this.openedBy = null;
+    this.host.redraw(); return true;
+  }
+
   private mouse(k: Extract<Key, { kind: "mouse" }>, rows: number, run: DockRun): boolean {
     const p = this.p;
     if (this.dragging) {
-      if (k.action === "drag") { const room = rows - 1; run("agent.height", { share: (room - Math.max(1, k.y)) / room }); }
+      // Dragged past the ends (onto the status row, or the top): as far as it goes, not a refusal.
+      if (k.action === "drag") { const room = rows - 1; run("agent.height", { share: clamp((room - Math.max(1, k.y)) / room) }); }
       if (k.action === "up") this.dragging = false;
       return true;
     }

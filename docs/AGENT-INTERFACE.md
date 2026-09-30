@@ -222,7 +222,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.link` | `reader`, `to` | |
 | `tile.pin`, `tile.drawer` | `on`, `open` | |
 | `tile.preview` | `reader`, `where` | |
-| `tile.type`, `tile.restart` | `text` | never into the terminal the person is in |
+| `tile.type`, `tile.restart` | `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
 | `tab.select` | `reader`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where `ep0ch open` puts it). A program in a tile passes `from=$EP0CH_TILE` and never names a reader. The person's own open gives the tile the keys, an agent's never does |
 | `tile.herdr` | `reader`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits |

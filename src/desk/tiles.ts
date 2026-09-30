@@ -173,6 +173,8 @@ export interface SharedAgent {
   isShared(p: unknown): boolean;
   /** The dock's drawer shows it now: a desk tile draws a note in its place, so it has one size at a time. */
   drawnElsewhere(p: unknown): boolean;
+  /** The person is typing in it in the drawer: an agent's `tile.type` would mix into their keys. */
+  personIn(p: unknown): boolean;
   /** A desk showing it repaints when it writes; `unwatch` when that desk goes. */
   watch(v: { redraw(): void }): void;
   unwatch(v: { redraw(): void }): void;
