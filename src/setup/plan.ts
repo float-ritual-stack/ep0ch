@@ -212,6 +212,12 @@ export function hostStep(f: Facts, pluginUpdates: boolean): Step {
   if (elsewhere && (after || !h.running)) {
     return { id: "host", title, status: "manual", why: `${u.path} runs ${elsewhere}, not the installed plugin's ${join(f.plugin!.root, "src/host-main.ts")}; point the unit at it, then ${hostUnitCommand(u, "restart")}`, commands: [] };
   }
+  // The socket answers but the unit's job isn't running: another process serves it (a host started by hand),
+  // and starting the unit beside it would fight it for the socket.
+  if (h.running && u.state?.active === false) {
+    if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (not as ${u.kind} ${u.name}, which isn't running)`, commands: [] };
+    return { id: "host", title, status: "manual", why: `${after}, but another process answers at ${h.socket}, not ${u.kind} ${u.name}; stop that process, then ${hostUnitCommand(u, "start")}`, commands: [] };
+  }
   if (!h.running) {
     return { id: "host", title: "Start the outline host", status: "do", why: `${u.kind} ${u.name} is set up but nothing answers at ${h.socket}${u.state ? ` (${u.state.detail})` : ""}`, commands: [hostUnitCommand(u, "start")] };
   }

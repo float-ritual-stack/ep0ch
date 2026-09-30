@@ -78,6 +78,23 @@ describe("platform", () => {
     expect(hostUnit("macos", home)).toEqual({ kind: "launchd", path: join(home, "Library/LaunchAgents/io.example.garden.plist"), name: "io.example.garden-host", program: "/opt/outliner/src/host-main.ts" });
     expect(hostUnit("other", home)).toBeNull();
   });
+
+  test("only a unit serving the asked state folder is the host's: another folder's unit is another host, never restarted for this one", () => {
+    const home = join(scratch, "unit-state-home");
+    const dir = join(home, ".config/systemd/user");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "orchard-host.service"), "[Service]\nEnvironment=OUTLINER_STATE_DIR=%h/.local/state/orchard\nExecStart=bun /opt/outliner/src/host-main.ts\n");
+    // A scratch folder (a test's host): no unit serves it.
+    expect(hostUnit("linux", home, join(scratch, "scratch-state"))).toBeNull();
+    // The default folder: this unit sets another one, so it isn't the default host's either.
+    expect(hostUnit("linux", home)).toBeNull();
+    expect(hostUnit("linux", home, join(home, ".local/state/orchard"))?.name).toBe("orchard-host.service");
+    const mac = join(scratch, "unit-state-mac");
+    mkdirSync(join(mac, "Library/LaunchAgents"), { recursive: true });
+    writeFileSync(join(mac, "Library/LaunchAgents/io.example.orchard.plist"), `<key>Label</key><string>io.example.orchard</string><key>EnvironmentVariables</key><dict><key>OUTLINER_STATE_DIR</key><string>${mac}/state/orchard/</string></dict><array><string>/opt/outliner/src/host-main.ts</string></array>`);
+    expect(hostUnit("macos", mac, join(mac, "state/orchard"))?.name).toBe("io.example.orchard");
+    expect(hostUnit("macos", mac)).toBeNull();
+  });
 });
 
 describe("the PATH link chooser", () => {
@@ -256,6 +273,23 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
     expect(hostStep(mac({ unit: null }), true)).toMatchObject({ status: "manual" });
     const linux = { ...mac({ unit: { kind: "systemd", path: "/home/wren/.config/systemd/user/outliner-host.service", name: "outliner-host.service", program: `${PLUGIN}/src/host-main.ts` } }), platform: "linux" as const };
     expect(hostStep(linux, true).commands).toEqual(["systemctl --user restart outliner-host.service"]);
+  });
+
+  test("a linked checkout under a systemd unit (float-2): the unit runs that checkout, so a pull restarts it through systemd", () => {
+    const root = "/home/wren/projects/pi-herdr-outliner";
+    const linked = { ...mac({ unit: { kind: "systemd", path: "/home/wren/.config/systemd/user/outliner-host.service", name: "outliner-host.service", program: `${root}/src/host-main.ts`,
+      state: { active: true, pid: 77, detail: "systemd: active (running), pid 77" } } }), platform: "linux" as const };
+    linked.plugin = { ...linked.plugin!, kind: "local", root };
+    expect(hostStep(linked, true)).toMatchObject({ status: "do", commands: ["systemctl --user restart outliner-host.service"] });
+    // Nothing pulled and nothing missing: the host is left running.
+    expect(hostStep(linked, false)).toMatchObject({ status: "skip" });
+  });
+
+  test("the socket answers but the unit isn't running: another process serves it, and install doesn't start the unit beside it", () => {
+    const beside = mac({ unit: { ...unit, state: { active: false, lastExit: "1", detail: "launchd: not running, last exit 1" } } });
+    expect(hostStep(beside, true)).toMatchObject({ status: "manual" });
+    expect(hostStep(beside, true).why).toContain("another process answers");
+    expect(hostStep(beside, false)).toMatchObject({ status: "skip" });
   });
 });
 

@@ -230,8 +230,9 @@ macOS and Linux alike:
    laptop) or `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and
    checks it offers what the plugin does. The doors and panes on it reconnect by themselves. A host
    that's set up but not answering is started the same way (`launchctl bootstrap` when launchd hasn't
-   loaded it). A host outside any unit, or a unit that runs another checkout's `host-main.ts`, is left
-   to you.
+   loaded it). A host outside any unit, a unit that runs another checkout's `host-main.ts`, or one the unit
+   doesn't run (another process answers its socket) is left to you. Only a unit whose `OUTLINER_STATE_DIR`
+   (or the default) is the host's own state folder counts as its unit.
 
 A checkout that isn't on `main`, has diverged, or is behind with local changes is left for you, with
 what to do. Install never writes a database (it only copies them), never creates or starts an outline,
@@ -274,6 +275,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
+| `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
 | `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
@@ -428,7 +430,9 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   Terminal's "Use Option as Meta key"). Otherwise it types `å`: where nobody is typing text, the door reads
   that as `alt+a` (and `¬` as `alt+l`, `∂` as `alt+d`, and so on) and says once which setting sends Alt; in
   an edit, a filter or the drawer's agent it stays the letter. Option+n is a dead key, so `alt+n` needs the
-  setting. The chip's click works in every terminal.
+  setting. Only on a US-like keyboard, judged by the locale (an English one outside Britain and Ireland, or
+  none): a Nordic, German or British keyboard types some of these characters with keys of their own, so
+  there they stay letters. `EP0CH_OPTION_KEYS=us` or `off` decides it instead. The chip's click works in every terminal.
 - **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
   above does too, and a click in the drawer goes back in. Inside it, every key is the agent's except
   `ctrl+]`, `alt+a` and `alt+A`.

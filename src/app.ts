@@ -6,7 +6,7 @@ import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } 
 import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
-import { OPTION_AS_ALT_HINT, OPTION_KEYS, pasteKeys, type Key, type Term, type TermInfo } from "./term";
+import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
@@ -451,16 +451,18 @@ export class App implements Ctx {
    * A Mac terminal that types Option as characters sends ¬ for alt+l. Where nobody is typing text (no edit,
    * filter, panel, terminal tile or the agent drawer holds the keys), such a character is the alt key it
    * stands for, and the first one says once which terminal setting sends alt itself. In text it stays what
-   * was typed (façade, µm).
+   * was typed (façade, µm). Only on a US-like keyboard (optionKeysOn: by the locale, or EP0CH_OPTION_KEYS).
    */
   private optionAsAlt(k: Key): Key {
-    if (k.kind !== "char" || k.ctrl || k.pasted) return k;
+    if (!this.optionKeys || k.kind !== "char" || k.ctrl || k.pasted) return k;
     const alt = OPTION_KEYS[k.ch];
     const top = this.stack.at(-1);
     if (!alt || this.dockHoldsKeys() || top?.holdsKeys?.() || top?.rawKeys?.()) return k;
     return { kind: "alt", ch: alt };
   }
   private saidOptionKeys = false;
+  /** Option characters are read as alt keys here (a test sets it). */
+  optionKeys = optionKeysOn();
 
   private tick() {
     const s = this.stack.at(-1);

@@ -2,16 +2,17 @@
 // read the platform take it as an argument or a fake.
 import { describe, expect, test } from "bun:test";
 import { App } from "../src/app";
-import { OPTION_KEYS } from "../src/term";
+import { OPTION_KEYS, optionKeysOn } from "../src/term";
 import { procAncestors } from "../src/where";
 
 /** A door on a fake terminal with one screen that records its keys; `holds` says whether text is being typed. */
-function door(holds = false) {
+function door(holds = false, optionKeys = true) {
   const keys: unknown[] = [];
   let flashed = "";
   const term = { info: { cols: 80, rows: 24, cellW: 9, cellH: 18, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {} };
   const app = new App(term as any, {} as any, Date.now(), () => {});
   const screen = { title: "desk", render: () => ({ lines: [] }), key: (k: unknown) => keys.push(k), holdsKeys: () => holds };
+  app.optionKeys = optionKeys;
   app.push(screen as any);
   const real = app.flash.bind(app);
   app.flash = (m: string, ms?: number) => { flashed = m; real(m, ms); };
@@ -68,6 +69,32 @@ describe("Option typing characters instead of sending Alt (kitty's default)", ()
       d.press({ kind: "char", ch: "l" });
       d.press({ kind: "alt", ch: "l" });
       expect(d.keys).toEqual([{ kind: "char", ch: "l" }, { kind: "alt", ch: "l" }]);
+      expect(d.flashed).toBe("");
+    } finally { d.quit(); }
+  });
+});
+
+describe("Option characters on other keyboards", () => {
+  test("read only where the locale's keyboard is US-like, or when EP0CH_OPTION_KEYS says so", () => {
+    expect(optionKeysOn({ LANG: "en_US.UTF-8" })).toBe(true);
+    expect(optionKeysOn({ LANG: "en_CA.UTF-8" })).toBe(true);
+    expect(optionKeysOn({})).toBe(true);
+    expect(optionKeysOn({ LANG: "C.UTF-8" })).toBe(true);
+    // å ø are keys of their own on a Nordic keyboard, ß § on a German one, £ on a British one.
+    expect(optionKeysOn({ LANG: "nb_NO.UTF-8" })).toBe(false);
+    expect(optionKeysOn({ LANG: "en_US.UTF-8", LC_CTYPE: "de_DE.UTF-8" })).toBe(false);
+    expect(optionKeysOn({ LANG: "en_GB.UTF-8" })).toBe(false);
+    expect(optionKeysOn({ LC_ALL: "fr_FR.UTF-8", LANG: "en_US.UTF-8" })).toBe(false);
+    expect(optionKeysOn({ LANG: "de_DE.UTF-8", EP0CH_OPTION_KEYS: "us" })).toBe(true);
+    expect(optionKeysOn({ LANG: "en_US.UTF-8", EP0CH_OPTION_KEYS: "off" })).toBe(false);
+  });
+
+  test("off, å is the letter typed: it doesn't pull up the drawer, and nothing is said", () => {
+    const d = door(false, false);
+    try {
+      d.press({ kind: "char", ch: "å" });
+      d.press({ kind: "char", ch: "ß" });
+      expect(d.keys).toEqual([{ kind: "char", ch: "å" }, { kind: "char", ch: "ß" }]);
       expect(d.flashed).toBe("");
     } finally { d.quit(); }
   });

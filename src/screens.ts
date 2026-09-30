@@ -806,7 +806,8 @@ export class MessageReader implements Screen {
 
   unsaved() { return this.surface.unsaved(); }
   keepDrafts() { return this.surface.keepDrafts(); }
-  holdsKeys() { return this.surface.holdsKeys; }
+  /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
+  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
 
   describe() {
     return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };

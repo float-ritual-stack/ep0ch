@@ -120,8 +120,13 @@ export function herdrKeys(configPath: string): Record<string, string> {
   return keys;
 }
 
-/** A unit that runs the outline host (host-main.ts): a systemd user unit on Linux, a launchd agent on macOS. */
-export function hostUnit(platform: Facts["platform"], home: string): HostFacts["unit"] {
+/**
+ * A unit that runs the outline host (host-main.ts): a systemd user unit on Linux, a launchd agent on macOS.
+ * Only one serving `base`, the state folder whose socket is being asked about (its OUTLINER_STATE_DIR, else
+ * the host's default): a unit for another state folder is another host, and install never restarts it for
+ * this one (a scratch host in a test must never restart the person's).
+ */
+export function hostUnit(platform: Facts["platform"], home: string, base = join(home, ".local/state/pi-herdr-outliner")): HostFacts["unit"] {
   const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
     : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
   if (!kind || !existsSync(dir)) return null;
@@ -129,11 +134,20 @@ export function hostUnit(platform: Facts["platform"], home: string): HostFacts["
     let text: string;
     try { text = readFileSync(join(dir, file), "utf8"); } catch { continue; /* unreadable: not ours */ }
     if (!text.includes("host-main.ts")) continue;
+    if (resolve(unitStateDir(kind, text, home) ?? join(home, ".local/state/pi-herdr-outliner")) !== resolve(base)) continue;
     const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
     const program = /[^\s<>"'=]*host-main\.ts/.exec(text)?.[0];
     return { kind, path: join(dir, file), name: label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file), ...(program ? { program } : {}) };
   }
   return null;
+}
+
+/** The OUTLINER_STATE_DIR a unit sets: systemd's Environment= (%h is the home folder), a plist's EnvironmentVariables. */
+function unitStateDir(kind: "systemd" | "launchd", text: string, home: string): string | null {
+  const found = kind === "systemd"
+    ? /^\s*Environment\s*=.*?"?OUTLINER_STATE_DIR=("[^"]*"|[^\s"]+)/m.exec(text)?.[1]
+    : /<key>\s*OUTLINER_STATE_DIR\s*<\/key>\s*<string>([^<]*)<\/string>/.exec(text)?.[1];
+  return found ? found.replace(/^"|"$/g, "").trim().replace(/%h/g, home) : null;
 }
 
 /** launchd's answer to `launchctl print gui/<uid>/<label>`: its own state, pid and last exit (the job's top-level lines). */
@@ -178,7 +192,7 @@ export function openOutlineToPing(outlines: readonly HostedOutline[]): string | 
 
 export async function hostFacts(base: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
   const socket = hostSocketOf(base);
-  const found = hostUnit(platform, home);
+  const found = hostUnit(platform, home, base);
   const [live, state] = await Promise.all([hostLive(socket), found ? unitState(found) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
   if (!live) return { socket, configured: hostConfigured(base), running: false, outlines: [], unit };
