@@ -317,6 +317,9 @@ following its card) and `desk`. Loading keeps tiles with the same name (a runnin
 a running program or an unsaved edit the new layout has no place for becomes a shut drawer, never ended.
 `EP0CH_DAILY_AGENT` (default `claude`), `EP0CH_DAILY_CWD` (the folder it starts in; default the door's own) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+The agent tile is marked in the saved layout (`agent`), so a restored desk or a loaded layout runs what
+`EP0CH_DAILY_AGENT` and `EP0CH_DAILY_CWD` say now, not the command it was saved with. A daily desk saved before
+the mark counts its `claude` tile as the agent when its command is the plain `claude`; one you changed stays yours.
 
 **What happens to programs in tiles:**
 
