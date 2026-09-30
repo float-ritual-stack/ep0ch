@@ -75,6 +75,24 @@ person asked for it.
   command.
 - Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act`. The door records and shows it.
 
+## Door tools in Claude
+
+In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Outliner's Claude mod adds `door_where`,
+`door_peek`, `door_act` and `door_open`. They run `ep0ch` on that tile's socket. Prefer them to running
+`ep0ch act` through Bash. Outside a door tile they aren't there: use the commands above.
+
+- **Who it's from:** each act and open goes with `--as`: the call's `actor`, else `OUTLINER_ACTOR`, else
+  `EP0CH_AGENT`, else `claude-code`. The person's screen shows it.
+- **`door_act {action, args, reader?}`:** `args` is `key: value`. `ep0ch` reads a value starting with `@` as
+  a file, so the tool sends one such value through stdin, and refuses a second in the same call. `as` and
+  `reader` aren't args: use `actor` and `reader`.
+- **Refusals pass through:** when the door refuses (focus, keys, a reader the person is typing in), the tool
+  fails with the door's reason. Don't route around it: set a `block.mark`, or wait until they're idle.
+- **`door_open {id}`** takes an id, `((id))`, `[[page]]` or Work ID, and opens it where your tile's opens
+  land (`from=$EP0CH_TILE`). It never moves the person's focus.
+- To read or write notes, use the mod's `outline_*` tools (`outline_read`, `outline_edit`, `outline_patch`,
+  `outline_comment`…). They work in any session, not just a door tile.
+
 ## Rules the door enforces, and you should expect
 
 - An agent never takes the person's focus, keys, selection or the reader they're typing in; such actions
