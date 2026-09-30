@@ -581,12 +581,28 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
   }
 
+  /**
+   * Each detail's and float's name for agents (PIE-491): given the first time it's named, kept while the pane
+   * lives whatever closes around it, and never given to another pane. A name by place (the second detail)
+   * moved to another pane when one before it closed, and an agent's action landed there. A detail floated
+   * (or a float docked) is named again as what it now is: the old name is refused, never someone else's.
+   */
+  private readerNames = new WeakMap<ReaderPane, { kind: "detail" | "float"; name: string }>();
+  private readerCount = { detail: 0, float: 0 };
+  private readerName(p: ReaderPane, kind: "detail" | "float"): string {
+    let n = this.readerNames.get(p);
+    if (n?.kind !== kind) { n = { kind, name: `${kind}${++this.readerCount[kind]}` }; this.readerNames.set(p, n); }
+    return n.name;
+  }
+  /** The name as a label on screen: "detail 3". */
+  private readerLabel(p: ReaderPane, kind: "detail" | "float") { return this.readerName(p, kind).replace(/(\d+)$/, " $1"); }
+
   /** Every reader by the name an agent uses: preview, detail1, detail2, float1…, tree (its preview), backlinks. */
   private namedReaders(): { name: string; region: Region | null; pane: ReaderPane }[] {
     return [
       { name: "preview", region: "preview", pane: this.preview },
-      ...this.details.map((pane, i) => ({ name: `detail${i + 1}`, region: `detail${i}` as Region, pane })),
-      ...this.floats.map((f, i) => ({ name: `float${i + 1}`, region: `float${i}` as Region, pane: f.pane })),
+      ...this.details.map((pane, i) => ({ name: this.readerName(pane, "detail"), region: `detail${i}` as Region, pane })),
+      ...this.floats.map((f, i) => ({ name: this.readerName(f.pane, "float"), region: `float${i}` as Region, pane: f.pane })),
       { name: "tree", region: this.treeOpen ? "tree" : null, pane: this.treePreview },
       { name: "backlinks", region: this.links ? "backlinks" : null, pane: this.linksPreview },
     ];
@@ -611,8 +627,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const f = this.focus === "lanes" ? null : all.find(r => r.region === this.focus);
       return f ?? all[0]!;
     }
-    if (sel === "detail") { const r = all.find(x => x.name === `detail${this.active + 1}`); if (r) return r; }
-    if (sel === "float") { const r = all.filter(x => x.name.startsWith("float")).at(-1); if (r) return r; }
+    if (sel === "detail") { const r = all.find(x => x.region === `detail${this.active}`); if (r) return r; }
+    if (sel === "float") { const r = all.filter(x => x.region?.startsWith("float")).at(-1); if (r) return r; }
     const named = all.find(r => r.name === sel);
     if (named) return named;
     if (/^[0-9a-f-]{8,}$/.test(sel)) {
@@ -762,12 +778,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const ids = this.readerIds();
     const name = (id: string) => {
       const i = ids.indexOf(id);
-      return i === 0 ? "preview" : i > 0 ? `detail${i}` : id;
+      return i === 0 ? "preview" : i > 0 ? this.readerName(this.details[i - 1]!, "detail") : id;
     };
     return {
       tree: describeTree(this.screen.root, name, this.placeOpts()),
       sliding: [...this.screen.over].filter(id => has(this.screen.root, id)),
-      floats: this.floats.map((f, i) => ({ pane: `float${i + 1}`, rect: f.rect })),
+      floats: this.floats.map(f => ({ pane: this.readerName(f.pane, "float"), rect: f.rect })),
     };
   }
 
@@ -914,8 +930,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (r === "preview" || r === "lanes") return { pane: this.preview, label: "preview" };
     if (r === "tree") return { pane: this.treePreview, label: "outline preview" };
     if (r === "backlinks") return { pane: this.linksPreview, label: "backlink preview" };
-    if (r.startsWith("detail")) { const i = Number(r.slice(6)); const p = this.details[i]; return p ? { pane: p, label: `detail ${i + 1}` } : null; }
-    if (r.startsWith("float")) { const i = Number(r.slice(5)); const f = this.floats[i]; return f ? { pane: f.pane, label: `float ${i + 1}` } : null; }
+    if (r.startsWith("detail")) { const i = Number(r.slice(6)); const p = this.details[i]; return p ? { pane: p, label: this.readerLabel(p, "detail") } : null; }
+    if (r.startsWith("float")) { const i = Number(r.slice(5)); const f = this.floats[i]; return f ? { pane: f.pane, label: this.readerLabel(f.pane, "float") } : null; }
     return null;
   }
 
@@ -1664,7 +1680,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     // share what's left by their weights, as the lanes do.
     const docked = this.readerIds().map((id, i) => {
       const pane = this.paneById.get(id)!;
-      const label = i === 0 ? "preview · follows the board" : `detail ${i}${this.details.length > 1 && i - 1 === this.active ? " · ⏎ opens here" : ""}`;
+      const label = i === 0 ? "preview · follows the board" : `${this.readerLabel(pane, "detail")}${this.details.length > 1 && i - 1 === this.active ? " · ⏎ opens here" : ""}`;
       return { region: (i === 0 ? "preview" : `detail${i - 1}`) as Region, pane, label, r: at(id)! };
     });
     let x = P.nodes.get("readers")?.col ?? lanesR.col;
@@ -1778,10 +1794,10 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { region: r.region!, name: r.name };
   }
 
-  /** A region by the name agents use (detail0 is detail1, float0 is float1). */
+  /** A region by the name agents use: its pane's (a detail's or float's is kept while it lives, PIE-491). */
   private nameOf(r: Region): string {
-    if (r.startsWith("detail")) return `detail${Number(r.slice(6)) + 1}`;
-    if (r.startsWith("float")) return `float${Number(r.slice(5)) + 1}`;
+    if (r.startsWith("detail")) { const p = this.details[Number(r.slice(6))]; return p ? this.readerName(p, "detail") : r; }
+    if (r.startsWith("float")) { const f = this.floats[Number(r.slice(5))]; return f ? this.readerName(f.pane, "float") : r; }
     return r;
   }
 
@@ -1826,7 +1842,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const why = this.floatOrDock(region, actor);
     if (why) throw new ActionRefused(why);
     this.save();
-    return { pane: name, floated, now: floated ? `float${this.floats.length}` : `detail${this.details.length}` };
+    const top = this.floats.at(-1);
+    return { pane: name, floated, now: floated && top ? this.readerName(top.pane, "float") : name };
   }
 
   pinPane(sel: string | undefined, on: boolean | undefined, actor: Actor): PaneDone {

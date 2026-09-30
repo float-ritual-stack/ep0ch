@@ -19,6 +19,7 @@
 // so the agent's `show` falls back to Herdr instead of reaching a door that doesn't show it.
 import { spawn as spawnDetached } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
+import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { alive, stateDir } from "../state";
 
@@ -195,11 +196,29 @@ export function herdrRunner(bin: string, timeoutMs = 10_000): HerdrRun {
   };
 }
 
-/** The tile's title while it shows the Herdr pane: the door reads it to know quitting leaves the agent running. */
+/** The tile's title while it shows the Herdr pane: for the person. The door learns it from `tile.herdr` instead. */
 export const attachTitle = (pane: string) => `${pane} in Herdr · ctrl+b q detaches`;
 export const WATCH_TITLE = "watching · another door has it · ⏎ takes it over, q stops";
-/** The title says the tile shows an agent that lives in Herdr (attached or watching), not one it owns. */
-export const inHerdrTitle = (t: string) => / in Herdr · ctrl\+b q detaches$/.test(t) || t === WATCH_TITLE;
+
+/**
+ * Tells the door this tile shows an agent that lives in Herdr (`tile.herdr`, PIE-491), over the door's control
+ * socket (EP0CH_CONTROL), as the tile it runs in (EP0CH_TILE_ID, else EP0CH_TILE): quitting the door then
+ * leaves the agent running. No door answering (the wrapper run by hand) is fine: nothing needs saying.
+ */
+export function tellDoor(env: Record<string, string | undefined>, pane: string, as: string, timeoutMs = 2000): Promise<boolean> {
+  const control = env.EP0CH_CONTROL, tile = env.EP0CH_TILE_ID || env.EP0CH_TILE;
+  if (!control || !tile) return Promise.resolve(false);
+  return new Promise(res => {
+    let done = false;
+    const finish = (ok: boolean) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* gone */ } res(ok); };
+    const sock = connect(control, () => sock.write(JSON.stringify({ cmd: "act", action: "tile.herdr", args: { pane }, reader: tile, as }) + "\n"));
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    let buf = "";
+    sock.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) finish(!!json(buf.slice(0, i))?.ok); });
+    sock.on("error", () => finish(false));
+    sock.on("close", () => finish(false));
+  });
+}
 
 /** Runs a program on the tile's terminal and resolves to its exit code (its stderr kept too, for attach). */
 async function onTerminal(argv: string[], keepErr = false): Promise<Ran> {
@@ -288,6 +307,8 @@ export async function main(script: string, env = process.env): Promise<number> {
   if (found.created || (await herdr(["agent", "get", cfg.name])).code !== 0) {
     spawnDetached(process.execPath, [script, "--name", pane, cfg.name], { detached: true, stdio: "ignore", env: { ...env, EP0CH_HERDR_BIN: bin } }).unref();
   }
+  // The door learns it from the tile's own program, typed, not from a title anything could print.
+  await tellDoor(env, cfg.pane, cfg.name);
   let takeover = false;
   for (;;) {
     // The tile's title while attached (the agent may set its own over it).

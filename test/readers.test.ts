@@ -44,6 +44,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
   let key: (k: Key) => void = () => {};
   const AS = "test-agent-411";
   const B = () => b as any;
+  /** A detail's name for agents (PIE-491: kept while it lives, not its place in the row). */
+  const nm = (p: ReaderPane): string => B().readerName(p, "detail");
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
@@ -179,12 +181,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect([d1.draft!.text.length, d1.draft!.text.includes("to")]).toEqual([text.length + 2, true]);
     expect([B().treeOpen, B().floats.length]).toEqual([false, 0]);
     // Both details held (an agent's edit in the other): the agent's open is refused, the person untouched.
-    await act("edit", {}, `detail${B().details.findIndex((d: ReaderPane) => d !== d1) + 1}`);
+    await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d1)));
     await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/both details hold/);
     expect(B().focus).toBe(`detail${B().details.indexOf(d1)}`);
     key(char("!"));
     expect([d1.draft!.text.length, d1.draft!.text.includes("to!")]).toEqual([text.length + 3, true]);
-    for (const r of ["detail1", "detail2"]) await act("edit.close", { discard: true }, r);
+    for (const d of B().details) await act("edit.close", { discard: true }, nm(d));
 
     // The person only in the property panel of detail 1: it isn't the detail dropped either.
     await fresh();
@@ -383,12 +385,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
     // Both details editing: docking is refused, and says why.
     await act("open", { id: cards.shed.id }, "float");
-    await act("edit", {}, B().details.indexOf(d0) === 0 ? "detail2" : "detail1");
+    await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d0)));
     B().focus = "float0";
     key(char("o"));
     expect(B().floats.length).toBe(1);
     expect(message()).toContain("not docked: both details hold edits or comments");
-    for (const r of ["detail1", "detail2"]) await act("edit.close", { discard: true }, r);
+    for (const d of B().details) await act("edit.close", { discard: true }, nm(d));
   });
 
   test("an agent's card.move leaves the person's lane, selection and preview alone", async () => {

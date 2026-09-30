@@ -108,6 +108,12 @@ describe("one env list for terminal tiles (F6)", () => {
     expect(tileEnv({ EP0CH_CONTROL: "/elsewhere.sock" }, "x", null).EP0CH_CONTROL).toBe("/elsewhere.sock");
   });
 
+  test("the tile's id replaces an inherited one, and a tile with no id passes none on (PIE-491)", () => {
+    expect(tileEnv({ EP0CH_TILE_ID: "t9" }, "editor", null, "t2").EP0CH_TILE_ID).toBe("t2");
+    expect(tileEnv({ EP0CH_TILE_ID: "t9" }, "editor", null).EP0CH_TILE_ID).toBeUndefined();
+    expect(tileEnv({ EP0CH_TILE_ID: "t9" }, "editor", null, null).EP0CH_TILE_ID).toBeUndefined();
+  });
+
   test("the Herdr list is written once: tests use HERDR_VARS, and try-it.sh unsets the same five", () => {
     const script = readFileSync(join(import.meta.dir, "../scripts/try-it.sh"), "utf8");
     const unset = [...script.matchAll(/-u (HERDR_\w+)/g)].map(m => m[1]);
