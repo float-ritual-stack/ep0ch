@@ -456,8 +456,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     } finally { app.pop(); }
   });
 
-  test("the board's preview under a float: a click on the float's cells doesn't reach the popup", async () => {
+  test("the board's preview under a float: a click on the float's cells doesn't reach the popup (it leaves the edit)", async () => {
     const b = new DeliveryBoard(hub.id), B = b as any;
+    const was = (await board.get(beans.id))!.text;
     app.push(b);
     try {
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
@@ -476,10 +477,13 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       B.floats.push({ pane: new ReaderPane(), rect: { col: x - 5, row: y - 2, cols: 30, rows: 6 } });
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
-      await new Promise(r => setTimeout(r, 50));
-      expect(draft.lines.at(-1)).toBe("sow [[se");                          // the hidden candidate wasn't inserted
+      // The float is elsewhere: the click leaves the edit (saved as typed), and the hidden candidate wasn't inserted.
+      await until(() => !B.preview.draft, "the edit left");
+      expect(draft.lines.at(-1)).toBe("sow [[se");
+      const saved = (await board.get(beans.id))!;
+      expect(saved.text.split("\n").at(-1)).toBe("sow [[se");
       B.floats.pop();
-      key(K("esc")); key(K("esc")); key(K("esc"));
+      await board.update(beans.id, was, saved.revision!);                  // the note as it was, for the next hosts
     } finally { app.pop(); }
   });
 

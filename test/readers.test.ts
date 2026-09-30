@@ -346,12 +346,13 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await Bun.sleep(20);
     wheel(rect("preview"));
     expect(scrollOf(B().preview)).toBe(3);
-    // A click elsewhere still can't strand the edit.
+    expect(B().focus).toBe("detail0");
+    expect(d.draft).not.toBeNull();
+    // A click elsewhere leaves the edit (unchanged: it just closes) and focuses what was clicked.
     const r = rect("preview");
     key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
-    expect(B().focus).toBe("detail0");
-    expect(message()).toContain("finish the edit first");
-    key({ kind: "esc" });
+    key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
+    expect(B().focus).toBe("preview");
     expect(d.draft).toBeNull();
   });
 

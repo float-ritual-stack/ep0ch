@@ -13,7 +13,7 @@ import { Canvas, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canv
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
-import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
+import { leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
@@ -875,8 +875,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
         : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));
     }
+    const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
     const s = this.prefix === "wm"
-      ? "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08pin · |07d |08drawer · |07r w |08layouts · |07x |08close · |07s |08swap · |07! |08shell"
+      ? leaving + "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08pin · |07d |08drawer · |07r w |08layouts · |07x |08close · |07s |08swap · |07! |08shell"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: |07t |08outline · |07r |08reader · |07d |08detail · |07p |08preview · |07e |08editor · |07s |08shell · |07k |08board · |07v |08river · |07f |08brief · |07h |08thread · |07a |08activity · |07w |08who · |07b |08art · |07l |08backlinks`
         : this.prefix === "move" || this.prefix === "tab"
@@ -954,14 +955,23 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (focused?.surface.choosing && k.kind !== "mouse") { focused.key(k, this); return this.redraw(); }
     if (focused?.holdsKeys) {
       if (this.entered.in(focused)) {
-        // The person is in it: every key is the edit's, comment's or panel's, window commands included,
-        // until it's closed. The wheel still scrolls the pane under the pointer; a click can't move focus
-        // off an open edit (esc leaves it), but passes with only the property panel open.
-        if (k.kind !== "mouse") { focused.key(k, this); return; }
+        // The person is in it: every key is the edit's, comment's or panel's (tab indents), until it's closed
+        // or left. ^W is the way out by keys: the window key after it leaves the edit as a click away does
+        // (session.leave) and runs; esc after it stays in. The wheel scrolls the pane under the pointer.
+        if (k.kind !== "mouse") {
+          if (this.prefix === "wm") {
+            if (k.kind === "esc") { this.prefix = ""; ctx.flash(`still in ${sessionName(focused)}`); return this.redraw(); }
+            if (focused.editing && !this.leaveSession(focused)) { this.prefix = ""; return this.redraw(); }
+            return this.command(k);
+          }
+          if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal()) { this.prefix = "wm"; return this.redraw(); }
+          focused.key(k, this); return;
+        }
         if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
           if ((k.action === "down" || k.action === "drag") && this.clickIn(focused, k)) return this.redraw();
-          if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
-          return;
+          // A click in the edit's own tile (its frame, its hint rows) stays in it. A click anywhere else leaves
+          // it as any editor does (session.leave: saved, closed, or kept as unsent) and then does what it does.
+          if (k.action !== "down" || this.topTileAt(k.x, k.y) === this.focus || !this.leaveSession(focused)) return;
         }
       } else if (k.kind !== "mouse" && !this.prefix) {
         // One they aren't in (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn scroll,
@@ -1647,6 +1657,25 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { ...r, pane: r.tile };
   }
 
+  /** The tile drawn on top at a cell (a drawer over the layout), or null. */
+  private topTileAt(x: number, y: number): number | null {
+    return this.hits.find(([, r]) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows)?.[0] ?? null;
+  }
+
+  /**
+   * The person leaves the edit or comment they're in, by a click elsewhere or ^W: `session.leave`, as the
+   * person (an agent's action never does this to their draft). False, with the reason said, when it can't
+   * (a changed property value). The save, when there is one, lands in the background: the tile says
+   * "saving…" meanwhile, and a refusal puts the draft aside as unsent with a flash.
+   */
+  private leaveSession(rd: ReaderPane): boolean {
+    const why = rd.surface.leaveRefusal();
+    if (why) { this.ctx.flash(why); return false; }
+    this.entered.clear();
+    rd.act("session.leave", {}, this, USER).then(r => { const said = leaveSaid(r); if (said) this.ctx.flash(said, 10000); this.redraw(); }, e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); });
+    return true;
+  }
+
   /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
     const hit = this.hits.find(([id]) => this.panes.get(id) === pane)?.[1];
@@ -1740,7 +1769,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
           if (pane.wantsMouse()) { this.mouseTile = { id, r }; pane.mouse(k, x, y); }
         } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
-        else if (pane instanceof ReaderPane) { this.pressed = { pane, col: r.col + 1, row: r.row + 1, fresh: !!((k.mods ?? 0) & 24) }; pane.press(x, y, this); }
+        else if (pane instanceof ReaderPane) {
+          this.pressed = { pane, col: r.col + 1, row: r.row + 1, fresh: !!((k.mods ?? 0) & 24) };
+          pane.press(x, y, this);
+          // A click that places the cursor in the person's own edit here (one left open while its tile lost
+          // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
+          if (id === this.focus && pane.surface.pressedIntoOwn) this.entered.enter(pane);
+        }
         else pane?.click?.(x, y, this);
       }
       return this.redraw();

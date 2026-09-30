@@ -18,7 +18,7 @@ import {
 } from "../backlinks";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
-import { draftPreview, NOTE_ACTIONS, type OpenHow } from "../surface/note";
+import { draftPreview, leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET, width } from "../style";
@@ -35,7 +35,7 @@ import {
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { TREE_ACTIONS } from "./tree";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
-import { Draft, DRAFT_ACTIONS } from "../edit";
+import { Draft, DRAFT_ACTIONS, tidy } from "../edit";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
@@ -1455,6 +1455,34 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     this.redraw();
   }
 
+  /**
+   * The person leaves the new card or note they're writing by a click outside it: it's never created
+   * (ctrl+s creates), and typed text is put aside as unsent where n or N brings it back.
+   */
+  leaveComposer(): { left: "nothing" | "creating" | "closed" } | { left: "kept"; keptAt: string; said: string } {
+    const C0 = this.composer;
+    if (!C0) return { left: "nothing" };
+    const d = C0.draft;
+    if (d.busy) return { left: "creating" };
+    this.composer = null;
+    this.redraw();
+    if (!d.dirty) return { left: "closed" };
+    const keptAt = d.keep();
+    const what = C0.kind === "card" ? `the new card in ${C0.lane.name}` : `the new note under “${titleOf(C0.parent).slice(0, 40)}”`;
+    const said = `${what} was kept as unsent, not created · ${d.shelf?.back ?? `a copy is at ${tidy(keptAt)}`}`;
+    this.ctx.flash(said, 8000);
+    return { left: "kept", keptAt, said };
+  }
+
+  /** The person leaves the edit or comment they're in by a click elsewhere: `session.leave`, as the person. */
+  private leaveSession(rd: ReaderPane): boolean {
+    const why = rd.surface.leaveRefusal();
+    if (why) { this.ctx.flash(why); return false; }
+    this.entered.clear();
+    rd.act("session.leave", {}, this, USER).then(r => { const said = leaveSaid(r); if (said) this.ctx.flash(said, 10000); this.redraw(); }, e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); });
+    return true;
+  }
+
   /** Ctrl+S in the composer: create it. A refusal keeps the text, says why, and copies it to disk. */
   private async submitComposer() {
     const C0 = this.composer;
@@ -2262,14 +2290,14 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
     if (rd?.holdsKeys && !shut) {
       if (this.entered.in(rd)) {
-        // Every key is the edit's, comment's or panel's, board shortcuts included, until it's closed. The
-        // wheel still scrolls whatever is under the pointer. A click can't move focus off an open edit
-        // (esc leaves it); with only the property panel open, clicks pass.
+        // Every key is the edit's, comment's or panel's, board shortcuts included (tab indents), until it's
+        // closed. The wheel still scrolls whatever is under the pointer. A click in the reader's own frame stays
+        // in the edit; a click anywhere else leaves it as any editor does (session.leave: saved, closed, or
+        // kept as unsent) and then does what it does. With only the property panel open, clicks pass.
         if (k.kind !== "mouse") { rd.key(k, this); return; }
         if (rd.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
           if ((k.action === "down" || k.action === "drag") && this.clickIn(rd, k, k.action === "drag")) return this.redraw();
-          if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
-          return;
+          if (k.action !== "down" || this.topAt(k.x, k.y) === this.regionOf(rd) || !this.leaveSession(rd)) return;
         }
       } else if (k.kind !== "mouse") {
         // One the person isn't in (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn
@@ -2278,18 +2306,19 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
         if (rd.scrollKey(k, this)) return;
       }
     }
-    // A card or note being written holds every key, like an edit; a click can't take focus from it.
+    // A card or note being written holds every key, like an edit.
     if (this.composer) {
-      if (k.kind === "mouse") {
-        // The wheel scrolls it, a click places the cursor, a drag selects; a click outside can't take focus from it.
-        const d = this.composer.draft, r = this.composerAt;
-        if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: k.action === "wheel-down" ? wheelRows : -wheelRows }, d, USER); return this.redraw(); }
-        const inside = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
-        if (r && (k.action === "down" || k.action === "drag") && (inside || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) return this.redraw();
-        if (k.action === "down" && !inside) this.ctx.flash("finish the new card first · ctrl+s creates · esc closes");
-        return;
-      }
-      return this.composerKey(k);
+      if (k.kind !== "mouse") return this.composerKey(k);
+      // The wheel scrolls it, a click places the cursor, a drag selects. A click outside it puts it aside as
+      // unsent (composer.leave: never created, n brings it back) and does what it does on the board.
+      const d = this.composer.draft, r = this.composerAt;
+      if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: k.action === "wheel-down" ? wheelRows : -wheelRows }, d, USER); return this.redraw(); }
+      const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
+      const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
+      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) return this.redraw();
+      if (k.action !== "down" || inside) return;
+      if (d.busy) { this.ctx.flash("the new card is being created · wait for it"); return; }
+      BOARD_ACTIONS.run("composer.leave", {}, { b: this }, USER).then(r => { const said = leaveSaid(r); if (said) this.ctx.flash(said, 8000); this.redraw(); }, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
     }
     // A backlinks filter being typed holds every key, board shortcuts included (t, b, g are letters in it).
     // Leaving the drawer keeps what was typed.
@@ -2667,6 +2696,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "card.restore": { id?: string };
   "reader.collapse": Record<string, never>;
   "reader.expand": Record<string, never>;
+  "composer.leave": Record<string, never>;
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
@@ -2703,6 +2733,15 @@ export const BOARD_ACTIONS = new ActionSet<{
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
+  },
+  "composer.leave": {
+    summary: "leave the new card or note the person is writing, as a click outside it does: never created (ctrl+s creates); typed text is kept as unsent, and n or N brings it back. The person's own: an agent creates with card.create or note.create",
+    keys: "a click outside it",
+    args: {},
+    run(_, { b }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
+      return b.leaveComposer();
+    },
   },
   "card.create": {
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",

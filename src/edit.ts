@@ -838,7 +838,7 @@ export function unsentAll(): Unsent[] {
 }
 
 /** A path as the person would type it: their home as `~`. */
-const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
+export const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
 
 /** "10:42" today, or "Sep 29 10:42". */
 export const whenPut = (at: number) => {
@@ -862,7 +862,7 @@ export interface DraftActionArgs {
  * The person's draft is theirs: its cursor, view and preview move only by their keys and mouse. An agent
  * works on a draft only when it opened it and no one else has typed in it.
  */
-function agentMay(d: Draft, actor: Actor) {
+export function agentMay(d: Draft, actor: Actor) {
   if (actor.kind !== "agent") return;
   if (!sameParty(d.openedBy, actor)) throw new ActionRefused("this draft is the person's; send the whole text with edit.text or comment.write");
   if (d.writers.some(w => !sameParty(w, actor)))

@@ -257,7 +257,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect(pane.msg?.id).toBe(elsewhere!.id);
   });
 
-  test("in the app: clicks can't pull focus off an edit, and leaving asks twice and keeps the draft", async () => {
+  test("in the app: keys stay in an edit (^W esc too), and leaving the desk asks twice and keeps the draft", async () => {
     const b = await create("Guarded [stage::queued]\nbody");
     let key: (k: Key) => void = () => {};
     const term = { info: { cols: 160, rows: 45, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
@@ -272,18 +272,24 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     await until(() => reader().editing, "the draft");
     const draft = reader().draft!;
     for (const c of " typed") key(char(c));
-    const focusBefore = (desk as any).focus;
-    key({ kind: "mouse", action: "down", button: 0, x: 1, y: 1 });      // a click on another pane
-    expect((desk as any).focus).toBe(focusBefore);
-    for (const k of [ctrl("w"), char("q"), char("1")]) key(k);          // window, menu and focus keys type instead
+    for (const k of [char("q"), char("1")]) key(k);                     // menu and focus keys type
     expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
+    const focusBefore = (desk as any).focus;
+    key({ kind: "tab" });                                               // tab indents (PIE-496), focus stays
+    expect([(desk as any).focus, draft.text]).toEqual([focusBefore, "  Guarded [stage::queued] typedq1\nbody"]);
+    key({ kind: "backtab" });
+    expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
+    key(ctrl("w")); key({ kind: "esc" });                               // ^W then esc: still in the edit
+    expect(reader().draft).toBe(draft);
+    key(char("!"));
+    expect(draft.text).toBe("Guarded [stage::queued] typedq1!\nbody");
 
     app.pop();                                                          // e.g. Esc/q reaching the desk
     expect((app.describe() as any).screen).toBe(desk.title);
     expect(draft.savedCopy).toBeNull();
     app.pop();                                                          // again within 3s: leave, draft copied out
     expect((app.describe() as any).screen).not.toBe(desk.title);
-    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1\nbody\n");
+    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1!\nbody\n");
     expect((await current(b.id)).text).toBe("Guarded [stage::queued]\nbody");   // nothing was saved behind our back
     app.quit();
   });
