@@ -32,7 +32,7 @@ export const OPTION_KEYS: Readonly<Record<string, string>> = {
 };
 
 /** The terminal setting that makes Option send Alt, said once when an Option character stands in for alt. */
-export const OPTION_AS_ALT_HINT = "set macos-option-as-alt = true (Ghostty) or macos_option_as_alt yes (kitty)";
+export const OPTION_AS_ALT_HINT = "set macos-option-as-alt = true (Ghostty) or macos_option_as_alt left (kitty)";
 
 /** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
 export function pasteKeys(text: string): Key[] {

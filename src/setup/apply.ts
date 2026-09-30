@@ -5,10 +5,11 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
-import { depsState, gatherFacts, pluginFacts, run, serviceFacts } from "./facts";
+import { depsState, gatherFacts, hostFacts, pluginFacts, run, serviceFacts, unitState } from "./facts";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, type Plan, type PlanOptions, restartStep, serviceLabel, type Step, type StepStatus } from "./plan";
+import { backupDirOf, buildPlan, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, restartStep, serviceLabel, type Step, type StepStatus } from "./plan";
 import { hostRequest } from "../socket";
+import { hostLive } from "../discover";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--restart-services] [--json]";
@@ -171,6 +172,21 @@ async function execute(step: Step, f: Facts, env: Env, say: (s: string) => void)
       }
       return;
     }
+    case "host": {
+      const u = f.host.unit!;
+      const verb = f.host.running ? "restart" : "start";
+      const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name} (and its StandardErrorPath)` : `journalctl --user -u ${u.name}`;
+      await must(hostUnitArgv(u, verb, process.getuid?.() ?? 0), `the host wasn't ${verb}ed; ${hostUnitCommand(u, verb)} by hand, and see ${logs}`, { env, timeoutMs: 30_000 });
+      // A new process answering: not the old one still shutting down (launchd's kickstart -k starts the new one after).
+      const was = u.state?.pid;
+      const back = await waitFor(async () => (was === undefined || (await unitState(u)).pid !== was) && !!(await hostLive(f.host.socket)), 30_000);
+      if (!back) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 30s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
+      const now = await hostFacts(dirname(f.host.socket), f.platform, f.home);
+      const missing = now.running ? staleness(now, f.expected, f.plugin?.protocol ?? null) : ["no answer"];
+      if (missing.length) throw new StepFailed(`the host ${verb}ed but still lacks ${missing.join(", ")}`, `check that ${u.path} runs the installed plugin's src/host-main.ts, then ${hostUnitCommand(u, "restart")}`);
+      say(`${verb}ed the outline host (${u.kind} ${u.name}${now.protocol ? `, protocol ${now.protocol}` : ""}); doors and panes on it reconnect`);
+      return;
+    }
   }
 }
 
@@ -210,6 +226,13 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
       const services = await serviceFacts(env.OUTLINER_STATE_DIR ?? join(current.home, ".local/state/pi-herdr-outliner"));
       current = { ...current, plugin, services, expected: plugin?.capabilities ?? current.expected };
       step = restartStep(current, options, false);
+    }
+    // The host too: asked again after the plugin update, and restarted because of it.
+    if (step.id === "host" && plan.steps.some(s => s.id === "plugin" && s.status === "do")) {
+      const plugin = current.plugin === facts.plugin ? await pluginFacts({ ...env, HERDR_BIN_PATH: current.herdr.path ?? "herdr" }, false) : current.plugin;
+      const host = await hostFacts(dirname(current.host.socket), current.platform, current.home);
+      current = { ...current, plugin, host, expected: plugin?.capabilities ?? current.expected };
+      step = hostStep(current, true);
     }
     stepLines(step, i, true).forEach(l => say(l));
     const done: string[] = [];

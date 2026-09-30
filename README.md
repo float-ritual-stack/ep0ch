@@ -197,7 +197,9 @@ macOS and Linux alike:
 - **the door**: this checkout against `origin/main`, whether `bun install` is needed (a package missing,
   or installed at a version other than `bun.lock`'s), and whether `ep0ch` on PATH runs this checkout.
 - **outline services**: the outline host (its socket, default outline and outlines, and its systemd
-  unit or launchd agent when there is one) and each per-folder service: running or not, and whether it
+  unit or launchd agent when there is one, with what systemd or launchd says about it: running and its
+  pid, or stopped and its last exit; and whether the unit runs the installed plugin's `host-main.ts`) and
+  each per-folder service: running or not, and whether it
   runs old code (a protocol or capability the installed plugin offers that the running service
   doesn't, such as `fragments.candidates`: "restart to pick up new features").
 - **Herdr**: the server, and the keys for the plugin's actions in `config.toml`.
@@ -223,11 +225,18 @@ macOS and Linux alike:
    that service's (never a pane id alone), is closed and the Outliner's own launcher starts it again
    (`herdr-open.ts --mode service-only`, from inside Herdr); reopen its Tree and Detail afterwards.
    After a plugin update the services are asked again.
+6. **Restart the outline host** after a plugin update in the same run, or when it runs old code: through
+   its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host` on the
+   laptop) or `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and
+   checks it offers what the plugin does. The doors and panes on it reconnect by themselves. A host
+   that's set up but not answering is started the same way (`launchctl bootstrap` when launchd hasn't
+   loaded it). A host outside any unit, or a unit that runs another checkout's `host-main.ts`, is left
+   to you.
 
 A checkout that isn't on `main`, has diverged, or is behind with local changes is left for you, with
 what to do. Install never writes a database (it only copies them), never creates or starts an outline,
-never edits Herdr's config or Claude's settings, and never touches systemd or launchd units: the outline
-host, its unit, the keys and the Claude mod are reported as notes. It stops at the first failure, with
+never edits Herdr's config or Claude's settings, and never writes a systemd or launchd unit (it only asks
+one to restart or start the host): a missing unit, the keys and the Claude mod are reported as notes. It stops at the first failure, with
 the recovery. `--json` gives agents the same report or plan.
 
 A door checkout from before `install` gets it by hand, once:
@@ -416,8 +425,10 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   bottom rows, as the desk's drawers lie over its tiles.
   On macOS, Option+a is `alt+a` only when the terminal sends Option as Alt (Ghostty
   `macos-option-as-alt = true`, kitty `macos_option_as_alt left`, iTerm2's "Left Option key: Esc+",
-  Terminal's "Use Option as Meta key"). Otherwise it types `å`, which no screen binds (an edit, or the
-  agent in the drawer, gets the letter). The chip's click works in every terminal.
+  Terminal's "Use Option as Meta key"). Otherwise it types `å`: where nobody is typing text, the door reads
+  that as `alt+a` (and `¬` as `alt+l`, `∂` as `alt+d`, and so on) and says once which setting sends Alt; in
+  an edit, a filter or the drawer's agent it stays the letter. Option+n is a dead key, so `alt+n` needs the
+  setting. The chip's click works in every terminal.
 - **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
   above does too, and a click in the drawer goes back in. Inside it, every key is the agent's except
   `ctrl+]`, `alt+a` and `alt+A`.

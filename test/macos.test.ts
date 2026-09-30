@@ -20,7 +20,7 @@ function door(holds = false) {
 
 describe("Option typing characters instead of sending Alt (kitty's default)", () => {
   test("the US keyboard's Option letters map back to the keys the door binds", () => {
-    const bound = { "¬": "l", "∂": "d", "π": "p", "µ": "m", "≈": "x", "∫": "b", "ƒ": "f", "ç": "c" };
+    const bound = { "¬": "l", "∂": "d", "π": "p", "µ": "m", "≈": "x", "∫": "b", "ƒ": "f", "ç": "c", "å": "a" };
     for (const [ch, key] of Object.entries(bound)) expect(OPTION_KEYS[ch]).toBe(key);
     // Option+n is a dead key: it types nothing by itself, so there's no character for alt+n.
     expect(Object.values(OPTION_KEYS)).not.toContain("n");

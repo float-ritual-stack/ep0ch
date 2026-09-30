@@ -9,9 +9,9 @@ import { join } from "node:path";
 import { backupDatabase, confirmServicePane, formatPlan, setupCommand, tilde } from "../src/setup/apply";
 import { OUTLINE_CAPABILITIES } from "../src/socket";
 import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
-import { databases, depsState, herdrKeys, hostFacts, hostUnit, openOutlineToPing } from "../src/setup/facts";
-import { type Checkout, detectPlatform, type Facts, type ServiceFacts, staleness } from "../src/setup/model";
-import { backupName, buildPlan, checkoutStep, chooseLinkDir, linkCandidates, type PlanOptions, stamp } from "../src/setup/plan";
+import { databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
+import { type Checkout, detectPlatform, type Facts, type HostFacts, type ServiceFacts, staleness } from "../src/setup/model";
+import { backupName, buildPlan, checkoutStep, chooseLinkDir, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -72,9 +72,10 @@ describe("platform", () => {
     mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
     writeFileSync(join(home, ".config/systemd/user/compost.service"), "[Service]\nExecStart=/usr/bin/true\n");
     writeFileSync(join(home, ".config/systemd/user/garden-host.service"), "[Service]\nExecStart=bun /opt/outliner/src/host-main.ts\n");
-    writeFileSync(join(home, "Library/LaunchAgents/io.example.garden.plist"), "<string>/opt/outliner/src/host-main.ts</string>");
-    expect(hostUnit("linux", home)).toEqual({ kind: "systemd", path: join(home, ".config/systemd/user/garden-host.service") });
-    expect(hostUnit("macos", home)).toEqual({ kind: "launchd", path: join(home, "Library/LaunchAgents/io.example.garden.plist") });
+    writeFileSync(join(home, "Library/LaunchAgents/io.example.garden.plist"), "<key>Label</key><string>io.example.garden-host</string>\n<array><string>/opt/homebrew/bin/bun</string><string>/opt/outliner/src/host-main.ts</string></array>");
+    expect(hostUnit("linux", home)).toEqual({ kind: "systemd", path: join(home, ".config/systemd/user/garden-host.service"), name: "garden-host.service", program: "/opt/outliner/src/host-main.ts" });
+    // launchd names a job by its Label, not its file.
+    expect(hostUnit("macos", home)).toEqual({ kind: "launchd", path: join(home, "Library/LaunchAgents/io.example.garden.plist"), name: "io.example.garden-host", program: "/opt/outliner/src/host-main.ts" });
     expect(hostUnit("other", home)).toBeNull();
   });
 });
@@ -107,7 +108,7 @@ describe("backup naming", () => {
 describe("the plan", () => {
   test("a behind laptop: backup first, then plugin, door and link; restarts only offered", () => {
     const plan = buildPlan(laptop(), opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:do", "link:do", "restart:offer"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:do", "link:do", "restart:offer", "host:skip"]);
     const [backup, plugin, door, link, restart] = plan.steps;
     expect(backup!.backups!.map(b => b.dest)).toEqual([`${HOME}/backups/ep0ch/seed-library-20260314T092653Z.sqlite`]);
     expect(plugin!.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
@@ -134,12 +135,12 @@ describe("the plan", () => {
   });
 
   test("everything current: every step skipped, the backup too (a second run does nothing)", () => {
-    expect(statuses(current())).toEqual(["backup:skip", "plugin:skip", "door:skip", "link:skip", "restart:skip"]);
+    expect(statuses(current())).toEqual(["backup:skip", "plugin:skip", "door:skip", "link:skip", "restart:skip", "host:skip"]);
   });
 
   test("only a restart to do still backs up first", () => {
     const f = { ...current(), services: laptop().services };
-    expect(statuses(f, opts({ restartServices: true }))).toEqual(["backup:do", "plugin:skip", "door:skip", "link:skip", "restart:do"]);
+    expect(statuses(f, opts({ restartServices: true }))).toEqual(["backup:do", "plugin:skip", "door:skip", "link:skip", "restart:do", "host:skip"]);
   });
 
   test("a plugin update makes running services candidates, checked again after it", () => {
@@ -188,6 +189,73 @@ describe("the plan", () => {
     expect(text).toMatch(/^1 → Back up every local outline database$/m);
     expect(text).toContain(`seed-library: ${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite → ${HOME}/backups/ep0ch/seed-library-20260314T092653Z.sqlite`);
     expect(text).toMatch(/^5 \? Restart per-folder services running old code$/m);
+  });
+});
+
+describe("the outline host under launchd (the Mac) or systemd", () => {
+  const PLUGIN = `${HOME}/.config/herdr/plugins/github/float.pi-outliner-0a1b2c`;
+  const unit = { kind: "launchd" as const, path: `${HOME}/Library/LaunchAgents/io.example.outliner-host.plist`, name: "io.example.outliner-host", program: `${PLUGIN}/src/host-main.ts`,
+    state: { active: true, pid: 4242, lastExit: "(never exited)", detail: "launchd: running, pid 4242" } };
+  const host = (o: Partial<HostFacts> = {}): HostFacts => ({ socket: `${HOME}/.local/state/pi-herdr-outliner/outliner.sock`, configured: true, running: true,
+    defaultOutline: "orchard", outlines: [{ name: "orchard", open: true, default: true } as any], protocol: 82, capabilities: CAPS, unit, ...o });
+  const mac = (o: Partial<HostFacts> = {}, f: Partial<Facts> = {}) => ({ ...current(), host: host(o), ...f });
+
+  test("launchd's print: running with a pid; stopped with its last exit; not loaded", () => {
+    expect(launchdState("io.example.outliner-host = {\n\tactive count = 1\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n\tendpoints = {\n\t\tstate = active\n\t}\n}"))
+      .toEqual({ active: true, pid: 4242, lastExit: "(never exited)", detail: "launchd: running, pid 4242" });
+    expect(launchdState("x = {\n\tstate = not running\n\tlast exit code = 1\n}")).toEqual({ active: false, lastExit: "1", detail: "launchd: not running, last exit 1" });
+    expect(launchdState(null)).toEqual({ active: false, detail: "not loaded in launchd" });
+  });
+
+  test("systemd's show: active with a pid; failed with its status", () => {
+    expect(systemdState("ActiveState=active\nSubState=running\nMainPID=77\nExecMainStatus=0")).toEqual({ active: true, pid: 77, detail: "systemd: active (running), pid 77" });
+    expect(systemdState("ActiveState=failed\nSubState=failed\nMainPID=0\nExecMainStatus=1")).toEqual({ active: false, lastExit: "1", detail: "systemd: failed (failed), last exit 1" });
+  });
+
+  test("current code: nothing to restart", () => {
+    expect(hostStep(mac(), false)).toMatchObject({ status: "skip" });
+  });
+
+  test("a plugin update restarts the host with launchd's kickstart -k; the doors on it reconnect", () => {
+    const step = hostStep(mac(), true);
+    expect(step).toMatchObject({ id: "host", status: "do", commands: ["launchctl kickstart -k gui/$(id -u)/io.example.outliner-host"] });
+    expect(step.why).toContain("the plugin is updated in this run");
+    expect(hostUnitArgv(unit, "restart", 501)).toEqual(["launchctl", "kickstart", "-k", "gui/501/io.example.outliner-host"]);
+    // In the whole plan it follows the plugin, and the backup comes first.
+    const plan = buildPlan(mac({}, { plugin: laptop().plugin }), opts());
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:skip", "link:skip", "restart:offer", "host:do"]);
+  });
+
+  test("a host missing what the plugin offers is restarted too, and doctor says install does it", () => {
+    const old = mac({ capabilities: CAPS.filter(c => c !== "fragments.candidates") });
+    expect(hostStep(old, false)).toMatchObject({ status: "do" });
+    const c = Object.fromEntries(doctorChecks(old).map(x => [`${x.group}/${x.name}`, x]));
+    expect(c["services/outline host"]).toMatchObject({ status: "behind", fix: "ep0ch install --apply restarts it (launchctl kickstart -k gui/$(id -u)/io.example.outliner-host)" });
+  });
+
+  test("set up but not answering: doctor names launchd's state and the command that starts it; install starts it", () => {
+    const down = mac({ running: false, outlines: [], unit: { ...unit, state: { active: false, lastExit: "1", detail: "launchd: not running, last exit 1" } } });
+    const c = Object.fromEntries(doctorChecks(down).map(x => [`${x.group}/${x.name}`, x]));
+    expect(c["services/outline host"]).toMatchObject({ status: "missing", fix: "launchctl kickstart gui/$(id -u)/io.example.outliner-host" });
+    expect(c["services/outline host"]!.detail).toContain("launchd: not running, last exit 1");
+    expect(hostStep(down, false)).toMatchObject({ status: "do", title: "Start the outline host" });
+    // A job launchd doesn't have loaded is bootstrapped from its plist.
+    const unloaded = mac({ running: false, outlines: [], unit: { ...unit, state: { active: false, detail: "not loaded in launchd" } } });
+    expect(hostStep(unloaded, false).commands).toEqual([`launchctl bootstrap gui/$(id -u) ${unit.path}`]);
+  });
+
+  test("a unit running another checkout's host-main.ts is left to the person: a restart would bring the old code back", () => {
+    const stray = mac({ unit: { ...unit, program: `${HOME}/projects/pi-herdr-outliner/src/host-main.ts` } });
+    const step = hostStep(stray, true);
+    expect(step.status).toBe("manual");
+    expect(step.why).toContain(`runs ${HOME}/projects/pi-herdr-outliner/src/host-main.ts, not the installed plugin's`);
+    expect(doctorChecks(stray).find(x => x.name === "host unit")).toMatchObject({ status: "behind" });
+  });
+
+  test("a host outside any unit is restarted by the person; systemd's is restarted with systemctl", () => {
+    expect(hostStep(mac({ unit: null }), true)).toMatchObject({ status: "manual" });
+    const linux = { ...mac({ unit: { kind: "systemd", path: "/home/wren/.config/systemd/user/outliner-host.service", name: "outliner-host.service", program: `${PLUGIN}/src/host-main.ts` } }), platform: "linux" as const };
+    expect(hostStep(linux, true).commands).toEqual(["systemctl --user restart outliner-host.service"]);
   });
 });
 

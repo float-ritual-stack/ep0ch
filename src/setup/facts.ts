@@ -7,7 +7,7 @@ import { delimiter, join, resolve } from "node:path";
 import { hostConfigured, hostLive, hostSocketOf } from "../discover";
 import { outlinerPlugin } from "../skills";
 import { hostRequest, type HostedOutline, OUTLINE_CAPABILITIES } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HostFacts, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type ServiceFacts } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type ServiceFacts, type UnitState } from "./model";
 import { linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -125,10 +125,43 @@ export function hostUnit(platform: Facts["platform"], home: string): HostFacts["
   const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
     : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
   if (!kind || !existsSync(dir)) return null;
-  for (const name of readdirSync(dir).filter(n => n.endsWith(ext)).sort()) {
-    try { if (readFileSync(join(dir, name), "utf8").includes("host-main.ts")) return { kind, path: join(dir, name) }; } catch { /* unreadable: not ours */ }
+  for (const file of readdirSync(dir).filter(n => n.endsWith(ext)).sort()) {
+    let text: string;
+    try { text = readFileSync(join(dir, file), "utf8"); } catch { continue; /* unreadable: not ours */ }
+    if (!text.includes("host-main.ts")) continue;
+    const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
+    const program = /[^\s<>"'=]*host-main\.ts/.exec(text)?.[0];
+    return { kind, path: join(dir, file), name: label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file), ...(program ? { program } : {}) };
   }
   return null;
+}
+
+/** launchd's answer to `launchctl print gui/<uid>/<label>`: its own state, pid and last exit (the job's top-level lines). */
+export function launchdState(printed: string | null): UnitState {
+  if (printed === null) return { active: false, detail: "not loaded in launchd" };
+  const top = (key: string) => new RegExp(`^\t${key} = (.+)$`, "m").exec(printed)?.[1]?.trim();
+  const state = top("state"), pid = Number(top("pid")), lastExit = top("last exit code");
+  return { active: state === undefined ? null : state === "running", ...(pid > 0 ? { pid } : {}), ...(lastExit ? { lastExit } : {}),
+    detail: `launchd: ${state ?? "state unknown"}${pid > 0 ? `, pid ${pid}` : ""}${lastExit && lastExit !== "(never exited)" ? `, last exit ${lastExit}` : ""}` };
+}
+
+/** systemd's answer to `systemctl --user show <unit> -p ActiveState,SubState,MainPID,ExecMainStatus`. */
+export function systemdState(shown: string | null): UnitState {
+  if (shown === null) return { active: null, detail: "systemd didn't answer" };
+  const v = Object.fromEntries(shown.split("\n").map(l => l.split("=", 2) as [string, string]).filter(([k, x]) => k && x !== undefined));
+  const pid = Number(v.MainPID);
+  return { active: v.ActiveState === undefined ? null : v.ActiveState === "active", ...(pid > 0 ? { pid } : {}), ...(v.ExecMainStatus && v.ExecMainStatus !== "0" ? { lastExit: v.ExecMainStatus } : {}),
+    detail: `systemd: ${v.ActiveState ?? "state unknown"}${v.SubState ? ` (${v.SubState})` : ""}${pid > 0 ? `, pid ${pid}` : ""}${v.ExecMainStatus && v.ExecMainStatus !== "0" ? `, last exit ${v.ExecMainStatus}` : ""}` };
+}
+
+/** What launchd or systemd says about the host's unit now. Read-only. */
+export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0): Promise<UnitState> {
+  if (unit.kind === "launchd") {
+    const r = await run(["launchctl", "print", `gui/${uid}/${unit.name}`], { timeoutMs: 5000 });
+    return launchdState(r.code === 0 ? r.out : null);
+  }
+  const r = await run(["systemctl", "--user", "show", unit.name, "-p", "ActiveState,SubState,MainPID,ExecMainStatus"], { timeoutMs: 5000 });
+  return systemdState(r.code === 0 ? r.out : null);
 }
 
 type Ping = { protocolVersion?: number; capabilities?: string[]; location?: { workspaceRoot?: string }; outline?: { name?: string } };
@@ -145,8 +178,9 @@ export function openOutlineToPing(outlines: readonly HostedOutline[]): string | 
 
 export async function hostFacts(base: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
   const socket = hostSocketOf(base);
-  const unit = hostUnit(platform, home);
-  const live = await hostLive(socket);
+  const found = hostUnit(platform, home);
+  const [live, state] = await Promise.all([hostLive(socket), found ? unitState(found) : Promise.resolve(undefined)]);
+  const unit = found && state ? { ...found, state } : found;
   if (!live) return { socket, configured: hostConfigured(base), running: false, outlines: [], unit };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
   const target = openOutlineToPing(list.outlines);

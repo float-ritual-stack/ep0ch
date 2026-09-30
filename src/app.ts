@@ -419,8 +419,21 @@ export class App implements Ctx {
     this.done();
   }
 
-  private key(k: Key) {
+  private key(typed: Key) {
     this.lastInput = Date.now();
+    // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
+    const k = this.optionAsAlt(typed);
+    try { this.dispatch(k); }
+    finally {
+      // Said once, after the key did its work, so the hint isn't covered by what the key said.
+      if (k !== typed && !this.saidOptionKeys) {
+        this.saidOptionKeys = true;
+        this.flash(`${(typed as { ch: string }).ch} read as alt+${(k as { ch: string }).ch}: this terminal types Option as characters; ${OPTION_AS_ALT_HINT}`, 10_000);
+      }
+    }
+  }
+
+  private dispatch(k: Key) {
     // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
@@ -429,22 +442,20 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
-    const alt = this.optionAsAlt(k);
-    this.stack.at(-1)?.key(alt, this);
-    // Said after the key did its work, so the hint isn't covered by what the key said.
-    if (alt !== k && !this.saidOptionKeys) { this.saidOptionKeys = true; this.flash(`${(k as { ch: string }).ch} read as alt+${(alt as { ch: string }).ch}: this terminal types Option as characters; ${OPTION_AS_ALT_HINT}`, 10_000); }
+    this.stack.at(-1)?.key(k, this);
   }
 
   /**
    * A Mac terminal that types Option as characters sends ¬ for alt+l. Where nobody is typing text (no edit,
-   * filter, panel or terminal tile holds the keys), such a character is the alt key it stands for, and the
-   * first one says once which terminal setting sends alt itself. In text it stays what was typed (façade, µm).
+   * filter, panel, terminal tile or the agent drawer holds the keys), such a character is the alt key it
+   * stands for, and the first one says once which terminal setting sends alt itself. In text it stays what
+   * was typed (façade, µm).
    */
   private optionAsAlt(k: Key): Key {
     if (k.kind !== "char" || k.ctrl || k.pasted) return k;
     const alt = OPTION_KEYS[k.ch];
     const top = this.stack.at(-1);
-    if (!alt || top?.holdsKeys?.() || top?.rawKeys?.()) return k;
+    if (!alt || this.dockHoldsKeys() || top?.holdsKeys?.() || top?.rawKeys?.()) return k;
     return { kind: "alt", ch: alt };
   }
   private saidOptionKeys = false;
