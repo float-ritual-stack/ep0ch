@@ -3,7 +3,8 @@
 // service decides everything (which lines are provider lines, which key the context names, the status,
 // its reason, the allowed fields) through `resources.projection.read`; the door lays the answer out in
 // Detail's words (pi-herdr-outliner src/detail-embeds.ts `resourceProjectionLayout`, parity-tested) and
-// paints the fetched time's age when it draws. It never registers, refreshes or contacts a provider.
+// paints the fetched time's age when it draws. It never contacts a provider itself: `r` asks the service
+// to refresh (`resources.projection.refresh`), and the service fetches.
 //
 // Answers are kept per connection and per note, like embeds (src/embeds.ts): read again when the note (or
 // the block its key came from) changes, or when a `resource-catalog` event names a Resource it shows.
@@ -218,10 +219,11 @@ export function ticketRegion(p: ResourceProjection, t: TicketBlocks | null, part
     const fields = ticketFields(t?.record ?? null, p);
     if (fields && !compact) row(fields, C.brown);
     const age = ageLine(p, now);
-    const refreshOf = p.record?.pageBlockId ?? p.resolvedFrom?.blockId;
-    const onPage = !(part === "head" && p.record);
+    // A ticket kept as a block refreshes through that block (its one Resource), whichever note's line asked
+    // for it: a key has one ticket block, often under another note (pi-herdr-outliner extensionRecordHome).
+    const refreshOf = p.record?.blockId ?? p.resolvedFrom?.blockId;
     const shown = link && refreshOf
-      ? link({ refresh: onPage ? refreshOf : p.record!.blockId, ...(onPage && p.anchor.kind !== "page" ? { refreshLine: p.anchor.line } : {}), label: `refresh ${label}`, role: "resource" }, age.text)
+      ? link({ refresh: refreshOf, ...(!p.record && p.anchor.kind !== "page" ? { refreshLine: p.anchor.line } : {}), label: `refresh ${label}`, role: "resource" }, age.text)
       : age.text;
     // --compact: the head, the fields on one line, the age only when something is wrong or running.
     if (compact) { if (fields) row(fields, C.brown); if (age.bad || p.fetching) row(shown, age.bad ? C.yellow : C.dark); }

@@ -583,25 +583,41 @@ export class SocketBoard implements Board {
    * Blocks changed after `since`, newest first, as list rows. With `query.expression` (PIE-398) the
    * service answers `updated > since` itself and sends titles and properties only, so New Scan reads
    * what changed instead of the newest N whole notes. Older services: the newest N, filtered here.
-   */
-  /**
-   * Notes changed since `since`, newest first. A note an extension last wrote (a Jira ticket the service
-   * refreshed: its writer is `ext:…`) is left out unless `extensions`: it isn't the person's news.
+   * A block an extension wrote (a Jira ticket the service keeps: its writer is `ext:…`, and only that
+   * extension ever writes it) is left out unless `extensions`: it isn't the person's news.
    */
   async changedSince(since: number, limit: number, extensions = false): Promise<Msg[]> {
     const sort = { field: "updated", direction: "desc" };
     const keep = (m: Msg) => extensions || !isExtensionWriter(m.author);
     if (this.supports("query.expression") === true) {
-      const where = since > 0 ? { expression: `updated>${new Date(since).toISOString()}` } : {};
-      const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-        query: { ...where, limit: Math.min(1000, limit), sort }, ...this.listFields(),
-      });
-      return r.blocks.map(b => toMsg(b)).filter(keep);
+      const after = since > 0 ? `updated>${new Date(since).toISOString()}` : "";
+      if (extensions) {
+        const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+          query: { ...(after ? { expression: after } : {}), limit: Math.min(1000, limit), sort }, ...this.listFields(),
+        });
+        return r.blocks.map(b => toMsg(b));
+      }
+      // What extensions wrote can outnumber the person's own changes (a poll that refreshed many tickets and
+      // their comments): page back through them, so they never push the person's edits past the limit.
+      const out: Msg[] = [], seen = new Set<string>(), size = Math.min(1000, Math.max(100, limit * 2));
+      let before: string | undefined;
+      for (let pages = 0; pages < 20 && out.length < limit; pages++) {
+        const expression = [after, before ? `updated<=${before}` : ""].filter(Boolean).join(" ");
+        const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+          query: { ...(expression ? { expression } : {}), limit: size, sort }, ...this.listFields(),
+        });
+        const fresh = r.blocks.filter(b => !seen.has(b.id));
+        for (const b of fresh) { seen.add(b.id); const m = toMsg(b); if (keep(m)) out.push(m); }
+        // The last page, or one whose rows all share the time already paged from (nothing further back to ask for).
+        if (r.blocks.length < size || !fresh.length || !r.blocks.at(-1)?.updatedAt) break;
+        before = r.blocks.at(-1)!.updatedAt;
+      }
+      return out.slice(0, limit);
     }
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), sort },
+      query: { limit: extensions ? Math.min(1000, limit) : 1000, sort },
     });
-    return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since).filter(keep);
+    return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since).filter(keep).slice(0, limit);
   }
 
   async search(text: string, limit: number): Promise<Msg[]> {

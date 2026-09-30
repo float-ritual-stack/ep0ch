@@ -12,7 +12,8 @@ import { App } from "../src/app";
 import { subject, type Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { external } from "../src/open";
-import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
@@ -413,4 +414,32 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     expect(app.extensionChanges).toBe(false);
     expect(app.events).toBe(before.events);
   }, 20_000);
+
+  test("what changed never lets extension writes push the person's own edit out of the list", async () => {
+    const since = Date.now() - 1;
+    const mine = await board.request<any>("create", { parentId: null, text: "Sort the seed packets", author: "user" });
+    // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
+    for (let i = 0; i < 120; i++) await board.request<any>("create", { parentId: null, text: `Made-up synced row ${i}`, author: "agent", provenance: { actorId: "ext:test" } });
+    const first = await board.changedSince(since, 40);
+    expect(first.map(m => m.id)).toContain(mine.id);
+    expect(first.some(m => m.author === "ext:test")).toBe(false);
+    expect((await board.changedSince(since, 40, true)).some(m => m.author === "ext:test")).toBe(true);
+  }, 30_000);
+
+  test("a second note asking for the same ticket shows the one ticket block, and its age refreshes through that block", async () => {
+    const ticket = (await board.children(n.call.id)).find(m => m.author === "ext:jira" && subject(m).startsWith("Rollout checklist"))!;
+    expect(ticket).toBeDefined();
+    const followUp = await create(null, "Depot follow-up\nACME-12 again\njira::");
+    let read: ResourceProjectionRead | undefined;
+    const end = Date.now() + 10_000;
+    do { read = await board.readResourceProjections(followUp.id); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
+    const p = read!.projections[0]!;
+    expect(p.record?.blockId).toBe(ticket.id);
+    expect(await board.children(followUp.id)).toEqual([]);
+    const targets: LinkTarget[] = [];
+    ticketRegion(p, { record: ticket, comments: [] }, "page", 120, 0, Date.now(), (to, text) => { targets.push(to); return text; });
+    expect(targets.find(t => t.refresh)).toMatchObject({ refresh: ticket.id });
+    expect(targets.find(t => t.refresh)?.refreshLine).toBeUndefined();
+    expect(targets.find(t => t.block)).toMatchObject({ block: ticket.id });
+  }, 30_000);
 });
