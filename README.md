@@ -246,6 +246,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
+| `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
 | `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 

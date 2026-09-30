@@ -66,6 +66,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     process.env.EP0CH_DAILY_AGENT = "sh";
     process.env.EP0CH_DAILY_DRAFT = join(scratch.root, "door", "draft.md");
     process.env.EDITOR = "tail -f";
+    process.env.EP0CH_NOW_PAGE = "garden-now";
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
@@ -73,6 +74,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     notes.shed = await mk("Mend the shed roof\nBuy tacks and felt.");
     notes.beans = await mk("Sow the beans\nTwo to a hole.");
     notes.plan = await mk(`Week plan\nFirst ((${notes.beans.id})), then ((${notes.shed.id})).`);
+    notes.now = await mk("Garden, right now [page::garden-now]\nThe beans are in; the shed waits for felt.");
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -86,7 +88,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     D().dispose();
     board?.close();
     await scratch.dispose();
-    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
+    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR", "EP0CH_NOW_PAGE"]) delete process.env[k];
   });
 
   test("daily: the agent over now, the tree and its preview over middle, the editor over side; tree, now and side open into middle", () => {
@@ -99,6 +101,13 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(tile("draft").terminal.file).toBe(draft());
     expect(existsSync(draft())).toBe(true);
     expect(get().focus).toBe("tree");
+  });
+
+  test("daily: the now tile is pinned to the now page (EP0CH_NOW_PAGE), and saves as that page, not its note", async () => {
+    const now = () => [...D().panes.values()].find((p: any) => p.kind === "detail" && p.page);
+    await until(() => now()?.msg?.id === notes.now.id, "the now page in the now tile");
+    expect(now().page).toBe("garden-now");
+    expect(now().spec()).toEqual({ page: "garden-now" });
   });
 
   test("a header dropped on a tile's lower triangle splits it; on its centre, tabs; on the outer right edge, a column", () => {

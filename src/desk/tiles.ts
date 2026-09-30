@@ -15,6 +15,7 @@ import { makePane, ReaderPane, type Pane, type PaneKind } from "./panes";
 import { PreviewPane, sourceOf } from "./preview";
 import { BacklinksPane } from "./backlinks-pane";
 import { PtyPane } from "./pty";
+import { nowPage } from "../hub/now";
 import { ScreenTile, SCREEN_KINDS, type ScreenKind } from "./screen-tile";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
@@ -25,6 +26,8 @@ export interface TileSpec {
   name?: string;
   /** A detail's note (block id). */
   note?: string;
+  /** A detail pinned to a page: the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
+  page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
   cmd?: string[];
   cwd?: string;
@@ -52,7 +55,7 @@ export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "pre
 /** Build a tile from its spec. A spec it can't build (a preview with no source) is a reader, and says why. */
 export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
   switch (s.kind) {
-    case "detail": { const r = new DetailPane(); if (s.note) r.want = s.note; return r; }
+    case "detail": { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; }
     case "preview": return new PreviewPane((s.source && sourceOf(s.source)) || { tile: "tree" });
     case "pty": return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name });
     case "board": case "river": case "brief": return new ScreenTile(s.kind as ScreenKind, { preview: s.preview });
@@ -66,10 +69,12 @@ export class DetailPane extends ReaderPane {
   override readonly kind = "detail" as const;
   /** The note it should show once the desk can read it (a restored layout). */
   want: string | null = null;
+  /** The page it's pinned to, if any: it shows that page each time it starts, not the last note it held. */
+  page: string | null = null;
   constructor() { super(true); this.holdOn(); }
   override title(): string { return this.msg ? "detail" : "detail · empty"; }
   override select() {}
-  spec() { return this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
+  spec() { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
 }
 
 export const shell = () => process.env.SHELL || "sh";
@@ -105,7 +110,7 @@ export function builtin(name: string): LayoutSpec | null {
     return {
       name, rule: "current", focus: "tree",
       root: serial(splitOf("row", [
-        splitOf("col", [T("pty", "claude", { cmd: agent }), T("detail", "now", { link: "middle" })], [0.6, 0.4]),
+        splitOf("col", [T("pty", "claude", { cmd: agent }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
         splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("detail", "middle")], [0.6, 0.4]),
         splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("detail", "side", { link: "middle" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
