@@ -280,9 +280,9 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("esc"));
     expect(e.pop()).toBeNull();
     expect(e.s.draft).toBe(e.d);                                          // not closed
-    expect(e.d.note).toBe("");                                            // not "esc again discards"
+    expect(e.d.note).toBe("");                                            // not "esc again puts it aside"
     e.press(K("esc"));
-    expect(e.d.note).toContain("esc again discards");
+    expect(e.d.note).toContain("esc again puts it aside");
     e.press(K("esc"));
     expect(e.s.draft).toBeNull();
   });
@@ -338,7 +338,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await until(() => d.text === `ask ((${ids.compost}))`, "the insertion");
     expect(completionOf(d)).toBeNull();
     s.key(K("esc"), env);                                                 // no popup: the composer's own esc
-    expect(d.note).toContain("esc again discards");
+    expect(d.note).toContain("esc again puts it aside");
     s.key(K("esc"), env);
     expect(s.mode).not.toBe("compose");
   });

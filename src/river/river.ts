@@ -192,6 +192,8 @@ export class River implements Screen {
   private gesture = new Gesture();
   /** Where the mouse went down: the row and link it was on then (a release there is a click on them). */
   private down: { p: PaneS; rect: Rect; row?: HitRow; link?: Link; same: boolean; dragging: boolean } | null = null;
+  /** A press placed the cursor in the draft being written: a drag selects there. */
+  private editDrag: { p: PaneS; rect: Rect } | null = null;
 
   enter(ctx: Ctx) {
     this.ctx = ctx;
@@ -1227,6 +1229,9 @@ export class River implements Screen {
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const inside = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
     if (k.action === "drag") {
+      // A drag from a click in the edit the person is in selects in the draft.
+      const e = this.editDrag;
+      if (e) { e.p.surface.drag(k.x - e.rect.col, k.y - e.rect.row, this.hostFor(e.p)); return this.ctx.redraw(); }
       const d = this.down;
       if (!d || !this.gesture.drag(k.x, k.y) || !d.p.drawn) return;
       // A drag off the pressed cell selects (PIE-419); from a link or a card it selects too, never opens.
@@ -1235,12 +1240,14 @@ export class River implements Screen {
       return this.ctx.redraw();
     }
     if (k.action === "up") {
+      if (this.editDrag) { this.editDrag = null; return this.ctx.redraw(); }
       const d = this.down, r = this.gesture.release(k.x, k.y);
       this.down = null;
       if (d && r.click) this.clickPane(d);
       return this.ctx.redraw();
     }
     if (k.action === "down") {
+      this.editDrag = null;
       const h = this.hits.find(h => inside(h.rect));
       const cr = this.colRects.find(c => inside(c.rect));
       // Only a click in the column that already has the keys can open a card: the first one only focuses.
@@ -1258,8 +1265,8 @@ export class River implements Screen {
         const col = this.cols[h.col]!, p = col.panes[h.pane]!;
         col.pane = h.pane;
         this.seen(p);
-        // A completion candidate in the edit the person is in: chosen and inserted (PIE-416).
-        if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) return this.ctx.redraw();
+        // In the edit the person is in: a completion candidate (PIE-416), the preview control, or the cursor placed.
+        if (p.surface.editing && this.isEntered(p) && p.surface.click(k.x - h.rect.col, k.y - h.rect.row, this.hostFor(p))) { this.editDrag = { p, rect: h.rect }; return this.ctx.redraw(); }
         const row = h.rows[k.y - h.rect.row];
         const back = row?.history?.find(x => k.x - h.rect.col >= x.from && k.x - h.rect.col < x.to);
         if (back && !p.surface.editing) { const why = this.historyOf(p).go(back.dir); if (why) this.ctx.flash(why); return this.ctx.redraw(); }

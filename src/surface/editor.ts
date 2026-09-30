@@ -4,7 +4,8 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { keepCopy, type Draft } from "../edit";
+import { DRAFT_ACTIONS, keepCopy, type Draft } from "../edit";
+import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
 import { rule } from "../text";
@@ -20,35 +21,90 @@ export interface EditFrame {
   context?: string[];
   /** Who else typed into this draft (an agent), shown so it is never silent. */
   by?: string | null;
+  /**
+   * The host's reader renderer for a live preview of the draft (`draftPreview` in the note surface: the
+   * same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
+   */
+  preview?: (text: string, w: number) => string[];
 }
 
-/** The frame every draft is drawn in: title, status, context, a rule, then the text with its cursor. */
+/**
+ * The frame every draft is drawn in: title, status, context, a rule, then the text with its cursor, and the
+ * preview under it when it's on. Where the text and the controls landed is kept on the draft (`d.frame`),
+ * so a click in the host's cells finds them (`editorClick`).
+ */
 export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): string[] {
+  // The control, where there's room for it beside the title (a narrow river column has ctrl+p).
+  const ctl = f.preview && w >= 40 ? (d.preview ? "[hide preview]" : "[preview]") : "";
+  const tw = Math.max(1, w - (ctl ? ctl.length + 1 : 0));
   const top = [
-    fg(C.yellow) + pad(`» ${f.title}`, w) + RESET,
+    fg(C.yellow) + pad(`» ${f.title}`, tw) + (ctl ? " " + fg(C.lcyan) + ctl : "") + RESET,
     ...f.status,
     ...(f.by ? [fg(C.lmagenta) + pad(f.by, w) + RESET] : []),
     ...(f.context ?? []),
     rule(w),
   ];
-  const room = Math.max(1, h - top.length);
+  const all = Math.max(1, h - top.length);
+  // The preview takes the lower half, once there's room for both.
+  const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
+  const room = all - ph;
+  d.frame = { row: top.length, col: 1, rows: room, controls: ctl ? [{ row: 0, from: tw + 1, to: tw + 1 + ctl.length, action: "preview" }] : [] };
+  const below = ph ? previewRows(d, f.preview!, w, ph) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
-  if (!pop || !c) return [...top, ...d.render(Math.max(1, w - 2), room).map(l => " " + l)];
+  if (!pop || !c) {
+    const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
+    return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
+  }
   // The completion popup opens under the cursor's row; the draft gives up that many rows to keep it.
-  const ph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
-  const text = d.render(Math.max(1, w - 2), Math.max(1, room - ph)).map(l => " " + l);
+  const cph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
+  const text = d.render(Math.max(1, w - 2), Math.max(1, room - cph)).map(l => " " + l);
   const at = Math.min(text.length, d.cursorRow + 1), rows: (number | null)[] = [];
-  const popup = renderCompletion(pop, w, ph, rows);
+  const popup = renderCompletion(pop, w, cph, rows);
   // Where it went, so a click on a candidate can choose it (NoteSurface.click).
   c.drawn = { row: top.length + at, items: rows.slice(0, Math.max(0, room - at)) };
-  return [...top, ...[...text.slice(0, at), ...popup, ...text.slice(at)].slice(0, room)];
+  const mid = [...text.slice(0, at), ...popup, ...text.slice(at)].slice(0, room);
+  return [...top, ...mid, ...(below.length ? pad0(room - mid.length) : []), ...below];
+}
+
+/** Empty rows, so the preview under the text stays put while the text is short. */
+const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
+
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[] }>();
+
+/** The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. */
+function previewRows(d: Draft, render: (text: string, w: number) => string[], w: number, h: number): string[] {
+  // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
+  // or after a moment, for link titles that arrived since.
+  const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
+  const body = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 ? hit.body : render(text, pw);
+  if (body !== hit?.body) previewCache.set(d, { text, w: pw, at: now, body });
+  const room = Math.max(0, h - 1);
+  const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
+  return [rule(w, "preview · ctrl+p hides"), ...body.slice(at, at + room).map(l => " " + l)];
+}
+
+/**
+ * A click (or the press of a drag) in the host's cells, over a draft drawn by `renderEditor`: on the
+ * preview control it toggles the preview; on the text it puts the cursor there (`extend`: a drag, selecting
+ * from where it was). Both are the draft's actions. False when the click wasn't on either.
+ */
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER): boolean {
+  const f = d.frame;
+  if (!f) return false;
+  const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
+  if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
+  if (!extend && (y < f.row || y >= f.row + f.rows)) return false;
+  const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
+  void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
+  return true;
 }
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · ctrl+e $EDITOR · … · esc done`. */
 export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
-  return `ctrl+s ${o.save} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · esc ${d.dirty ? "twice discards" : o.close ?? "done"}`;
+  // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

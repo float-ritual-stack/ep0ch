@@ -336,7 +336,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(pane.unsaved()).toBe(true);
     pane.key({ kind: "esc" }, d);
     expect(pane.session!.mode).toBe("compose");
-    expect(pane.session!.composer!.note).toContain("esc again discards");
+    expect(pane.session!.composer!.note).toContain("esc again puts it aside");
     pane.show(elsewhere, d);
     expect(pane.msg?.id).toBe(b.id);
     const [copy] = pane.keepDrafts();

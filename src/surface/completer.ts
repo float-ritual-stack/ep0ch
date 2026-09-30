@@ -274,6 +274,8 @@ const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" |
  */
 export function completionKey(d: Draft, k: Key, c: Completer | null): DraftAction {
   if (!c || d.busy || k.kind === "mouse") return d.key(k);
+  // A line break or tab inside a paste is text: it never chooses a candidate.
+  if ("pasted" in k) { c.dismiss(); return d.key(k); }
   if (c.state && !c.shown) c.dismiss();
   const s = c.state;
   if (s) {

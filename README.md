@@ -490,7 +490,8 @@ the same capability's answer.
 | `d` `d` | trash the selected card (and the notes under it); `u` restores it |
 
 - **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
-  note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice discards). The first line is the
+  note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice puts it aside and `n` in the lane
+  brings it back). The first line is the
   title. The lane's plain clauses are appended to the first line as `[key::value]` tokens, unless the text
   already says so; a typed value that contradicts one is refused. The lane's `[create::key=value]` is a
   default, not a requirement: it's added only when the text doesn't set that key, so typing
@@ -559,6 +560,7 @@ the edit, the passage picker and the comment threads, the property warning and "
 keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
 opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same
 frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Esc`, twice when unsaved).
+The board's new-card composer is the same control too.
 
 | Keys | Action |
 |---|---|
@@ -566,8 +568,28 @@ frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Es
 | `Ctrl+E` | hand the draft to `$VISUAL` / `$EDITOR` (then `vi`); what comes back replaces the draft |
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
-| `Esc` | close; with unsaved changes it asks for a second `Esc` |
+| `Esc` | close; with unsaved changes it asks for a second `Esc`, which **puts the draft aside** (below); with a selection, the first `Esc` only lets go of it |
+| `Enter` | a new line; on a list item (`-`, `*`, `+`, `1.`, `1)`, `- [ ]`, at any indent) the next item at the same level: numbers count up, a checklist step starts unchecked. On an empty item it goes up to its parent's level (continuing the parent's numbers), and at the top level the list ends. An indented line keeps its indent. A marker you type yourself on the new item replaces it (`- ` then `- ` is one bullet) |
+| `Alt+Enter` | a plain new line, no list continuation |
+| `Tab`, `Shift+Tab` | indent or outdent the line (or every line a selection touches, nesting kept): an item goes under the item above it, lined up with its text, and back out to its parent's level. Inside a draft `Tab` never moves focus; `Esc` (or `Ctrl+S`) is how you leave |
+| `↑ ↓`, `PgUp PgDn` | move by the rows drawn: a wrapped line is several rows, the column kept |
+| `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer |
+| the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
+| a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
+
+- **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
+  rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
+  typed. Pasted text goes in as it came: a pasted line break or tab never continues a list or indents.
+- **Nothing you type is lost.** `Esc` twice on unsaved text doesn't drop it: it's **put aside as unsent**
+  where you wrote it (an edit on its note, a comment on its note, a reply on its thread, a new card in its
+  lane) and copied to `~/.local/state/ep0ch-door/drafts/`. The status bar says where. The reader shows
+  `■ unsent edit from 10:42 · e brings it back` (or the comment's), and opening the same draft again (`e`;
+  `C` and a passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that
+  came back unchanged drops it, and says where its copy stays. Closing a screen, quitting and a dropped
+  connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
+  over a newer note: the reader says where its copy is. An agent's edit or comment never picks up your
+  put-aside text.
 
 - **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
@@ -621,7 +643,7 @@ in the lanes comments in the preview.
 | `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
 | `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it |
-| `Esc` | back a step; with unsent text it asks for a second `Esc` |
+| `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` and a passage bring it back) |
 
 - **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
   rendered view restyles and drops text (properties, markup, checklist ids), so a quote picked there
@@ -1005,6 +1027,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `pane.split`, `pane.zoom` | `kind=reader\|tree\|thread\|activity\|who\|art`, `dir=row\|col`; `on=true\|false`. Desk only for now: the board's details open with a note (`open reader=new-detail`) and it has no zoom yet (PIE-428). An agent zooms only the pane that has your keys | desk `^W o`, `^W z` |
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (otherwise `edit.text` or `comment.write`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

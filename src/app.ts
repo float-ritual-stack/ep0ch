@@ -6,7 +6,7 @@ import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } 
 import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
-import type { Key, Term, TermInfo } from "./term";
+import { pasteKeys, type Key, type Term, type TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
@@ -369,7 +369,7 @@ export class App implements Ctx {
     this.lastInput = Date.now();
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
-      for (const ch of k.text.replace(/\r\n?/g, "\n")) this.key(ch === "\n" ? { kind: "enter" } : ch === "\t" ? { kind: "tab" } : { kind: "char", ch });
+      for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }

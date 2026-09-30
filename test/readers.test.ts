@@ -4,6 +4,7 @@
 // The wheel goes where the pointer is, whatever holds a reader. Frames show where a long note is.
 // Against a throwaway outliner service (never a real outline).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
@@ -59,6 +60,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
   /** A new board on the same hub, the lanes loaded and the preview on the first Queued card. */
   const fresh = async () => {
     if ((app as any).stack.at(-1) instanceof DeliveryBoard || (app as any).stack.at(-1) instanceof Desk) app.pop();
+    // Each test starts with nothing put aside: a draft an earlier test left would come back on `e` (PIE-496).
+    rmSync(join(scratch.root, "door", "drafts", "unsent"), { recursive: true, force: true });
     b = new DeliveryBoard(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);

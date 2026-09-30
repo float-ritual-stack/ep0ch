@@ -147,10 +147,14 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await until(() => B().composer?.draft.note.startsWith("not created"), "the refusal");
     expect(B().composer.draft.note).toContain("not created: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text");
     expect(B().composer.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
+    // Esc, esc puts it aside (never lost), and n in the same lane brings it back to finish (PIE-496).
     press({ kind: "esc" }); press({ kind: "esc" });
+    expect(message()).toContain("put aside as unsent · n in Queued brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
-    type("Oil the hinges [priority::medium] [arc::home] [track::doors]\nThe back door squeaks.");
+    expect(B().composer.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
+    press({ kind: "up" }); press({ kind: "end" });
+    type(" [priority::medium] [arc::home] [track::doors]");
     ctrl("s");
     await until(() => !B().composer, "the create");
     const made = B().lastWrite.id;
@@ -290,6 +294,14 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer).not.toBeNull();
     press({ kind: "esc" });
     expect(B().composer).toBeNull();
+    // Nothing is lost (PIE-496): it's put aside, n in the lane brings it back, and esc, esc on it unchanged drops it.
+    expect(message()).toContain("put aside as unsent · n in Doing brings it back");
+    press({ kind: "char", ch: "n" });
+    await until(() => !!B().composer, "the composer");
+    expect(B().composer.draft.text).toBe("Paint the railings");
+    press({ kind: "esc" }); press({ kind: "esc" });
+    expect(B().composer).toBeNull();
+    expect(message()).toContain("dropped the unsent draft · a copy stays at");
     await expect(act("card.create", { lane: "Doing", text: "Mow the lawn [work-stage::queued] [project::ep0ch-door] [priority::low] [arc::a] [track::t]" })).rejects.toThrow("the text sets work-stage::queued, but Doing needs work-stage=doing");
   });
 

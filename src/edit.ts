@@ -1,10 +1,12 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { actorIdOf, USER, type Actor } from "./socket";
+import { ActionRefused, ActionSet } from "./surface/actions";
+import { SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
@@ -15,7 +17,6 @@ export class Draft {
   lines: string[];
   row = 0;
   col = 0;
-  private top = 0;
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
   /** The text the draft started from, to tell whether anything changed. */
@@ -41,6 +42,11 @@ export class Draft {
    */
   writers: Actor[] = [];
   lastWriter: Actor | null = null;
+  /**
+   * Who opened the draft: the person (their `e`, `C`, `n`) or an agent (`edit.text`, `comment.write`). An
+   * agent's draft actions (DRAFT_ACTIONS) work only in a draft it opened and alone wrote in.
+   */
+  openedBy: Actor = USER;
 
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
@@ -115,6 +121,64 @@ export class Draft {
     if (this.text !== before) this.wrote(by);
   }
 
+  /**
+   * Where this draft is kept when it's put aside (`key`, e.g. `edit:<id>`), what brings it back there
+   * (`back`: "e brings it back"), and the name of its copy on disk. Without it a put-aside draft is only copied.
+   */
+  shelf: { key: string; back: string; label?: string } | null = null;
+  /** The text a put-aside draft was brought back with: esc twice on it unchanged drops it. */
+  restored: string | null = null;
+  /** What happened to the text when the draft closed with it (put aside, or dropped), for the host to say. */
+  closedWith: string | null = null;
+
+  /**
+   * Keep this draft under its place with a copy on disk (a screen closing, the door quitting). Returns the copy.
+   * Text only agents wrote is only copied: it never covers the person's put-aside text there, and the person's
+   * next draft there never brings it back as theirs.
+   */
+  keep(): string {
+    const copy = this.copyOut(this.shelf?.label);
+    if (this.shelf && this.persons) shelve(this.shelf.key, this, copy);
+    return copy;
+  }
+
+  /** The person had a hand in the text (or nobody is recorded, as for text typed before writers were kept). */
+  private get persons() { return !this.writers.length || this.writers.some(w => w.kind === "user"); }
+
+  /**
+   * Esc, esc on unsaved text: never lost. It's put aside where it was written (and copied to disk), and
+   * opening the same draft again brings it back. Text already brought back and left unchanged is dropped
+   * instead, its copy kept. `closedWith` says which, and where.
+   */
+  putAside(): string {
+    if (this.shelf && this.restored !== null && this.restored === this.text) {
+      unshelve(this.shelf.key);
+      const copy = this.copyOut(this.shelf.label);
+      return this.closedWith = `dropped the unsent draft · a copy stays at ${tidy(copy)}`;
+    }
+    const copy = this.keep();
+    return this.closedWith = this.shelf && this.persons ? `put aside as unsent · ${this.shelf.back} · a copy is at ${tidy(copy)}` : `closed · your text is at ${tidy(copy)}`;
+  }
+
+  /**
+   * A draft opening where one was put aside: its text comes back, when it was written on the revision this
+   * draft starts from (a comment or a new card always). One on an older revision stays on disk, and is said.
+   */
+  restore(): boolean {
+    const u = this.shelf ? unsent(this.shelf.key) : null;
+    if (!u || !this.shelf) return false;
+    unshelve(this.shelf.key);
+    if (u.text === this.text) return false;
+    if (u.base !== this.base) { this.note = `your unsent draft from ${whenPut(u.at)} was on revision ${u.base}; the note changed since · it's at ${tidy(u.copy ?? "")}`; return false; }
+    this.lines = u.text.split("\n");
+    this.row = this.lines.length - 1; this.col = this.line.length;
+    this.restored = u.text;
+    // Whoever wrote it then wrote it now: a save names them all (recordAs).
+    for (const w of u.writers?.length ? u.writers : [USER]) this.wrote(w);
+    this.note = `brought back your unsent draft from ${whenPut(u.at)} · esc twice drops it`;
+    return true;
+  }
+
   /** Write the draft next to the door's state so a refused save can't lose it. */
   copyOut(label = this.blockId.slice(0, 8)): string {
     return (this.savedCopy = keepCopy(this.text + "\n", label));
@@ -122,24 +186,44 @@ export class Draft {
 
   key(k: Key): DraftAction {
     if (k.kind === "mouse") return "keep";
+    // Any key brings the cursor back into view after the wheel scrolled away from it.
+    this.follow = true;
+    if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
     const was = this.discardArmed;
     this.discardArmed = false;
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
       if (k.ch === "e") return "editor";
       if (k.ch === "r") return "reload";
-      if (k.ch === "a") { this.col = 0; return "keep"; }
-      if (k.ch === "k") { if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
+      if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
+      if (k.ch === "a") { this.anchor = null; this.col = 0; return "keep"; }
+      if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
       return "keep";
     }
     if (k.kind === "esc") {
-      if (!this.dirty || was) return "close";
-      this.discardArmed = true;
-      this.note = "unsaved changes · esc again discards · ctrl+s saves";
-      return "keep";
+      // The first esc lets go of a selection; nothing else.
+      if (this.anchor) { this.anchor = null; return "keep"; }
+      if (!this.dirty) return "close";
+      if (!was) {
+        this.discardArmed = true;
+        this.note = this.restored === this.text
+          ? "esc again drops this unsent draft (a copy stays on disk) · ctrl+s saves"
+          : "unsaved · esc again puts it aside as unsent (nothing is lost) · ctrl+s saves";
+        return "keep";
+      }
+      this.putAside();
+      return "close";
     }
     this.note = "";
     const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
+    const typing = k.kind === "char" || k.kind === "enter" || k.kind === "alt-enter" || k.kind === "backspace" || k.kind === "delete";
+    // Typing over a selection replaces it; backspace and delete take it away.
+    if (typing && this.anchor) {
+      const had = this.deleteSelection();
+      if (had && (k.kind === "backspace" || k.kind === "delete")) { this.wrote(USER); return "keep"; }
+    }
+    if (k.kind !== "tab" && k.kind !== "backtab" && k.kind !== "up" && k.kind !== "down" && k.kind !== "pgup" && k.kind !== "pgdn") this.goal = null;
+    if (k.kind !== "tab" && k.kind !== "backtab") this.anchor = null;
     switch (k.kind) {
       case "left":
         if (this.col > 0) this.col = stepBack(this.line, this.col);
@@ -149,19 +233,16 @@ export class Draft {
         if (this.col < this.line.length) this.col = stepForward(this.line, this.col);
         else if (this.row < L.length - 1) { this.row++; this.col = 0; }
         break;
-      case "up": this.moveRow(-1); break;
-      case "down": this.moveRow(1); break;
-      case "pgup": this.moveRow(-15); break;
-      case "pgdn": this.moveRow(15); break;
+      // Up and down move by the rows drawn (a wrapped line is several), keeping the column they started at.
+      case "up": this.moveVisual(-1); break;
+      case "down": this.moveVisual(1); break;
+      case "pgup": this.moveVisual(-Math.max(1, this.shown.h - 1)); break;
+      case "pgdn": this.moveVisual(Math.max(1, this.shown.h - 1)); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
-      case "enter": case "alt-enter": {
-        const rest = this.line.slice(this.col);
-        L[this.row] = this.line.slice(0, this.col);
-        L.splice(++this.row, 0, rest);
-        this.col = 0;
-        break;
-      }
+      // Enter keeps the list going (draft.newline); alt+enter and a pasted line break are plain line breaks.
+      case "enter": void DRAFT_ACTIONS.run("draft.newline", { plain: "pasted" in k }, this, USER); break;
+      case "alt-enter": void DRAFT_ACTIONS.run("draft.newline", { plain: true }, this, USER); break;
       case "backspace":
         if (this.col > 0) {
           const at = stepBack(this.line, this.col);
@@ -178,8 +259,21 @@ export class Draft {
         if (this.col < this.line.length) L[this.row] = this.line.slice(0, this.col) + this.line.slice(stepForward(this.line, this.col));
         else if (this.row < L.length - 1) { L[this.row] = this.line + L[this.row + 1]!; L.splice(this.row + 1, 1); }
         break;
-      case "tab": this.insert("  "); break;
-      case "char": this.insert(k.ch); break;
+      // Tab and shift+tab indent and outdent the line (or every line the selection touches); a pasted tab is text.
+      case "tab":
+        if ("pasted" in k) this.insert("\t");
+        else void DRAFT_ACTIONS.run("draft.indent", {}, this, USER);
+        break;
+      case "backtab": void DRAFT_ACTIONS.run("draft.outdent", {}, this, USER); break;
+      case "char":
+        // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place.
+        // Pasted text goes in as it came.
+        if (k.ch === " " && !k.pasted && this.col === this.line.length) {
+          const m = TYPED_MARKER.exec(this.line);
+          if (m) { L[this.row] = m[1]! + m[2]!; this.col = L[this.row]!.length; }
+        }
+        this.insert(k.ch);
+        break;
     }
     // Every keystroke that changes the text makes the person its last writer.
     if (L.length !== len || L[r0] !== cur) this.wrote(USER);
@@ -191,39 +285,446 @@ export class Draft {
     this.lines[this.row] = this.line.slice(0, this.col) + s + this.line.slice(this.col);
     this.col += s.length;
   }
-  private moveRow(d: number) {
-    this.row = Math.max(0, Math.min(this.lines.length - 1, this.row + d));
-    this.col = Math.min(this.col, this.line.length);
+
+  /** Pasted text goes in as it came: no list continuation, no indenting, tabs kept. */
+  pasteText(text: string, by: Actor = USER) {
+    if (this.anchor) this.deleteSelection();
+    this.anchor = null; this.goal = null;
+    const parts = text.replace(/\r\n?/g, "\n").split("\n");
+    const line = this.line, head = line.slice(0, this.col), tail = line.slice(this.col);
+    if (parts.length === 1) { this.lines[this.row] = head + parts[0] + tail; this.col += parts[0]!.length; }
+    else {
+      const last = parts.at(-1)!;
+      this.lines.splice(this.row, 1, head + parts[0], ...parts.slice(1, -1), last + tail);
+      this.row += parts.length - 1;
+      this.col = last.length;
+    }
+    if (text) this.wrote(by);
   }
 
-  /** The draft as terminal lines, soft-wrapped at `w`, with the cursor drawn and kept on screen. */
+  // ── lists: Enter keeps the level, Tab and Shift+Tab move it ────────────────
+
+  /**
+   * A line break at the cursor. On a list item (`-`, `*`, `+`, `1.`, `1)`, with or without `[ ]`, at any
+   * indent) the next line starts at the same indent with the next marker; on an empty item it goes up a
+   * level instead, and at the top level the list ends (the marker goes). An indented line keeps its indent.
+   * `plain`: just the break (alt+enter, a pasted line).
+   */
+  newline(plain = false) {
+    if (this.anchor) this.deleteSelection();
+    this.anchor = null;
+    const line = this.line, L = this.lines;
+    const lead = plain ? null : listLead(line);
+    // The cursor on the item's marker (a click lands there): the break goes before the item, which stays whole.
+    const col = lead && this.col < lead.length ? 0 : this.col;
+    const rest = line.slice(col);
+    if (lead && col >= lead.length) {
+      if (!line.slice(lead.length).trim()) {
+        // An empty item: up to the parent item's level (continuing its numbering), or out of the list.
+        const up = this.parentOf(this.row, lead.indent.length);
+        const next = up ? up.indent + nextMarker(up.marker) + up.gap + (lead.box ? "[ ] " : "")
+          : lead.indent ? outdentBy(lead.indent) + lead.marker + lead.gap + lead.box : "";
+        L[this.row] = next;
+        this.col = next.length;
+        return;
+      }
+      const next = lead.indent + nextMarker(lead.marker) + lead.gap + (lead.box ? "[ ] " : "");
+      L[this.row] = line.slice(0, col);
+      L.splice(this.row + 1, 0, next + rest.replace(/^[ \t]+/, ""));
+      this.row++; this.col = next.length;
+      return;
+    }
+    const indent = plain ? "" : /^[ \t]*/.exec(line)![0];
+    if (indent && !line.trim() && col === line.length) {
+      // A line of spaces: Enter takes it up a level, as on an empty item.
+      L[this.row] = outdentBy(indent);
+      this.col = L[this.row]!.length;
+      return;
+    }
+    const keep = indent && col >= indent.length ? indent : "";
+    L[this.row] = line.slice(0, col);
+    L.splice(this.row + 1, 0, keep + (keep ? rest.replace(/^[ \t]+/, "") : rest));
+    this.row++; this.col = keep.length;
+  }
+
+  /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */
+  private parentOf(row: number, than: number): ListLead | null {
+    for (let r = row - 1; r >= 0; r--) {
+      const l = this.lines[r]!;
+      if (!l.trim()) continue;
+      const lead = listLead(l);
+      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
+      if (ind < than) return lead;
+      if (ind === 0) return null;
+    }
+    return null;
+  }
+
+  /** The nearest list item above `row` at exactly `indent`: the one this item follows. */
+  private siblingOf(row: number, indent: number): ListLead | null {
+    for (let r = row - 1; r >= 0; r--) {
+      const l = this.lines[r]!;
+      if (!l.trim()) continue;
+      const lead = listLead(l);
+      const ind = lead ? lead.indent.length : /^[ \t]*/.exec(l)![0].length;
+      if (ind < indent) return null;
+      if (lead && ind === indent) return lead;
+    }
+    return null;
+  }
+
+  /** The lines a Tab acts on: the selection's, else the cursor's. */
+  private span(): [number, number] {
+    const s = this.selection();
+    return s ? [s[0].row, s[1].row] : [this.row, this.row];
+  }
+
+  /**
+   * Indent (`dir` 1) or outdent (-1) lines `from`..`to` by one level. A list item goes under the item above
+   * it (its text's column), or back to its parent's level; anything else moves two spaces. Every line
+   * moves by the first line's step, so the nesting inside a selection is kept. The cursor stays on its text.
+   */
+  indent(dir: 1 | -1, from = this.span()[0], to = this.span()[1]): number {
+    const L = this.lines;
+    from = Math.max(0, Math.min(L.length - 1, from)); to = Math.max(from, Math.min(L.length - 1, to));
+    const first = L[from]!, lead = listLead(first);
+    const ind = lead ? lead.indent : /^[ \t]*/.exec(first)![0];
+    const tabs = ind.includes("\t");
+    let step: number;
+    if (dir > 0) {
+      const sib = lead ? this.siblingOf(from, ind.length) : null;
+      step = sib && !tabs ? sib.marker.length + sib.gap.length : tabs ? 1 : 2;
+    } else {
+      const up = lead ? this.parentOf(from, ind.length) : null;
+      step = up && !tabs ? ind.length - up.indent.length : Math.min(ind.length, tabs ? 1 : 2);
+    }
+    if (step <= 0) return 0;
+    let moved = 0;
+    for (let r = from; r <= to; r++) {
+      const l = L[r]!;
+      if (!l.trim() && from !== to) continue;
+      const have = /^[ \t]*/.exec(l)![0].length;
+      const d = dir > 0 ? step : -Math.min(step, have);
+      if (!d) continue;
+      L[r] = dir > 0 ? (tabs ? "\t" : " ".repeat(step)) + l : l.slice(-d);
+      moved++;
+      if (r === this.row) this.col = Math.max(0, this.col + d);
+      if (this.anchor && r === this.anchor.row) this.anchor.col = Math.max(0, this.anchor.col + d);
+    }
+    return moved;
+  }
+
+  // ── the selection (a drag in the draft) ────────────────────────────────────
+
+  /** Where a selection started; the cursor is its other end. */
+  anchor: { row: number; col: number } | null = null;
+
+  /** The selection, start before end, or null. */
+  selection(): [{ row: number; col: number }, { row: number; col: number }] | null {
+    const a = this.anchor;
+    if (!a || (a.row === this.row && a.col === this.col)) return null;
+    const c = { row: this.row, col: this.col };
+    return a.row < c.row || (a.row === c.row && a.col < c.col) ? [a, c] : [c, a];
+  }
+
+  private deleteSelection(): boolean {
+    const s = this.selection();
+    this.anchor = null;
+    if (!s) return false;
+    const [a, b] = s, L = this.lines;
+    L.splice(a.row, b.row - a.row + 1, L[a.row]!.slice(0, a.col) + L[b.row]!.slice(b.col));
+    this.row = a.row; this.col = a.col;
+    return true;
+  }
+
+  /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
+  place(row: number, col: number, extend = false) {
+    const r = Math.max(0, Math.min(this.lines.length - 1, row));
+    if (extend) this.anchor ??= { row: this.row, col: this.col };
+    else this.anchor = null;
+    this.row = r;
+    this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
+    if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
+    this.goal = null; this.discardArmed = false;
+  }
+
+  // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────
+
+  private top = 0;
+  /** The view follows the cursor; false after the wheel scrolled it, until the next key. */
+  follow = true;
+  /** The column up and down keep to (cells from the row's left), while they repeat. */
+  private goal: number | null = null;
+  /** The last render: its width, height and rows, for the wheel, clicks and up/down. */
+  private shown: { w: number; h: number; rows: VRow[] } = { w: 0, h: 15, rows: [] };
+  /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
+  preview = false;
+  /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
+  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" }[] } | null = null;
+
+  /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
+  layout(w: number): VRow[] {
+    const out: VRow[] = [];
+    this.lines.forEach((line, i) => {
+      const chars = [...line];
+      for (const r of wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)))) out.push({ line: i, ...r });
+    });
+    return out;
+  }
+
+  /** The visual row the cursor is on, and its cell. */
+  private cursorIn(rows: VRow[]): { vi: number; x: number } {
+    const cp = [...this.line.slice(0, this.col)].length;
+    let vi = rows.findIndex(r => r.line === this.row);
+    if (vi < 0) return { vi: 0, x: 0 };
+    while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && rows[vi + 1]!.start <= cp) vi++;
+    const r = rows[vi]!;
+    return { vi, x: r.indent + cp - r.start };
+  }
+
+  /** The source place at a visual row's cell `x`. */
+  private posIn(rows: VRow[], vi: number, x: number): { row: number; col: number } {
+    if (!rows.length) return { row: 0, col: 0 };
+    vi = Math.max(0, Math.min(rows.length - 1, vi));
+    const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line;
+    const cp = Math.min(r.start + Math.max(0, x - r.indent), last ? r.end : Math.max(r.start, r.end - 1));
+    const line = this.lines[r.line]!;
+    return { row: r.line, col: [...line].slice(0, cp).join("").length };
+  }
+
+  private moveVisual(d: number) {
+    if (!this.shown.w) {
+      this.row = Math.max(0, Math.min(this.lines.length - 1, this.row + d));
+      this.col = Math.min(this.col, this.line.length);
+      return;
+    }
+    const rows = this.layout(this.shown.w), at = this.cursorIn(rows);
+    this.goal ??= at.x;
+    const p = this.posIn(rows, at.vi + d, this.goal);
+    this.row = p.row; this.col = p.col;
+  }
+
+  /** The wheel: the view moves `by` rows; the cursor stays where it is (typing brings it back). */
+  scrollBy(by: number) {
+    const max = Math.max(0, this.shown.rows.length - this.shown.h);
+    this.top = Math.max(0, Math.min(max, this.top + by));
+    this.follow = false;
+  }
+
+  /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
+  posAt(x: number, y: number): { row: number; col: number } {
+    return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
+  }
+
+  /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
   render(w: number, h: number): string[] {
     const w1 = Math.max(4, w);
+    const rows = this.layout(w1);
+    this.shown = { w: w1, h: Math.max(1, h), rows };
+    const at = this.cursorIn(rows), sel = this.selection();
+    if (this.follow) {
+      if (at.vi < this.top) this.top = at.vi;
+      if (at.vi >= this.top + h) this.top = at.vi - h + 1;
+    }
+    this.top = Math.max(0, Math.min(this.top, Math.max(0, rows.length - h)));
+    this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
     const out: string[] = [];
-    let cursorAt = 0;
-    this.lines.forEach((line, r) => {
-      const chars = [...line];
-      // Map the UTF-16 cursor column to a code-point column for display.
-      const cursorCp = r === this.row ? [...line.slice(0, this.col)].length : -1;
-      const rows = Math.max(1, Math.ceil((chars.length + (r === this.row ? 1 : 0)) / w1));
-      for (let i = 0; i < rows; i++) {
-        const seg = chars.slice(i * w1, (i + 1) * w1);
-        if (cursorCp >= i * w1 && cursorCp < (i + 1) * w1) {
-          const c = cursorCp - i * w1;
-          cursorAt = out.length;
-          out.push(fg(C.white) + seg.slice(0, c).join("") + bg(C.lcyan) + fg(C.black) + (seg[c] ?? " ") + RESET + fg(C.white) + seg.slice(c + 1).join("") + RESET);
-        } else {
-          out.push(fg(C.white) + seg.join("") + RESET);
-        }
+    for (let vi = this.top; vi < Math.min(rows.length, this.top + h); vi++) {
+      const r = rows[vi]!, chars = [...this.lines[r.line]!];
+      const cells = chars.slice(r.start, r.end).map(c => (c === "\t" || c < " " ? " " : c));
+      // Selected cells, in this row's own cells.
+      let s0 = -1, s1 = -1;
+      if (sel) {
+        const cpOf = (p: { row: number; col: number }) => [...this.lines[p.row]!.slice(0, p.col)].length;
+        const a = sel[0].row < r.line ? 0 : sel[0].row === r.line ? cpOf(sel[0]) : Infinity;
+        const b = sel[1].row > r.line ? Infinity : sel[1].row === r.line ? cpOf(sel[1]) : -1;
+        s0 = Math.max(r.start, a) - r.start; s1 = Math.min(r.end, b) - r.start;
       }
-    });
-    if (cursorAt < this.top) this.top = cursorAt;
-    if (cursorAt >= this.top + h) this.top = cursorAt - h + 1;
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, out.length - h)));
-    this.cursorRow = cursorAt - this.top;
-    return out.slice(this.top, this.top + h);
+      const cx = vi === at.vi ? at.x - r.indent : -1;
+      if (cx >= cells.length) cells.push(" ");
+      let line = " ".repeat(r.indent) + fg(C.white), style = "";
+      cells.forEach((c, j) => {
+        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : "";
+        if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
+        line += c;
+      });
+      out.push(line + RESET);
+    }
+    return out;
   }
 }
+
+/** One drawn row of a draft: line `line`, code points [start, end), drawn `indent` cells in. */
+export interface VRow { line: number; start: number; end: number; indent: number }
+
+/** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
+export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
+const LIST_LEAD = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(\[[ xX~!]\](?:[ \t]+|$))?/;
+
+/** The list item `line` starts, or null. `- ` with nothing after it is an (empty) item; `-` alone isn't. */
+export function listLead(line: string): ListLead | null {
+  const m = LIST_LEAD.exec(line);
+  return m ? { indent: m[1]!, marker: m[2]!, gap: m[3]!, box: m[4] ?? "", length: m[0].length } : null;
+}
+
+/** An empty item with a marker typed after it: `- -`, `  1. 2.`, `- [ ] *` (indent, the typed marker). */
+const TYPED_MARKER = /^([ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?([-*+]|\d{1,9}[.)])$/;
+
+/** The marker after `m`: the same bullet, or the next number with the same closer. */
+export const nextMarker = (m: string) => (/^\d/.test(m) ? `${Number.parseInt(m, 10) + 1}${m.at(-1)}` : m);
+/** An indent one level less: a tab, or two spaces. */
+const outdentBy = (ind: string) => (ind.endsWith("\t") ? ind.slice(0, -1) : ind.slice(0, Math.max(0, ind.length - 2)));
+
+/** How far a line's continuation rows are hung: under the item's text, or the line's own indent; at most half the width. */
+export function hangOf(line: string, w: number): number {
+  const lead = listLead(line);
+  const n = lead ? [...line.slice(0, lead.length)].length : /^[ \t]*/.exec(line)![0].length;
+  return Math.min(n, Math.floor(w / 2));
+}
+
+/**
+ * A line's rows at width `w`: broken after a space where one fits (a word longer than a row is cut), the
+ * first row from the left edge and the rest `hang` in. A space a row ends on may sit in the cell past it.
+ */
+export function wrapRows(chars: readonly string[], w: number, hang: number): { start: number; end: number; indent: number }[] {
+  const out: { start: number; end: number; indent: number }[] = [];
+  const n = chars.length;
+  let s = 0;
+  for (;;) {
+    const indent = out.length ? hang : 0, room = Math.max(1, w - indent);
+    if (n - s <= room) { out.push({ start: s, end: n, indent }); return out; }
+    // The space just past a full row ends it (drawn in the spare cell); else the last space inside it.
+    let b = -1;
+    if (chars[s + room] === " ") b = s + room + 1;
+    else for (let i = s + room; i > s; i--) if (chars[i - 1] === " ") { b = i; break; }
+    // Never a first row of only the item's marker and indent; a word longer than a row is cut.
+    if (b < s + (out.length ? 1 : hang + 1)) b = s + room;
+    out.push({ start: s, end: b, indent });
+    s = b;
+  }
+}
+
+// ── unsent drafts: put aside, never lost, brought back where they were written ──
+
+/** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */
+export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[] }
+
+const unsentDir = () => join(stateDir(), "drafts", "unsent");
+const unsentPath = (key: string) => join(unsentDir(), `${key.replace(/[^\w.-]+/g, "-")}.json`);
+
+/** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<lane>`). */
+export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
+  const u: Unsent = { key, text: d.text, base: d.base, at, copy, writers: d.writers };
+  try {
+    // The draft's whole text: private, like its copy (the folder 0700, the file 0600).
+    mkdirSync(unsentDir(), { recursive: true, mode: 0o700 });
+    const path = unsentPath(key), tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(u), { mode: 0o600 });
+    renameSync(tmp, path);
+    pruneUnsent(path);
+  } catch { /* the copy on disk still has it */ }
+  return u;
+}
+
+/** Drop old put-aside entries by the same rule as the copies (DRAFT_KEEP, DRAFT_DAYS). The one just written stays. */
+export function pruneUnsent(keep: string, now = Date.now()): string[] {
+  let files: { path: string; at: number }[];
+  try {
+    files = readdirSync(unsentDir()).filter(f => f.endsWith(".json")).map(f => {
+      const path = join(unsentDir(), f);
+      try { return { path, at: (JSON.parse(readFileSync(path, "utf8")) as Unsent).at }; } catch { return { path, at: 0 }; }
+    });
+  } catch { return []; }
+  files.sort((a, b) => b.at - a.at);
+  const old = files.filter((f, i) => f.path !== keep && i >= DRAFT_KEEP && now - f.at > DRAFT_DAYS * 86_400_000);
+  for (const f of old) { try { rmSync(f.path); } catch { /* best effort */ } }
+  return old.map(f => f.path);
+}
+
+/** The draft put aside at `key`, if there is one. */
+export function unsent(key: string): Unsent | null {
+  try { const p = unsentPath(key); return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) as Unsent : null; } catch { return null; }
+}
+
+/** Forget the draft put aside at `key` (it was brought back or dropped; its copy on disk stays). */
+export function unshelve(key: string): void { try { rmSync(unsentPath(key), { force: true }); } catch { /* best effort */ } }
+
+/** Every draft put aside, newest first. */
+export function unsentAll(): Unsent[] {
+  try {
+    return readdirSync(unsentDir()).filter(f => f.endsWith(".json")).map(f => { try { return JSON.parse(readFileSync(join(unsentDir(), f), "utf8")) as Unsent; } catch { return null; } })
+      .filter((u): u is Unsent => !!u).sort((a, b) => b.at - a.at);
+  } catch { return []; }
+}
+
+/** A path as the person would type it: their home as `~`. */
+const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
+
+/** "10:42" today, or "Sep 29 10:42". */
+export const whenPut = (at: number) => {
+  const d = new Date(at), t = d.toTimeString().slice(0, 5);
+  return d.toDateString() === new Date().toDateString() ? t : `${d.toDateString().slice(4, 10)} ${t}`;
+};
+
+// ── the draft's actions: keys, clicks and `act` all run these ───────────────
+
+export interface DraftActionArgs {
+  "draft.newline": { plain?: boolean };
+  "draft.indent": { from?: number; to?: number };
+  "draft.outdent": { from?: number; to?: number };
+  "draft.place": { line: number; col?: number; extend?: boolean };
+  "draft.scroll": { by: number };
+  "draft.preview": { on?: boolean };
+}
+
+/**
+ * The person's draft is theirs: its cursor, view and preview move only by their keys and mouse. An agent
+ * works on a draft only when it opened it and no one else has typed in it.
+ */
+function agentMay(d: Draft, actor: Actor) {
+  if (actor.kind !== "agent") return;
+  if (!sameParty(d.openedBy, actor)) throw new ActionRefused("this draft is the person's; send the whole text with edit.text or comment.write");
+  if (d.writers.some(w => !sameParty(w, actor)))
+    throw new ActionRefused("someone else is typing in this draft; send the whole text with edit.text or comment.write");
+}
+
+/**
+ * What the draft does besides typing, as actions: Enter's list continuation, Tab and Shift+Tab, a click or a
+ * drag (place), the wheel (scroll) and the preview. The keys and the mouse call these; so does `act`
+ * (through the note actions of the same names), on a draft the agent is the only one typing in.
+ */
+export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
+  "draft.newline": {
+    summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter plain)",
+    args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
+    run({ plain }, d, actor) { agentMay(d, actor); const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
+  },
+  "draft.indent": {
+    summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
+    args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
+    run({ from, to }, d, actor) { agentMay(d, actor); const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
+  },
+  "draft.outdent": {
+    summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
+    args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
+    run({ from, to }, d, actor) { agentMay(d, actor); const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
+  },
+  "draft.place": {
+    summary: "put the draft's cursor at a line and column; extend=true selects from where it was", keys: "click, drag",
+    args: { line: { type: "number", about: "line, from 1" }, col: { type: "number", optional: true, about: "column, from 1 (default the end)" }, extend: { type: "boolean", optional: true, about: "select from the cursor to here" } },
+    run({ line, col, extend }, d, actor) { agentMay(d, actor); d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
+  },
+  "draft.scroll": {
+    summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view)", keys: "wheel",
+    args: { by: { type: "number", about: "rows, negative up" } },
+    run({ by }, d, actor) { agentMay(d, actor); d.scrollBy(by); return { following: d.follow }; },
+  },
+  "draft.preview": {
+    summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
+    args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
+    run({ on }, d, actor) { agentMay(d, actor); d.preview = on ?? !d.preview; return { preview: d.preview }; },
+  },
+});
 
 /** The same party: the person, or the same agent. */
 export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);

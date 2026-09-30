@@ -116,7 +116,11 @@ const WHITEBOARD = [
   "",
   "Shopping: oats, lemons, washing-up liquid.",
   "Rota: whoever cooks doesn't wash up.",
+  "- Saturday",
+  "  - clean the oven, then the fridge shelves nobody has touched since the spring clean",
+  "    - [ ] buy the oven cleaner",
   "Press e to edit; type [[ for a page, (( for a block, [file:: for a file.",
+  "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
 ].join("\n");
 
 const SHED = [

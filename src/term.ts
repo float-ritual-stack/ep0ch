@@ -3,7 +3,8 @@ import { KITTY_QUERY, kittyHint } from "./kitty";
 import { visible } from "./style";
 
 export type Key =
-  | { kind: "char"; ch: string; ctrl?: boolean }
+  /** `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. */
+  | { kind: "char"; ch: string; ctrl?: boolean; pasted?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
   | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
@@ -15,7 +16,14 @@ export type Key =
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number; mods?: number }
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
-  | { kind: "paste"; text: string };
+  | { kind: "paste"; text: string }
+  /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
+  | { kind: "enter" | "tab"; pasted: true };
+
+/** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
+export function pasteKeys(text: string): Key[] {
+  return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
+}
 
 /** Everything `start` turns on, turned off: paste, mouse, colours, wrap, the cursor, then the normal screen. */
 export const TERM_RESET = "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
