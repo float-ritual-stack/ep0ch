@@ -622,9 +622,10 @@ const unsentPath = (key: string) => join(unsentDir(), `${key.replace(/[^\w.-]+/g
 export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
   const u: Unsent = { key, text: d.text, base: d.base, at, copy, writers: d.writers };
   try {
-    mkdirSync(unsentDir(), { recursive: true });
+    // The draft's whole text: private, like its copy (the folder 0700, the file 0600).
+    mkdirSync(unsentDir(), { recursive: true, mode: 0o700 });
     const path = unsentPath(key), tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(u));
+    writeFileSync(tmp, JSON.stringify(u), { mode: 0o600 });
     renameSync(tmp, path);
     pruneUnsent(path);
   } catch { /* the copy on disk still has it */ }
