@@ -7,6 +7,7 @@
 // - before that, what the door inherited and the nest doesn't record yet: an ssh session (`ssh:<tty>`, or
 //   `ssh:-` without a tty: the client's address is never recorded) and the Herdr pane it runs in (`herdr:<workspace>:<pane>`), which
 //   `tileEnv` then drops so a tile can't claim that pane;
+// - a door's drop shell (`screen.shell`, src/drop.ts): `shell:<door pid>`, the door waiting under it;
 // - the Herdr launcher (scripts/door-agent-herdr.ts), for the pane it makes for the agent: `herdr:<pane label>`.
 //
 // The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
@@ -17,11 +18,12 @@ export const NEST_SEP = " › ";
 export const NEST_MAX = 480;
 const LAYER_MAX = 120;
 
-export type LayerKind = "ssh" | "herdr" | "door" | "other";
+export type LayerKind = "ssh" | "herdr" | "door" | "shell" | "other";
 export type Layer =
   | { kind: "ssh"; raw: string; tty: string | null; from: string | null }
   | { kind: "herdr"; raw: string; pane: string }
   | { kind: "door"; raw: string; pid: number; place: string; tileId: string | null; tile: string }
+  | { kind: "shell"; raw: string; pid: number }
   | { kind: "other"; raw: string };
 
 /** One layer as it goes in the nest: one line, no separator inside, capped. */
@@ -51,6 +53,8 @@ export function appendNest(nest: string | undefined | null, ...layers: string[])
 export function parseLayer(raw: string): Layer {
   const door = /^door:(\d+)\/([^/]*)\/([^:]*):(.*)$/.exec(raw);
   if (door) return { kind: "door", raw, pid: Number(door[1]), place: door[2]!, tileId: door[3] && door[3] !== "-" ? door[3] : null, tile: door[4]! };
+  const shell = /^shell:(\d+)$/.exec(raw);
+  if (shell) return { kind: "shell", raw, pid: Number(shell[1]) };
   if (raw.startsWith("ssh:")) {
     const v = raw.slice(4);
     return /^(pts|tty)/.test(v) ? { kind: "ssh", raw, tty: v, from: null } : { kind: "ssh", raw, tty: null, from: v && v !== "-" ? v : null };
@@ -63,6 +67,9 @@ export function parseLayer(raw: string): Layer {
 export function doorLayer(pid: number, place: string | null | undefined, tileId: string | null | undefined, tile: string): string {
   return cleanLayer(`door:${pid}/${(place || "desk").replaceAll("/", "-").replaceAll(":", "-")}/${tileId || "-"}:${tile || "tile"}`);
 }
+
+/** The layer a door writes for its drop shell (`screen.shell`): the shell runs in the door's own terminal, the door waiting under it. */
+export const shellLayer = (pid: number): string => `shell:${pid}`;
 
 /** The Herdr pane these variables name: `<workspace>:<pane>` (Herdr's pane ids already carry the workspace). */
 export function herdrPaneOf(env: Record<string, string | undefined>): string | null {

@@ -18,6 +18,7 @@ import { Waiting } from "./hub/waiting";
 import { Welcome } from "./hub/welcome";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
+import { shellRunner } from "./drop";
 import { ActionRefused, ActionSet, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
 import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent } from "./socket";
 
@@ -211,7 +212,8 @@ export class Logon implements Screen {
  * the board's and the river's saved layouts). Only one of it is on the stack: `screen.open` of it while it's
  * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
  */
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: abstract new (...args: any[]) => Screen }
+/** `action`: the item runs a shell action instead of opening a screen (`!`, `screen.shell`). */
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: abstract new (...args: any[]) => Screen; action?: "screen.shell" }
 
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n), "since your last call") },
@@ -234,6 +236,8 @@ const ITEMS: MenuItem[] = [
   // any, the agents' [[claude-now]] page, which C pinned before).
   { key: "O", label: "Waiting", open: () => new Waiting(), one: Waiting },
   { key: "C", label: "Welcome", open: () => new Welcome(), one: Welcome },
+  // Drop to shell, the BBS's drop to DOS: the person's login shell in their terminal, the door back when it exits.
+  { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
 ];
 
 export class MainMenu implements Screen {
@@ -349,6 +353,7 @@ export const SHELL_IDLE_MS = 2000;
 export function agentMayMove(here: Screen | undefined, ctx: Ctx, actor: Actor, leaving = false) {
   if (actor.kind !== "agent") return;
   if (!here) throw new ActionRefused("no screen is shown");
+  if (ctx.suspended?.()) throw new ActionRefused(`the person is in the door's ${ctx.suspended()} (the door waits under it); not moved`);
   if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
   if (here.rawKeys?.()) throw new ActionRefused(`the person is typing in a terminal tile on the ${here.title}; not moved`);
   if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title} (or typing a filter, or choosing); not moved`);
@@ -368,20 +373,21 @@ function itemNamed(name: string): MenuItem | undefined {
 const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
-  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"],
+  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"],
 };
 
-type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never> };
+type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never> };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   "screen.open": {
     summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters, ⏎, a click on a menu item",
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
-    run({ name }, { ctx, here }, actor) {
+    run({ name }, { ctx, here }, actor): unknown {
       const item = itemNamed(name);
       if (!item) throw new ActionRefused(`no screen ${JSON.stringify(name)} on the menu; screen.list lists them`);
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
+      if (item.action) return SHELL_ACTIONS.run(item.action, {}, { ctx, here }, actor);
       agentMayMove(here, ctx, actor);
       // Exact class: the brief, Waiting and the welcome are desks too, and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.constructor === item.one);
@@ -408,6 +414,20 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       return { from, to };
     },
   },
+  "screen.shell": {
+    summary: "drop to shell (the BBS's drop to DOS): the door steps aside for the person's login shell ($SHELL -l) in their own terminal, in the door's folder, with EP0CH_IN_DOOR, EP0CH_CONTROL and EP0CH_NEST set; exit returns to the door where it was, its tiles running meanwhile. The person's only: an agent's is refused",
+    keys: "! on the main menu (or a click on Shell on its key line), ^W ! on the desk",
+    args: {},
+    async run(_, { ctx }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("an agent doesn't drop the person to a shell: it would take their terminal. For a shell of your own, open a terminal tile on the desk (tile.open kind=pty)");
+      const away = ctx.suspended?.();
+      if (away) throw new ActionRefused(`the terminal is already handed over (${away})`);
+      let code: number | null = null;
+      await ctx.suspend(async () => { code = await shellRunner.run(); }, "shell");
+      ctx.flash(code === 0 ? "back from the shell" : `back from the shell · it exited ${code ?? "on a signal"}`);
+      return { exited: code };
+    },
+  },
   "screen.list": {
     summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first", keys: "?",
     args: {},
@@ -422,6 +442,9 @@ function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K
   const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
   try { SHELL_ACTIONS.run(name, args, { ctx, here }, USER).catch(say); } catch (e) { say(e); }
 }
+
+/** Drop to shell by the person's key or click (the menu's `!`, the desk's `^W !`): `screen.shell`. */
+export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", {}, here, ctx);
 
 /** q and Esc on a BBS screen: `screen.back`. */
 const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
@@ -1174,6 +1197,7 @@ const HELP: Record<string, string> = {
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
   D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
 };
 
 export class Goodbye implements Screen {

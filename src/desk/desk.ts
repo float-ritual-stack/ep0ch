@@ -835,7 +835,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));
     }
     const s = this.prefix === "wm"
-      ? "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08pin · |07d |08drawer · |07r w |08layouts · |07x |08close · |07s |08swap"
+      ? "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08pin · |07d |08drawer · |07r w |08layouts · |07x |08close · |07s |08swap · |07! |08shell"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: |07t |08outline · |07r |08reader · |07d |08detail · |07p |08preview · |07e |08editor · |07s |08shell · |07k |08board · |07v |08river · |07f |08brief · |07h |08thread · |07a |08activity · |07w |08who · |07b |08art · |07l |08backlinks`
         : this.prefix === "move" || this.prefix === "tab"
@@ -1019,6 +1019,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (c === "r") { this.picker = new LayoutPicker("load", layoutNames()); return this.redraw(); }
     if (c === "w") { this.picker = new LayoutPicker("save", layoutNames(), this.layoutName ?? ""); return this.redraw(); }
     if (c === "=") return this.cmd("layout.even");
+    // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
+    if (c === "!") { void import("../screens").then(m => m.dropToShell(this, this.ctx)); return; }
     if (c === "s") {
       const ids = leaves(this.root), i = ids.indexOf(this.focus), j = ids[(i + 1) % ids.length]!;
       return j !== this.focus ? this.cmd("layout.swap", { to: this.nameOf(j) }, me) : this.redraw();
