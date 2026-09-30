@@ -33,6 +33,7 @@ import {
   type Axis, type Divider, type Grab, type LNode, type PlacedScreen, type PlaceOpts, type ScreenLayout, type Split,
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
+import { TREE_ACTIONS } from "./tree";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
 import { Draft, DRAFT_ACTIONS } from "../edit";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
@@ -413,6 +414,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
 
   onEvent(e: OutlineEvent) {
+    // The outline drawer's links, when it shows some, are asked again.
+    if (this.treeReady) this.tree.onEvent(this, e);
     if (e.action === "reset") return this.reloadAll();
     if (e.action === "reconnected") {
       // Caught up; lanes that failed while the service was away are asked again.
@@ -592,12 +595,17 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
 
-  actions() { return { actions: [...BOARD_ACTIONS.list(), ...PANE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
+  actions() { return { actions: [...BOARD_ACTIONS.list(), ...PANE_ACTIONS.list(), ...TREE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name) }; }
 
   async act(req: ActRequest, actor: Actor): Promise<unknown> {
     const args = { ...(req.args ?? {}) };
     if (BOARD_ACTIONS.has(req.action)) return BOARD_ACTIONS.runUntyped(req.action, args, { b: this, reader: req.reader }, actor);
     if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
+    // The outline drawer's tree: its rows are the ones on screen, so a shut drawer refuses, as its reader does.
+    if (TREE_ACTIONS.has(req.action)) {
+      if (!this.treeOpen) throw new ActionRefused("the outline drawer is shut; t opens it");
+      return { drawer: "tree", ...(await TREE_ACTIONS.runUntyped(req.action, args, { pane: this.tree, desk: this }, actor) as object) };
+    }
     const r = this.pickReader(req.reader);
     // Like a shut drawer's reader: an action there would change a note where the person can't see it.
     if (this.shut.has(r.pane)) throw new ActionRefused(`${r.name} is collapsed to a spine; reader.expand reader=${r.name} opens it first`);
@@ -778,7 +786,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       preview: brief(this.preview.msg),
       details: this.details.map((d, i) => ({ ...brief(d.msg), opensHere: i === this.active })),
       floats: this.floats.map(f => ({ ...brief(f.pane.msg), rect: f.rect })),
-      tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg) },
+      tree: { open: this.treeOpen, pinned: this.treePinned, side: this.lay.treeSide, preview: brief(this.treePreview.msg), ...(this.treeOpen ? { rows: this.tree.describe() } : {}) },
       layout: this.describeLayout(),
       backlinks: this.links ? { from: this.links.from, pinned: this.linksPinned, ...this.describeLinks() } : null,
       images: this.placed.length,

@@ -3,6 +3,7 @@ import { wheelRows } from "../term";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
+import { isOutlineNote } from "../authored";
 import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
@@ -82,125 +83,10 @@ function follow(sel: number, top: number, h: number): number {
   return top;
 }
 
-// ── outline tree ─────────────────────────────────────────────────────────────
+// ── outline tree: src/desk/tree.ts ─────────────────────────────────────────────
 
-interface Row { m: Msg; depth: number }
-
-export class TreePane implements Pane {
-  readonly kind = "tree";
-  private roots: Msg[] | null = null;
-  private kids = new Map<string, Msg[] | "loading">();
-  private open = new Set<string>();
-  private rows: Row[] = [];
-  private sel = 0;
-  private top = 0;
-  private timer: Timer | null = null;
-  title() { return "outline"; }
-  hint() { return "←→ fold · ⏎ read"; }
-  /** The row it has selected: a preview tile following the tree starts there. */
-  selected(): Msg | null { return this.rows[this.sel]?.m ?? null; }
-
-  init(desk: DeskApi) {
-    desk.ctx.board.roots().then(r => {
-      this.roots = r; this.rebuild();
-      if (!desk.current && r[0]) desk.setCurrent(r[0], { from: this });
-      desk.redraw();
-    }, () => {});
-  }
-
-  private rebuild() {
-    const out: Row[] = [];
-    const walk = (list: Msg[], depth: number) => {
-      for (const m of list) {
-        out.push({ m, depth });
-        const k = this.kids.get(m.id);
-        if (this.open.has(m.id) && Array.isArray(k)) walk(k, depth + 1);
-      }
-    };
-    walk(this.roots ?? [], 0);
-    this.rows = out;
-    this.sel = Math.min(this.sel, Math.max(0, out.length - 1));
-  }
-
-  private async expand(m: Msg, desk: DeskApi): Promise<void> {
-    this.open.add(m.id);
-    if (!this.kids.has(m.id)) {
-      this.kids.set(m.id, "loading"); desk.redraw();
-      try { this.kids.set(m.id, await desk.ctx.board.children(m.id)); } catch { this.kids.set(m.id, []); }
-    }
-    this.rebuild(); desk.redraw();
-  }
-
-  private pick(desk: DeskApi) {
-    if (this.timer) clearTimeout(this.timer);
-    const m = this.rows[this.sel]?.m;
-    if (m) this.timer = setTimeout(() => desk.setCurrent(m, { from: this }), 90);
-    desk.redraw();
-  }
-
-  async reveal(m: Msg, desk: DeskApi) {
-    try {
-      const chain = await desk.ctx.board.ancestors(m.id);
-      for (const a of chain) await this.expand(a, desk);
-    } catch { /* reveal is best effort */ }
-    const i = this.rows.findIndex(r => r.m.id === m.id);
-    if (i >= 0) { this.sel = i; desk.redraw(); }
-  }
-
-  render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
-    if (!this.roots) return { lines: [dim("dialing the outline…")] };
-    this.top = follow(this.sel, this.top, h);
-    const lines = this.rows.slice(this.top, this.top + h).map((r, i) => {
-      const k = this.kids.get(r.m.id);
-      const leaf = Array.isArray(k) && k.length === 0;
-      const mark = k === "loading" ? "…" : leaf ? "·" : this.open.has(r.m.id) ? "▾" : "▸";
-      const tag = (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "").slice(0, 14);
-      const indent = "  ".repeat(r.depth);
-      const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
-      if (this.top + i === this.sel) return (focused ? SEL_ON : SEL_OFF) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
-      const here = desk.current?.id === r.m.id;
-      return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
-    });
-    return { lines };
-  }
-
-  key(k: Key, desk: DeskApi): boolean {
-    const row = this.rows[this.sel];
-    if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.pick(desk); return true; }
-    if (isDown(k)) { this.sel = Math.min(this.rows.length - 1, this.sel + 1); this.pick(desk); return true; }
-    if (k.kind === "pgup") { this.sel = Math.max(0, this.sel - 15); this.pick(desk); return true; }
-    if (k.kind === "pgdn") { this.sel = Math.min(this.rows.length - 1, this.sel + 15); this.pick(desk); return true; }
-    if (k.kind === "home") { this.sel = 0; this.pick(desk); return true; }
-    if (k.kind === "end") { this.sel = Math.max(0, this.rows.length - 1); this.pick(desk); return true; }
-    if (!row) return false;
-    if (k.kind === "right" || ch(k) === "l" || ch(k) === " ") {
-      if (this.open.has(row.m.id) && ch(k) === " ") { this.open.delete(row.m.id); this.rebuild(); desk.redraw(); }
-      else void this.expand(row.m, desk);
-      return true;
-    }
-    if (k.kind === "left" || ch(k) === "h") {
-      if (this.open.has(row.m.id)) { this.open.delete(row.m.id); this.rebuild(); }
-      else { const p = this.rows.findLastIndex((r, i) => i < this.sel && r.depth < row.depth); if (p >= 0) { this.sel = p; this.pick(desk); } }
-      desk.redraw();
-      return true;
-    }
-    // ⏎ opens it: in the tile this one links to (PIE-473), else as the current note, the keys to a reader.
-    if (k.kind === "enter") { const routed = desk.routes?.(this); desk.setCurrent(row.m, { from: this, link: true }); if (!routed) desk.focusKind("reader"); return true; }
-    return false;
-  }
-
-  click(x: number, y: number, desk: DeskApi) {
-    const i = this.top + y, row = this.rows[i];
-    if (!row) return;
-    this.sel = i;
-    if (x <= row.depth * 2 + 1) {
-      if (this.open.has(row.m.id)) { this.open.delete(row.m.id); this.rebuild(); } else void this.expand(row.m, desk);
-    }
-    this.pick(desk);
-  }
-
-  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, Math.min(this.rows.length - 1, this.sel + dir * wheelRows)); this.pick(desk); }
-}
+export { TreePane } from "./tree";
+import { TreePane } from "./tree";
 
 // ── reader ───────────────────────────────────────────────────────────────────
 
@@ -278,7 +164,11 @@ export class ReaderPane implements Pane {
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }
   describe() { return { title: this.title(), held: this.held, ...this.surface.describe() }; }
 
+  /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited or commented on. */
+  get readOnly(): boolean { return !!this.msg && !isOutlineNote(this.msg); }
+
   key(k: Key, desk: DeskApi): boolean {
+    if (this.readOnly && !this.holdsKeys && sessionStart(k)) { desk.ctx.flash(`${subject(this.msg!)} is shown here to read · it isn't a note in the outline`); return true; }
     if (this.follows && !this.editing && ch(k) === "p") { this.held = !this.held; if (!this.held) this.show(desk.current, desk); desk.redraw(); return true; }
     return this.surface.key(k, this.host(desk));
   }

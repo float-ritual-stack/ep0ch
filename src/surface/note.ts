@@ -15,7 +15,8 @@ import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "..
 import { embedRegion, embedsLoading, embedStepChanged, SHADE, type EmbedBody } from "../embeds";
 import { projectionRegion, projectionsOf, type ResourceProjection } from "../projection";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
+import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
+import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
@@ -142,7 +143,7 @@ export interface HeaderInfo {
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
-const sameLink = (a: Link, b: Link) => a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
+const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -179,7 +180,7 @@ const verbOf = (e: Element, open: boolean) =>
   e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status"
-  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.media || e.link?.url ? "open" : "follow";
+  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
 
@@ -458,6 +459,8 @@ export class NoteSurface {
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
+    // A Resource or a file shown as a note: nothing in the outline to read for it.
+    if (!isOutlineNote(m)) { this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : "a file"; return true; }
     // Lists carry title, properties and revision only; the surface fetches the whole note.
     if (m.partial) this.readWhole(host);
     void this.loadComments(host);
@@ -566,12 +569,16 @@ export class NoteSurface {
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
     // page's, on the subject or its preamble, above the first), its age painted now.
-    const regions = this.projectionRegions(projectionsOf(m, src), noteLines);
+    // A Resource or a file shown as a note isn't a block: nothing the outline keeps for blocks is asked for it.
+    const outline = isOutlineNote(m);
+    const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines);
     const now = Date.now(), bodyText = source.split("\n");
-    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn), {
+    // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
+    const tokens = resourceTokensOf(m, src);
+    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
       ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
       // A component's labels and values: links in them are links like the body's.
-      present: text => presentLinks(text, false, src, m.text, drawn),
+      present: text => presentLinks(text, false, src, m.text, drawn, tokens),
       folds: { points, folded: this.folded, selected: this.foldSel },
       literal,
       // A live figure's rows that stand for notes are links too (PIE-441).
@@ -702,10 +709,12 @@ export class NoteSurface {
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
       }).lines;
     };
-    const steps = stepsOf(m, src);
+    // A Resource or a file shown as a note has no steps, and its `!((…))` isn't the outline's to transclude.
+    const outline = isOutlineNote(m);
+    const steps = outline ? stepsOf(m, src) : null;
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
-      embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id),
+      ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
@@ -1790,6 +1799,17 @@ export class NoteSurface {
   /** Open what a link names: media in the system viewer, blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
+    // A resource token: its Resource's stored content, registered and fetched first if it must be (src/authored.ts).
+    if (l.resource) {
+      const to = resourceTarget(l.resource);
+      if ("refused" in to) { host.ctx.flash(to.refused); return null; }
+      host.ctx.flash(`reading ${l.resource.label}…`);
+      const shown = await openResource(host.ctx.board, to).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
+      if (!shown) return null;
+      this.track(() => host.navigate(shown.note, how));
+      if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);
+      return shown.note;
+    }
     // A resource projection opens its ticket's page; without one it says why (no key, not fetched yet, …).
     if (l.role === "resource" && l.url === undefined) { host.ctx.flash(l.reason ?? "nothing to open here"); return null; }
     // A Markdown link: a web page opens in the browser; a pi-outliner:// block or page link opens here.

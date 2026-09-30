@@ -7,6 +7,7 @@ import { emphasis } from "./inline";
 import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
+import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
 export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
@@ -115,6 +116,31 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
     c => (c.value?.block ? changedSince(c.at, [c.value.block.id]) : anyChangeSince(c.at)) || (c.value?.status !== "resolved" && anyChangeSince(c.at)))?.value ?? null;
 }
 
+/**
+ * Only a cheap guard, so a note without a bracketed resource-shaped property costs no request: the keys
+ * pi-herdr-outliner's `authoredResourceReferenceOccurrences` (src/resource-references.ts) reads as resources.
+ * The service decides which tokens are.
+ */
+const MAY_HAVE_RESOURCE_TOKEN = /\[(?:file|web|jira|app|raw-capture|before-rewrite)::/i;
+const authoredBy = new WeakMap<object, Map<string, Cached<AuthoredLinksSnapshot>>>();
+/** A resource token in a note's text as the service found it: its exact text there, and the service's entry. */
+export interface ResourceToken { raw: string; link: AuthoredResourceLink }
+/**
+ * The bracketed resource tokens in note `m` (`[file::…]`, `[jira::KEY]`), as the service's authored links
+ * name them (`blocks.authored-links`: which tokens are resources, and where each points). The door finds each
+ * by the exact text the service's span covers; it never decides what a resource token is. [] while asking,
+ * and for a note that has none. Asked again when the note changes.
+ */
+export function resourceTokensOf(m: { id: string; text: string }, src: Source | null | undefined): ResourceToken[] {
+  if (!MAY_HAVE_RESOURCE_TOKEN.test(m.text) || !isOutlineNote(m as never)) return [];
+  const s = ask(authoredBy, src, m.id, b => b.authoredLinks(m.id), c => changedSince(c.at, [m.id]))?.value;
+  if (s?.kind !== "ready") return [];
+  return s.resources.entries.flatMap(link => {
+    const raw = m.text.slice(link.firstSpan.start, link.firstSpan.end);
+    return raw.startsWith("[") && raw.endsWith("]") && raw.includes("::") && !raw.includes("\n") ? [{ raw, link }] : [];
+  });
+}
+
 export interface LinkView { text: string; missing: boolean }
 /** What a link points at: a block (and fragment), or a page or Work ID; `label` as the note wrote it. */
 /**
@@ -128,6 +154,8 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
+  resource?: AuthoredResourceLink;
   block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task"; reason?: string;
   /** A checklist step's box (role "task", PIE-472): the step, where it is, and the revision it was read at. */
   task?: StepRef;
@@ -160,7 +188,7 @@ export function pageView(address: string, label: string | undefined, r: PageReso
 /** A live figure's first line (src/graphs.ts `isGraphStart`). */
 const GRAPH_START = /^\s*::graph-[a-z-]+\s*$/;
 
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[]): string {
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = []): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
   let fenced = false, figure = false;
@@ -180,6 +208,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
         const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
         return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
       };
+      // A resource token the service names reads as itself without its brackets, and shows its Resource.
+      for (const t of resources) if (part.includes(t.raw)) part = part.split(t.raw).join(mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }));
       return part
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
         .replace(MD_LINK, (_all, text: string, url: string) => mark({ text: emphasis(text), missing: false }, { url, label: text }))

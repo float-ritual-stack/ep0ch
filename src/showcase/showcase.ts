@@ -128,11 +128,11 @@ export const SECTIONS: Section[] = [
     stage(n) { return new DeliveryBoard(n.hub?.id, false); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane", files: "src/surface/note.ts, src/desk/panes.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
-    aside: "backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442) · resources: no list yet (PIE-432)",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    aside: "the tree's L (tree.links): a row's outlinks, resources and backlinks as the outliner's Tree shows them (blocks.authored-links); ⏎ on a resource shows what the service stores for it · backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442)",
     stage(n, show) {
-      const r = new ReaderPane(true), th = new ThreadPane();
-      return deskOf({ title: "showcase · entity", panes: [r, th], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.shed) d.setCurrent(n.shed); });
+      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane();
+      return deskOf({ title: "showcase · entity", panes: [tree, r, th], layout: ([a, b, c]) => pair("row", 0.34, leaf(a!), row(0.6, b!, c!)) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
     },
   },
   {

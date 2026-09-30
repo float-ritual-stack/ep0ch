@@ -19,7 +19,7 @@ three pane models and four searches (§4).
 | follow a tile's selection or a file in a reader | the preview tile (PIE-473): a `ReaderPane` (the note surface, no second renderer) with a source, `tile:<name>` or `file:<path>` (re-read on save, read-only) | `src/desk/preview.ts` |
 | put a whole screen in a tile (the board, the river, the brief) | `ScreenTile` over the showcase's `FramedScreen`: the screen itself in a rectangle, its selection the tile's | `src/desk/screen-tile.ts`, `src/showcase/frame.ts` |
 | squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
-| show children, outlinks, backlinks, resources, or go back and forward | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; history (PIE-453): each reader's back and forward in the surface (`track` records a follow, `u` or an open into it; `travel` restores the note, scroll and `[ ]` position; `back`/`forward` actions; alt+← alt+→, backspace, the mouse's side buttons, the `← back` row), or the view's own through `SurfaceHost.history` where a follow opens elsewhere; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents), drawn by `backlinkRowLine` and `layoutBacklinkStatus` (the board's drawer and the backlinks tile, one drawing); the **backlinks tile** (`BacklinksPane`, kind `backlinks`, `^W o l`): the backlinks of what another tile shows (`source: tile:<name>`, through `DeskApi.tileShowing`), its selection shown where the tile's selection goes (`DeskApi.showFrom`: the previews following it and its link, never the current note, so the reader it lists stays put) as it moves and when the tile is given the keys (`Pane.focused`), `backlinks.pick` and `backlinks.view` (BACKLINKS_ACTIONS) | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts`, `src/desk/backlinks-pane.ts` |
+| show children, outlinks, backlinks, resources, or go back and forward | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; history (PIE-453): each reader's back and forward in the surface (`track` records a follow, `u` or an open into it; `travel` restores the note, scroll and `[ ]` position; `back`/`forward` actions; alt+← alt+→, backspace, the mouse's side buttons, the `← back` row), or the view's own through `SurfaceHost.history` where a follow opens elsewhere; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents), drawn by `backlinkRowLine` and `layoutBacklinkStatus` (the board's drawer and the backlinks tile, one drawing); the **backlinks tile** (`BacklinksPane`, kind `backlinks`, `^W o l`): the backlinks of what another tile shows (`source: tile:<name>`, through `DeskApi.tileShowing`), its selection shown where the tile's selection goes (`DeskApi.showFrom`: the previews following it and its link, never the current note, so the reader it lists stays put) as it moves and when the tile is given the keys (`Pane.focused`), `backlinks.pick` and `backlinks.view` (BACKLINKS_ACTIONS); a row's **links in the tree** (the outliner's Tree's authored links, PIE-324, PIE-329): `L` (`tree.links`, TREE_ACTIONS) shows under a row its outlinks and resources (the service's `blocks.authored-links`, laid out by `src/authored.ts` in the Tree's words) and its backlinks (the same `backlinkView` and `backlinkRows`), each group folding, a link to a note showing its own a level down; ⏎ or a click (`tree.pick`) opens a note where the tree's opens go, and on a resource shows its stored content as a read-only note (`openResource`: `resources.follow-authored` when it isn't registered, `resources.describe`, `resources.refresh` once when nothing is stored). A resource token in a reader (`[file::…]`, `[jira::KEY]`, as the service's spans name them, `resourceTokensOf`) is a link that does the same | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts`, `src/desk/backlinks-pane.ts`, `src/desk/tree.ts`, `src/authored.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
 | show a Resource's stored details in a note (a ticket under `jira::`, a ticket page) | resource projections (PIE-445): `projectionsOf` asks the service (`resources.projection.read`, capability `resources.projection`; nothing extra without it), `projectionLayout` is Detail's `resourceProjectionLayout` as drawn (parity-tested), the surface draws each region after its line through `DocEnv.after`, and `resource-catalog` events repaint the ones shown. The door never registers, refreshes or contacts a provider | `src/projection.ts`, `src/surface/note.ts`, `src/doc.ts` |
@@ -164,9 +164,9 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 |---|---|---|---|
 | children | Blocks under a note | `ThreadPane` `pan:299`, river `space`, BBS `T` (`message.thread`) | Tree children |
 | up | The parent | `u` `note:766` (the BBS `U` too) | ancestors menu |
-| outlinks | Links in the note (`[ ]` steps to them with the note's other elements, `⏎` follows) | `link.select`, `elements` `note` | **Outlinks** |
+| outlinks | Links in the note (`[ ]` steps to them with the note's other elements, `⏎` follows); in the tree, a row's outlinks under it (`L`) | `link.select`, `elements` `note`; `tree.links` | **Outlinks** |
 | backlinks | Notes that link here, grouped by kind with Detail's defaults (PIE-442) | board drawer `drawLinks`, `src/backlinks.ts` | **Backlinks** |
-| resources | `[file::]`, `img::`, media | completion, `src/media.ts` | **Resources** |
+| resources | `[file::]`, `jira::`, `img::`, media; in the tree, a row's resources under it (`L`), ⏎ showing what the service stores | completion, `src/media.ts`, `tree.links`, `openResource` (`src/authored.ts`) | **Resources** |
 | search | Find a block by text | 4 versions, see §4 | Goto search |
 | history | Back/forward through what a reader showed: its note, scroll and `[ ]` position (PIE-453) | `track`, `travel`, `back` `forward` `note`; `SurfaceHost.history` | Detail history |
 
@@ -228,9 +228,9 @@ pane operations
 entity navigation
     ├── [~] children                      thread pane, river replies, BBS T
     ├── [x] up                            note surface u
-    ├── [x] outlinks (in-note links)      note surface [ ] ⏎ click
-    ├── [~] backlinks                     board drawer only (Detail's view, PIE-442)
-    ├── [ ] resources list                none (PIE-432)
+    ├── [x] outlinks (in-note links)      note surface [ ] ⏎ click; the tree's L lists a row's
+    ├── [~] backlinks                     board drawer, backlinks tile, the tree's L (Detail's view, PIE-442)
+    ├── [~] resources list                the tree's L: a row's resources, ⏎ shows one (PIE-432)
     ├── [~] search / jump                 4 versions
     └── [~] history (back/forward)        note surface (board, desk); river (between columns, SurfaceHost.history); BBS next (PIE-453)
 extensions
@@ -304,8 +304,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | children | — (`N` writes one) | R `T` `scr:400`, `message.thread` k·a | R `pan:299` km· | R `space` kma |
 | up | S `u` k·a | S `u` (`U` too) k·a | S `u` k·a | S `u` k·a |
 | outlinks | S `[ ]` ⏎ click kma | S kma | S kma | S kma |
-| backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | S backlinks tile (`^W o l`, the welcome's strip) kma | — |
-| resources | S images, `[file::` | S (projections, images) | S | — |
+| backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | S backlinks tile (`^W o l`, the welcome's strip), the tree's `L` kma | — |
+| resources | S images, `[file::` | S (projections, images) | S; the tree's `L` lists a row's, ⏎ or a click shows one; a `[file::]` token in a reader is a link kma | — |
 | search | R `g` boards only | R `scr:338` dead | R `/` `dsk:371` k·· | R `/` `riv:66` k·· |
 | history | S alt+← alt+→ ⌫, `← back` row, `back` `forward` kma | — (next: the screen stack) | S kma | — (next: the columns) |
 
@@ -424,7 +424,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 - Backlinks: board drawer only. Children: three shapes (thread pane, river replies, BBS `T`). Since
   PIE-442 the drawer groups, filters and sorts as Detail does through `src/backlinks.ts`; the PIE-432
   connections screen should list backlinks through it too, not a new list.
-- Outlinks are in-note only (`[ ]`); no list of them. No resources list. No history anywhere.
+- Outlinks are in-note only (`[ ]`); no list of them. No resources list. No history anywhere. (Since then: the
+  tree's `L` lists a row's outlinks, resources and backlinks, as the outliner's Tree does.)
 - **Resolves:** PIE-432 (connections screen: children, outlinks, backlinks, resources) as one
   shared entity-nav component; PIE-413 puts backlinks under details.
 
@@ -607,6 +608,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | ctrl-click, alt-click a link | open beside | none | new, as `alt+⏎` |
 | `!` on the main menu, `^W !` on the desk | drop to shell (`screen.shell`): the person's login shell in their terminal, the door back where it was when it exits | the board's steps overlay takes `!` (mark problem), but only while it's open, on the board; the menu and `^W` bound nothing on `!`; typed text (a filter, an edit, a terminal tile) takes it first | new; the menu art has twelve slots, so it's on the key line (`! Shell`), as Showcase and Today are |
 | `^W o l` | a backlinks tile of this tile | `l` is right in `^W h j k l`, but only after `^W o` here, where `l` was free | new, under `^W o` |
+| `L` in the outline tree (a desk tile, the board's outline drawer) | show or hide the selected row's links under it (`tree.links`): outlinks, resources, backlinks, as the outliner's Tree's `l` | the outliner binds `l`, but the door's tree has `h l` as ← →; the desk takes `L` only after `^W` (to the right edge); the board's `L` moves a card, but only while its lanes have the keys, never its outline drawer; the welcome's `L` (next logo) is the welcome's own, and the welcome has no tree tile unless one is added (then `L` there is the logo) | new, in the tree only; on a link row `l` → space show its links, `h` ← hide them, as a group folds |
 
 Inside a terminal tile every key is the program's (`^W` included: vim's window keys work), so the only door
 key there is `ctrl+]`. Inside a board, river or brief tile its own keys work; `1`–`9`, `V` and `^W` stay the

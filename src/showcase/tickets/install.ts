@@ -2,7 +2,6 @@
 // (tickets.ts) into a scratch service's config, register a Source for it, and fetch tickets through the
 // service, so readers have stored ticket details to project. Only for a scratch or showcase service: the
 // door's readers never do any of this; they only read projections (src/projection.ts).
-import { connect } from "node:net";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SocketBoard } from "../../socket";
@@ -52,23 +51,9 @@ export async function registerTicket(b: SocketBoard, key: string): Promise<strin
 }
 
 /**
- * Fetch a ticket's details into the service, as Detail's `r` does: `resources.refresh` names a Detail
- * destination, so a throwaway client registers as one for the call. The service runs the extension.
+ * Fetch a ticket's details into the service, as Detail's `r` does (`SocketBoard.refreshResource`, which
+ * registers the Detail destination the call names). The service runs the extension.
  */
-export async function refreshTicket(b: SocketBoard, socketPath: string, resourceId: string): Promise<void> {
-  const clientId = `showcase-tickets-${crypto.randomUUID().slice(0, 8)}`;
-  const s = connect(socketPath);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let buf = "";
-      s.on("error", reject);
-      s.on("data", d => {
-        buf += d.toString();
-        const line = buf.split("\n").find(l => l.includes('"id":"sub"'));
-        if (line) { const r = JSON.parse(line); r.ok ? resolve() : reject(new Error(r.error)); }
-      });
-      s.write(JSON.stringify({ id: "sub", action: "events.subscribe", client: { clientId, role: "detail", contextId: clientId } }) + "\n");
-    });
-    await b.request("resources.refresh", { resourceId, destinationClientId: clientId });
-  } finally { s.end(); }
+export async function refreshTicket(b: SocketBoard, resourceId: string): Promise<void> {
+  await b.refreshResource(resourceId);
 }

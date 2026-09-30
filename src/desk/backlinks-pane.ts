@@ -6,6 +6,7 @@
 //
 // The rows and the status line are drawn by `backlinkRowLine` and `layoutBacklinkStatus`, which the board's
 // backlinks drawer draws with too: one drawing of Detail's view, not two.
+import { isOutlineNote } from "../authored";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkRowSuffix, backlinkRows, backlinkStageSummary, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -103,7 +104,8 @@ export class BacklinksPane implements Pane {
 
   /** The source tile shows another note: its backlinks are asked for. */
   private sync(desk: DeskApi) {
-    const m = desk.tileShowing?.(this.source) ?? null;
+    // A Resource or a file shown in the source tile isn't a block: nothing links to it here.
+    const shown = desk.tileShowing?.(this.source) ?? null, m = isOutlineNote(shown) ? shown : null;
     if (m?.id === this.target?.id) { if (m) this.target = m; return; }
     this.load(m, desk);
   }

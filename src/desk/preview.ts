@@ -55,7 +55,7 @@ export class PreviewPane extends ReaderPane {
 
   init(desk: DeskApi) { this.watch(desk); }
   /** A file source (or a terminal tile's file): e, C, m, i, I and ctrl+e are refused here, not started as sessions. */
-  get readOnly() { return !!this.fileNow(); }
+  override get readOnly() { return !!this.fileNow() || super.readOnly; }
 
   /** A file source is read now and again each time it changes on disk (an editor's save, even by rename). */
   watch(desk: DeskApi) {

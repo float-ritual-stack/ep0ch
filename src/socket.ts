@@ -9,6 +9,7 @@ import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
+import { REFRESHABLE, resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
@@ -402,6 +403,64 @@ export class SocketBoard implements Board {
    */
   readResourceProjections(blockId: string): Promise<ResourceProjectionRead> {
     return this.request<ResourceProjectionRead>("resources.projection.read", { blockId });
+  }
+
+  /**
+   * A block's authored links (the outliner's `blocks.authored-links`, PIE-259): its Outlinks and its
+   * Resources as the service resolves them, each with where it points and why it can't. A read only: nothing
+   * is registered by listing it.
+   */
+  authoredLinks(ownerBlockId: string): Promise<AuthoredLinksSnapshot> {
+    return this.request<AuthoredLinksSnapshot>("blocks.authored-links", { ownerBlockId });
+  }
+
+  /**
+   * Register the Resource an authored reference names (`resources.follow-authored`), or find the one already
+   * registered: a `[file::…]` is interned (and its Source made), a `jira::KEY` resolved through the Jira
+   * Source's provider. The Resource's id, and whether this call registered it.
+   */
+  async followAuthored(reference: AuthoredResourceReference): Promise<{ id: string; created: boolean }> {
+    const r = await this.request<{ resource: { id: string }; created: boolean }>("resources.follow-authored", { reference });
+    return { id: r.resource.id, created: !!r.created };
+  }
+
+  /**
+   * A Resource's stored content (`resources.describe`). `fetch`: when nothing is stored yet (a ticket never
+   * read, a web page never fetched), the service fetches it first (`resources.refresh`). Both calls name a
+   * Detail destination, so the door registers one for the call and lets it go after (the showcase's
+   * `refreshTicket` does the same through here): the service has no read for a client that isn't a Detail.
+   */
+  async describeResource(resourceId: string, fetch = false): Promise<ResourceDescription> {
+    return this.asDetail(async destinationClientId => {
+      const d = await this.request<ResourceDescription>("resources.describe", { target: { kind: "resource", resourceId }, destinationClientId });
+      if (!fetch || resourceStored(d) || !REFRESHABLE.has(d.resource.provider)) return d;
+      return this.request<ResourceDescription>("resources.refresh", { resourceId, destinationClientId });
+    });
+  }
+
+  /** Fetch a Resource again (`resources.refresh`: a ticket read from its provider, a web page fetched). */
+  refreshResource(resourceId: string): Promise<ResourceDescription> {
+    return this.asDetail(destinationClientId => this.request<ResourceDescription>("resources.refresh", { resourceId, destinationClientId }));
+  }
+
+  /** Run `fn` with a short-lived Detail client registered on the service (its id), ended after. */
+  private async asDetail<T>(fn: (clientId: string) => Promise<T>): Promise<T> {
+    const clientId = `${this.clientId}-resource-${crypto.randomUUID().slice(0, 6)}`;
+    const s = connect(this.path);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("registering a reader for the resource timed out")), this.timeoutMs);
+        const lines = new Line(r => { if (r.id !== "sub") return; clearTimeout(timer); r.ok ? resolve() : reject(new Refused(r.error ?? "couldn't register a reader")); });
+        s.on("data", d => lines.feed(d));
+        s.on("error", e => { clearTimeout(timer); reject(e); });
+        s.on("connect", () => s.write(JSON.stringify({
+          id: "sub", action: "events.subscribe", client: { clientId, role: "detail", contextId: clientId },
+          ...(this.outline ? { outline: this.outline } : {}),
+        }) + "\n"));
+      });
+      return await fn(clientId);
+      // Closed outright, whatever happened: the service drops the client when its socket closes.
+    } finally { s.removeAllListeners("data"); s.on("error", () => {}); s.destroy(); }
   }
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }

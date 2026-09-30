@@ -538,7 +538,8 @@ export class Welcome extends Desk {
     const c = ch(k);
     if (!this.personTyping() && !this.picking() && !this.linkingNow()) {
       if (/^[0-9]$/.test(c)) return this.runWelcome({ action: "welcome.select", args: { n: placeOfKey(c) + 1 } });
-      if (c === "L") return this.runWelcome({ action: "welcome.logo" });
+      // A tree tile's L is its own (tree.links).
+      if (c === "L" && this.focusedKind() !== "tree") return this.runWelcome({ action: "welcome.logo" });
     }
     super.key(k, ctx);
   }
