@@ -29,7 +29,7 @@ import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
-import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, migrateLinks, migrateNames, saveLayout, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, migrateLinks, migrateNames, saveLayout, withDailyAgent, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -140,7 +140,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.root = leaf(0); this.focus = 0;
     const saved = named ? null : last;
     if (named) { this.build(named.spec); this.layoutName = opts.layout!; }
-    else if (saved?.root) { this.build(migrateLinks({ root: saved.root, focus: saved.focus, rule: saved.rule }, saved.layout), false, true); this.layoutName = saved.layout ?? null; }
+    else if (saved?.root) { this.build(withDailyAgent(migrateLinks({ root: saved.root, focus: saved.focus, rule: saved.rule }, saved.layout), saved.layout), false, true); this.layoutName = saved.layout ?? null; }
     else this.build(layoutNamed("desk")!.spec);
   }
 

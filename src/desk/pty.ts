@@ -77,7 +77,8 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
-export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean }
+/** `agent`: the daily layout's agent tile, saved with that flag so its program is read again when it's restored (`withDailyAgent`). */
+export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean }
 
 export class PtyPane implements Pane {
   readonly kind = "pty";
@@ -114,7 +115,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec() { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}) }; }
+  spec() { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; }
 
   get running() { return !!this.proc && this.exited === null; }

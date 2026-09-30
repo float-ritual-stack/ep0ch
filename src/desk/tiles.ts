@@ -33,6 +33,11 @@ export interface TileSpec {
   page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
   cmd?: string[];
+  /**
+   * The daily layout's agent tile: its program and folder are what EP0CH_DAILY_AGENT and EP0CH_DAILY_CWD say
+   * when it's built (`withDailyAgent`), not the `cmd` and `cwd` it was saved with.
+   */
+  agent?: true;
   cwd?: string;
   file?: string;
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
@@ -113,6 +118,27 @@ export function migrateLinks(spec: LayoutSpec, from: string | undefined): Layout
   return { ...spec, root };
 }
 
+/**
+ * The daily agent's tile runs what the door is told now: its saved `cmd` and `cwd` are replaced by
+ * `dailyAgent()`, so setting EP0CH_DAILY_AGENT (the Herdr launcher, say) takes effect on a restored desk and
+ * on `layout.load`, not only on a fresh daily layout.
+ *
+ * Migration rule (desks saved before `agent`): in a layout named `daily`, a pty tile named `claude` with no
+ * flag whose saved command is exactly `["claude"]` (the daily layout's only default so far) is the agent tile.
+ * A command the person changed stays theirs.
+ */
+export function withDailyAgent(spec: LayoutSpec, from: string | undefined): LayoutSpec {
+  const isOld = (l: TileSpec) => from === "daily" && l.kind === "pty" && l.name === "claude" && !l.agent && l.cmd?.length === 1 && l.cmd[0] === "claude";
+  if (!savedLeaves(spec.root).some(l => l.agent || isOld(l))) return spec;
+  const now = dailyAgent();
+  const root = mapLeaves(spec.root, (l: TileSpec) => {
+    if (!l.agent && !isOld(l)) return l;
+    const { cwd: _cwd, ...rest } = l;
+    return { ...rest, agent: true, cmd: now.cmd, ...(now.cwd ? { cwd: now.cwd } : {}) };
+  });
+  return { ...spec, root };
+}
+
 /** Every tile spec in a saved tree (either form, tab sets too). */
 function savedLeaves(root: SavedTree): TileSpec[] {
   const all: TileSpec[] = [];
@@ -142,7 +168,7 @@ export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
   switch (s.kind) {
     case "detail": { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; }
     case "preview": return new PreviewPane((s.source && sourceOf(s.source)) || { tile: "tree" });
-    case "pty": return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name });
+    case "pty": return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
     case "board": case "river": case "brief": return new ScreenTile(s.kind as ScreenKind, { preview: s.preview });
     case "backlinks": { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); }
     default: return makePane(s.kind as "tree");
@@ -168,6 +194,13 @@ export const editor = () => process.env.VISUAL || process.env.EDITOR || (Bun.whi
 /** A command line as words (the daily agent's EP0CH_DAILY_AGENT, "claude" by default). */
 export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 
+/** The daily agent's program and folder, read now: EP0CH_DAILY_AGENT ("claude" unset) and EP0CH_DAILY_CWD (~ allowed; unset, the door's own folder). */
+export function dailyAgent(): { cmd: string[]; cwd?: string } {
+  const cmd = words(process.env.EP0CH_DAILY_AGENT || "claude");
+  const cwd = process.env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, homedir());
+  return { cmd: cmd.length ? cmd : ["claude"], ...(cwd ? { cwd } : {}) };
+}
+
 /** The daily scratch file the editor tile opens: EP0CH_DAILY_DRAFT, or scratch.md in the door's state. */
 export function dailyDraft(): string {
   const p = process.env.EP0CH_DAILY_DRAFT || join(stateDir(), "scratch.md");
@@ -190,15 +223,13 @@ const T = (kind: PaneKind, name: string, more: Partial<TileSpec> = {}): LNode<Ti
 export function builtin(name: string): LayoutSpec | null {
   const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
   if (name === "daily") {
-    const agent = words(process.env.EP0CH_DAILY_AGENT || "claude");
-    // The folder the agent starts in (EP0CH_DAILY_CWD, ~ allowed); unset, the door's own folder.
-    const agentCwd = process.env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, homedir());
+    const agent = dailyAgent();
     const draft = dailyDraft();
     return {
       name, rule: "current", focus: "tree",
       root: serial(splitOf("row", [
         // The claude tile's opens land in middle too: an agent in it opens with `open from=$EP0CH_TILE`, never naming middle.
-        splitOf("col", [T("pty", "claude", { cmd: agent, link: "middle", ...(agentCwd ? { cwd: agentCwd } : {}) }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
+        splitOf("col", [T("pty", "claude", { ...agent, agent: true, link: "middle" }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
         splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("detail", "middle")], [0.6, 0.4]),
         splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("detail", "side", { link: "middle" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
@@ -218,7 +249,7 @@ export function saveLayout(name: string, spec: LayoutSpec) { const all = savedLa
 /** A layout by name: the one saved under it, else the built-in. */
 export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
   const s = savedLayouts()[name];
-  if (s?.root) return { spec: migrateLinks(s, name), saved: true };
+  if (s?.root) return { spec: withDailyAgent(migrateLinks(s, name), name), saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }

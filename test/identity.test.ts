@@ -12,6 +12,7 @@ import { App } from "../src/app";
 import { startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { attachTitle } from "../src/desk/herdr-agent";
+import { builtin, withDailyAgent } from "../src/desk/tiles";
 import { leaf, splitOf, revive, serialize, type LNode } from "../src/desk/layout";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -33,6 +34,30 @@ describe("ids in the saved form", () => {
     expect(back.kids[1]).toMatchObject({ t: "tabs", ids: ["b", "c"], id: "g4" });
     const old = revive({ t: "split", dir: "row", ratio: 0.4, a: { t: "leaf", name: "a" }, b: { t: "leaf", name: "b" } } as any, (l: any) => l.name) as any;
     expect(old.id).toBeUndefined();
+  });
+});
+
+describe("the daily agent tile in a saved layout", () => {
+  const spec = (l: Record<string, unknown>) => ({ root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "pty", name: "claude", ...l }, { t: "leaf", kind: "detail", name: "middle" }], weights: [1, 1] } }) as any;
+  const claude = (s: any) => s.root.kids[0];
+  test("a flagged tile, or the plain claude default in a daily desk, runs what EP0CH_DAILY_AGENT and EP0CH_DAILY_CWD say now", () => {
+    const was = { agent: process.env.EP0CH_DAILY_AGENT, cwd: process.env.EP0CH_DAILY_CWD };
+    process.env.EP0CH_DAILY_AGENT = "garden-agent --attach";
+    delete process.env.EP0CH_DAILY_CWD;
+    try {
+      expect(claude(withDailyAgent(spec({ cmd: ["claude"] }), "daily"))).toMatchObject({ agent: true, cmd: ["garden-agent", "--attach"] });
+      expect(claude(withDailyAgent(spec({ cmd: ["old-agent"], cwd: "/plot", agent: true }), "garden"))).toEqual({ t: "leaf", kind: "pty", name: "claude", agent: true, cmd: ["garden-agent", "--attach"] });
+      // Not the agent tile: another layout, another name, or a command the person changed.
+      for (const [l, from] of [[{ cmd: ["claude"] }, "garden"], [{ cmd: ["claude"] }, undefined], [{ cmd: ["claude", "--resume"] }, "daily"], [{ cmd: ["claude"], name: "helper" }, "daily"]] as const) {
+        const s = spec(l);
+        expect(withDailyAgent(s, from)).toBe(s);
+      }
+      const leaves = (n: any): any[] => (n.kids ? n.kids.flatMap(leaves) : n.tabs ? n.tabs.flatMap(leaves) : [n]);
+      expect(leaves(builtin("daily")!.root).find(l => l.name === "claude")).toMatchObject({ agent: true, cmd: ["garden-agent", "--attach"] });
+    } finally {
+      if (was.agent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = was.agent;
+      if (was.cwd !== undefined) process.env.EP0CH_DAILY_CWD = was.cwd;
+    }
   });
 });
 
@@ -261,6 +286,60 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
       expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
       expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("middle");
     } finally { if (had === null) rmSync(layouts, { force: true }); else writeFileSync(layouts, had); }
+    await daily();
+  });
+
+  // A desk.json shaped like one saved from the daily layout before the agent tile was flagged: the claude tile's
+  // command is the plain default, so EP0CH_DAILY_AGENT (the Herdr launcher, say) never took effect on restore.
+  const plainDaily = (cmd: string[]) => ({
+    focus: 0, rule: "current", layout: "daily", rev: 1, next: { tile: 5, node: 3 },
+    root: {
+      t: "split", dir: "row", id: "s1", kids: [
+        { t: "leaf", kind: "pty", name: "claude", id: "t1", cmd, link: "middle" },
+        { t: "split", dir: "col", id: "s2", kids: [{ t: "leaf", kind: "tree", name: "tree", id: "t2", link: "middle" }, { t: "leaf", kind: "pty", name: "draft", id: "t3", cmd: ["tail", "-f", join(state(), "draft.md")] }], weights: [0.6, 0.4] },
+        { t: "leaf", kind: "detail", name: "middle", id: "t4" },
+      ], weights: [0.34, 0.33, 0.33],
+    },
+  });
+  const cmdOf = async (name: string) => [...D().panes.values()].find((p: any) => p.kind === "pty" && p.run.label === name).run as { cmd: string[]; cwd?: string };
+  const withAgent = async (agent: string, cwd: string | undefined, f: () => Promise<void>) => {
+    const was = { agent: process.env.EP0CH_DAILY_AGENT, cwd: process.env.EP0CH_DAILY_CWD };
+    process.env.EP0CH_DAILY_AGENT = agent;
+    if (cwd) process.env.EP0CH_DAILY_CWD = cwd; else delete process.env.EP0CH_DAILY_CWD;
+    try { await f(); } finally {
+      process.env.EP0CH_DAILY_AGENT = was.agent;
+      if (was.cwd === undefined) delete process.env.EP0CH_DAILY_CWD; else process.env.EP0CH_DAILY_CWD = was.cwd;
+    }
+  };
+
+  test("the daily agent tile runs EP0CH_DAILY_AGENT when restored, not the command it was saved with; a changed command stays", async () => {
+    await withAgent("sh -s", state(), async () => {
+      // Saved before the flag, with the plain default: it's the agent tile (the migration rule in withDailyAgent).
+      fromSaved(plainDaily(["claude"]));
+      expect(await cmdOf("claude")).toMatchObject({ cmd: ["sh", "-s"], cwd: state() });
+      expect((await cmdOf("draft")).cmd).toEqual(["tail", "-f", join(state(), "draft.md")]);
+      // Saved again, it carries the flag; restored under another agent, it runs that one.
+      await mine("layout.even");
+      const saved = JSON.parse(await Bun.file(join(state(), "desk.json")).text());
+      expect(JSON.stringify(saved)).toContain(`"agent":true`);
+    });
+    await withAgent("sh -e", undefined, async () => {
+      fromSaved(JSON.parse(await Bun.file(join(state(), "desk.json")).text()));
+      const t = await cmdOf("claude");
+      expect(t.cmd).toEqual(["sh", "-e"]);
+      expect(t.cwd).toBeUndefined();
+      // layout.load of a daily saved in layouts.json the same way.
+      const layouts = join(state(), "layouts.json");
+      const had = await Bun.file(layouts).exists() ? await Bun.file(layouts).text() : null;
+      try {
+        writeFileSync(layouts, JSON.stringify({ ...(had ? JSON.parse(had) : {}), daily: { ...plainDaily(["claude"]), name: "daily" } }));
+        await mine("layout.load", { name: "daily" });
+        expect((await cmdOf("claude")).cmd).toEqual(["sh", "-e"]);
+      } finally { if (had === null) rmSync(layouts, { force: true }); else writeFileSync(layouts, had); }
+      // A command the person changed isn't the default: it stays theirs.
+      fromSaved(plainDaily(["sh", "-u"]));
+      expect((await cmdOf("claude")).cmd).toEqual(["sh", "-u"]);
+    });
     await daily();
   });
 
