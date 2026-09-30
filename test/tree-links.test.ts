@@ -112,7 +112,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
   let key: (k: Key) => void = () => {};
-  const n = {} as Record<"log" | "soil" | "shed" | "plan" | "notes", Msg>;
+  const n = {} as Record<"log" | "soil" | "shed" | "plan" | "notes" | "printer", Msg>;
   let file = "";
   const D = () => desk as any;
   const tree = () => [...D().panes.values()].find((p: any) => p.kind === "tree") as TreePane;
@@ -165,6 +165,8 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     n.shed = await create(n.log.id, "Tool shed inventory\nTwo spades and a fork.");
     n.plan = await create(n.log.id, `Weekend plan\nCheck [[soil-test]] and ((${n.shed.id}|the shed list)).\nCompost: [file::notes/compost.md] and [file::notes/gone.md]\nThe van is [jira::ACME-12].`);
     n.notes = await create(n.log.id, `Compost notes\nSee ((${n.plan.id})) for when.`);
+    // A ticket page: saving it fetches the ticket into a block the Jira extension keeps (PIE-445).
+    n.printer = await create(n.log.id, "Printer ticket [jira::ACME-14]\nOur own note: call the supplier.");
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
@@ -270,6 +272,27 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     expect(board.sent.slice(before)).toEqual(expect.arrayContaining(["resources.follow-authored", "resources.describe", "resources.refresh"]));
     expect(reader().msg!.text).toContain("status In progress");
   }, 20_000);
+
+  test("a ticket page's ♦ row opens the ticket block the Jira extension keeps (PIE-445), not a copy of the Resource", async () => {
+    const page = n.printer;
+    // Saving it was the one step: the service fetched the ticket into a child block.
+    let ticket: Msg | undefined;
+    const end = Date.now() + 10_000;
+    while (!ticket && Date.now() < end) { ticket = (await board.children(page.id)).find(m => m.author === "ext:jira"); await Bun.sleep(30); }
+    expect(ticket).toBeDefined();
+    D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
+    await until(() => rows().some(r => r.kind === "block" && r.text.startsWith("Printer ticket")), `the page's row in ${rows().map(r => r.text).join(" | ")}`, 8000);
+    selectRow("Printer ticket");
+    ch("L");
+    await until(() => rows().some(r => r.text.startsWith("ACME-14") && (r.context ?? "").includes("⏎ opens the ticket")), "the ticket's row", 8000);
+    selectRow("ACME-14");
+    const before = board.sent.length;
+    press({ kind: "enter" });
+    await shows(ticket!.id);
+    expect(reader().msg!.text.split("\n")[0]).toBe("Label printer drops the last line");
+    // Opened as a note: its header is the service's projection read; nothing registered, described or fetched.
+    expect(board.sent.slice(before).filter(a => a.startsWith("resources.") && a !== "resources.projection.read")).toEqual([]);
+  }, 25_000);
 
   test("a file that can't be read says why; nothing opens", async () => {
     rmSync(join(scratch.workspace, "notes", "gone.md"));

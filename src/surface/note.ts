@@ -13,7 +13,7 @@ import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, embedsLoading, embedStepChanged, SHADE, type EmbedBody } from "../embeds";
-import { projectionRegion, projectionsOf, type ResourceProjection } from "../projection";
+import { projectionRegion, projectionsOf, projectionsServed, resourceChanged, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
@@ -588,7 +588,12 @@ export class NoteSurface {
           const ps = regions.get(line);
           if (!ps) return [];
           const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
-          return projectionRegion(ps, width, indent, now, (to, text) => linkTag(drawn.push(to) - 1) + text + LINK_END);
+          const tag = (to: LinkTarget, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
+          // A ticket kept as a block (PIE-445) is drawn from that block: on a page, all of it under its line;
+          // on the ticket block itself, its header on top and its comments after the body.
+          return ps.flatMap(({ p, part }) => p.record
+            ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
+            : projectionRegion([p], width, indent, now, tag));
         },
       } : {}),
     });
@@ -1216,7 +1221,41 @@ export class NoteSurface {
     }
     if (c === "F" && this.msg && !this.msg.partial) { const n = this.foldAll(this.folded.size === 0); host.ctx.flash(n ? `${this.folded.size ? `folded ${n}` : `unfolded ${n}`}` : "this note has no headings or nested lists to fold"); host.redraw(); return true; }
     if (c === "u" && this.msg?.parentId) { this.letGo(); void this.up(host); return true; }
+    // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
+    if (c === "r" && this.msg && isOutlineNote(this.msg) && projectionsServed(host.ctx.board)) { const t = this.refreshTarget(); void this.refreshTickets(host, t.block, USER, t.line).catch(() => {}); return true; }
     return false;
+  }
+
+  /** The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note. */
+  refreshTarget(): { block: string; line?: number } {
+    const l = this.inView()?.link;
+    if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
+    return { block: l?.role === "resource" && l.block ? l.block : this.msg!.id };
+  }
+
+  /**
+   * Fetch the tickets `blockId` shows now (`resources.projection.refresh`), as `actor`; the region repaints
+   * when the service has written them. Said on the status bar either way.
+   */
+  async refreshTickets(host: SurfaceHost, blockId: string, actor: Actor = USER, line?: number): Promise<{ refreshed: string; tickets: string[] }> {
+    host.ctx.flash("fetching…");
+    try {
+      const read = await host.ctx.board.refreshProjections(blockId, line);
+      resourceChanged(null);
+      const keys = read.projections.flatMap(p => p.key ? [p.key] : []);
+      const failed = read.projections.filter(p => p.fetchError);
+      const fetched = read.projections.filter(p => p.key && !p.fetchError).map(p => p.key!);
+      const said = [fetched.length ? `${fetched.join(", ")} fetched` : "",
+        ...failed.map(p => `${p.key}: can't fetch (${p.fetchError!.replace(/^Resource extension: /, "")})`)].filter(Boolean).join(" · ");
+      host.ctx.flash(said || "nothing to fetch here");
+      if (actor.kind === "agent") this.noteAgent(actor, `refreshed ${keys.join(", ") || "nothing"}`);
+      host.redraw();
+      return { refreshed: blockId, tickets: keys };
+    } catch (e) {
+      host.ctx.flash(`not fetched: ${(e as Error).message}`);
+      host.redraw();
+      throw e;
+    }
   }
 
   /**
@@ -1579,12 +1618,17 @@ export class NoteSurface {
    * The projections to draw, by the body line (index into `noteLines`) each follows: the last one at or
    * above its anchor line, or -1 (above the body) when none is (a ticket page's subject or preamble).
    */
-  private projectionRegions(ps: readonly ResourceProjection[], noteLines: readonly number[]): Map<number, ResourceProjection[]> {
-    const out = new Map<number, ResourceProjection[]>();
+  private projectionRegions(ps: readonly ResourceProjection[], noteLines: readonly number[]): Map<number, { p: ResourceProjection; part: TicketPart }[]> {
+    const out = new Map<number, { p: ResourceProjection; part: TicketPart }[]>();
+    const put = (at: number, p: ResourceProjection, part: TicketPart) => { const g = out.get(at); if (g) g.push({ p, part }); else out.set(at, [{ p, part }]); };
+    const last = Math.max(-1, noteLines.length - 1);
     for (const p of ps) {
-      const at = noteLines.findLastIndex(n => n <= p.anchor.line);
-      const g = out.get(at);
-      if (g) g.push(p); else out.set(at, [p]);
+      // A ticket page's ticket is a child block: it follows the person's own notes, as the outline has it.
+      if (p.anchor.kind === "page" && p.record) { put(last, p, "page"); continue; }
+      if (p.anchor.kind !== "record") { put(noteLines.findLastIndex(n => n <= p.anchor.line), p, "page"); continue; }
+      // The ticket block itself: its header on top, its comments after its body.
+      put(-1, p, "head");
+      if (p.record?.commentBlockIds.length) put(last, p, "comments");
     }
     return out;
   }
@@ -1810,8 +1854,10 @@ export class NoteSurface {
       if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);
       return shown.note;
     }
-    // A resource projection opens its ticket's page; without one it says why (no key, not fetched yet, …).
-    if (l.role === "resource" && l.url === undefined) { host.ctx.flash(l.reason ?? "nothing to open here"); return null; }
+    // A ticket's age refreshes it (PIE-445), as r does.
+    if (l.refresh) { void this.refreshTickets(host, l.refresh, USER, l.refreshLine).catch(() => {}); return null; }
+    // A resource projection opens its ticket block, or its ticket's page; without one it says why (no key, not fetched yet, …).
+    if (l.role === "resource" && l.url === undefined && !l.block) { host.ctx.flash(l.reason ?? "nothing to open here"); return null; }
     // A Markdown link: a web page opens in the browser; a pi-outliner:// block or page link opens here.
     if (l.url !== undefined) {
       const to = destinationOf(l.url);
@@ -2801,6 +2847,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "block.untint": Record<string, never>;
   "link.follow": { n?: number };
   "up": Record<string, never>;
+  "projection.refresh": { block?: string };
   "back": Record<string, never>;
   "forward": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
@@ -3181,6 +3228,16 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "block.untint": UNTINT,
   "focus.set": { ...TINT, summary: `the older name of block.tint. ${TINT.summary}` },
   "focus.clear": { ...UNTINT, summary: `the older name of block.untint. ${UNTINT.summary}` },
+  "projection.refresh": {
+    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own): block=<id>, else the one the [ ] position is on, else the note's. The service writes them as the Jira extension; the region repaints", keys: "r, a click on a ticket's age",
+    args: { block: { type: "string", optional: true, about: "the block whose tickets to fetch (a page or a ticket block); default: the reader's" } },
+    async run(a, { surface, host }, actor) {
+      const m = surface.msg;
+      const t = typeof a.block === "string" && a.block ? { block: a.block } : m && isOutlineNote(m) ? surface.refreshTarget() : null;
+      if (!t) throw new ActionRefused("no note with tickets here");
+      return surface.refreshTickets(host, t.block, actor, t.line);
+    },
+  },
   "up": {
     summary: "go to the note's parent", keys: "u",
     args: {},

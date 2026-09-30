@@ -257,7 +257,7 @@ const TICKETS = [
   "ACME-30 came up at the end.",
   "jira::",
 ].join("\n");
-const TICKET_PAGE = "Rollout ticket [jira::ACME-12]\nOur own notes under the ticket: book the van for the 14th.";
+const TICKET_PAGE = "Rollout ticket [jira::ACME-12]\nOur own notes under the ticket: book the van for the 14th.\njira:: --comments";
 
 /**
  * The tickets' Source and Resources. With `ticketsConfig` (the service's XDG_CONFIG_HOME) the made-up

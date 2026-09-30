@@ -9,7 +9,7 @@ import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
-import { REFRESHABLE, resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
+import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
@@ -31,7 +31,16 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * a card into a lane, and what a new card there is born with. `query.matches` tests a query against
    * given blocks; `ping.propertyGrammar` reports the token grammar src/vendor/property-grammar.ts copies.
    */
-  "views.planWrite", "query.matches", "ping.propertyGrammar"] as const;
+  "views.planWrite", "query.matches", "ping.propertyGrammar",
+  /**
+   * Wave A of the extension design (pi-herdr-outliner PIE-445): a ticket kept as a block the Jira extension
+   * owns (`extensions.records`), fetched on save and on open (`resources.projection.materialize`), refreshed
+   * from any client (`resources.projection.refresh`); Resources read and refreshed without a Detail
+   * (`resources.observer-reads`); who registered a Resource (`resources.follow-authored.provenance`);
+   * `activity.recent`'s extension filter (`activity.extensions`); `blocks.authored-links` by name.
+   */
+  "extensions.records", "resources.projection.materialize", "resources.projection.refresh", "resources.observer-reads",
+  "resources.follow-authored.provenance", "activity.extensions", "blocks.authored-links"] as const;
 /** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
 export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
@@ -155,6 +164,9 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   ...(b.text === undefined ? { partial: true } : {}),
   ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
 });
+
+/** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
+export const isExtensionWriter = (author: string | null | undefined) => !!author?.startsWith("ext:");
 
 const unsupportedAction = (e: unknown) => /unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e));
 
@@ -402,7 +414,18 @@ export class SocketBoard implements Board {
    * its own provider property name. A read only: the service never registers or fetches for it.
    */
   readResourceProjections(blockId: string): Promise<ResourceProjectionRead> {
-    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId });
+    // Opening a note is the one step: the service fetches in the background what isn't fetched or is stale.
+    const materialize = this.supports("resources.projection.materialize") === true;
+    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId, ...(materialize ? { materialize: true } : {}) });
+  }
+
+  /**
+   * Fetch the tickets a note shows now (`resources.projection.refresh`): a page's, or the ticket block's own.
+   * Any client may; the answer is the note's projections after the fetch.
+   */
+  async refreshProjections(blockId: string, line?: number): Promise<ResourceProjectionRead> {
+    if (this.supports("resources.projection.refresh") !== true) throw new Refused("this outline service can't refresh a ticket from the door (it lacks resources.projection.refresh); restart it from a current checkout");
+    return this.request<ResourceProjectionRead>("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}) });
   }
 
   /**
@@ -419,48 +442,38 @@ export class SocketBoard implements Board {
    * registered: a `[file::…]` is interned (and its Source made), a `jira::KEY` resolved through the Jira
    * Source's provider. The Resource's id, and whether this call registered it.
    */
-  async followAuthored(reference: AuthoredResourceReference): Promise<{ id: string; created: boolean }> {
-    const r = await this.request<{ resource: { id: string }; created: boolean }>("resources.follow-authored", { reference });
+  async followAuthored(reference: AuthoredResourceReference, actor: Actor = USER): Promise<{ id: string; created: boolean }> {
+    // Who registered it goes with the request where the service keeps it (an agent's is its own).
+    const mutation = this.supports("resources.follow-authored.provenance") === true ? { mutation: mutationFor(actor) } : {};
+    const r = await this.request<{ resource: { id: string }; created: boolean }>("resources.follow-authored", { reference, ...mutation });
     return { id: r.resource.id, created: !!r.created };
   }
 
   /**
    * A Resource's stored content (`resources.describe`). `fetch`: when nothing is stored yet (a ticket never
-   * read, a web page never fetched), the service fetches it first (`resources.refresh`). Both calls name a
-   * Detail destination, so the door registers one for the call and lets it go after (the showcase's
-   * `refreshTicket` does the same through here): the service has no read for a client that isn't a Detail.
+   * read, a web page never fetched) and the service says the Resource can be refreshed (its
+   * `capabilities.refresh` isn't `unavailable`), it is fetched first (`resources.refresh`). Neither call needs a Detail
+   * (`resources.observer-reads`); an older service says what it lacks.
    */
   async describeResource(resourceId: string, fetch = false): Promise<ResourceDescription> {
-    return this.asDetail(async destinationClientId => {
-      const d = await this.request<ResourceDescription>("resources.describe", { target: { kind: "resource", resourceId }, destinationClientId });
-      if (!fetch || resourceStored(d) || !REFRESHABLE.has(d.resource.provider)) return d;
-      return this.request<ResourceDescription>("resources.refresh", { resourceId, destinationClientId });
-    });
+    this.requireObserverReads();
+    const d = await this.request<ResourceDescription>("resources.describe", { target: { kind: "resource", resourceId } });
+    // `unavailable`: the service won't refresh this one (a file is read as it is). `indeterminate` (a
+    // ticket whose credentials the service only finds out about by trying) is worth one try.
+    if (!fetch || resourceStored(d) || !d.capabilities?.refresh || d.capabilities.refresh.status === "unavailable") return d;
+    return this.request<ResourceDescription>("resources.refresh", { resourceId });
   }
 
   /** Fetch a Resource again (`resources.refresh`: a ticket read from its provider, a web page fetched). */
   refreshResource(resourceId: string): Promise<ResourceDescription> {
-    return this.asDetail(destinationClientId => this.request<ResourceDescription>("resources.refresh", { resourceId, destinationClientId }));
+    this.requireObserverReads();
+    return this.request<ResourceDescription>("resources.refresh", { resourceId });
   }
 
-  /** Run `fn` with a short-lived Detail client registered on the service (its id), ended after. */
-  private async asDetail<T>(fn: (clientId: string) => Promise<T>): Promise<T> {
-    const clientId = `${this.clientId}-resource-${crypto.randomUUID().slice(0, 6)}`;
-    const s = connect(this.path);
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("registering a reader for the resource timed out")), this.timeoutMs);
-        const lines = new Line(r => { if (r.id !== "sub") return; clearTimeout(timer); r.ok ? resolve() : reject(new Refused(r.error ?? "couldn't register a reader")); });
-        s.on("data", d => lines.feed(d));
-        s.on("error", e => { clearTimeout(timer); reject(e); });
-        s.on("connect", () => s.write(JSON.stringify({
-          id: "sub", action: "events.subscribe", client: { clientId, role: "detail", contextId: clientId },
-          ...(this.outline ? { outline: this.outline } : {}),
-        }) + "\n"));
-      });
-      return await fn(clientId);
-      // Closed outright, whatever happened: the service drops the client when its socket closes.
-    } finally { s.removeAllListeners("data"); s.on("error", () => {}); s.destroy(); }
+  private requireObserverReads(): void {
+    if (this.supports("resources.observer-reads") === false) {
+      throw new Refused("this outline service reads Resources only for a Detail (it lacks resources.observer-reads); restart it from a current checkout");
+    }
   }
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
@@ -571,19 +584,24 @@ export class SocketBoard implements Board {
    * service answers `updated > since` itself and sends titles and properties only, so New Scan reads
    * what changed instead of the newest N whole notes. Older services: the newest N, filtered here.
    */
-  async changedSince(since: number, limit: number): Promise<Msg[]> {
+  /**
+   * Notes changed since `since`, newest first. A note an extension last wrote (a Jira ticket the service
+   * refreshed: its writer is `ext:…`) is left out unless `extensions`: it isn't the person's news.
+   */
+  async changedSince(since: number, limit: number, extensions = false): Promise<Msg[]> {
     const sort = { field: "updated", direction: "desc" };
+    const keep = (m: Msg) => extensions || !isExtensionWriter(m.author);
     if (this.supports("query.expression") === true) {
       const where = since > 0 ? { expression: `updated>${new Date(since).toISOString()}` } : {};
       const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
         query: { ...where, limit: Math.min(1000, limit), sort }, ...this.listFields(),
       });
-      return r.blocks.map(b => toMsg(b));
+      return r.blocks.map(b => toMsg(b)).filter(keep);
     }
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
       query: { limit: Math.min(1000, limit), sort },
     });
-    return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since);
+    return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since).filter(keep);
   }
 
   async search(text: string, limit: number): Promise<Msg[]> {
