@@ -51,6 +51,7 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | an ssh session | the door, from `SSH_TTY` (else `SSH_CONNECTION`), when the nest has no ssh layer | `ssh:pts/5`, or `ssh:-` without a tty (the client address is never recorded) |
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
+| the agent drawer | the door, for its one agent tile (PIE-498) | `door:<pid>/dock/dock.agent:claude` |
 | the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-claude` (the pane's label) |
 
 The three routes:
@@ -153,6 +154,21 @@ These change what the person looks at, so an agent's is a visible, attributed mo
     ep0ch act list.read --as claude-7
     ep0ch act list.open n=3 --as claude-7
 
+### The agent drawer (PIE-498)
+
+Also on every screen but the logon: the agent drawer, the App's one agent tile, pulled up from the status bar's
+`▲ claude` chip over whatever screen is shown. `peek` gives its state as `dock` (`open`, `entered`, `share`,
+`rect`, `state`, `openedBy`, `herdr`, and its `terminal` as a tile gives it).
+
+| Action | Args | Keys, mouse | Agent rules |
+|---|---|---|---|
+| `agent.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
+| `agent.height` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
+
+Its program is told `EP0CH_TILE_ID=dock.agent` and `EP0CH_TILE=claude`, and its nest layer is
+`door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr reader=dock.agent` reaches the App on any
+screen. `ep0ch where` names the drawer as the tile (`the agent drawer`), and says when the person is typing in it.
+
 ## Naming tiles and splits (PIE-491)
 
 Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same
@@ -252,6 +268,8 @@ at, and what it does while they're typing:
 | `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
 | `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
 | `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
+| `agent.toggle open=true` | no: the drawer comes up over the screen, the keys stay where they were | refused, and within 2s of their last key |
+| `agent.toggle open=false`, `agent.height` | no | refused while they're typing in the drawer |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
 | `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |

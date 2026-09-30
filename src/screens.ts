@@ -155,6 +155,7 @@ function artWithText(ctx: Ctx, key: string, art: Art, overlays: Overlay[], at = 
 
 export class Logon implements Screen {
   title = "logon";
+  readonly noDock = true;
   private shown = 0;
   private readonly script: string[];
   /** `then`: a screen opened over the main menu after the logon (EP0CH_LANDING=brief: the daily brief; welcome: the welcome notes). */
@@ -356,6 +357,7 @@ export function agentMayMove(here: Screen | undefined, ctx: Ctx, actor: Actor, l
   if (ctx.suspended?.()) throw new ActionRefused(`the person is in the door's ${ctx.suspended()} (the door waits under it); not moved`);
   if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
   if (here.rawKeys?.()) throw new ActionRefused(`the person is typing in a terminal tile on the ${here.title}; not moved`);
+  if (ctx.dockHoldsKeys?.()) throw new ActionRefused("the person is typing in the agent drawer; not moved");
   if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title} (or typing a filter, or choosing); not moved`);
   if (leaving && here.unsaved?.()) throw new ActionRefused(`the ${here.title} holds unsaved text; not left`);
   const refusal = leaving ? here.leaveRefusal?.() : null;
@@ -1202,6 +1204,7 @@ const HELP: Record<string, string> = {
 
 export class Goodbye implements Screen {
   title = "logoff";
+  readonly noDock = true;
   private at = Date.now();
   /** Logging off quits the door: with programs still running (the desk in the background), it asks first. */
   enter(ctx: Ctx) { if (ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
