@@ -65,6 +65,7 @@ function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | un
 export const SECTIONS: Section[] = [
   {
     key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
+    aside: "the notebook's embeds read quietly: a dim, clickable ↳ source line and a dim bar (src/embeds.ts); only a problem heading stays loud",
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
@@ -104,6 +105,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one", files: "src/desk/pty.ts, src/surface/editor.ts",
+    aside: "the agent drawer (src/dock.ts, PIE-498): the App's one agent tile, pulled up over any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (agent.toggle, agent.height) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
