@@ -23,7 +23,7 @@ An agent sees what the person sees, live, and can change anything except where t
 no door listens on). **The socket is the door's shell:** a client can do what the person can, including
 start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is only a claimed name. So it is
 0600, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
-else can reach, the door serves no socket and says why. A request line longer than 1 MiB is cut off. Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
+else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
 reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
 README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).

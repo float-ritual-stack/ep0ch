@@ -8,7 +8,7 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
-import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
@@ -22,8 +22,12 @@ export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(stateDir(),
 
 /** How much of the live feed may wait unread for one subscriber before it's disconnected. */
 export const FEED_LIMIT = 1 << 20;
-/** The longest request line: a connection that sends more without a newline is cut off. */
-export const LINE_LIMIT = 1 << 20;
+/**
+ * The longest request line: a connection that sends more without a newline is told so and cut off. Well
+ * above the biggest request the door takes (`act edit.text` with a note's whole text, JSON-escaped), and
+ * small enough that a client can't make the door hold unbounded memory.
+ */
+export const LINE_LIMIT = 16 << 20;
 
 /**
  * Where `snap` may write: `path` inside the state dir (relative to it, or absolute under it), default
@@ -108,18 +112,33 @@ export async function sweepSockets(dir: string): Promise<string[]> {
  */
 export async function startControl(d: ControlDeps, at = controlSocket()): Promise<{ path: string; close(): void }> {
   const dir = dirname(at);
-  if (!privateDir(dir, dir === stateDir())) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
+  if (!privateDir(dir, resolve(dir) === resolve(stateDir()))) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
   await sweepSockets(dir);
+  const own = join(dir, `door-${process.pid}.sock`);
   let path = at;
-  if (existsSync(path)) {
-    if (await listening(path)) path = join(dir, `door-${process.pid}.sock`);
-    else unlinkSync(path);
+  // A link (the Herdr agent's agent-*.sock) is never ours to serve on or remove: it names another door's socket.
+  const link = (() => { try { return lstatSync(at).isSymbolicLink(); } catch { return false; } })();
+  if (link) path = own;
+  else if (existsSync(path)) {
+    if (await listening(path)) path = own;
+    else try { unlinkSync(path); } catch { /* another door starting swept it */ }
   }
   const server: Server = createServer(sock => {
     let buf = "";
-    sock.on("data", chunk => {
-      buf += chunk.toString();
-      if (buf.length > LINE_LIMIT && !buf.includes("\n")) { sock.end(JSON.stringify({ ok: false, error: "request line too long" }) + "\n"); sock.destroy(); buf = ""; return; }
+    // Decoded as a stream: a character split across two chunks arrives whole (a note's text, for edit.text).
+    sock.setEncoding("utf8");
+    sock.on("data", (chunk: string) => {
+      // Only the new chunk is searched for a line's end: a long request costs its length once, not per chunk.
+      if (!chunk.includes("\n")) {
+        buf += chunk;
+        if (buf.length > LINE_LIMIT) {
+          // Said, then closed once said; nothing more it sends is read.
+          sock.removeAllListeners("data"); buf = "";
+          sock.end(JSON.stringify({ ok: false, error: `request line too long (over ${LINE_LIMIT} characters)` }) + "\n", () => sock.destroy());
+        }
+        return;
+      }
+      buf += chunk;
       for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
         let req: any;
@@ -138,10 +157,12 @@ export async function startControl(d: ControlDeps, at = controlSocket()): Promis
     });
     sock.on("error", () => {});
   });
-  // Made 0600 from the start (the umask covers the moment between listen and chmod), and chmodded to be sure.
-  const umask = process.umask(0o177);
-  try { await new Promise<void>((res, rej) => { server.once("error", rej); server.listen(path, () => res()); }); }
-  finally { process.umask(umask); }
+  const listen = (p: string) => new Promise<void>((res, rej) => { server.once("error", rej); server.listen(p, () => res()); });
+  // Two doors starting at once can both find door.sock free: the one that loses takes door-<pid>.sock.
+  try { await listen(path); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE" || path === own) throw e; path = own; await listen(path); }
+  // 0600. No umask change for the moment before this: the folder is already the user's alone (checked above),
+  // and a process-wide umask would also apply to anything else the door made while it waited.
   chmodSync(path, 0o600);
   controlPath = path;
   return { path, close: () => { server.close(); try { unlinkSync(path); } catch { /* gone */ } } };

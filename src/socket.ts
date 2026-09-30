@@ -230,15 +230,15 @@ export class EditConflict extends Error {
   constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
 }
 
-/**
- * The service answered with an error: it refused the request and wrote nothing. Anything else that
- * fails (a timeout, a dropped socket) leaves the outcome unknown, which is why comment writes carry a requestId.
- */
 /** The service can't be reached: every refusal it causes starts with the status bar's word, "offline". */
 export class Offline extends Error {
   constructor(detail: string) { super(`offline · ${detail}`); }
 }
 
+/**
+ * The service answered with an error: it refused the request and wrote nothing. Anything else that
+ * fails (a timeout, a dropped socket) leaves the outcome unknown, which is why comment writes carry a requestId.
+ */
 export class Refused extends Error {
   constructor(message: string) { super(message); this.name = "Refused"; }
 }

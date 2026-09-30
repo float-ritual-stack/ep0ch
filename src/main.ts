@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { App } from "./app";
 import { Logon } from "./screens";
 import { startScreens } from "./start";
-import { SocketBoard } from "./socket";
+import { Offline, SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients, startControl } from "./control";
 import { skillCommand } from "./skills";
@@ -124,8 +124,18 @@ const end = (code: number, crash?: unknown) => {
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 } as const;
 // SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
 for (const [sig, n] of Object.entries(SIGNALS)) process.on(sig, () => end(sig === "SIGTERM" || sig === "SIGHUP" ? 0 : 128 + n));
-process.on("uncaughtException", e => end(1, e));
-process.on("unhandledRejection", e => end(1, e));
+// "Couldn't ask the outline" is never a crash: an Offline that no caller caught (a key or a click that reads
+// a note first, while the service is down) is said, and the door carries on.
+// A write to a terminal that has gone (EIO, EPIPE: the ssh connection dropped before its SIGHUP was handled)
+// is a hangup, not a crash: the door ends as it does on SIGHUP.
+const fault = (e: unknown) => {
+  if (e instanceof Offline && app && !ending) { app.flash(e.message); return; }
+  const code = (e as NodeJS.ErrnoException | null)?.code;
+  if (code === "EIO" || code === "EPIPE") return end(0);
+  end(1, e);
+};
+process.on("uncaughtException", fault);
+process.on("unhandledRejection", fault);
 await term.start();
 // Everything the terminal is sent also goes to a mirror, so `snap` can show exactly this screen.
 const mirror = new Mirror(term.info.cols, term.info.rows);
@@ -137,7 +147,7 @@ process.stdout.prependListener("resize", () => mirror.resize(process.stdout.colu
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
 app = new App(term, board, lastCall, () => {
-  term.stop();
+  term.stop();                                          // never throws: a terminal that's gone is skipped
   if (app!.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app!.keptOnExit.join("\n  ")}`);
   if (ending?.crash !== undefined) console.error(`ep0ch: the door crashed:\n${ending.crash instanceof Error ? ending.crash.stack ?? ending.crash.message : String(ending.crash)}`);
   control?.close();

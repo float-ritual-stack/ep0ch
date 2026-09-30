@@ -60,6 +60,9 @@ export function alive(pid: number): boolean {
 export function claimState(): number[] {
   const dir = stateSub("doors");
   if (!dir) return [];
+  // Claimed before looking: two doors starting at once each see the other (look first, and both may see none).
+  const mine = join(dir, String(process.pid));
+  try { writeFileSync(mine, "", { mode: 0o600 }); process.on("exit", () => rmSync(mine, { force: true })); } catch { /* not fatal */ }
   const others: number[] = [];
   for (const n of readdirSync(dir)) {
     const pid = Number(n);
@@ -67,7 +70,5 @@ export function claimState(): number[] {
     if (alive(pid)) others.push(pid);
     else rmSync(join(dir, n), { force: true });
   }
-  const mine = join(dir, String(process.pid));
-  try { writeFileSync(mine, "", { mode: 0o600 }); process.on("exit", () => rmSync(mine, { force: true })); } catch { /* not fatal */ }
   return others;
 }

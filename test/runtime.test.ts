@@ -8,6 +8,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LINE_LIMIT } from "../src/control";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -39,9 +40,10 @@ class Door {
   readonly proc: ReturnType<typeof Bun.spawn>;
   readonly pty: InstanceType<typeof Bun.Terminal>;
   code: number | null = null;
-  constructor(readonly env: Record<string, string>, args: string[] = ["--desk"], preload?: string) {
+  /** `ctty`: the pty is the door's controlling terminal (as under sshd), so closing it sends the door SIGHUP. */
+  constructor(readonly env: Record<string, string>, args: string[] = ["--desk"], preload?: string, ctty = false) {
     this.pty = new Bun.Terminal({ cols: 140, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
-    this.proc = Bun.spawn(["bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, scratch.sock], { terminal: this.pty, env });
+    this.proc = Bun.spawn([...(ctty ? ["setsid", "-c"] : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, scratch.sock], { terminal: this.pty, env });
     void this.proc.exited.then(c => { this.code = c; });
   }
   get control() { return this.env.EP0CH_CONTROL!; }
@@ -103,6 +105,32 @@ describe("every exit restores the terminal, copies drafts and removes the socket
     const after = door.tail.slice(door.tail.indexOf("\x1b[?1049l"));
     expect(missing(door.tail)).toEqual([]);
     expect(after.includes("a fictional fault in a timer")).toBe(true);
+    expect(existsSync(door.control)).toBe(false);
+  }, 40_000);
+
+  test("the terminal hangs up (an ssh connection drops): drafts copied, socket removed, last call written", async () => {
+    const { env } = sandbox();
+    const id = await note("Tide table hangup\nlow water at six");
+    const door = new Door(env, ["--desk"], undefined, true);
+    await door.up();
+    expect((await door.cli("open", id)).code).toBe(0);
+    expect((await door.cli("act", "edit", "--as", "cartographer-4")).code).toBe(0);
+    expect((await door.cli("act", "edit.text", "text=Tide table hangup\nlow water at seven", "--as", "cartographer-4")).code).toBe(0);
+    door.pty.close();
+    // A hangup isn't a crash: exit 0, as on SIGHUP.
+    expect(await door.ended()).toBe(0);
+    const drafts = files(join(env.EP0CH_STATE!, "drafts"));
+    expect(drafts.some(f => readFileSync(join(env.EP0CH_STATE!, "drafts", f), "utf8").includes("low water at seven"))).toBe(true);
+    expect(existsSync(door.control)).toBe(false);
+    expect(existsSync(join(env.EP0CH_STATE!, "lastcall.json"))).toBe(true);
+  }, 40_000);
+
+  test("the terminal goes without a SIGHUP: the failed write ends the door as a hangup, not a crash", async () => {
+    const { env } = sandbox();
+    const door = new Door(env, []);            // the logon screen repaints on its own
+    await door.up();
+    door.pty.close();
+    expect(await door.ended()).toBe(0);
     expect(existsSync(door.control)).toBe(false);
   }, 40_000);
 
@@ -185,8 +213,22 @@ describe("the control socket (F2, F3)", () => {
     const bad = await door.cli("snap", join(dir, "nowhere", "screen.png"));
     expect(bad.code).toBe(1);
     // A line that never ends is cut off, not buffered forever.
+    // A request line bigger than 1 MiB (a long note's text for edit.text) is still answered, and a character
+    // split across two writes arrives whole.
+    const reply = (parts: (string | Uint8Array)[]) => new Promise<any>(res => {
+      const c = connect(door.control, async () => { for (const p of parts) { c.write(p); await Bun.sleep(50); } });
+      let buf = ""; c.setEncoding("utf8"); c.on("data", d => { buf += d; if (buf.includes("\n")) { c.end(); res(JSON.parse(buf)); } });
+      c.on("error", () => res(null)); c.on("close", () => res(buf ? JSON.parse(buf) : null));
+    });
+    const big = await reply([JSON.stringify({ cmd: "act", action: "no.such.action", args: { text: "tide ".repeat(300_000) } }) + "\n"]);
+    expect(big?.ok).toBe(false);
+    expect(String(big?.error)).not.toContain("too long");
+    const bytes = Buffer.from(JSON.stringify({ cmd: "lantern\u00e9" }) + "\n");
+    const at = bytes.indexOf(0xc3) + 1;
+    const split = await reply([bytes.subarray(0, at), bytes.subarray(at)]);
+    expect(String(split?.error)).toContain("lantern\u00e9");
     const cut = await new Promise<boolean>(res => {
-      const c = connect(door.control, () => { c.write("x".repeat(2 << 20)); });
+      const c = connect(door.control, () => { c.write("x".repeat(LINE_LIMIT + (1 << 20))); });
       c.on("close", () => res(true)); c.on("error", () => res(true));
       setTimeout(() => { c.destroy(); res(false); }, 5000);
     });
@@ -239,10 +281,15 @@ describe("a ctrl+e edit tile's file (F5)", () => {
 });
 
 describe("two doors on one state dir (F19)", () => {
-  test("marks from both doors are kept, numbered apart, and the second door is warned", async () => {
+  test("marks from both doors are kept and numbered apart, and the door that started second is warned", async () => {
     const shared = join(root, "shared-state");
     const a = new Door(sandbox(shared).env), b = new Door(sandbox(shared).env);
     await a.up(); await b.up();
+    // Whichever door started second is warned (both, when they start at the same moment); read before the
+    // marks' own flashes replace it.
+    await Bun.sleep(500);
+    const warned = (await a.cli("peek")).out + (await b.cli("peek")).out;
+    expect(warned.includes("another door")).toBe(true);
     const id = await note("Harbour chart\nthe north pier");
     const mark = (d: Door, reason: string) => d.cli("act", "block.mark", `id=${id}`, `reason=${reason}`, "--as", "cartographer-2");
     expect((await mark(a, "tide-one")).code).toBe(0);
@@ -257,8 +304,6 @@ describe("two doors on one state dir (F19)", () => {
     }
     const saved = JSON.parse(readFileSync(join(shared, "marks.json"), "utf8")) as { reason: string }[];
     expect(saved.map(m => m.reason).sort()).toEqual(["tide-one", "tide-three", "tide-two"]);
-    const peek = await b.cli("peek");
-    expect((peek.out + b.out).includes("another door")).toBe(true);
     for (const d of [a, b]) d.kill("SIGTERM");
     for (const d of [a, b]) await d.ended();
   }, 60_000);
@@ -269,7 +314,8 @@ describe("offline says offline (F24, C F17)", () => {
     const own = new Scratch();
     await own.start();
     const b2 = new SocketBoard(own.sock); await b2.info();
-    const id = (await b2.request<{ id: string }>("create", { parentId: null, text: "Ferry timetable\nsummer", author: "agent" })).id;
+    const pier = (await b2.request<{ id: string }>("create", { parentId: null, text: "North pier\nberth two", author: "agent" })).id;
+    const id = (await b2.request<{ id: string }>("create", { parentId: null, text: `Ferry timetable\nsummer, from ((${pier}))`, author: "agent" })).id;
     b2.close();
     const { env } = sandbox();
     const pty = new Bun.Terminal({ cols: 140, rows: 40, data: () => {} });
@@ -289,6 +335,15 @@ describe("offline says offline (F24, C F17)", () => {
       const edited = await cli("act", "edit", "--as", "cartographer-3");
       expect(edited).toContain("offline");
       expect(edited).not.toContain("revision");
+      // The person's own keys while it's down: ⏎ on a block link reads the target first. It says offline;
+      // the door keeps running (an Offline nobody caught used to end it, as an unhandled rejection).
+      pty.write("2"); await Bun.sleep(300);
+      pty.write("]"); await Bun.sleep(300);
+      pty.write("\r"); await Bun.sleep(2000);
+      expect(proc.exitCode).toBeNull();
+      const peek = await cli("peek");
+      expect(peek).toContain('"screen": "desk"');
+      expect(peek).toContain("offline · the outline isn't answering");
     } finally {
       proc.kill("SIGTERM"); await proc.exited;
       await own.dispose();

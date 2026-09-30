@@ -2,10 +2,11 @@
 // where `snap` may write, the one env list for terminal tiles, marks shared by two doors, ctrl+e files a
 // killed door left, and "offline" when the service can't be asked. test/runtime.test.ts runs the door itself.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapPath } from "../src/control";
+import { snapPath, startControl } from "../src/control";
 import { LocalMarks } from "../src/desk/marks";
 import { DOOR_START_VARS, HERDR_PANE_VARS, HERDR_VARS, tileEnv } from "../src/desk/pty";
 import { mediaCache } from "../src/media";
@@ -45,6 +46,51 @@ describe("private folders (F3)", () => {
     expect(statSync(join(root, "fresh", "deeper")).mode & 0o777).toBe(0o700);
   });
 
+  test("the state dir is the state dir however EP0CH_STATE is spelled: an open one is tightened, not refused", async () => {
+    const was = process.env.EP0CH_STATE, st = join(root, "spelled");
+    mkdirSync(st); chmodSync(st, 0o775);
+    process.env.EP0CH_STATE = `${st}/`;
+    try {
+      const c = await startControl({} as any, join(st, "door.sock"));
+      expect(statSync(st).mode & 0o777).toBe(0o700);
+      c.close();
+    } finally { process.env.EP0CH_STATE = was; }
+  });
+
+  test("the sweep removes dead door sockets only: a live door's socket, the Herdr agent's link and its lock stay", async () => {
+    const dir = join(root, "swept");
+    mkdirSync(dir); chmodSync(dir, 0o775);
+    // A live door (an older one, its socket 0775) on door.sock; a dead one's file left by kill -9.
+    const live = createServer(s => s.end("hello\n"));
+    await new Promise<void>(r => live.listen(join(dir, "door.sock"), () => r()));
+    writeFileSync(join(dir, "door-4242.sock"), "");
+    const agentLink = join(dir, "agent-door-claude.sock");
+    symlinkSync(join(dir, "door.sock"), agentLink);
+    writeFileSync(`${agentLink}.lock`, "4242");
+    const was = process.env.EP0CH_STATE;
+    process.env.EP0CH_STATE = dir;
+    try {
+      const c = await startControl({} as any, join(dir, "door.sock"));
+      expect(c.path).toBe(join(dir, `door-${process.pid}.sock`));
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(c.path).mode & 0o777).toBe(0o600);
+      expect(existsSync(join(dir, "door-4242.sock"))).toBe(false);
+      expect(lstatSync(agentLink).isSymbolicLink()).toBe(true);
+      expect(existsSync(`${agentLink}.lock`)).toBe(true);
+      // The agent reaches the door through its link, in the tightened folder.
+      const said = await new Promise<string>(res => { const k = connect(agentLink); let b = ""; k.on("data", d => { b += d; }); k.on("close", () => res(b)); k.on("error", e => res(String(e))); });
+      expect(said).toBe("hello\n");
+      c.close();
+      // A door told to serve on the link (EP0CH_CONTROL is the link, in the agent's pane) never replaces it,
+      // even when the door it names has gone.
+      await new Promise<void>(r => live.close(() => r()));
+      const d = await startControl({} as any, agentLink);
+      expect(d.path).toBe(join(dir, `door-${process.pid}.sock`));
+      expect(lstatSync(agentLink).isSymbolicLink()).toBe(true);
+      d.close();
+    } finally { process.env.EP0CH_STATE = was; live.close(); }
+  });
+
   test("snap writes only under the state dir", () => {
     expect(snapPath(undefined)).toBe(join(stateDir(), "screen.png"));
     expect(snapPath("shots/a.png")).toBe(join(stateDir(), "shots", "a.png"));
@@ -55,9 +101,9 @@ describe("private folders (F3)", () => {
 
 describe("one env list for terminal tiles (F6)", () => {
   test("a tile's program gets the person's environment without the door's Herdr pane or how the door started", () => {
-    const env = tileEnv({ PATH: "/bin", HOME: "/home/someone", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", HERDR_PANE_ID: "p1", HERDR_TAB_ID: "t1", EP0CH_DAILY_AGENT: "claude", EP0CH_LANDING: "brief", EP0CH_DAILY_CWD: "~/garden" }, "editor", "/c/door.sock");
+    const env = tileEnv({ PATH: "/bin", HOME: "/home/someone", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", HERDR_PANE_ID: "p1", HERDR_TAB_ID: "t1", EP0CH_DAILY_AGENT: "claude", EP0CH_LANDING: "brief", EP0CH_DAILY_CWD: "~/garden", EP0CH_HERDR_AGENT_CMD: "door-helper", EP0CH_NOW_PAGE: "briefing" }, "editor", "/c/door.sock");
     for (const k of [...HERDR_PANE_VARS, ...DOOR_START_VARS]) expect(env[k]).toBeUndefined();
-    expect(env).toMatchObject({ PATH: "/bin", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", EP0CH_DAILY_CWD: "~/garden",
+    expect(env).toMatchObject({ PATH: "/bin", EP0CH_STATE: "/s", EP0CH_SOCKET: "/o.sock", HERDR_SOCKET_PATH: "/h.sock", EP0CH_DAILY_CWD: "~/garden", EP0CH_HERDR_AGENT_CMD: "door-helper", EP0CH_NOW_PAGE: "briefing",
       EP0CH_TILE: "editor", EP0CH_CONTROL: "/c/door.sock", TERM: "xterm-256color", COLORTERM: "truecolor" });
     expect(tileEnv({ EP0CH_CONTROL: "/elsewhere.sock" }, "x", null).EP0CH_CONTROL).toBe("/elsewhere.sock");
   });
