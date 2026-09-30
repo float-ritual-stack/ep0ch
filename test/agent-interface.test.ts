@@ -92,6 +92,8 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   test("layout.get: each tile's kind, source, tabs, link and pinned or drawer state, and each split's path", async () => {
     const g = await act("layout.get") as any;
     expect(g.tree.split).toBe("row");
+    expect(g.tree.path).toBe("");
+    expect(g.tree.kids[1].path).toBe("1");
     const tree = g.tiles.find((t: any) => t.name === "tree");
     expect(tree).toMatchObject({ kind: "tree", link: "middle" });
     expect(g.tiles.find((t: any) => t.name === "preview").source).toBe("tile:tree");
@@ -178,7 +180,9 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     mouse("down", x, y); mouse("drag", x + 12, y); mouse("up", x + 12, y);
     await until(() => f.of("layout.changed").length > 0, "layout.changed from the drag");
     const r = await act("layout.resize", { path: "", border: 0, share: 0.5 }) as any;
-    expect(r).toMatchObject({ split: "", border: 0, share: 0.5 });
+    expect(r).toMatchObject({ split: D().root.id, path: "", border: 0, share: 0.5 });
+    // The drag named the split by its id, as an agent can.
+    expect(r.split).toMatch(/^s\d+$/);
     await expect(act("layout.resize", { path: "7.7", border: 0, share: 0.5 })).rejects.toThrow(/no split at path/);
     f.close();
   });

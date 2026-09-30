@@ -28,6 +28,7 @@ import { bg, C, extractLinks, fg, pad, paint, RESET, visible } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
 import { drawSpine, SPINE } from "../spine";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind: "tag"; key: string; value: string };
 interface Clause { key: string; value: string; exclude: boolean }
@@ -116,7 +117,7 @@ const chips = (props: Record<string, string>) =>
   ["type", "status", "stage", "project", "priority"].filter(k => props[k]).map(k => `${fg(chipColour(k))}#${props[k]}${RESET}`).join(" ");
 const glyph = (m: Msg) => GLYPH[m.props.type ?? ""] ?? "◇";
 // Properties are in the chips; inside a literal region (PIE-422) `[key::value]` is text, so it stays.
-const bodyLines = (m: Msg) => bodyLinesOf(m.text).map(l => (l.literal ? l.text : l.text.replace(/\[[\w-]+::[^\]]*\]/g, "")).trimEnd()).filter(l => l.trim());
+const bodyLines = (m: Msg) => bodyLinesOf(m.text).map(l => (l.literal ? l.text : withoutPropertyTokens(l.text)).trimEnd()).filter(l => l.trim());
 
 function parseFilter(s: string): Clause[] {
   return s.split(/\s+/).filter(Boolean).map(tok => {

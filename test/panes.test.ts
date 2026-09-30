@@ -90,9 +90,12 @@ describe.skipIf(!outliner)("the board on the layout tree, against a scratch outl
     expect(B().focus).toBe("detail0");
     const second = B().details[1];
     key(char("x"));
-    expect(row()).toEqual(["preview", "detail1"]);
+    // The detail left keeps its name (PIE-491): an agent's detail2 is still that pane, not renamed detail1.
+    expect(row()).toEqual(["preview", "detail2"]);
     expect(B().details).toEqual([second]);
     expect(B().focus).toBe("detail0");
+    // An agent that still says detail1 is refused, not sent to the pane that took its place (F18).
+    await expect(act("edit.close", { discard: true }, "detail1")).rejects.toThrow(/no reader detail1/);
   });
 
   test("{ } and < > change the tree's shares, and delivery.json keeps the fields it had", async () => {
@@ -272,12 +275,13 @@ describe.skipIf(!outliner)("the board on the layout tree, against a scratch outl
     key({ kind: "tab" }); key({ kind: "tab" });
     const d = B().details[0];
     key(char("o"));
-    expect(row()).toEqual(["preview", "detail1"]);
-    expect(layout().floats).toHaveLength(1);
+    expect(row()).toEqual(["preview", "detail2"]);
+    expect(layout().floats).toEqual([expect.objectContaining({ pane: "float1" })]);
     expect(B().floats[0].pane).toBe(d);
     expect(B().focus).toBe("float0");
     key(char("o"));
-    expect(row()).toEqual(["preview", "detail1", "detail2"]);
+    // Docked, it's a detail again under a new name; float1 is refused from now on, never another pane's.
+    expect(row()).toEqual(["preview", "detail2", "detail3"]);
     expect(B().details[1]).toBe(d);
     expect(B().focus).toBe("detail1");
     expect(layout().floats).toHaveLength(0);
@@ -364,7 +368,7 @@ describe.skipIf(!outliner)("the board on the layout tree, against a scratch outl
     B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, agent: true });
     expect(B().details).toContain(mine);
     expect(B().details).not.toContain(other);
-    expect(row()).toEqual(["preview", "detail1", "detail2"]);
+    expect(row()).toEqual(["preview", "detail1", "detail3"]);                // the new detail's name is new
     expect(B().focus).toBe("detail0");
     expect(B().details[0]).toBe(mine);
   });

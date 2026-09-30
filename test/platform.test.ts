@@ -13,61 +13,13 @@ import type { Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
-import { planMove } from "../src/move";
 import { WhoOnline } from "../src/screens";
 import { ACTOR_ID, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
-import { queryShape, readView, readViewHere, type ViewRead } from "../src/views";
+import type { ViewRead } from "../src/views";
 import { outliner, Scratch, until } from "./scratch";
 
 // ── pure ──────────────────────────────────────────────────────────────────────
-
-describe("query shape (what a write can satisfy)", () => {
-  const card = (props: Record<string, string>): Msg => ({ id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props, properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
-  const lane = (name: string, q: string, items: Msg[] = []) => ({ name, read: { status: "ready" as const, items, limit: 200, truncated: false, errors: [], filters: [], by: "service" as const, ...queryShape(q) } });
-  test("a list of clauses is plain filters; AND is the same as a space", () => {
-    expect(queryShape("stage=review track=door")).toEqual({ filters: [{ key: "stage", value: "review" }, { key: "track", value: "door" }] });
-    expect(queryShape("stage=review AND track=door")).toEqual({ query: expect.objectContaining({ plain: [{ key: "stage", value: "review" }, { key: "track", value: "door" }], rest: [] }) });
-    // A property that happens to be called `updated` is still an ordinary clause.
-    expect(queryShape("updated=yes")).toEqual({ filters: [{ key: "updated", value: "yes" }] });
-  });
-  test("OR, NOT, parentheses and date ranges: the plain clauses a write sets, and the terms that must already hold", () => {
-    const s = queryShape("type=chore (stage=review OR stage=validate) NOT track=door updated >= -7d");
-    expect("query" in s && { plain: s.query.plain, rest: s.query.rest }).toEqual({
-      plain: [{ key: "type", value: "chore" }],
-      rest: [
-        { kind: "or", operands: [{ kind: "property", key: "stage", value: "review" }, { kind: "property", key: "stage", value: "validate" }] },
-        { kind: "not", operand: { kind: "property", key: "track", value: "door" } },
-        { kind: "time", field: "updated", op: ">=", value: "-7d" },
-      ],
-    });
-    expect(queryShape("type=chore (stage=review")).toEqual({ unpatchable: "its query doesn't parse here (Unclosed ()" });
-  });
-  test("a move into an OR lane patches the plain clauses when the card already meets the group; otherwise it's refused with the term", () => {
-    const q = "type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=doing";
-    expect(planMove(card({ type: "roadmap-item", project: "ep0ch-door", "work-stage": "queued" }), lane("Doing", q)))
-      .toEqual({ kind: "patch", changes: [{ key: "work-stage", to: "doing", from: "queued" }] });
-    expect(planMove(card({ type: "roadmap-item", project: "garden", "work-stage": "queued" }), lane("Doing", q)))
-      .toEqual({ kind: "refused", reason: "Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden; a move sets only the plain clauses beside it" });
-    expect(planMove(card({ type: "roadmap-item", "work-stage": "queued" }), lane("Doing", q)))
-      .toEqual({ kind: "refused", reason: "Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has no project; a move sets only the plain clauses beside it" });
-    expect(planMove(card({ type: "roadmap-item", project: "pi-outliner", "work-stage": "doing" }), lane("Doing", q))).toEqual({ kind: "already" });
-    // A whole-query OR has no plain clause to set.
-    expect(planMove(card({ stage: "queued" }), lane("Either", "stage=review OR stage=validate")))
-      .toEqual({ kind: "refused", reason: "Either needs (stage=review OR stage=validate) and the card has stage=queued; a move sets only the plain clauses beside it" });
-    expect(planMove(card({ stage: "queued" }), lane("Either", "stage=review OR stage=validate", [card({ stage: "queued" })]))).toEqual({ kind: "already" });
-  });
-  test("the group is judged on the card as the patch leaves it: a patch can't break a NOT it mentions", () => {
-    expect(planMove(card({ stage: "queued" }), lane("Odd", "stage=done NOT stage=done")).kind).toBe("refused");
-    expect(planMove(card({ stage: "queued", owner: "sam" }), lane("Mine", "stage=doing NOT owner=kim"))).toEqual({ kind: "patch", changes: [{ key: "stage", to: "doing", from: "queued" }] });
-    expect(planMove(card({ stage: "queued", owner: "kim" }), lane("Mine", "stage=doing NOT owner=kim")))
-      .toEqual({ kind: "refused", reason: "Mine needs NOT owner=kim and the card has owner=kim; a move sets only the plain clauses beside it" });
-    // A range on updated holds after a patch (it makes the card updated now); one on created is the card's own.
-    expect(planMove({ ...card({ stage: "queued" }), createdAt: Date.now() - 30 * 86_400_000, updatedAt: Date.now() - 30 * 86_400_000 }, lane("Recent", "stage=doing updated >= -7d")).kind).toBe("patch");
-    expect(planMove({ ...card({ stage: "queued" }), createdAt: Date.now() - 30 * 86_400_000 }, lane("New", "stage=doing created >= -7d")))
-      .toEqual({ kind: "refused", reason: "New needs created >= -7d; a move sets only the plain clauses beside it" });
-  });
-});
 
 describe("list rows", () => {
   const b = new SocketBoard("/nonexistent");
@@ -87,20 +39,6 @@ describe("review fixes without a service", () => {
   const row = (id: string, text: string, props: Record<string, string> = {}): Msg => ({
     id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
     properties: Object.entries(props).map(([key, value]) => ({ key, value })),
-  });
-
-  test("NOT before a group: the lane is asked only when the card can be in it", () => {
-    for (const q of ["not (track=door priority=low) type=chore", "NOT ( track=door priority=low ) type=chore"])
-      expect({ q, rest: (queryShape(q) as any).query.rest }).toEqual({ q, rest: [{ kind: "not", operand: { kind: "and", operands: [{ kind: "property", key: "track", value: "door" }, { kind: "property", key: "priority", value: "low" }] } }] });
-    const lane = (q: string) => ({ name: "Open chores", def: row("v", "Open chores"), items: [], sel: 0, top: 0,
-      read: { status: "ready", items: [], limit: 200, truncated: false, errors: [], filters: [], by: "service", ...queryShape(q) } });
-    const board = new DeliveryBoard("hub") as any;
-    // The card has neither track=door nor priority=low, so it meets `NOT (…)`; the lane must be asked.
-    expect(board.couldHold(lane("not (track=door priority=low) type=chore"), row("c", "Rake leaves", { type: "chore", priority: "high" }))).toBe(true);
-    expect(board.couldHold(lane("not (track=door priority=low) type=chore"), row("c", "Rake leaves", { type: "chore", track: "door", priority: "low" }))).toBe(false);
-    expect(board.couldHold(lane("type=chore (owner=sam OR owner=kim)"), row("c", "Rake leaves", { type: "chore", owner: "lee" }))).toBe(false);
-    // A range the change record can't tell (no timestamps read): ask.
-    expect(board.couldHold(lane("type=chore updated >= -7d"), row("c", "Rake leaves", { type: "chore" }))).toBe(true);
   });
 
   test("a view-domain change record (a lane's reorder) reaches the screens; other view events don't", () => {
@@ -320,10 +258,12 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     await scratch.dispose();
   });
 
-  test("lanes come from views.read when the service has it, from the door's own evaluator when not", async () => {
-    const by = B().lanes.map((l: any) => l.read.by);
-    expect(new Set(by)).toEqual(new Set([served() ? "service" : "door"]));
+  test("lanes come from views.read; without it each lane says so instead of the door evaluating it", async () => {
     expect(board.sent.includes("views.read")).toBe(served() || board.capabilities === null);   // without a list it was tried once
+    if (!served()) {
+      for (const l of B().lanes) expect(l.read).toMatchObject({ status: "unsupported", errors: [expect.stringContaining("views.read")] });
+      return;
+    }
     expect(laneIds("Queued").sort()).toEqual([cards.fern.id, cards.shed.id].sort());
     expect(laneIds("Urgent").length).toBe(2);                                                    // the authored limit
     const either = B().lanes.find((l: any) => l.name === "Either").read as ViewRead;
@@ -333,19 +273,6 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
       expect(laneIds("Not done").sort()).toEqual([cards.fern.id, cards.gate.id, cards.hose.id, cards.shed.id].sort());
       expect(laneIds("Recent").length).toBe(5);
     } else expect(either.status).toBe("invalid");
-  });
-
-  test("parity: every lane, as the service evaluates it and as src/views.ts does, where the door's grammar can say", async () => {
-    let same = 0, serviceOnly = 0;
-    for (const def of await board.children(hub.id)) {
-      const theirs = await readView(board, def), mine = await readViewHere(board, def);
-      if (mine.status === "invalid" && theirs.status === "ready") { serviceOnly++; continue; }   // OR / NOT / dates
-      expect({ lane: def.text.split(" [")[0], status: theirs.status, ids: theirs.items.map(m => m.id), truncated: theirs.truncated, limit: theirs.limit })
-        .toEqual({ lane: def.text.split(" [")[0], status: mine.status, ids: mine.items.map(m => m.id), truncated: mine.truncated, limit: mine.limit });
-      same++;
-    }
-    expect(same + serviceOnly).toBe(7);
-    expect(serviceOnly).toBe(served() && (board.supports("query.expression") ?? true) ? 3 : 0);
   });
 
   test("lane rows carry no full text; the preview reads the whole note", async () => {
@@ -484,7 +411,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     pick("Done", cards.gate.id);
     await B().moveTo(at("Either"));
     expect(flashes.at(-1)).toBe(served() && (board.supports("query.expression") ?? true)
-      ? "can't move to Either: Either needs (stage=blocked OR stage=waiting) and the card has stage=done; a move sets only the plain clauses beside it"
+      ? "can't move to Either: Either needs (stage=blocked OR stage=waiting) and the note has stage=done; a move sets only the plain clauses beside it"
       : "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator OR is not supported");
   }, 15_000);
 });

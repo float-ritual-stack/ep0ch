@@ -1,6 +1,7 @@
-// EPD-002: moving cards between board lanes. The plan is pure and tested anywhere; the moves run
-// through the real board (keys, the move picker, a mouse drag) against a throwaway outliner service
-// it starts itself (never a real outline), and skip without one.
+// EPD-002: moving cards between board lanes. The plan is the service's (views.planWrite, PIE-490; its
+// planning is tested in pi-herdr-outliner's test/view-writes.test.ts); the moves run through the real
+// board (keys, the move picker, a mouse drag) against a throwaway outliner service it starts itself
+// (never a real outline), and skip without one.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,85 +9,19 @@ import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import type { Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
-import { planMove, type LaneLike } from "../src/move";
 import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { parseFilterExpression, readView, type ViewRead } from "../src/views";
+import { readView } from "../src/views";
+import { HERDR_VARS } from "../src/desk/pty";
 
 const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
 };
-const card = (props: [string, string][], revision = 1): Msg => ({
-  id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision,
-  props: Object.fromEntries(props), properties: props.map(([key, value]) => ({ key, value })),
-});
-const lane = (name: string, query: string): LaneLike => {
-  let read: ViewRead;
-  try { read = { status: "ready", items: [], limit: 200, truncated: false, errors: [], filters: parseFilterExpression(query) }; }
-  catch (e) { read = { status: "invalid", items: [], limit: 200, truncated: false, errors: [`Invalid virtual branch query: ${(e as Error).message}`], filters: [] }; }
-  return { name, read };
-};
-
-describe("planning a move", () => {
-  test("one clause: replace the differing value", () => {
-    expect(planMove(card([["stage", "queued"]]), lane("Doing", "stage=doing"))).toEqual({ kind: "patch", changes: [{ key: "stage", to: "doing", from: "queued" }] });
-  });
-  test("several clauses: only the values that differ, appending what's missing", () => {
-    const p = planMove(card([["stage", "queued"], ["track", "door"]]), lane("Review", "stage=review track=door owner::sam"));
-    expect(p).toEqual({ kind: "patch", changes: [{ key: "stage", to: "review", from: "queued" }, { key: "owner", to: "sam", from: null }] });
-  });
-  test("values compare case-insensitively, like the outliner's matcher", () => {
-    expect(planMove(card([["stage", "Done"]]), lane("Done", "stage=done"))).toEqual({ kind: "already" });
-  });
-  test("a presence clause the card already satisfies is fine; one it lacks is refused", () => {
-    expect(planMove(card([["stage", "queued"], ["owner", "sam"]]), lane("Mine", "owner stage=doing")).kind).toBe("patch");
-    const p = planMove(card([["stage", "queued"]]), lane("Owned", "owner"));
-    expect(p).toEqual({ kind: "refused", reason: "Owned asks for any owner:: value; a move can't choose one" });
-    // A bare word is a presence clause in this grammar, not a text search.
-    expect(planMove(card([["stage", "queued"]]), lane("Urgent", "urgent stage=doing")).kind).toBe("refused");
-  });
-  test("two values for one key can't both be set", () => {
-    const p = planMove(card([["stage", "queued"]]), lane("Odd", "stage=a stage=b"));
-    expect(p.kind === "refused" && p.reason).toBe("Odd asks for stage to be a and b at once; a move sets one value");
-  });
-  test("a card with two values for the key isn't guessed at", () => {
-    const p = planMove(card([["stage", "queued"], ["stage", "doing"]]), lane("Done", "stage=done"));
-    expect(p.kind === "refused" && p.reason).toContain("the card has 2 stage:: values (queued, doing)");
-  });
-  test("negation, OR and AND are not in the grammar: the lane is invalid and refused with the parser's reason", () => {
-    for (const q of ["stage=done or stage=review", "not stage=done", "stage=done and track=door", "-stage=done", "stage:done", "1stage=x", 'stage="done" extra"', ""]) {
-      const p = planMove(card([["stage", "queued"]]), q ? lane("Weird", q) : { name: "Weird", read: { status: "invalid", items: [], limit: 200, truncated: false, errors: ["Virtual branch query cannot be empty"], filters: [] } });
-      expect(p.kind).toBe("refused");
-    }
-    const p = planMove(card([["stage", "queued"]]), lane("Weird", "stage=done or stage=review"));
-    expect(p.kind === "refused" && p.reason).toBe("Weird is invalid: Invalid virtual branch query: Boolean operator or is not supported");
-  });
-  test("a lane that hasn't loaded, or failed, is refused", () => {
-    expect(planMove(card([]), { name: "Later" }).kind).toBe("refused");
-    expect(planMove(card([]), { name: "Broken", read: { status: "failed", items: [], limit: 200, truncated: false, errors: ["socket closed"], filters: [] } })).toEqual({ kind: "refused", reason: "Broken is failed: socket closed" });
-  });
-});
-
 // ── against a scratch outliner service ────────────────────────────────────────
 
 const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
   .find(p => p && existsSync(join(p, "src/server-main.ts")));
-
-describe.skipIf(!outliner)("parser parity with the outliner", () => {
-  test("the door parses (or rejects) every query the way block-query.ts does", async () => {
-    const theirs = await import(join(outliner!, "src/block-query.ts"));
-    const queries = ["stage=done", "stage::done", "Stage=Done track=door", 'title="two words"', 'x="a \\"q\\" b"', "owner", "urgent stage=doing",
-      "stage=done or stage=review", "not stage=done", "and", "-stage=done", "stage:done", "1stage=x", "_x=1", "a.b-c_d=1",
-      'stage="done" extra"', 'stage="unterminated', 'x="bad \\n escape"', "stage=", "=done", "x=a]b", "  stage=done   track=door  ", 'x=" padded "'];
-    for (const q of queries) {
-      let mine: unknown, ref: unknown;
-      try { mine = parseFilterExpression(q); } catch { mine = "error"; }
-      try { ref = theirs.parsePropertyFilterExpression(q); } catch { ref = "error"; }
-      expect({ q, parsed: mine }).toEqual({ q, parsed: ref });
-    }
-  });
-});
 
 describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   let root = "", proc: Subprocess | null = null, sock: SocketBoard, other: SocketBoard;
@@ -131,7 +66,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
       OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: join(root, "ws"), XDG_CONFIG_HOME: join(root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"]) delete env[k];
+    for (const k of HERDR_VARS) delete env[k];
     proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner, env, stdout: "ignore", stderr: "ignore" });
     let path = "";
     await until(() => {
@@ -199,7 +134,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await select("Queued", cards.two.id);
     ch("m");
     const M = B().mover;
-    expect(M.plans[laneIndex("Review")]).toEqual({ kind: "patch", changes: [{ key: "work-stage", to: "review", from: "queued" }, { key: "track", to: "door", from: "river" }] });
+    await until(() => !!M.plans, "the service's plans");
+    expect(M.plans[laneIndex("Review")]).toMatchObject({ kind: "patch", changes: [{ key: "work-stage", to: "review", from: "queued" }, { key: "track", to: "door", from: "river" }] });
     const to = laneIndex("Review");
     while (M.sel !== to) ch(M.sel < to ? "j" : "k");
     press({ kind: "enter" });
@@ -250,7 +186,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     }
     expect(reasons).toEqual({
       ...(grammar ? {
-        "Either": "can't move to Either: Either needs (work-stage=blocked OR work-stage=waiting) and the card has work-stage=queued; a move sets only the plain clauses beside it",
+        "Either": "can't move to Either: Either needs (work-stage=blocked OR work-stage=waiting) and the note has work-stage=queued; a move sets only the plain clauses beside it",
         "Not done": "already in Not done · nothing to change",
       } : {
         "Either": "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator or is not supported",
@@ -258,9 +194,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
       }),
       "Owned": "can't move to Owned: Owned asks for any owner:: value; a move can't choose one",
       "Two stages": "can't move to Two stages: Two stages asks for work-stage to be a and b at once; a move sets one value",
-      // The reason is whoever evaluated the view: the service (views.read) or the door's own port.
-      ...Object.fromEntries(["Newest", "First five"].map(n => [n, `can't move to ${n}: ${n} is invalid: ${B().lanes[laneIndex(n)].read.by === "service"
-        ? "Virtual branch query property must appear exactly once; found 0" : "Virtual branch query cannot be empty"}`])),
+      ...Object.fromEntries(["Newest", "First five"].map(n => [n, `can't move to ${n}: ${n} is invalid: Virtual branch query property must appear exactly once; found 0`])),
     });
     const after = await current(cards.stale.id);
     expect(after.revision).toBe(before.revision);
@@ -270,7 +204,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await select("Queued", cards.dup.id);
     pick("Done");
     await settled();
-    expect(flashes.at(-1)).toContain("the card has 2 work-stage:: values (queued, doing)");
+    expect(flashes.at(-1)).toContain("the note has 2 work-stage:: values (queued, doing)");
     expect((await current(cards.dup.id)).revision).toBe(cards.dup.revision);
   });
 
@@ -329,6 +263,9 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     mouse("down", from.col + 3, y);
     mouse("drag", to.col + 4, to.row + 3);
     expect(B().drag.over).toBe(laneIndex("Doing"));
+    // The first frame over a lane asks the service what the drop would patch; the next one says it.
+    expect(b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("asking the outline what a move into Doing would patch");
+    await until(() => !!B().movePlans?.plans, "the service's plans");
     const frame = b.render(B().ctx).lines.join("\n");
     expect(frame.replace(/\x1b\[[\d;]*m/g, "")).toContain("release to move into Doing · work-stage queued -> doing");   // says what the drop will do
     mouse("up", to.col + 4, to.row + 3);
@@ -337,7 +274,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     expect(selected()).toEqual({ lane: "Doing", id: cards.drag.id });
   });
 
-  test("after the moves, every lane matches src/views.ts and the outliner's own evaluator", async () => {
+  test("after the moves, every lane is what the outliner's own evaluator lists", async () => {
     const { readSavedView } = await import(join(outliner!, "src/saved-view-read.ts"));
     const client = { request: ({ action, ...rest }: any) => sock.request(action, rest) };
     const defs = await sock.children(hub.id);

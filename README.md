@@ -78,7 +78,7 @@ opens the showcase (PIE-439): the shared door parts, live, in fourteen sections,
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
-unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
+unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
 
 - **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
@@ -327,8 +327,9 @@ a running program or an unsaved edit the new layout has no place for becomes a s
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
 | quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
-| SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
-| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
+| SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
+| `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |
+| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its file was copied to `drafts/` when the door ended) |
 
 ### The daily agent in Herdr
 
@@ -363,14 +364,18 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
     `q` stops watching.
   - Only the attached door gets the agent's `ep0ch act` and `show` (below).
 - **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
-  `EP0CH_CONTROL`, and the program's name in the layout as `EP0CH_TILE`.
+  `EP0CH_CONTROL`, the program's name in the layout as `EP0CH_TILE`, and the tile's id as `EP0CH_TILE_ID`.
+  Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
+  how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
+  - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
+    the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
   - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
     points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
-  - The Outliner's `show` opens the note in the daily layout's middle detail, as an agent's `open`, which
-    never moves your focus.
+  - The Outliner's `show` opens the note where the agent's own tile's opens land (`open from=$EP0CH_TILE`:
+    the daily layout links the claude tile to middle), as an agent's `open`, which never moves your focus.
 - **No Herdr.** If Herdr isn't installed, no server answers (or one doesn't answer within 10s), or Herdr can't
   make the pane, the tile runs the agent directly, as before, and says why when it isn't simply "no server".
 - **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
@@ -389,13 +394,9 @@ The last board per workspace is remembered.
 `--ws ~/float-hub` finds that workspace's socket the way the outliner does
 (`~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`).
 
-- **Lanes** are saved views, read by the service with `views.read` when it has it (see "On the service
-  platform"). Against an older service the door reads them the way Tree and `pie view` did (`src/views.ts`,
-  ported from the outliner's `saved-view-read.ts`): the query is parsed into property filters, views without
-  a sort use the service's branch-local rank order (`rankViewId`), roots are kept once, the authored limit
-  (default 200) applies. Either way a lane says `of N+` when truncated or `invalid` / `failed` with the
-  reason instead of looking empty. The two agree on all 34 saved views of the pi-outliner outline
-  (`scripts/parity.ts` on a copy), and on all 8 of float-hub's before `views.read` existed.
+- **Lanes** are saved views, read by the service with `views.read` (see "On the service platform"). A lane
+  says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty. Against a
+  service without `views.read` each lane says so; the door doesn't evaluate views itself.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
 - **`c`** collapses what has focus to a spine: a lane, or the preview or a detail. A reader's spine shows its
   note's title (rotated under Kitty graphics, stacked letters in cells) and marks what it holds: `✎` an
@@ -441,9 +442,12 @@ properties the target lane names. Nothing else on the card changes. When the que
 group, parentheses or a `created`/`updated` range (services with PIE-398), its plain top-level clauses are
 still what a move patches, and everything else must already hold for the card: on a lane
 `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=doing` a card in either project
-moves by patching `work-stage` alone, and any other card is refused with the term it doesn't meet. The door
-reads that grammar with a port of the outliner's parser and evaluator (`src/query.ts`, parity-tested) and
-judges the whole query on the card as the patch would leave it, so a patch can't break a group it mentions.
+moves by patching `work-stage` alone, and any other card is refused with the term it doesn't meet. The
+service plans it (`views.planWrite`, PIE-490): it judges the whole query on the card as the patch would leave
+it, so a patch can't break a group it mentions, and names the token ordinals to patch. The door shows the
+plan (the picker, a drag's lane and hint line) and applies it with `properties.patch` at the revision the
+card was shown at. What a new card in a lane is born with, and the text or roadmap item it's saved as, is
+the same capability's answer.
 
 | Keys | Action |
 |---|---|
@@ -895,7 +899,7 @@ Bodies render with `src/doc.ts`:
 
 - **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
-  `~/.cache/ep0ch-door/media`. `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
+  `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set). `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
@@ -913,10 +917,11 @@ Bodies render with `src/doc.ts`:
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
-    in the saved-view grammar: `OR`, `NOT`, parentheses and `created`/`updated` ranges go to the service as
-    `blocks.query` `expression` when it advertises `query.expression` (PIE-398). Older services take plain
-    clauses, and a query that needs more says so instead of being misread. `done:` and `now:` are matched
-    against each result in the door, so they stay plain clauses.
+    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
+    `blocks.query` `expression` (capability `query.expression`, PIE-398). `done:` and `now:` are queries in the
+    same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
+    properties only; there is no `author=` pseudo-key. A service without these capabilities makes the figure
+    say which one is missing instead of showing a guess.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
@@ -980,10 +985,15 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
 [docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
 
-A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
+A running door listens on `door.sock` in its state dir (`EP0CH_CONTROL` moves it; a second door uses
+`door-<pid>.sock`, and sockets left by doors that died are swept when a door starts). **The socket is the
+door's shell:** whoever can connect can do what you can, including start a program in a terminal tile. So it
+is 0600 in a folder that is yours alone (0700, owner checked); a folder anyone else can reach is refused, and
+the door runs without a socket and says why.
 
     bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
-    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
+    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included (the door writes
+                                      # only under its state; out.png is written by this command, in a folder that exists)
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
@@ -1037,8 +1047,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
 | `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
 
-Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board, by pane
-number on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
+Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
+keeps its name while it lives: close `detail1` and the other is still `detail2`), by tile name, id (`t4`) or
+number (`#2`) on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
 and `message.thread`); `reader=focused`, or a block id (the reader showing it) work too, and no reader means
 the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
 stdin. For example:
@@ -1097,13 +1108,20 @@ The edit frame says which before you save (`an agent (claude-7) typed this · it
 ## On the service platform
 
 The service owns what things mean; the door asks it. Each newer service feature is used when the service
-has it and has a fallback when it doesn't, so one door works against old and new services alike.
+has it. Without it the door falls back where the fallback doesn't re-derive meaning (reading whole notes
+instead of projected rows, reloading instead of following the feed), and otherwise says which capability is
+missing rather than computing the answer itself.
 
 - **Capabilities.** `ping.capabilities` (PIE-402) is trusted when the service sends it. Without it the door
   tries each newer action once and remembers an "Unsupported action" answer for the session. `peek` shows
   what the door uses (`service.uses`).
-- **Saved views** (lanes, and `view:` in live figures) come from `views.read` (PIE-397); `src/views.ts` is
-  the fallback. `scripts/parity.ts` compares the two over every saved view, printing counts only.
+- **Saved views** (lanes, and `view:` in live figures) come from `views.read` (PIE-397). Moves and new
+  cards are planned by `views.planWrite`, and a live figure's `done:` and `now:` by `query.matches`
+  (PIE-490). The door has no evaluator of its own: without these it says which capability is missing.
+- **Property grammar.** The door finds `[key::value]` tokens while it paints (titles, digests, metadata
+  lines) with `src/vendor/property-grammar.ts`, a byte-for-byte copy of the outliner's
+  `src/property-grammar.ts`; `test/grammar.test.ts` checks the copy's checksum and compares it with the
+  checkout, and `ping.propertyGrammar` reports the service's version (a different one is said at start).
 - **Lists without full text.** Lanes, board discovery and Who's Online read titles, properties and revision
   only (`views.read`'s compact rows, `blocks.query` `fields`, `blocks.read`; PIE-400). A reader fetches the
   whole note before showing, editing or commenting on it. The river still reads full notes: its cards show
@@ -1168,17 +1186,17 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts steps     # its own scratch service: nested and anchored embeds, a cycle, a step's status choice, an agent's change
-    EP0CH_SOCKET=<sock> bun scripts/parity.ts               # read-only: views.read vs src/views.ts over every saved view
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
-by keys and through the control socket, and checks `src/query.ts` against the outliner's parser and
-evaluator. `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
+by keys and through the control socket, with the service's plans (`views.planWrite`; its planning is
+tested in pi-herdr-outliner's `test/view-writes.test.ts`). `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
 writes against a throwaway outliner service they start themselves (own state dir and workspace, Inbox
-agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read` against the
-door's evaluator, which lanes a change asks again, a dropped connection's catch-up, a service restart
+agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read`, which lanes a
+change asks again, a dropped connection's catch-up, a service restart
 (graceful, with the door connected) and a feed reset. Run it with `EP0CH_OUTLINER` pointing at an older
-and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks the door's query parser against the outliner's
-`block-query.ts`, and every lane after the moves against the outliner's own `saved-view-read.ts`. Point
+and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks every lane after the
+moves against the outliner's own `saved-view-read.ts`, and `test/grammar.test.ts` the vendored property
+grammar against the checkout's. Point
 `EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
 skip. The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
 unless `EP0CH_SNAP_WRITES=1` and `EP0CH_SOCKET` is set explicitly to a socket under the temp dir whose
@@ -1189,7 +1207,8 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
 
-- Live figures' `done:` and `now:` take plain clauses; `query:` needs `query.expression` for OR/NOT/dates.
+- Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
+  cards need `views.planWrite`, and lanes `views.read`. The door has no fallback evaluator for older services.
 - Nested embeds each keep their title row and gutter; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.

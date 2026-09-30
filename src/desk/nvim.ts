@@ -4,12 +4,11 @@
 // person's cursor in nvim is in `view.subscribe`, and a preview following the tile follows the buffer's file.
 // An agent reads the cursor and edits other lines through the same socket (nvim_buf_set_lines): nvim moves no
 // one's cursor for that. Attention marks in an nvim tile are extmarks with virtual text.
-import { mkdirSync, statSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { decode, encode, Incomplete } from "../msgpack";
-import { stateDir } from "../state";
+import { privateDir, stateDir } from "../state";
 
 /**
  * Where nvim tiles listen: the door's state (nvim/); when that path is too long for a socket (about 100
@@ -21,13 +20,7 @@ export function nvimSocketPath(name: string): string | null {
   const fits = (dir: string) => join(dir, file).length < 100;
   const uid = process.getuid?.();
   const dirs = [join(stateDir(), "nvim"), ...(process.env.XDG_RUNTIME_DIR ? [join(process.env.XDG_RUNTIME_DIR, "ep0ch-nvim")] : []), join(tmpdir(), `ep0ch-nvim-${uid ?? "u"}`)];
-  for (const dir of dirs.filter(fits)) {
-    try {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const st = statSync(dir);
-      if (st.isDirectory() && (uid === undefined || st.uid === uid) && (st.mode & 0o077) === 0) return join(dir, file);
-    } catch { /* the next one */ }
-  }
+  for (const dir of dirs.filter(fits)) if (privateDir(dir)) return join(dir, file);
   return null;
 }
 

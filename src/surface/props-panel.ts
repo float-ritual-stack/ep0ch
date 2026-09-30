@@ -10,6 +10,7 @@ import type { PropertyRecord } from "../socket";
 import { bg, C, fg, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { rule } from "../text";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
 export interface PropRow {
@@ -63,7 +64,7 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   }
   if (r.target && "page" in r.target) {
     const p = pageOf(r.target.page, src);
-    return p?.status === "missing" ? `${v} · Missing target` : p?.block ? `${v}  ${printable(p.block.text.split("\n")[0] ?? "").replace(/\[[\w-]+::[^\]]*\]/g, "").trim().slice(0, 60)}` : v;
+    return p?.status === "missing" ? `${v} · Missing target` : p?.block ? `${v}  ${withoutPropertyTokens(printable(p.block.text.split("\n")[0] ?? "")).trim().slice(0, 60)}` : v;
   }
   return v;
 }

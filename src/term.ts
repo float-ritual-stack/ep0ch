@@ -25,6 +25,27 @@ export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
 }
 
+/** Everything `start` turns on, turned off: paste, mouse, colours, wrap, the cursor, then the normal screen. */
+export const TERM_RESET = "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+
+/**
+ * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
+ * door (it never writes to it). The pipe closes when the door ends; the watcher then sends TERM_RESET and `stty sane`, so the
+ * terminal is usable again. The door dismisses it (SIGKILL, synchronous) when it restores the terminal itself.
+ */
+function terminalGuard(): { dismiss(): void } | null {
+  try {
+    const p = Bun.spawn(["sh", "-c", `trap '' INT QUIT HUP TERM; read -r _; printf '%s' "$EP0CH_TERM_RESET"; stty sane </dev/tty 2>/dev/null`], {
+      stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { PATH: process.env.PATH ?? "/usr/bin:/bin", EP0CH_TERM_RESET: TERM_RESET },
+    });
+    p.unref();
+    // Through the Subprocess, which knows when it has exited: never a signal to a pid the OS reused. `read` is
+    // the shell's own, so the kill ends the whole watcher (a `cat` would be left behind, one per $EDITOR run);
+    // then the pipe is closed, so no descriptor is kept for it.
+    return { dismiss() { try { p.kill("SIGKILL"); } catch { /* it's gone */ } try { p.stdin.end(); } catch { /* closed */ } } };
+  } catch { return null; }
+}
+
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
 export class Term {
@@ -57,7 +78,10 @@ export class Term {
     }
   }
 
+  private guard: { dismiss(): void } | null = null;
+
   async start(): Promise<void> {
+    this.guard = terminalGuard();
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.on("data", (d: Buffer) => this.feed(this.decoder.decode(d, { stream: true })));
@@ -73,14 +97,20 @@ export class Term {
     if (hint !== null) this.info.kitty = hint;
   }
 
+  /**
+   * Put the terminal back. Each step on its own: when the terminal has gone (an ssh connection dropped),
+   * the writes fail, and what the door does after stopping (drafts, the socket, the last call) still runs.
+   */
   stop(): void {
-    this.write("\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
-    process.stdin.setRawMode?.(false);
-    process.stdin.pause();
+    try { this.write(`\x1b[2J${TERM_RESET}`); } catch { /* no terminal to reset */ }
+    try { process.stdin.setRawMode?.(false); } catch { /* the same */ }
+    try { process.stdin.pause(); } catch { /* the same */ }
+    this.guard?.dismiss(); this.guard = null;
   }
 
   /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */
   resume(): void {
+    this.guard ??= terminalGuard();
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.pending = "";
