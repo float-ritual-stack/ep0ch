@@ -1,7 +1,9 @@
 // Painting: each frame is one synchronized write, and a row is never blank on its way to new text (PIE-462).
 import { afterEach, describe, expect, test } from "bun:test";
 import { Mirror } from "../src/mirror";
-import { rowBytes, Term } from "../src/term";
+import { App } from "../src/app";
+import { inBurst, rowBytes, Term } from "../src/term";
+import * as term_ from "../src/term";
 
 const SYNC_ON = "\x1b[?2026h", SYNC_OFF = "\x1b[?2026l";
 let written: string[] = [];
@@ -109,5 +111,50 @@ describe("reading keys", () => {
   test("an unreadable mouse report is dropped whole, not read as esc and loose keys", () => {
     expect(read("\x1b[<0;;M")).toEqual([]);
     expect(read("\x1b[<0;;Mx")).toEqual([{ kind: "char", ch: "x" }]);
+  });
+});
+
+describe("a trackpad's wheel reports", () => {
+  test("a report on its own scrolls 3 rows; reports in one read, or close together, 1 each", () => {
+    const t = new Term();
+    const rows: number[] = [];
+    t.onKey(k => { if (k.kind === "mouse") rows.push(term_.wheelRows); });
+    (t as any).feed("\x1b[<65;10;5M");
+    expect(rows).toEqual([3]);
+    rows.length = 0;
+    (t as any).feed("\x1b[<65;10;5M\x1b[<65;10;5M\x1b[<65;10;5M");  // a notch sent as three, or a burst read at once
+    expect(rows).toEqual([1, 1, 1]);
+  });
+
+  test("a burst starts with two reports within 25ms and lasts while they come within 150ms, the same way", () => {
+    expect(inBurst(1000, null, 1, false)).toBe(false);
+    expect(inBurst(1010, { at: 1000, dir: 1, burst: false }, 1, false)).toBe(true);
+    expect(inBurst(1040, { at: 1000, dir: 1, burst: false }, 1, false)).toBe(false);   // a wheel's notches, one by one
+    expect(inBurst(1100, { at: 1000, dir: 1, burst: true }, 1, false)).toBe(true);     // a glide slowing down
+    expect(inBurst(1200, { at: 1000, dir: 1, burst: true }, 1, false)).toBe(false);    // the fingers stopped
+    expect(inBurst(1010, { at: 1000, dir: 1, burst: true }, -1, false)).toBe(false);   // turned around
+    expect(inBurst(5000, null, -1, true)).toBe(true);                                  // more than one in this read
+  });
+
+  test("the door paints once for a chunk of input, however many wheel reports are in it, even when a paint is slow", () => {
+    let batch: (run: () => void) => void = run => run();
+    let key: (k: any) => void = () => {};
+    let paints = 0, renders = 0;
+    const fake = {
+      info: { cols: 60, rows: 10, cellW: 9, cellH: 16, kitty: false },
+      write() {}, paint() { paints++; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {},
+      onBatch(f: any) { batch = f; },
+    };
+    const app = new App(fake as any, {} as any, Date.now(), () => {});
+    let top = 0;
+    app.push({ title: "reader", render: () => { renders++; const end = performance.now() + 20; while (performance.now() < end) { /* a long note's render */ } return { lines: [`row ${top}`] }; }, key(k: any) { if (k.kind === "mouse") { top++; app.redraw(); } } } as any);
+    try {
+      (app as any).lastPaint = 0;
+      const before = { paints, renders };
+      batch(() => { for (let i = 0; i < 100; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: 1, y: 1 }); });
+      expect(top).toBe(100);
+      expect(paints - before.paints).toBe(1);
+      expect(renders - before.renders).toBe(1);
+    } finally { app.quit(); }
   });
 });

@@ -6,6 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
+import { wheelRows } from "../term";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
@@ -1220,10 +1221,10 @@ export class NoteSurface {
     const pop = this.writing();
     if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
     // A draft's view scrolls; its cursor stays where it is (typing brings it back).
-    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: dir * 3 }, pop, USER); }
+    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: dir * wheelRows }, pop, USER); }
     else if (this.session) this.session.wheel(dir);
-    else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
-    else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
+    else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * wheelRows)); }
+    else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * wheelRows)); }
     host.redraw();
   }
 
