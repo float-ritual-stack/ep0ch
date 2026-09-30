@@ -20,6 +20,37 @@ export type Key =
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
   | { kind: "enter" | "tab"; pasted: true };
 
+/**
+ * macOS's Option with a letter or digit, as a US keyboard types it when the terminal doesn't send Option as
+ * Alt (kitty's default; Ghostty's too, unless `macos-option-as-alt` is set): alt+l arrives as ¬. Option+e,
+ * i, n and u are dead keys (they wait for the next key), so alt+n can't be read this way at all.
+ */
+export const OPTION_KEYS: Readonly<Record<string, string>> = {
+  "å": "a", "∫": "b", "ç": "c", "∂": "d", "ƒ": "f", "©": "g", "˙": "h", "∆": "j", "˚": "k", "¬": "l", "µ": "m",
+  "ø": "o", "π": "p", "œ": "q", "®": "r", "ß": "s", "†": "t", "√": "v", "∑": "w", "≈": "x", "¥": "y", "Ω": "z",
+  "¡": "1", "™": "2", "£": "3", "¢": "4", "∞": "5", "§": "6", "¶": "7", "•": "8", "ª": "9", "º": "0",
+};
+
+/** The terminal setting that makes Option send Alt, said once when an Option character stands in for alt. */
+export const OPTION_AS_ALT_HINT = "set macos-option-as-alt = true (Ghostty) or macos_option_as_alt left (kitty) · EP0CH_OPTION_KEYS=off if your keyboard types these itself";
+
+/**
+ * Whether OPTION_KEYS is read at all. Other keyboards type some of these characters with a key of their own
+ * (å ø on a Nordic one, ß § on a German one, £ on a British one, ç º ¡ on a Spanish one) or put them under
+ * other Option letters (German Option+k is ∆), so the terminal's bytes can't say which was meant. The locale
+ * is the one hint the door gets (ssh passes LANG and LC_* on): an English one outside Britain and Ireland, or
+ * none set, reads them; any other doesn't. `EP0CH_OPTION_KEYS=us` reads them always, `off` never.
+ */
+export function optionKeysOn(env: Record<string, string | undefined> = process.env): boolean {
+  const set = env.EP0CH_OPTION_KEYS?.trim().toLowerCase();
+  if (set === "off" || set === "0" || set === "no") return false;
+  if (set === "us" || set === "1" || set === "on") return true;
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || "";
+  if (!locale || /^(C|POSIX)(\.|$)/i.test(locale)) return true;
+  const m = /^([a-z]{2,3})(?:_([A-Za-z]{2}))?/.exec(locale);
+  return !!m && m[1] === "en" && !["GB", "IE"].includes((m[2] ?? "").toUpperCase());
+}
+
 /** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
 export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));

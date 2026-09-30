@@ -85,10 +85,13 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
  */
 export let controlPath: string | null = null;
 
-/** Is a door listening on `path`? False only when nobody is (the file is left from a door that died). */
+/**
+ * Is a door listening on `path`? False only when nobody is (the file is left from a door that died). A
+ * file that isn't a socket has nobody on it either: macOS says ENOTSOCK where Linux says ECONNREFUSED.
+ */
 const listening = (path: string) => new Promise<boolean>(res => {
   const c = connect(path, () => { c.end(); res(true); });
-  c.on("error", (e: NodeJS.ErrnoException) => res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT"));
+  c.on("error", (e: NodeJS.ErrnoException) => res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT" && e.code !== "ENOTSOCK"));
 });
 
 /**

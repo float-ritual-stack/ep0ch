@@ -2,11 +2,11 @@
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
 import { join } from "node:path";
 import { slugOutlineName } from "../discover";
-import { type Checkout, type DatabaseFacts, type Deps, type Facts, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type ServiceFacts, short, staleness } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type ServiceFacts, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). offer: runs with a flag. */
 export type StepStatus = "do" | "skip" | "manual" | "offer";
-export type StepId = "backup" | "plugin" | "door" | "link" | "restart";
+export type StepId = "backup" | "plugin" | "door" | "link" | "restart" | "host";
 
 export interface Step {
   id: StepId;
@@ -170,14 +170,65 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
     commands: backups.map(b => `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
 }
 
-/** Things install reports and never does: the host, units, keys, the Claude mod. */
+/** A command for the host's unit, as a person would type it: restart (or start) it through launchd or systemd. */
+export function hostUnitCommand(u: HostUnit, verb: "restart" | "start"): string {
+  if (u.kind === "systemd") return `systemctl --user ${verb} ${u.name}`;
+  // A job launchd hasn't loaded (booted out, or never loaded since the plist was written) is bootstrapped.
+  if (verb === "start" && u.state?.detail === "not loaded in launchd") return `launchctl bootstrap gui/$(id -u) ${u.path}`;
+  return `launchctl kickstart${verb === "restart" ? " -k" : ""} gui/$(id -u)/${u.name}`;
+}
+
+/** The same command as argv, for install to run. */
+export function hostUnitArgv(u: HostUnit, verb: "restart" | "start", uid: number): string[] {
+  if (u.kind === "systemd") return ["systemctl", "--user", verb, u.name];
+  if (verb === "start" && u.state?.detail === "not loaded in launchd") return ["launchctl", "bootstrap", `gui/${uid}`, u.path];
+  return ["launchctl", "kickstart", ...(verb === "restart" ? ["-k"] : []), `gui/${uid}/${u.name}`];
+}
+
+/** The unit runs a host-main.ts that isn't the installed plugin's: a restart would bring back the old code. */
+export function unitRunsElsewhere(f: Facts): string | null {
+  const u = f.host.unit, root = f.plugin?.root;
+  if (!u?.program || !root) return null;
+  return u.program === join(root, "src/host-main.ts") ? null : u.program;
+}
+
+/**
+ * The outline host (one process serving every outline by name) runs the plugin's code as it was when it
+ * started. After a plugin update, or when it lacks what the plugin now offers, install restarts it through
+ * its unit (launchd's kickstart -k, systemctl restart): the doors and panes on it reconnect by themselves.
+ * A host not under a unit, or a unit running another checkout's host-main.ts, is left to the person.
+ */
+export function hostStep(f: Facts, pluginUpdates: boolean): Step {
+  const title = "Restart the outline host on the new code";
+  const h = f.host, u = h.unit;
+  const missing = h.running ? staleness(h, f.expected, f.plugin?.protocol ?? null) : [];
+  const after = pluginUpdates ? "the plugin is updated in this run" : missing.length ? `it runs old code (missing ${missing.join(", ")})` : "";
+  if (!u) {
+    if (!h.running) return { id: "host", title, status: "skip", why: "no outline host here (per-folder services only)", commands: [] };
+    if (!after) return { id: "host", title, status: "skip", why: "the host runs the current code", commands: [] };
+    return { id: "host", title, status: "manual", why: `${after}, and it runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}; restart that process when it's quiet`, commands: [] };
+  }
+  const elsewhere = unitRunsElsewhere(f);
+  if (elsewhere && (after || !h.running)) {
+    return { id: "host", title, status: "manual", why: `${u.path} runs ${elsewhere}, not the installed plugin's ${join(f.plugin!.root, "src/host-main.ts")}; point the unit at it, then ${hostUnitCommand(u, "restart")}`, commands: [] };
+  }
+  // The socket answers but the unit's job isn't running: another process serves it (a host started by hand),
+  // and starting the unit beside it would fight it for the socket.
+  if (h.running && u.state?.active === false) {
+    if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (not as ${u.kind} ${u.name}, which isn't running)`, commands: [] };
+    return { id: "host", title, status: "manual", why: `${after}, but another process answers at ${h.socket}, not ${u.kind} ${u.name}; stop that process, then ${hostUnitCommand(u, "start")}`, commands: [] };
+  }
+  if (!h.running) {
+    return { id: "host", title: "Start the outline host", status: "do", why: `${u.kind} ${u.name} is set up but nothing answers at ${h.socket}${u.state ? ` (${u.state.detail})` : ""}`, commands: [hostUnitCommand(u, "start")] };
+  }
+  if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
+  return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
+}
+
+/** Things install reports and never does: units it would have to create, keys, the Claude mod. */
 export function planNotes(f: Facts): string[] {
   const notes: string[] = [];
   const h = f.host;
-  if (h.running) {
-    const missing = staleness(h, f.expected, f.plugin?.protocol ?? null);
-    if (missing.length) notes.push(`The outline host runs old code (missing ${missing.join(", ")}); install never restarts it. ${hostRestartHint(f)}`);
-  }
   if (!h.unit) {
     notes.push(h.running
       ? `The outline host runs, but not as a ${f.platform === "macos" ? "launchd agent" : f.platform === "linux" ? "systemd user unit" : "service"}; moving it to one is a separate step (install doesn't create units).`
@@ -191,8 +242,7 @@ export function planNotes(f: Facts): string[] {
 }
 export function hostRestartHint(f: Facts): string {
   const u = f.host.unit;
-  if (u?.kind === "systemd") return `Restart it when it's quiet: systemctl --user restart ${u.path.split("/").pop()}`;
-  if (u?.kind === "launchd") return `Restart it when it's quiet: launchctl kickstart -k gui/$(id -u)/${u.path.split("/").pop()!.replace(/\.plist$/, "")}`;
+  if (u) return `ep0ch install --apply restarts it (${hostUnitCommand(u, "restart")})`;
   return "Restart the host process when it's quiet.";
 }
 
@@ -215,6 +265,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const door = doorStep(f);
   const link = linkStep(f);
   const restart = restartStep(f, o, plugin.status === "do");
-  const backup = backupStep(f, o, [plugin, door, link, restart].some(s => s.status === "do"));
-  return { steps: [backup, plugin, door, link, restart], notes: planNotes(f) };
+  const host = hostStep(f, plugin.status === "do");
+  const backup = backupStep(f, o, [plugin, door, link, restart, host].some(s => s.status === "do"));
+  return { steps: [backup, plugin, door, link, restart, host], notes: planNotes(f) };
 }

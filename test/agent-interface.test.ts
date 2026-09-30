@@ -4,7 +4,7 @@
 // point the person at something without moving their focus; an nvim tile listens on a socket an agent edits
 // through without moving their cursor. Scratch services and fictional notes only; nvim tests run where nvim is.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { App, type ViewEvent } from "../src/app";
@@ -227,7 +227,8 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     for (const c of `:w\r:e ${other}`) key(c === "\r" ? { kind: "enter" } : char(c));
     key({ kind: "enter" });
     await until(() => tile("draft-preview")?.showing?.title.includes("Bean notes"), "the preview following nvim's buffer", 5000);
-    expect(tile("draft").terminal.file).toBe(other);
+    // nvim names the file by its real path (on macOS the temp folder is under /private).
+    expect(realpathSync(tile("draft").terminal.file)).toBe(realpathSync(other));
     nv.close(); f.close();
     key(ctrl("]"));
   }, 30_000);

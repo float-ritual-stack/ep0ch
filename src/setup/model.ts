@@ -74,9 +74,24 @@ export interface HostFacts {
   outlines: HostedOutline[];
   protocol?: number;
   capabilities?: string[] | null;
-  /** The service unit that runs it, when there is one (only reported, never changed). */
-  unit: { kind: "systemd" | "launchd"; path: string } | null;
+  /** The service unit that runs it, when there is one. Install restarts the host through it; it never edits it. */
+  unit: HostUnit | null;
 }
+
+/** A launchd agent (macOS) or a systemd user unit (Linux) that runs the outline host's host-main.ts. */
+export interface HostUnit {
+  kind: "systemd" | "launchd";
+  path: string;
+  /** What launchctl or systemctl calls it: launchd's Label (else the file's name), the systemd unit's file name. */
+  name: string;
+  /** The host-main.ts it runs, as its file says. */
+  program?: string;
+  /** What launchd or systemd says about it now (absent when it wasn't asked). */
+  state?: UnitState;
+}
+
+/** A unit's state: `active` null when launchd or systemd couldn't say. */
+export interface UnitState { active: boolean | null; pid?: number; lastExit?: string; detail: string }
 
 /** An outline database on this machine, and the name its backup takes. */
 export interface DatabaseFacts { name: string; path: string; from: "host" | "folder" }

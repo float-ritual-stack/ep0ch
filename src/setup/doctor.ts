@@ -2,7 +2,7 @@
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { OUTLINE_CAPABILITIES } from "../socket";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
-import { chooseLinkDir, claudeModState, hostRestartHint, linkStep, pluginStep, doorStep, serviceLabel } from "./plan";
+import { chooseLinkDir, claudeModState, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
 
 export type CheckStatus = "ok" | "behind" | "missing" | "info";
 export interface Check { group: string; name: string; status: CheckStatus; detail: string; fix?: string }
@@ -54,17 +54,24 @@ export function doctorChecks(f: Facts): Check[] {
 
   // outline services
   const h = f.host;
-  const unit = h.unit ? `${h.unit.kind} ${h.unit.path}` : "no service unit";
+  const unit = h.unit ? `${h.unit.kind} ${h.unit.name}, ${h.unit.path}${h.unit.state ? `; ${h.unit.state.detail}` : ""}` : "no service unit";
+  const elsewhere = unitRunsElsewhere(f);
   if (!h.running) {
     add("services", "outline host", h.configured || h.unit ? "missing" : "info",
       h.configured || h.unit ? `set up (${unit}) but nothing answers at ${h.socket}` : `none (${h.socket}); per-folder services only`,
-      h.unit?.kind === "systemd" ? `systemctl --user start ${h.unit.path.split("/").pop()}` : undefined);
+      h.unit ? hostUnitCommand(h.unit, "start") : undefined);
   } else {
     const missing = staleness(h, f.expected, f.plugin?.protocol ?? null);
     const names = h.outlines.map(o => `${o.name}${o.default ? "*" : ""}${o.open ? "" : " (closed)"}`).join(", ");
-    add("services", "outline host", missing.length ? "behind" : "ok",
-      `${h.socket} (${unit}); default ${h.defaultOutline ?? "none"}; outlines: ${names || "none"}${h.protocol ? `; protocol ${h.protocol}` : ""}${missing.length ? `; runs old code, missing ${missing.join(", ")}` : ""}`,
+    // The socket answers, but the unit says its job isn't running: something else serves it (a host started by hand).
+    const stray = h.unit?.state?.active === false ? `; ${h.unit.kind} isn't running it, so another process answers` : "";
+    add("services", "outline host", missing.length || stray ? "behind" : "ok",
+      `${h.socket} (${unit}); default ${h.defaultOutline ?? "none"}; outlines: ${names || "none"}${h.protocol ? `; protocol ${h.protocol}` : ""}${missing.length ? `; runs old code, missing ${missing.join(", ")}` : ""}${stray}`,
       missing.length ? hostRestartHint(f) : undefined);
+  }
+  if (h.unit && elsewhere) {
+    add("services", "host unit", "behind", `${h.unit.path} runs ${elsewhere}, not the installed plugin's ${f.plugin!.root}/src/host-main.ts: a restart brings back that code`,
+      `point ${h.unit.path} at ${f.plugin!.root}/src/host-main.ts, then ${hostUnitCommand(h.unit, "restart")}`);
   }
   if (!f.services.length) add("services", "per-folder", "info", "no per-folder services on this machine");
   for (const s of f.services) {

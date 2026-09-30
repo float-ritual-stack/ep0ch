@@ -806,7 +806,8 @@ export class MessageReader implements Screen {
 
   unsaved() { return this.surface.unsaved(); }
   keepDrafts() { return this.surface.keepDrafts(); }
-  holdsKeys() { return this.surface.holdsKeys; }
+  /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
+  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
 
   describe() {
     return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };
@@ -900,6 +901,8 @@ export class Conferences implements BbsList {
 export class Search implements Screen {
   title = "search";
   private q = "";
+  /** The query is typed here: every key is text (an Option character too, not an alt key). */
+  holdsKeys() { return true; }
   render(ctx: Ctx): Frame {
     return { lines: ["", center(paint("|09─=|11[ |15TEXT SEARCH |11]|09=─"), ctx.t.cols), "", paint(`  |11Search for: |15${this.q}|07_`), "", paint("|08  ENTER to scan the whole board · ESC back")] };
   }

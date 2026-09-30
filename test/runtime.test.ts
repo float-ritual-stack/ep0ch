@@ -9,10 +9,13 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINE_LIMIT } from "../src/control";
+import { cttyPrefix } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
+/** The launcher that makes the pty a process's controlling terminal: `setsid -c` on Linux, perl's on macOS (src/desk/pty.ts). */
+const CTTY = cttyPrefix() ?? [];
 const RESTORE = ["\x1b[?1049l", "\x1b[?1002l", "\x1b[?1006l", "\x1b[?2004l", "\x1b[?25h"];
 /** The restore sequences `out` lacks (none: the terminal is back to normal). */
 const missing = (out: string) => RESTORE.filter(s => !out.includes(s)).map(s => JSON.stringify(s));
@@ -43,7 +46,7 @@ class Door {
   /** `ctty`: the pty is the door's controlling terminal (as under sshd), so closing it sends the door SIGHUP. */
   constructor(readonly env: Record<string, string>, args: string[] = ["--desk"], preload?: string, ctty = false) {
     this.pty = new Bun.Terminal({ cols: 140, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
-    this.proc = Bun.spawn([...(ctty ? ["setsid", "-c"] : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, scratch.sock], { terminal: this.pty, env });
+    this.proc = Bun.spawn([...(ctty ? CTTY : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, scratch.sock], { terminal: this.pty, env });
     void this.proc.exited.then(c => { this.code = c; });
   }
   get control() { return this.env.EP0CH_CONTROL!; }
@@ -108,7 +111,8 @@ describe("every exit restores the terminal, copies drafts and removes the socket
     expect(existsSync(door.control)).toBe(false);
   }, 40_000);
 
-  test("the terminal hangs up (an ssh connection drops): drafts copied, socket removed, last call written", async () => {
+  // Needs a launcher that gives the door the pty as its controlling terminal (setsid -c, or perl on macOS).
+  test.skipIf(!CTTY.length)("the terminal hangs up (an ssh connection drops): drafts copied, socket removed, last call written", async () => {
     const { env } = sandbox();
     const id = await note("Tide table hangup\nlow water at six");
     const door = new Door(env, ["--desk"], undefined, true);
