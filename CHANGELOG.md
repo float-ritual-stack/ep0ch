@@ -4,6 +4,16 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+- Published blocks run claude.ai artifacts: attach a downloaded `.html`,
+  `.jsx`/`.tsx` (React, compiled on the server with `Bun.build`, never run
+  there; claude.ai's packages fetched pinned into `<state root>/publish/artifacts`;
+  shadcn/ui and Tailwind included), `.svg`, `.mermaid`/`.mmd`, `.md` or code file
+  and it works at its URL, sandboxed with an opaque origin. Embeds on published
+  pages (and in rendered markdown attachments) now show the embedded note's text,
+  published or not, within the service's transclusion limits; `[[page]]` and
+  `((block))` links in rendered markdown attachments link published targets; and
+  `[publish::never]` locks a note and everything under it from every page, embed
+  and link. See README "Artifacts".
 - Claude mod: a session started in an ep0ch-door tile (or the door's Herdr agent
   pane) is told where it runs. At session start the mod runs `ep0ch where --json`
   (read-only) and gives its one-line summary to Claude as the `whereAmI` context
