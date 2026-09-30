@@ -307,8 +307,8 @@ daily draft over a third detail; the outline, "now" and the right detail open in
 (the River screen in a tile, a preview following its card), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
 a running program or an unsaved edit the new layout has no place for becomes a shut drawer, never ended.
-`EP0CH_DAILY_AGENT` (default `claude`) and `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state)
-set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+`EP0CH_DAILY_AGENT` (default `claude`), `EP0CH_DAILY_CWD` (the folder it starts in; default the door's own) and
+`EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 
 **What happens to programs in tiles:**
 

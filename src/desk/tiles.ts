@@ -7,6 +7,7 @@
 //
 // Screen notes in the outline (PIE-412's slice 3) aren't built yet, so layouts live in the door's state
 // only; the saved form is the same one desk.json uses, ready to be written into a note when they are.
+import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
@@ -106,11 +107,13 @@ export function builtin(name: string): LayoutSpec | null {
   const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
   if (name === "daily") {
     const agent = words(process.env.EP0CH_DAILY_AGENT || "claude");
+    // The folder the agent starts in (EP0CH_DAILY_CWD, ~ allowed); unset, the door's own folder.
+    const agentCwd = process.env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, homedir());
     const draft = dailyDraft();
     return {
       name, rule: "current", focus: "tree",
       root: serial(splitOf("row", [
-        splitOf("col", [T("pty", "claude", { cmd: agent }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
+        splitOf("col", [T("pty", "claude", { cmd: agent, ...(agentCwd ? { cwd: agentCwd } : {}) }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
         splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("detail", "middle")], [0.6, 0.4]),
         splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("detail", "side", { link: "middle" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
