@@ -13,6 +13,8 @@ import { resourceChanged } from "./projection";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
+import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, dockRunner, overlay, type DockRun } from "./dock";
+import { shareAgent, sharedAgent } from "./desk/tiles";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -64,6 +66,8 @@ export interface Ctx {
   screens?(): readonly Screen[];
   /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
   idleFor?(): number;
+  /** The person is typing in the agent drawer (PIE-498): an agent doesn't move their screen then either. */
+  dockHoldsKeys?(): boolean;
 }
 
 export interface Screen {
@@ -111,6 +115,8 @@ export interface Screen {
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
+  /** No agent drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
+  noDock?: boolean;
 }
 
 /**
@@ -152,15 +158,23 @@ export class App implements Ctx {
   events = 0;
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
+  /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
+  readonly dock: AgentDock;
+  private dockRun: DockRun;
 
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.started = now();
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
+    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms) });
+    this.dockRun = dockRunner(this.dock, this, () => this.stack.at(-1));
+    // The daily layout's agent tile is the dock's (one attach to its Herdr pane per door).
+    shareAgent(this.dock);
     term.onKey(k => this.key(k));
-    // Raw input while the person types in a terminal tile: the screen says where it goes (Term keeps mouse and ctrl+]).
-    (term as { rawSink?: unknown }).rawSink = () => this.stack.at(-1)?.rawInput?.() ?? null;
+    // Raw input while the person types in the agent drawer or a terminal tile: the drawer first, then the
+    // screen says where it goes (Term keeps mouse and ctrl+]).
+    (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
     setLiveSource(board, () => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
@@ -170,6 +184,7 @@ export class App implements Ctx {
   get t() { return this.term.info; }
   screens(): readonly Screen[] { return this.stack; }
   idleFor(): number { return Date.now() - this.lastInput; }
+  dockHoldsKeys(): boolean { return this.dock.shown && this.dock.entered; }
   get graphics() { return this.video !== "cells"; }
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
@@ -202,7 +217,7 @@ export class App implements Ctx {
     const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
     if (refusal) { this.flash(refusal); return false; }
     const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) : null;
+    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() : null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -319,7 +334,7 @@ export class App implements Ctx {
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), service, state: s?.describe?.() ?? null };
+      ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(), state: s?.describe?.() ?? null };
   }
 
   async openBlock(id: string): Promise<string> {
@@ -333,11 +348,11 @@ export class App implements Ctx {
     return m.id;
   }
 
-  /** The screen's actions, then the shell's (`screen.*`), which work on every screen. */
+  /** The screen's actions, then the shell's (`screen.*`) and the dock's (`agent.*`), which work on every screen. */
   actions() {
     const s = this.stack.at(-1);
     const own = s?.actions?.() ?? { actions: [], readers: [] };
-    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list()] };
+    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()] };
   }
 
   /**
@@ -348,18 +363,35 @@ export class App implements Ctx {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
     const shell = SHELL_ACTIONS.has(req.action);
-    if (!shell && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${SHELL_ACTIONS.list().map(a => a.name).join(", ")}`);
+    const dock = DOCK_ACTIONS.has(req.action);
+    // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.
+    const herdr = req.action === "tile.herdr" && req.reader === DOCK_TILE_ID;
+    if (!shell && !dock && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()].map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {
       // The shell's actions (screen.open, screen.back, screen.list) come first, on every screen.
-      const r = shell ? await SHELL_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: asActor(this, actor), here: s }, actor) : await s!.act!(req, actor);
+      const r = shell ? await SHELL_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: asActor(this, actor), here: s }, actor)
+        : dock ? await DOCK_ACTIONS.runUntyped(req.action, req.args ?? {}, { dock: this.dock, ctx: asActor(this, actor), here: s }, actor)
+        : herdr ? this.dockHerdr(req.args ?? {})
+        : await s!.act!(req, actor);
       this.redraw();
       return r;
     } catch (e) {
       this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
+  }
+
+  /** `tile.herdr` for the dock's agent: the same rule as a desk tile's (`herdrTile`). */
+  private dockHerdr(args: Record<string, unknown>) {
+    const p = this.dock.tile;
+    if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);
+    if (args.on === false || args.on === "false") { p.herdr = null; return { tile: DOCK_TILE_ID, herdr: null }; }
+    if (typeof args.pane !== "string" || !args.pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
+    if (!p.running) throw new ActionRefused(`${DOCK_TILE_ID}'s program isn't running`);
+    p.herdr = { pane: args.pane };
+    return { tile: DOCK_TILE_ID, herdr: p.herdr };
   }
 
   /**
@@ -382,12 +414,15 @@ export class App implements Ctx {
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
+    if (sharedAgent() === this.dock) shareAgent(null);
     this.kitty.dispose();
     this.done();
   }
 
   private key(k: Key) {
     this.lastInput = Date.now();
+    // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
+    if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);
@@ -424,10 +459,16 @@ export class App implements Ctx {
     else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
-  /** The status bar's time, as it would read now: the uptime and the clock. */
+  /** The status bar's time, as it would read now: the uptime and the clock; and the dock's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.dock.active ? this.dock.chipText() : ""}`;
+  }
+
+  /** The dock's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
+  private statusChanged() {
+    const s = this.stack.at(-1);
+    if (s && !this.paintTimer && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
@@ -456,11 +497,19 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
+    // The agent drawer (PIE-498) is laid over the screen's bottom rows after it renders at its full size.
+    this.dock.active = !s.noDock;
     const frame = s.render(this);
-    const lines = frame.lines.slice(0, rows - 1);
+    let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");
+    let placements = this.graphics ? [...(frame.placements ?? [])] : [];
+    if (this.dock.shown) {
+      const d = this.dock.render(cols, rows, s.title);
+      lines = overlay(lines, d);
+      // Images under the drawer would show through it.
+      placements = placements.filter(p => p.row + p.rows <= d.rect.row);
+    } else this.dock.rect = null;
     lines.push(this.statusBar(s, cols));
-    const placements = this.graphics ? [...(frame.placements ?? [])] : [];
     if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
     // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
     const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
@@ -476,7 +525,11 @@ export class App implements Ctx {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
-    const right = `${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    // The dock's chip starts the right part, so it's always whole and always in the same place from the right.
+    const chip = this.dock.active ? this.dock.chip() : "";
+    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    const from = cols - width(right);
+    this.dock.chipAt = chip && from >= 0 ? { from, to: from + width(this.dock.chipText()), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }

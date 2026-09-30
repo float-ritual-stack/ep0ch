@@ -161,6 +161,27 @@ function mapLeaves(root: SavedTree, f: (l: TileSpec) => TileSpec): SavedTree {
   return fix(root);
 }
 
+/**
+ * The app's own agent tile (PIE-498, `AgentDock` in src/dock.ts): the daily layout's agent tile is that one
+ * instance, not a second program. With Herdr, a second tile would be a second attach from the same door (Herdr
+ * lets one client attach), and without Herdr it would be a second agent. The desk draws it, but never ends it:
+ * closing the tile or leaving the desk leaves it running in the dock.
+ */
+export interface SharedAgent {
+  /** The shared tile for an agent tile with this program, or null when it runs another (it gets its own). */
+  paneFor(spec: { cmd?: string[]; cwd?: string }): PtyPane | null;
+  isShared(p: unknown): boolean;
+  /** The dock's drawer shows it now: a desk tile draws a note in its place, so it has one size at a time. */
+  drawnElsewhere(p: unknown): boolean;
+  /** A desk showing it repaints when it writes; `unwatch` when that desk goes. */
+  watch(v: { redraw(): void }): void;
+  unwatch(v: { redraw(): void }): void;
+}
+let shared: SharedAgent | null = null;
+/** Set by the App as it starts (null: no dock, as in tests that build a desk alone, and each agent tile is its own). */
+export function shareAgent(s: SharedAgent | null) { shared = s; }
+export const sharedAgent = (): SharedAgent | null => shared;
+
 export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief", "backlinks"];
 
 /** Build a tile from its spec. A spec it can't build (a preview with no source) is a reader, and says why. */
@@ -168,7 +189,8 @@ export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
   switch (s.kind) {
     case "detail": { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; }
     case "preview": return new PreviewPane((s.source && sourceOf(s.source)) || { tile: "tree" });
-    case "pty": return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
+    case "pty": { const p = s.agent && shared ? shared.paneFor(s) : null; if (p) return p; }
+      return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
     case "board": case "river": case "brief": return new ScreenTile(s.kind as ScreenKind, { preview: s.preview });
     case "backlinks": { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); }
     default: return makePane(s.kind as "tree");

@@ -22,14 +22,14 @@ import { colourBody, wrap } from "../text";
 import { dropAt, type Drop, type DropTile } from "./drop";
 import { activate, besideSlot, cycle, describeTree, dividerAt, dragShare, edge, even, forgetIds, leaf, leaves, move, neighbour, normalise, pair, placeScreen, remove, resize, revive, serialize, shown, split, tabInto, tabsOf, type Axis, type Dir, type Divider, type Grab, type LNode, type Place, type Placed } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
-import { Entered, ReaderPane, TreePane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type SessionKind } from "./panes";
+import { Entered, ReaderPane, TreePane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import { PreviewPane, sourceName } from "./preview";
 import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
-import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, makeTile, migrateLinks, migrateNames, saveLayout, withDailyAgent, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, dailyAgent, dailyDraft, sharedAgent, editor, layoutNamed, layoutNames, makeTile, migrateLinks, migrateNames, saveLayout, withDailyAgent, TILE_KINDS, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -223,7 +223,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (o !== undefined && p && !used.has(o) && p.kind === kind && (!(p instanceof PtyPane) || !l.cmd || p.run.cmd.join(" ") === l.cmd.join(" "))) {
         id = o; names.set(id, l.name!);
       } else {
-        const pane = makeTile({ ...l, kind });
+        let pane = makeTile({ ...l, kind });
+        // The dock's agent (PIE-498) is one tile: a second agent tile in the same layout gets a program of its own.
+        if (this.isShared(pane) && [...this.panes.values()].includes(pane)) pane = new PtyPane({ cmd: l.cmd?.length ? l.cmd : dailyAgent().cmd, cwd: l.cwd, label: l.name });
         // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
         const saved = /^t(\d+)$/.exec(l.id ?? "");
         const n = saved ? Number(saved[1]) : 0;
@@ -249,7 +251,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         const was = oldNames.get(id) ?? p.kind;
         names.set(id, [...names.values()].includes(was) ? this.autoName(was) : was);
         tree = edge(tree, id, "right", 0.3); over.add(id); shut.add(id);
-      } else { p.dispose?.(); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
+      } else { if (!this.isShared(p)) p.dispose?.(); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
     }
     this.root = normalise(tree);
     // Nothing left to show (a saved layout of empty tab sets): the desk as it always opened.
@@ -277,6 +279,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** A tile joins a live desk: it reads what it needs, a detail its note, a preview its source. */
   private startTile(id: number) {
     const p = this.panes.get(id)!;
+    // The dock's agent is the App's (PIE-498): its id, its place and its repaints stay the dock's; the desk only shows it.
+    if (this.isShared(p)) { sharedAgent()!.watch(this); return; }
     // The program learns its tile's id (EP0CH_TILE_ID) as it starts, at the tile's first paint.
     const term = this.panes.get(id);
     if (term instanceof PtyPane) { term.tileId = this.tileId(id); term.place = this.layoutName ?? "desk"; }
@@ -349,14 +353,18 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   dispose(): void | "keep" {
     this.onScreen = false;
     if (!this.preset && this.running().length) { Desk.kept = this; return "keep"; }
-    for (const p of this.panes.values()) p.dispose?.();
+    sharedAgent()?.unwatch(this);
+    for (const p of this.panes.values()) if (!this.isShared(p)) p.dispose?.();
   }
   /** The desk kept alive with its programs, to come back to (the menu's D). */
   private static kept: Desk | null = null;
   /** The desk to open: the one kept running in the background, else a new one. */
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
   private onScreen = false;
-  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running); }
+  /** The programs this desk runs (the dock's agent isn't one of them: it runs on when the desk goes). */
+  private running(shared = false) { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running && (shared || !this.isShared(p))); }
+  /** The dock's agent tile (PIE-498): shown here, owned by the App. */
+  private isShared(p: unknown): boolean { return !!sharedAgent()?.isShared(p); }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
     const r = this.preset ? this.running() : [];
@@ -631,7 +639,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {
     // An agent attached from Herdr keeps running in its pane when the door quits: nothing of it ends here.
-    const r = this.running().filter(p => !p.herdr);
+    const r = this.running(true).filter(p => !p.herdr);
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
@@ -725,7 +733,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const focused = id === this.focus;
     const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const typing = pane === this.ptyIn && focused;
-    const view = inner.cols >= 1 && inner.rows >= 1 ? (pane instanceof PtyPane ? pane.render(inner.cols, inner.rows, focused, this, typing) : pane.render(inner.cols, inner.rows, focused, this)) : null;
+    // The dock's agent pulled up over the screen (PIE-498): drawn there, at one size, and said here.
+    const away: PaneView | null = sharedAgent()?.drawnElsewhere(pane) ? { lines: ["", `${fg(C.dark)}  ${this.nameOf(id)} is in the agent drawer below${RESET}`, `${fg(C.dark)}  alt+a or Esc puts it back here${RESET}`] } : null;
+    const view = inner.cols >= 1 && inner.rows >= 1 ? (away ?? (pane instanceof PtyPane ? pane.render(inner.cols, inner.rows, focused, this, typing) : pane.render(inner.cols, inner.rows, focused, this))) : null;
     // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
     const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
     const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
@@ -1141,7 +1151,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (why) throw new ActionRefused(why.why);
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
-    if (pty instanceof PtyPane && pty.running) {
+    if (pty instanceof PtyPane && pty.running && !this.isShared(pty)) {
       const armed = this.closeArm && this.closeArm.id === t.id && Date.now() - this.closeArm.at < 3000;
       if (!armed) { this.closeArm = { id: t.id, at: Date.now() }; throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
       this.closeArm = null;
@@ -1555,7 +1565,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const next = remove(this.root, id);
     if (!next) return;
     const p = this.panes.get(id);
-    p?.dispose?.();
+    if (!this.isShared(p)) p?.dispose?.();
     if (this.ptyIn === p) this.ptyIn = null;
     this.panes.delete(id); this.root = normalise(next);
     this.names.delete(id); this.over.delete(id); this.shut.delete(id); this.links.delete(id);
