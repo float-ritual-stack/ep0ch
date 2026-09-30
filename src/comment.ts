@@ -283,23 +283,30 @@ export class CommentSession {
   }
 
   /** Enter on a picked passage: write the comment under it. The comment's text carries over from an earlier pick. */
-  write(): string | null {
+  write(restore = true): string | null {
     const p = this.passage;
     if (this.mode !== "select" || !p) return "no passage is being picked";
     if (!p.quote.trim()) return "nothing selected";
     this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: p.passage };
-    this.composer ??= new Draft("comment", 0, "");
+    if (!this.composer) {
+      // A comment put aside on this note (esc twice, a closed screen) comes back under the new passage.
+      this.composer = new Draft("comment", 0, "");
+      this.composer.shelf = { key: `comment:${this.msg.id}`, back: "C and a passage bring it back", label: `${this.msg.id.slice(0, 8)}-comment` };
+      if (restore) this.composer.restore();
+    }
     this.back = "select"; this.mode = "compose"; this.error = null; this.stale = false;
     return null;
   }
 
   /** `r` on a thread: write a reply to it. */
-  replyTo(i: number): string | null {
+  replyTo(i: number, restore = true): string | null {
     const t = this.threads[i];
     if (!t) return "no such thread";
     this.sel = i;
     this.target = { kind: "reply", thread: t };
     this.composer = new Draft("reply", 0, "");
+    this.composer.shelf = { key: `reply:${t.id}`, back: "r on the thread brings it back", label: `${this.msg.id.slice(0, 8)}-reply` };
+    if (restore) this.composer.restore();
     this.back = "threads"; this.mode = "compose"; this.note = "";
     return null;
   }
@@ -415,7 +422,8 @@ export class CommentSession {
 
   // ── drawing ─────────────────────────────────────────────────────────────────
 
-  render(w: number, h: number, title: string): string[] {
+  /** `preview`: the reader's renderer, for the comment's live preview (ctrl+p). */
+  render(w: number, h: number, title: string, preview?: (text: string, w: number) => string[]): string[] {
     const status = (s: string, colour: number) => fg(colour) + pad(s, w) + RESET;
     const state = this.busy ? status(this.busy, C.grey)
       : this.error ? status(`! ${this.error}`, C.lred)
@@ -439,7 +447,7 @@ export class CommentSession {
       return renderEditor(d, {
         title: t.kind === "quote" ? `comment · ${title}` : `reply to ${t.thread.author} · ${title}`,
         status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-        context: q, by: writtenBy(d, "send"),
+        context: q, by: writtenBy(d, "send"), preview,
       }, w, h);
     }
     // threads

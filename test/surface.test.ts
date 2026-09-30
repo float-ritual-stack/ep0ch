@@ -71,10 +71,10 @@ describe("the surface without a service", () => {
 
   test("one edit control: a note edit and a comment say the same keys the same way", () => {
     const d = new Draft("x", 1, "hello"), c = new Draft("comment", 0, "");
-    expect(editHint(d, { save: "save" })).toBe("ctrl+s save · ctrl+e $EDITOR · esc done");
-    expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · ctrl+e $EDITOR · esc back");
+    expect(editHint(d, { save: "save" })).toBe("ctrl+s save · esc done · ctrl+e $EDITOR · tab indent · shift+tab out · ctrl+p preview");
+    expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · esc back · ctrl+e $EDITOR · tab indent · shift+tab out · ctrl+p preview");
     d.key(char("!")); c.key(char("?"));
-    for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(h).toEndWith("esc twice discards");
+    for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(h).toContain(" · esc twice puts it aside · ");
     // The reader shows the same hint the edit control makes.
     const s = new NoteSurface();
     s.show(note("A\nb"), host());

@@ -18,7 +18,7 @@ import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, pre
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
-import { Draft, sameParty } from "../edit";
+import { Draft, DRAFT_ACTIONS, sameParty, unsent, whenPut, type DraftActionArgs } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { actorIdOf, EditConflict, mutationFor, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type PropertyRecord } from "../socket";
@@ -26,8 +26,8 @@ import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
-import { draftState, editHint, openInEditor, renderEditor, writtenBy } from "./editor";
-import { completerFor, completerOf, completionKey, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
+import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
+import { completerFor, completerOf, completionKey, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
@@ -317,6 +317,8 @@ export class NoteSurface {
   /** What an agent selected here: drawn in its own tint, never the person's, never on their clipboard. */
   agentSelection: { id: string; sel: Selection } | null = null;
   private gesture = new Gesture();
+  /** A press landed in the draft's text: a drag from it selects there. */
+  private editPress = false;
   private dragging = false;
   /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
   draft: Draft | null = null;
@@ -384,8 +386,9 @@ export class NoteSurface {
   /** Copy unsaved text to disk (the screen is closing anyway). */
   keepDrafts(): string[] {
     const out: string[] = [];
-    if (this.draft?.dirty) out.push(this.draft.copyOut());
-    if (this.session?.composer?.dirty) out.push(this.session.composer.copyOut(`${this.session.blockId.slice(0, 8)}-comment`));
+    // Kept where they were written too: opening the edit or the comment again brings them back.
+    if (this.draft?.dirty) out.push(this.draft.keep());
+    if (this.session?.composer?.dirty) out.push(this.session.composer.keep());
     return out;
   }
 
@@ -495,10 +498,10 @@ export class NoteSurface {
     this.drawn = null;
     this.digesting = false;
     if (!m) return { lines: [dim("pick something in the outline")] };
-    if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h) };
+    if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h, this.use(host)) };
     // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
     if (this.session?.finished) this.session = null;
-    if (this.session) return { lines: this.session.render(w, h, subject(m)) };
+    if (this.session) { const src = this.use(host); return { lines: this.session.render(w, h, subject(m), (t, pw) => draftPreview(t, pw, src)) }; }
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -526,6 +529,8 @@ export class NoteSurface {
         fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ]),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
+      // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
+      ...unsentLines(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
@@ -923,8 +928,9 @@ export class NoteSurface {
     return true;
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null): string[] {
     return renderEditor(d, {
+      preview: (t, pw) => draftPreview(t, pw, src),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -950,6 +956,10 @@ export class NoteSurface {
     if (this.msg?.id !== m.id || this.editing) return;
     this.msg = fresh;
     this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
+    // An edit put aside on this note (esc twice, a closed screen, the door quitting) comes back here.
+    this.draft.shelf = { key: `edit:${fresh.id}`, back: "e brings it back", label: fresh.id.slice(0, 8) };
+    // Only for the person: an agent's edit never picks up the person's put-aside text.
+    if (host.actor?.kind !== "agent") this.draft.restore();
     host.redraw();
     if (external) this.external(host);
   }
@@ -962,10 +972,9 @@ export class NoteSurface {
     else if (a === "editor") this.external(host);
     else if (a === "reload") void this.reload(host);
     else if (a === "close") {
-      // Esc, esc discards typed text; an agent's part of it is never lost that way: it's copied out first.
-      const at = keepAgents(d, () => d.copyOut());
+      // Esc, esc never drops typed text: the draft put itself aside (Draft.putAside) and says where.
       this.closeDraft();
-      if (at) host.ctx.flash(`closed · the unsaved text an agent wrote is at ${at}`);
+      if (d.closedWith) host.ctx.flash(d.closedWith, 8000);
     }
     host.redraw();
     return true;
@@ -1138,11 +1147,8 @@ export class NoteSurface {
     if (this.session) {
       const s = this.session, composer = s.composer;
       if (s.key(k, this.commentEnv(host)) === "close" || s.finished) { this.session = null; }
-      // A comment an agent was writing, closed by esc, esc: copied out first, like an edit.
-      if (k.kind === "esc" && composer && s.composer !== composer) {
-        const at = keepAgents(composer, () => composer.copyOut(`${s.blockId.slice(0, 8)}-comment`));
-        if (at) host.ctx.flash(`closed · the unsent text an agent wrote is at ${at}`);
-      }
+      // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
+      if (k.kind === "esc" && composer && s.composer !== composer && composer.closedWith) host.ctx.flash(composer.closedWith, 8000);
       host.redraw();
       return true;
     }
@@ -1197,20 +1203,24 @@ export class NoteSurface {
 
   /**
    * The wheel, whatever the surface is doing: the note scrolls (under an inline property panel too), a
-   * full panel moves its selection, a draft moves its cursor, and a comment session scrolls its thread list.
+   * full panel moves its selection, a draft or a comment being written scrolls its view (the cursor stays),
+   * and a comment session scrolls its thread list.
    */
   wheel(dir: 1 | -1, host: SurfaceHost) {
     const P = this.panel, m = this.msg;
     // Over an open completion popup the wheel moves through its candidates.
     const pop = this.writing();
     if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
-    if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
+    // A draft's view scrolls; its cursor stays where it is (typing brings it back).
+    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: dir * 3 }, pop, USER); }
     else if (this.session) this.session.wheel(dir);
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
     else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
     host.redraw();
   }
 
+  /** The draft or comment being written here, if any (for the draft's actions). */
+  writingDraft(): Draft | null { return this.writing(); }
   /** The draft or comment being written here, if any. */
   private writing(): Draft | null {
     return this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
@@ -1702,8 +1712,14 @@ export class NoteSurface {
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
     if (this.editing) {
+      // A completion candidate first; then the draft's own: its preview control, or the cursor placed.
       const d = this.writing();
-      return !!d && !d.busy && !!completerOf(d)?.click(y);
+      if (!d || d.busy) return false;
+      if (completerOf(d)?.click(y)) return true;
+      if (completionOf(d)) return false;
+      this.editPress = editorClick(d, x, y);
+      if (this.editPress) host.redraw();
+      return this.editPress;
     }
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
     const h = at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || ("follow" in h && h.follow)) ?? at[0];
@@ -2194,7 +2210,9 @@ export class NoteSurface {
     this.use(host);
     this.dragging = false;
     const n = this.gesture.press(x, y);
-    if (n < 2 || this.editing) return;
+    // In a draft a press puts the cursor there, and a drag from it selects (Draft's own selection).
+    if (this.editing) { const d = this.writing(); this.editPress = !!d && !d.busy && !completionOf(d) && editorClick(d, x, y); if (this.editPress) host.redraw(); return; }
+    if (n < 2) return;
     const rows = this.selRows(), p = this.posAt(x, y);
     if (!rows || !p || !rows.cells(p.row).length) return;
     this.selection = this.stamp(n === 2 ? wordAt(rows, p) : lineAt(rows, p.row));
@@ -2204,7 +2222,8 @@ export class NoteSurface {
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
     const g = this.gesture.pressed;
-    if (!g || !this.gesture.drag(x, y) || this.editing || !this.drawn) return;
+    if (this.editing) { const d = this.writing(); if (this.editPress && d && !d.busy && editorClick(d, x, y, true)) host.redraw(); return; }
+    if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
     if (!this.dragging) {
       // After a double or triple click, the drag extends from the word or row it selected.
       const from = g.n > 1 && this.selection ? this.selection.start : this.posAt(g.x, g.y);
@@ -2692,9 +2711,37 @@ function recordedAs(by: Actor): string {
   return by.with?.length ? `${whose}, naming ${recordedActorId(by)}` : whose;
 }
 
-/** Unsaved text an agent had a hand in, copied to disk before a key discards it: where it went, or null. */
-function keepAgents(d: Draft, copy: () => string): string | null {
-  return d.dirty && d.writers.some(w => w.kind === "agent") ? copy() : null;
+
+/** A draft action (src/edit.ts, DRAFT_ACTIONS) run on the reader's edit or comment being written. */
+function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<DraftActionArgs[K], On> {
+  const info = DRAFT_ACTIONS.list().find(a => a.name === name)!;
+  return {
+    summary: `${info.summary} (in this reader's edit or comment)`, keys: info.keys,
+    args: info.args as ActionDef<DraftActionArgs[K], On>["args"],
+    async run(args, { surface, host }, actor) {
+      const d = surface.writingDraft();
+      if (!d) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const r = await DRAFT_ACTIONS.run(name, args, d, actor);
+      if (actor.kind === "agent") surface.noteAgent(actor, `used ${name} in the draft`);
+      host.redraw();
+      return r;
+    },
+  };
+}
+
+/** A draft's live preview (PIE-496): the readers' own body renderer, without folds, embeds or link tags. */
+export function draftPreview(text: string, w: number, src: Source | null = null): string[] {
+  return renderDoc(presentLinks(text, false, src, text), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true }).lines;
+}
+
+/** The reader's line for an edit or a comment put aside on note `id`: when, and the key that brings it back. */
+function unsentLines(id: string): string[] {
+  const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`);
+  return [
+    ...(e ? [`■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
+    ...(c ? [`■ unsent comment from ${whenPut(c.at)} · C and a passage bring it back`] : []),
+  ];
 }
 
 /** Copy a draft out before `actor` replaces it, when someone else changed it last. Who that was, and where. */
@@ -2709,7 +2756,7 @@ function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; w
 interface On { surface: NoteSurface; host: SurfaceHost }
 
 /** Each action's arguments. */
-export interface NoteActionArgs {
+export interface NoteActionArgs extends DraftActionArgs {
   "edit": { external?: boolean };
   "edit.text": { text: string };
   "edit.save": Record<string, never>;
@@ -2928,6 +2975,14 @@ const UNTINT: ActionDef<Record<string, never>, On> = {
   };
 
 export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActionArgs, On>("note", {
+  // The draft's own actions (Enter's list continuation, Tab, Shift+Tab, a click, the wheel, the preview),
+  // on this reader's edit or the comment being written: the same code its keys and mouse run.
+  "draft.newline": forwardDraft("draft.newline"),
+  "draft.indent": forwardDraft("draft.indent"),
+  "draft.outdent": forwardDraft("draft.outdent"),
+  "draft.place": forwardDraft("draft.place"),
+  "draft.scroll": forwardDraft("draft.scroll"),
+  "draft.preview": forwardDraft("draft.preview"),
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
@@ -3142,7 +3197,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
       if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
-      if (s.mode === "select") { const why = s.write(); if (why) throw new ActionRefused(why); }
+      // An agent's comment is its own: the person's put-aside text stays put aside.
+      if (s.mode === "select") { const why = s.write(actor.kind !== "agent"); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");
       const kept = surface.setComposerText(s, body, actor);
       host.redraw();
@@ -3211,7 +3267,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", about: "the reply's text" } },
     async run({ thread, body }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
-      const why = s.replyTo(findThread(s, thread));
+      const why = s.replyTo(findThread(s, thread), actor.kind !== "agent");
       if (why) throw new ActionRefused(why);
       on.surface.setComposerText(s, body, actor);
       return sendComment(on.surface, on.host, actor);

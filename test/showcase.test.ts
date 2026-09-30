@@ -314,7 +314,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     ch("e");
     const desk = () => S().stages.get(2).top;
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
-    for (let i = 0; i < 5; i++) press({ kind: "down" });
+    for (let i = 0; i < 5; i++) press({ kind: "pgdn" });            // to the last line, however it wraps
     press({ kind: "end" });
     for (const c of " Mind the oven.") ch(c);
     press({ kind: "char", ch: "s", ctrl: true });

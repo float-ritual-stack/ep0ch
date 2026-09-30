@@ -822,7 +822,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         // off an open edit (esc leaves it), but passes with only the property panel open.
         if (k.kind !== "mouse") { focused.key(k, this); return; }
         if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
-          if (k.action === "down" && this.clickIn(focused, k)) return this.redraw();
+          if ((k.action === "down" || k.action === "drag") && this.clickIn(focused, k)) return this.redraw();
           if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
           return;
         }
@@ -1481,7 +1481,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
     const hit = this.hits.find(([id]) => this.panes.get(id) === pane)?.[1];
     return !!hit && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1
-      && pane.click(k.x - hit.col - 1, k.y - hit.row - 1, this);
+      // A drag in an open edit selects in its draft (the press placed the cursor).
+      && (k.action === "drag" ? (pane.drag(k.x - hit.col - 1, k.y - hit.row - 1, this), true) : pane.click(k.x - hit.col - 1, k.y - hit.row - 1, this));
   }
 
   /** The tiles as the drag sees them: each shown tile's frame, and a tab set's tab labels. */

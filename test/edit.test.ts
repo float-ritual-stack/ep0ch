@@ -46,7 +46,7 @@ describe("draft", () => {
     const d = new Draft("b1", 1, "x");
     type(d, "y");
     expect(d.key({ kind: "esc" })).toBe("keep");
-    expect(d.note).toContain("esc again discards");
+    expect(d.note).toContain("esc again puts it aside");
     expect(d.key({ kind: "esc" })).toBe("close");
   });
   test("ctrl keys name the actions and never insert text", () => {

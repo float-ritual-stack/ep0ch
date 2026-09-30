@@ -15,7 +15,9 @@ export type Key =
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number; mods?: number }
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
-  | { kind: "paste"; text: string };
+  | { kind: "paste"; text: string }
+  /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
+  | { kind: "enter" | "tab"; pasted: true };
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 

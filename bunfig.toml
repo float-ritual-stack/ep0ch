@@ -1,0 +1,3 @@
+[test]
+# Every test's door state (drafts put aside, layouts, marks) goes to a temp dir, never the person's.
+preload = ["./test/preload.ts"]

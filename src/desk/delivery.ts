@@ -17,7 +17,7 @@ import {
 } from "../backlinks";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
-import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
+import { draftPreview, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET, width } from "../style";
@@ -33,8 +33,8 @@ import {
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
-import { Draft } from "../edit";
-import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
+import { Draft, DRAFT_ACTIONS } from "../edit";
+import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { createMisses, planCreate } from "../move";
 import { showExpr } from "../query";
 import { Refused, type ChecklistRead, type ChecklistStep, type StepStatus } from "../socket";
@@ -163,6 +163,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private asked: string[] = [];
   /** A new card (`n`) or a note under a card (`N`) being written. Holds every key until created or closed. */
   private composer: Composer | null = null;
+  /** Where the composer was last drawn, for the mouse. */
+  private composerAt: Rect | null = null;
   /** The selected card's checklist steps (`s`): pick one and set its status. */
   private steps: { card: Msg; read: ChecklistRead | null; sel: number; busy: boolean; note: string } | null = null;
   /** The first `d` on a card: a second one within a few seconds trashes it. */
@@ -553,7 +555,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
   keepDrafts() {
     const c = this.composer;
-    return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.copyOut(c.kind === "card" ? `new-card-${slug(c.lane.name)}` : `new-note-${c.parent.id.slice(0, 8)}`)] : [])];
+    return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.keep()] : [])];
   }
 
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
@@ -842,11 +844,13 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    * A click inside the reader the person is editing in, in its surface's cells: a completion candidate, or
    * false. Only where that reader is on top: a float or drawer drawn over the popup keeps the click.
    */
-  private clickIn(p: ReaderPane, k: { x: number; y: number }): boolean {
+  private clickIn(p: ReaderPane, k: { x: number; y: number }, drag = false): boolean {
     const region = this.regionOf(p);
     const r = region?.startsWith("float") ? this.floats[Number(region.slice(5))]?.rect : region ? this.rects.get(region) : undefined;
     if (!r || this.topAt(k.x, k.y) !== region) return false;
     const x = k.x - r.col - 1, y = k.y - r.row - 1;
+    // A drag in an open edit selects in its draft (the press placed the cursor).
+    if (drag) { p.drag(Math.max(0, x), Math.max(0, y), this); return true; }
     return x >= 0 && y >= 0 && x < r.cols - 2 && y < r.rows - 2 && p.click(x, y, this);
   }
 
@@ -1341,6 +1345,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     try { plan = this.cardPlan(lane); } catch (e) { return this.ctx.flash(`can't create in ${lane.name}: ${(e as Error).message}`); }
     const pick = plan.parent;
     const C0: Composer = { kind: "card", lane, born: plan.born, defaults: plan.defaults, needs: plan.needs, parent: pick ? { ...pick, title: pick.id.slice(0, 8) } : null, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    // A new card put aside in this lane (esc twice, the board closed) comes back.
+    C0.draft.shelf = { key: `card:${lane.name}`, back: `n in ${lane.name} brings it back`, label: `new-card-${slug(lane.name)}` };
+    C0.draft.restore();
     this.composer = C0;
     this.redraw();
     if (pick) this.ctx.board.get(pick.id).then(parent => {
@@ -1357,6 +1364,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (!card) return this.ctx.flash("select a card to add a note under");
     if (this.composer) return;
     this.composer = { kind: "child", parent: card, draft: new Draft(`new-under-${card.id.slice(0, 8)}`, 0, "") };
+    this.composer.draft.shelf = { key: `child:${card.id}`, back: "N on the card brings it back", label: `new-note-${card.id.slice(0, 8)}` };
+    this.composer.draft.restore();
     this.redraw();
   }
 
@@ -1366,7 +1375,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const a = d.key(k);
     if (a === "save") void this.submitComposer();
     else if (a === "editor") openInEditor(this.ctx, d);
-    else if (a === "close") this.composer = null;
+    else if (a === "close") { this.composer = null; if (d.closedWith) this.ctx.flash(d.closedWith, 8000); }
     this.redraw();
   }
 
@@ -1962,7 +1971,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save") }, w, r.rows - 2);
+    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: draftPreview }, w, r.rows - 2);
+    this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }
 
@@ -2180,7 +2190,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
         // (esc leaves it); with only the property panel open, clicks pass.
         if (k.kind !== "mouse") { rd.key(k, this); return; }
         if (rd.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
-          if (k.action === "down" && this.clickIn(rd, k)) return this.redraw();
+          if ((k.action === "down" || k.action === "drag") && this.clickIn(rd, k, k.action === "drag")) return this.redraw();
           if (k.action === "down") this.ctx.flash("finish the edit first · ctrl+s saves · esc closes");
           return;
         }
@@ -2193,7 +2203,15 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     }
     // A card or note being written holds every key, like an edit; a click can't take focus from it.
     if (this.composer) {
-      if (k.kind === "mouse") { if (k.action === "down") this.ctx.flash("finish the new card first · ctrl+s creates · esc closes"); return; }
+      if (k.kind === "mouse") {
+        // The wheel scrolls it, a click places the cursor, a drag selects; a click outside can't take focus from it.
+        const d = this.composer.draft, r = this.composerAt;
+        if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: k.action === "wheel-down" ? 3 : -3 }, d, USER); return this.redraw(); }
+        const inside = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
+        if (r && (k.action === "down" || k.action === "drag") && (inside || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) return this.redraw();
+        if (k.action === "down" && !inside) this.ctx.flash("finish the new card first · ctrl+s creates · esc closes");
+        return;
+      }
       return this.composerKey(k);
     }
     // A backlinks filter being typed holds every key, board shortcuts included (t, b, g are letters in it).

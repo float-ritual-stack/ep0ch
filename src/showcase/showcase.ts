@@ -17,6 +17,7 @@ import { wrap } from "../text";
 import type { Key } from "../term";
 import { ActionRefused, ActionSet, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS } from "../surface/note";
+import { DRAFT_ACTIONS } from "../edit";
 import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
 import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
@@ -80,7 +81,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "edit", need: "edit text, complete [[ (( [file::", part: "the editing component: Draft, edit control, completer; the property panel (i, I)", files: "src/edit.ts, src/surface/editor.ts, src/surface/completer.ts, src/surface/props-panel.ts",
+    key: "edit", need: "edit text, complete [[ (( [file::", part: "the editing component: Draft, edit control, completer, DRAFT_ACTIONS (lists, wrap, mouse, preview, unsent); the property panel (i, I)", files: "src/edit.ts, src/surface/editor.ts, src/surface/completer.ts, src/surface/props-panel.ts",
     aside: `${PARALLEL}: the board's composer (src/desk/delivery.ts) draws the edit control without completion (F9)`,
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
@@ -351,8 +352,10 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string } }, S
 // ── the panes only the showcase has: the action list and what the service answers ──────────────────
 
 const SETS: { name: string; file: string; list: () => ActionInfo[] }[] = [
-  { name: "NOTE_ACTIONS", file: "src/surface/note.ts", list: () => NOTE_ACTIONS.list() },
+  // The note set forwards the draft's actions (draft.*); they're listed once, as the draft's own.
+  { name: "NOTE_ACTIONS", file: "src/surface/note.ts", list: () => NOTE_ACTIONS.list().filter(a => !DRAFT_ACTIONS.has(a.name)) },
   { name: "DESK_ACTIONS", file: "src/desk/desk.ts", list: () => DESK_ACTIONS.list() },
+  { name: "DRAFT_ACTIONS", file: "src/edit.ts", list: () => DRAFT_ACTIONS.list() },
   { name: "BOARD_ACTIONS", file: "src/desk/delivery.ts", list: () => BOARD_ACTIONS.list() },
   { name: "RIVER_ACTIONS", file: "src/river/river.ts", list: () => RIVER_ACTIONS.list() },
   { name: "SHOWCASE_ACTIONS", file: "src/showcase/showcase.ts", list: () => SHOWCASE_ACTIONS.list() },
