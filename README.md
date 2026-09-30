@@ -686,8 +686,10 @@ The board's new-card composer is the same control too.
   jumps; the new text is lit for a moment with `@<agent> · just now`, and `Ctrl+Z` takes it back as one
   unit. Your save records it as yours, naming the agent. If the compare fails (you changed that passage),
   nothing is changed: the proposal lands as a reply block, embedded under the `@request` line (`!((id))`),
-  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits or stops answering lets go
-  of its holds, and patches go to the saved note under a revision check.
+  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
+  screen the draft was in, lets go of its holds, and patches go to the saved note under a revision check; a
+  door that is only slow to answer keeps its hold, and the patch becomes a proposal. When two doors hold
+  drafts of the same note, a patch goes to neither.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
   else saved since, and the door never retries it over their text: the draft stays open, is copied to
   `~/.local/state/ep0ch-door/drafts/`, and `Ctrl+R` starts over from the current revision.

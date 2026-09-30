@@ -806,6 +806,8 @@ export class MessageReader implements Screen {
 
   unsaved() { return this.surface.unsaved(); }
   keepDrafts() { return this.surface.keepDrafts(); }
+  /** Screen.dispose: the reader is closed; its draft's hold on the service is let go (PIE-501). */
+  dispose() { this.surface.dispose(); }
   /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
   holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
 

@@ -429,7 +429,7 @@ export class NoteSurface {
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway.
-    const proposal = this.msg?.props.type === "draft-proposal" && this.msg.props["proposal-status"] === "open" ? "A apply anyway · " : "";
+    const proposal = this.msg && isOpenProposal(this.msg) ? "A apply anyway · " : "";
     return `${extra}${proposal}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
@@ -1017,6 +1017,15 @@ export class NoteSurface {
     return completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
   }
 
+  /**
+   * The surface is going away with its screen (the reader, the river, a desk that isn't kept). Its draft's
+   * hold is let go, so an agent's patch goes to the saved note and never into a draft no one can see or save.
+   * Unsaved text was already copied to disk (keepDrafts) by the screen that asked before closing.
+   */
+  dispose() {
+    if (this.draft) this.closeDraft();
+  }
+
   private closeDraft() {
     this.draftHold?.release();
     this.draftHold = null;
@@ -1223,7 +1232,7 @@ export class NoteSurface {
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     // A: apply anyway (PIE-501), on a proposal an agent's patch left, or the embed of one.
-    if (c === "A" && this.msg) { void NOTE_ACTIONS.run("proposal.apply", {}, { surface: this, host }, USER).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); return true; }
+    if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentEmbed())) { void NOTE_ACTIONS.run("proposal.apply", {}, { surface: this, host }, USER).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
     // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
@@ -2828,6 +2837,9 @@ function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; w
   if (!d.dirty || !last || sameParty(last, actor)) return null;
   return { at: copy(), whose: last.kind === "user" ? "you" : agentLabel(last) };
 }
+
+/** A proposal an agent's draft.patch left that hasn't been applied (PIE-501). */
+const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open";
 
 /** Who a patch the service passes on is by: an agent by its actor id, else the person. */
 const patchActor = (m: { author: string; actorId?: string }): Actor => (m.author === "agent" ? { kind: "agent", id: m.actorId || "agent" } : USER);

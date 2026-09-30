@@ -583,6 +583,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.keep()] : [])];
   }
 
+  /** Screen.dispose: the board is closed; its readers' drafts let go of their holds on the service (PIE-501). */
+  dispose() { for (const r of this.readers()) r.dispose(); }
+
   private readers(): ReaderPane[] { return [this.preview, this.treePreview, this.linksPreview, ...this.details, ...this.floats.map(f => f.pane)]; }
 
   /** A lane's `[summary-properties::…]` decides the summary for the cards it lists (the selected lane first). */

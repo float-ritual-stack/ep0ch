@@ -475,9 +475,12 @@ export class Draft {
     if (!p.force) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
-      const limit = p.mark !== undefined ? markStart(text, p.mark) : blockStartAt(text, Math.min(c, a));
-      if (limit < 0) return no("the mark isn't in the draft");
-      if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${p.mark !== undefined ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
+      // Above the mark; and when the person went back up above the mark to write, above the block they're in.
+      const mark = p.mark !== undefined ? markStart(text, p.mark) : -1;
+      if (p.mark !== undefined && mark < 0) return no("the mark isn't in the draft");
+      const at = Math.min(c, a);
+      const limit = mark >= 0 && at > mark ? mark : Math.min(blockStartAt(text, at), mark >= 0 ? mark : Infinity);
+      if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
     }
     this.commitPatch(located.spans, by, p.patchId);
     return { applied: true };
@@ -507,8 +510,12 @@ export class Draft {
       const observed = sp.before + sp.text + sp.after;
       return { observed, replacement: sp.before + sp.was + sp.after, range: { start, end: start + observed.length } };
     });
-    const located = locateSpans(this.text, spans);
-    if (!located.ok) return false;
+    // Typing since may have moved it further than the compare looks from its range: then its one copy anywhere,
+    // with the text either side, and failing that the patched text alone when it is in the draft just once.
+    const located = [spans, spans.map(({ range: _, ...sp }) => sp), u.spans.map(sp => ({ observed: sp.text, replacement: sp.was }))]
+      .map(tried => tried.some(sp => !sp.observed) ? null : locateSpans(this.text, tried))
+      .find(r => r?.ok);
+    if (!located?.ok) return false;
     this.patches.splice(i, 1);
     this.commitPatch(located.spans, by, null);
     this.flashes = this.flashes.filter(f => !u.spans.some(sp => f.start === sp.start));

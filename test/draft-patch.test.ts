@@ -108,6 +108,32 @@ describe("a patch in a draft being typed in", () => {
     expect(d.note).toBe("no agent edit to undo in this draft");
   });
 
+  test("undo finds its patch after the person typed far above it, and after a later patch moved it", () => {
+    const d = typing();
+    const p = span(d.text, "water  them ^beds", "water them ^beds");
+    d.applyPatch({ patchId: "p1", patches: [p], revision: 3, mark: "@tidy tidy this" }, TIDY);
+    d.applyPatch({ patchId: "p2", patches: [span(d.text, "Morning plan", "Morning plan for the long bed")], revision: 3, mark: "@tidy tidy this" }, TIDY);
+    // The person goes up and writes a long paragraph above both.
+    d.place(0, 0);
+    for (const c of "x".repeat(300) + " ") d.key(char(c));
+    d.key({ kind: "enter" } as Key);
+    d.place(d.lines.length - 1, 0);
+    expect(d.revertPatch("p1", { kind: "user" })).toBe(true);
+    expect(d.text).toContain("water  them ^beds");
+    expect(d.text).toContain("Morning plan for the long bed");
+  });
+
+  test("with the cursor gone back above the mark, a patch stops at the block being typed in", () => {
+    const d = new Draft("note-3", 3, "Intro\n\nfirst  para\n\nsecond  para\n\n@tidy go\nbelow");
+    d.place(2, 3);                                                      // typing in "first  para"
+    expect(d.applyPatch({ patchId: "x", patches: [span(d.text, "second  para", "second para")], revision: 3, mark: "@tidy go" }, TIDY))
+      .toMatchObject({ applied: false, reason: expect.stringContaining("the block being typed in") });
+    // Below the mark, the mark is the limit, even with no blank line between the text and the mark.
+    const m = new Draft("note-4", 3, "Plan\nbeans   here\n@tidy go\nand I keep");
+    m.place(3, 10);
+    expect(m.applyPatch({ patchId: "y", patches: [span(m.text, "beans   here", "beans here")], revision: 3, mark: "@tidy go" }, TIDY)).toEqual({ applied: true });
+  });
+
   test("a proposal's embed line goes under the mark; typing at the very end carries on before it", () => {
     const d = new Draft("note-1", 3, "Plan\nstill typing");
     d.row = 1; d.col = d.lines[1]!.length;
@@ -239,6 +265,25 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const r = await agent.request("draft.patch", { blockId: e.id, revision: m.revision, patches: [span(m.text, "turn  it   weekly", "turn it weekly")], mutation: { author: "agent", actorId: "tidy" } });
     expect(r).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
     expect((await board.get(e.id))!.text).toBe("Compost\nturn it weekly");
+  }, 30_000);
+
+  test("a reader closed with its draft lets go of the hold: no patch lands in a draft no one can see", async () => {
+    const e = await editing("Beds\nrake  them   flat");
+    e.s.dispose();
+    await Bun.sleep(100);
+    expect((board as any).drafts.get(e.id)).toBeUndefined();
+    const m = (await board.get(e.id))!;
+    const r = await agent.request("draft.patch", { blockId: e.id, revision: m.revision, patches: [span(m.text, "rake  them   flat", "rake them flat")], mutation: { author: "agent", actorId: "tidy" } });
+    expect(r).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
+    expect(e.d.text).toBe("Beds\nrake  them   flat");
+  }, 30_000);
+
+  test("A is apply anyway only on a proposal; elsewhere the key isn't taken", async () => {
+    const id = await create("Plain note\nnothing proposed here");
+    const reader = new NoteSurface(), h = host();
+    reader.show((await board.get(id))!, h);
+    expect(reader.key(char("A"), h)).toBe(false);
+    expect(reader.hint()).not.toContain("apply anyway");
   }, 30_000);
 
   test("peek says the draft is held, where the cursor is, and which patches it can undo", async () => {
