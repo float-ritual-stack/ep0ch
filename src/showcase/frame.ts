@@ -36,9 +36,12 @@ export class FramedScreen {
     // An inner screen holding a draft stays: the person gets the outer unsaved guard's message instead.
     if (top?.unsaved?.()) { this.outer().flash("an edit isn't saved · ctrl+s saves it"); return; }
     this.stack.pop();
+    top?.dispose?.();
     this.outer().redraw();
   }
-  replace(s: Screen) { if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } this.outer().redraw(); }
+  /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
+  dispose() { for (const s of [...this.stack].reverse()) s.dispose?.(); }
+  replace(s: Screen) { const was = this.stack.at(-1); if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } if (was !== s) was?.dispose?.(); this.outer().redraw(); }
 
   /** The top screen, drawn `w` by `h`. Its image placements keep their keys under `tag`. */
   render(w: number, h: number, tag: string): Frame {

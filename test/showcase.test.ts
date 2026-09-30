@@ -265,7 +265,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface in the BBS message reader · src/screens.ts", "Subj: Allotment notebook"],
-    actions: ["NOTE_ACTIONS · src/surface/note.ts", "DESK_ACTIONS · src/desk/desk.ts", "the action registry · src/surface/actions.ts"],
+    // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
+    actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6", "parallel version, to consolidate: the board's composer"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],

@@ -20,10 +20,10 @@ import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../a
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
-import { Draft, DRAFT_ACTIONS, sameParty, unsent, whenPut, type DraftActionArgs } from "../edit";
+import { Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, unsent, whenPut, type DraftActionArgs } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
-import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type PropertyRecord } from "../socket";
+import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type PropertyRecord } from "../socket";
 import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -352,6 +352,11 @@ export class NoteSurface {
    * holds the reader's keys until a choice is made or esc.
    */
   picker: { key: string; sel: number; note: string; busy: boolean } | null = null;
+  /**
+   * The open draft's hold on the service (PIE-501): while held, an agent's `draft.patch` on this note lands in
+   * the draft being typed, not the saved note. Let go when the draft closes.
+   */
+  private draftHold: DraftHoldHandle | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new StepHistory();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
@@ -423,7 +428,9 @@ export class NoteSurface {
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
-    return `${extra}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
+    // A proposal an agent's patch left (PIE-501): A applies it anyway.
+    const proposal = this.msg && isOpenProposal(this.msg) ? "A apply anyway · " : "";
+    return `${extra}${proposal}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -944,14 +951,17 @@ export class NoteSurface {
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null): string[] {
+    const by = writtenBy(d, "save");
     return renderEditor(d, {
       preview: (t, pw) => draftPreview(t, pw, src),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
-        fg(C.cyan) + pad(d.note || "whole text: subject, body and [key::value] properties", w) + RESET,
+        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down.
+        d.note ? fg(C.cyan) + pad(d.note, w) + RESET
+          : by ? fg(C.lmagenta) + pad(by, w) + RESET
+          : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
       ],
-      by: writtenBy(d, "save"),
     }, w, h);
   }
 
@@ -983,6 +993,7 @@ export class NoteSurface {
     // Only for the person: an agent's edit never picks up the person's put-aside text.
     this.draft.openedBy = host.actor ?? USER;
     if (host.actor?.kind !== "agent") this.draft.restore();
+    this.holdDraft(host);
     host.redraw();
     if (external) this.external(host);
   }
@@ -1011,9 +1022,47 @@ export class NoteSurface {
     return completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
   }
 
+  /**
+   * The surface is going away with its screen (the reader, the river, a desk that isn't kept). Its draft's
+   * hold is let go, so an agent's patch goes to the saved note and never into a draft no one can see or save.
+   * Unsaved text was already copied to disk (keepDrafts) by the screen that asked before closing.
+   */
+  dispose() {
+    if (this.draft) this.closeDraft();
+  }
+
   private closeDraft() {
+    this.draftHold?.release();
+    this.draftHold = null;
     this.draft = null;
     if (this.msg) this.links = linksOf(this.msg);
+  }
+
+  /** Hold the open draft on the service, so an agent's patch on this note comes to it (PIE-501). */
+  private holdDraft(host: SurfaceHost) {
+    const d = this.draft;
+    if (!d) return;
+    const redraw = () => host.redraw();
+    this.draftHold = host.ctx.board.holdDraft?.(d.blockId, d.base, r => this.answerDraft(r, d, redraw)) ?? null;
+  }
+
+  /**
+   * The service asks about the draft this reader holds: its text now, an agent's patch (compared against the
+   * text as typed; the cursor, selection and view shift with it), a revert of one, or a proposal's embed line.
+   * Never the person's keys: nothing here moves focus or leaves the draft.
+   */
+  answerDraft(r: DraftRequest, d: Draft, redraw: () => void): DraftAnswer {
+    if (this.draft !== d) throw new Error("the draft was closed");
+    if (r.kind === "read") return { text: d.text, revision: d.base };
+    if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
+    const by = patchActor(r.mutation);
+    const a = r.kind === "patch" ? d.applyPatch(r, by) : d.insertLine(r.line, r.mark, by);
+    if (a.applied) {
+      this.noteAgent(by, r.kind === "patch" ? (r.force ? "applied a proposal" : "edited text above your cursor") : "put a proposal under the mark");
+      setTimeout(redraw, PATCH_FLASH_MS + 50);
+      redraw();
+    }
+    return a;
   }
 
   /**
@@ -1080,6 +1129,7 @@ export class NoteSurface {
     if (!m) { d.note = "the note is gone from the outline"; host.redraw(); return; }
     this.msg = m;
     d.rebase(m);
+    this.draftHold?.revise(d.base);
     if (copy) d.note = `loaded revision ${d.base} · your earlier draft is at ${copy}`;
     host.redraw();
   }
@@ -1186,6 +1236,8 @@ export class NoteSurface {
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
+    // A: apply anyway (PIE-501), on a proposal an agent's patch left, or the embed of one.
+    if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentEmbed())) { void NOTE_ACTIONS.run("proposal.apply", {}, { surface: this, host }, USER).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
     // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
@@ -2530,7 +2582,7 @@ export class NoteSurface {
     const d = this.draft;
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
-      editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save") } : undefined,
+      editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save"), held: !!this.draftHold, cursor: { line: d.row + 1, col: d.col + 1 }, patches: d.patches.map(u => ({ id: u.patchId, by: actorIdOf(u.by) })), lit: d.flashes.map(f => f.label) } : undefined,
       commenting: this.session ? this.session.describe() : undefined,
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
@@ -2566,6 +2618,12 @@ export class NoteSurface {
     if (!now || now.id !== m.id) throw new ActionRefused("the reader moved to another note");
     if (now.partial) throw new ActionRefused(this.unread ? `the note couldn't be read: ${this.unread}` : "the whole note isn't read yet; try again in a moment");
     return now;
+  }
+
+  /** The block of the embed that is the current element while it's in view, if one is. */
+  currentEmbed(): string | undefined {
+    const e = this.inView();
+    return e?.kind === "embed" ? e.link?.block : undefined;
   }
 
   requireNote(): Msg {
@@ -2826,6 +2884,12 @@ function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; w
   return { at: copy(), whose: last.kind === "user" ? "you" : agentLabel(last) };
 }
 
+/** A proposal an agent's draft.patch left that hasn't been applied (PIE-501). */
+const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open";
+
+/** Who a patch the service passes on is by: an agent by its actor id, else the person. */
+const patchActor = (m: { author: string; actorId?: string }): Actor => (m.author === "agent" ? { kind: "agent", id: m.actorId || "agent" } : USER);
+
 // ── the actions ──────────────────────────────────────────────────────────────
 
 interface On { surface: NoteSurface; host: SurfaceHost }
@@ -2878,6 +2942,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "task.undo": Record<string, never>;
   "task.link": StepArgs;
   "task.menu": StepArgs;
+  "proposal.apply": { id?: string };
 }
 interface StepArgs { n?: number; id?: string; block?: string }
 
@@ -3059,6 +3124,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "draft.place": forwardDraft("draft.place"),
   "draft.scroll": forwardDraft("draft.scroll"),
   "draft.preview": forwardDraft("draft.preview"),
+  "draft.undo": forwardDraft("draft.undo"),
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
@@ -3594,6 +3660,22 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.openPicker(e);
       host.redraw();
       return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
+    },
+  },
+  "proposal.apply": {
+    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal shown, the embed of one that is the current element, or id", keys: "A",
+    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the embed that is the current element, else the note shown)" } },
+    async run({ id }, { surface, host }, actor) {
+      const e = surface.currentEmbed();
+      const target = id ?? e ?? surface.requireNote().id;
+      try {
+        const r = await host.ctx.board.applyProposal(target, actor);
+        host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}`);
+        surface.noteAgent(actor, "applied a proposal anyway");
+        return r;
+      } catch (err) {
+        throw new ActionRefused(err instanceof Error ? err.message : String(err));
+      } finally { host.redraw(); }
     },
   },
   "select.clear": {

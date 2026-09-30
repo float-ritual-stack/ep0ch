@@ -903,6 +903,8 @@ export class River implements Screen {
     return (this.mode !== "" && this.mode !== "help") || !!p?.surface.panel || !!p?.surface.choosing || (!!p?.surface.editing && this.isEntered(p));
   }
   keepDrafts() { return this.panes().flatMap(p => p.surface.keepDrafts()); }
+  /** Screen.dispose: the river is left; its readers' drafts let go of their holds on the service (PIE-501). */
+  dispose() { for (const p of this.panes()) p.surface.dispose(); }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
 

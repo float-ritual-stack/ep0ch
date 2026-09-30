@@ -75,7 +75,7 @@ export class PreviewPane extends ReaderPane {
     });
   }
   private unwatch() { if (this.watching) unwatchFile(this.watching); this.watching = null; }
-  dispose() { this.unwatch(); }
+  override dispose() { this.unwatch(); super.dispose(); }
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     if (!this.msg) return { lines: ["\x1b[38;2;85;85;85m" + ("tile" in this.source ? `follows tile ${this.source.tile}: pick something there` : "reading…") + "\x1b[0m"] };

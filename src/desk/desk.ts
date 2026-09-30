@@ -1871,7 +1871,8 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string 
 
 /** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
 function previewLines(m: Msg, w: number): string[] {
-  const body = bodyLinesOf(m.text);
+  // A draft proposal's hidden patch (`[draft-patch::…]`, PIE-501) is machine data, never shown.
+  const body = bodyLinesOf(m.text).filter(l => !/^\s*\[draft-patch::[A-Za-z0-9_-]*\]\s*$/.test(l.text));
   while (body.length && !body[0]!.text.trim()) body.shift();
   while (body.length && !body.at(-1)!.text.trim()) body.pop();
   return body.flatMap(l => (l.text ? wrap(l.text, w) : [""]).map(x => colourBody(x, l.literal)));

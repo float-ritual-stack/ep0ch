@@ -299,6 +299,7 @@ export class Showcase implements Screen {
   onEvent(e: OutlineEvent) { for (const f of this.stages.values()) f.onEvent(e); }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
+  dispose() { for (const f of this.stages.values()) f.dispose(); }
   openBlock(m: Msg) { const f = this.stage(this.sel); if (!f?.top.openBlock) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section can't open blocks`); f.top.openBlock(m); }
 
   describe() {

@@ -90,6 +90,7 @@ export class ScreenTile implements Pane {
   onEvent(_desk: DeskApi, e?: OutlineEvent) { if (e) this.framed?.onEvent(e); }
   unsaved() { return this.framed?.unsaved() ?? false; }
   keepDrafts() { return this.framed?.keepDrafts() ?? []; }
+  dispose() { this.framed?.dispose(); }
   holdsKeys() { return !!this.framed?.top.holdsKeys?.(); }
 
   /** Its screen's actions, for `act reader=<this tile>`. */

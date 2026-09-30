@@ -688,6 +688,8 @@ The board's new-card composer is the same control too.
 | the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
+| `Ctrl+Z` | take back the last edit an agent patched into the draft (below), as one unit |
+| `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -716,6 +718,18 @@ The board's new-card composer is the same control too.
   the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents. A service without a lookup says so in the popup, and typing carries on.
+- **Agents edit above while you type** (pi-herdr-outliner PIE-501, `draft.patch`). An open draft is held on
+  the service, on a lease the door renews every 5 s, so an agent's compare-and-swap on a span of the note
+  lands in your draft instead of the saved note. It applies only while the text it read is still there (at
+  or near where it saw it), above the `@request` line it names (or, without one, above the block your cursor
+  is in), and not around your cursor. Your cursor, selection and view move with it, so nothing on screen
+  jumps; the new text is lit for a moment with `@<agent> · just now`, and `Ctrl+Z` takes it back as one
+  unit. Your save records it as yours, naming the agent. If the compare fails (you changed that passage),
+  nothing is changed: the proposal lands as a reply block, embedded under the `@request` line (`!((id))`),
+  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
+  screen the draft was in, lets go of its holds, and patches go to the saved note under a revision check; a
+  door that is only slow to answer keeps its hold, and the patch becomes a proposal. When two doors hold
+  drafts of the same note, a patch goes to neither.
 - **Saving** sends `update` with the revision the draft started from. The service refuses it if anyone
   else saved since, and the door never retries it over their text: the draft stays open, is copied to
   `~/.local/state/ep0ch-door/drafts/`, and `Ctrl+R` starts over from the current revision.
@@ -946,7 +960,8 @@ change (yours or an agent's).
 | `ctrl+z` | undo the last step change you made while reading this note |
 
 The keys were picked after checking every screen's: `space` pages a reader everywhere else and keeps doing
-so unless a step is the current element in view; `ctrl+z` is bound nowhere else in the door; `x o w !`
+so unless a step is the current element in view; `ctrl+z` is undo wherever it's bound (here, and in a draft
+for an agent's patch); `x o w !`
 and `y a` only mean this while the choice is open (it takes the keys first on the board, the desk, the
 river and the BBS reader), and match the board's steps overlay (`x w !`) and the door's `y` for copy.
 
@@ -1143,6 +1158,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (otherwise `edit.text` or `comment.write`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
+| `draft.undo` | none: the last agent patch in the reader's draft (an agent: only its own) | `Ctrl+Z` in a draft |
+| `proposal.apply` | `id` (default: the embed that is the current element, else the note shown): apply anyway, as an edit by whoever runs it | `A` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

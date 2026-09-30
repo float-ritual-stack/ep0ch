@@ -126,6 +126,7 @@ export class ReaderPane implements Pane {
   holdOn() { this.held = this.follows; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
+  dispose() { this.surface.dispose(); }
   title() {
     const st = this.surface.state();
     return ["reader", this.held ? "held" : "", st].filter(Boolean).join(" · ");
