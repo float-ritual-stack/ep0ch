@@ -128,7 +128,7 @@ opens the showcase (PIE-439): the shared door parts, live, in fourteen sections,
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
-(`L`) in `entity`, and quiet embeds (a dim `↳` source line) in `note`. It runs on an
+(`L`) in `entity`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -1323,7 +1323,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 - Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
   cards need `views.planWrite`, and lanes `views.read`. The door has no fallback evaluator for older services.
-- Nested embeds each keep their quiet `↳` source line and bar; PIE-185's flat composition (no chrome per level)
+- Nested embeds each keep their quiet `»` source line and bar; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.
 - Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an
