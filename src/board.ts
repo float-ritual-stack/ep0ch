@@ -1,5 +1,6 @@
 // What the door needs from the outline, independent of the wire protocol.
 import { literalLines } from "./literal";
+import { withoutPropertyTokens } from "./vendor/property-grammar";
 
 export interface Msg {
   id: string;
@@ -36,6 +37,8 @@ export interface BoardInfo {
   host: string; workspace: string; protocol: number; blocks: number | null; capabilities?: string[] | null;
   /** The outline's name when the service is an outline host (PIE-457); absent from a single-outline service. */
   outline?: string;
+  /** Something the person should know about this service before relying on the door (said once at start). */
+  warning?: string;
 }
 
 export interface Board {
@@ -63,7 +66,7 @@ export function titleLine(text: string): { line: number; text: string } {
     if (lit?.markers.has(i)) continue;
     const l = lines[i]!;
     if (first < 0 && l.trim()) first = i;
-    const t = (lit?.inside.has(i) ? l : l.replace(/\[[\w-]+::[^\]]*\]/g, "")).trim();
+    const t = (lit?.inside.has(i) ? l : withoutPropertyTokens(l)).trim();
     if (t) return { line: i, text: t };
   }
   return { line: first, text: "" };

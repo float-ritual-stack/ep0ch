@@ -67,18 +67,6 @@ describe.skipIf(!packsHere)("the real ep0ch screens", () => {
   });
 });
 
-import { parseFilterExpression } from "../src/views";
-describe("saved-view query parsing (matches the outliner's rules)", () => {
-  test("= and :: separators, presence, quotes, lowercased keys", () => {
-    expect(parseFilterExpression('Type=roadmap-item work-stage::doing pinned title="two words"')).toEqual([
-      { key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }, { key: "pinned" }, { key: "title", value: "two words" },
-    ]);
-  });
-  test("boolean operators and empty values are rejected", () => {
-    expect(() => parseFilterExpression("type=a or type=b")).toThrow(/Boolean operator/);
-    expect(() => parseFilterExpression("type=")).toThrow(/cannot be empty/);
-  });
-});
 
 import { table } from "../src/doc";
 import { resolveMediaPath } from "../src/media";
@@ -149,7 +137,10 @@ describe("live figures answer from the outline", () => {
     let stage = "waiting";
     const block = (id: string, title: string, props: Record<string, string>) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
     const fake: any = {
-      request: async (_a: string, p: any) => ({ blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.filters[0].key === "type"), completeness: { kind: "complete" } }),
+      supports: (c: string) => c === "query.expression",
+      request: async (_a: string, p: any) => ({ blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.expression === "type=outbox-item"), completeness: { kind: "complete" } }),
+      // The service says which results `done:` holds for (query.matches).
+      matchQuery: async (expression: string, ids: string[]) => new Set(expression === "outbox=done" && stage === "done" ? ids : []),
       toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: Object.fromEntries(b.properties.map((x: any) => [x.key, x.value])) })),
     };
     let redraws = 0;

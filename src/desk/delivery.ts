@@ -23,9 +23,9 @@ import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
-import { applyMove, describeChanges, planMove, type MovePlan } from "../move";
-import { matchesFilters, readView, type ViewRead } from "../views";
-import { holds } from "../query";
+import { applyMove, describeChanges, NO_PLANNER, planMoves, type MovePlan } from "../move";
+import { readView, type ViewRead } from "../views";
+import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, TreePane, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import {
   MIN_COLS, MIN_ROWS, beside, describeTree, dividerAt, dragTo as dragBorder, grow, has, insert, leaf, node, placeScreen, remove, resize, share, splitOf,
@@ -35,10 +35,8 @@ import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
 import { Draft } from "../edit";
 import { editHint, openInEditor, renderEditor, writtenBy } from "../surface/editor";
-import { createMisses, planCreate } from "../move";
-import { showExpr } from "../query";
-import { Refused, type ChecklistRead, type ChecklistStep, type StepStatus } from "../socket";
-import { composeCardText, pickParent, planRoadmapItem, scanTokens, titleOf, type ParentPick } from "./writes";
+import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
+import { pickParent, titleOf, type ParentPick } from "./writes";
 
 interface Lane { name: string; def: Msg; items: Msg[] | null; sel: number; top: number; read?: ViewRead; want?: string; wantVerb?: string }
 interface Float { pane: ReaderPane; rect: Rect }
@@ -151,7 +149,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private hubs: Record<string, string> = {};          // workspace → last board hub id
   private picker: { items: { hub: Msg; lanes: number }[]; sel: number } | null = null;
   /** The move picker (`m`): every lane with what moving the selected card there would patch. */
-  private mover: { card: Msg; from: number; plans: MovePlan[]; sel: number } | null = null;
+  private mover: { card: Msg; from: number; plans: MovePlan[] | null; sel: number } | null = null;
+  /**
+   * The service's move plans for one card at one revision into the lanes as they're defined now, for
+   * drawing a drag or the picker without asking on every paint. `plans` is null while they're asked.
+   */
+  private movePlans: { key: string; plans: Map<string, MovePlan> | null } | null = null;
   /** The card a move is patching right now; a second move waits for it. */
   private moving: string | null = null;
   private lastMove: { card: string; to: string; result: string; by?: string } | null = null;
@@ -510,20 +513,37 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const own = this.lanes.filter(l => l.def.id === id);
     if (own.length) return this.markLanes(own);                       // a lane's definition or its ranks changed
     const members = this.lanes.filter(l => l.items?.some(m => m.id === id));
-    this.ctx.board.readMany([id], ["properties", "revision"]).then(([m]) => {
-      const may = m ? this.lanes.filter(l => !members.includes(l) && this.couldHold(l, m)) : [];
-      this.markLanes([...members, ...may]);
+    // Which other lanes it's in now is the service's answer: a plan that's "already" there.
+    const ready = this.lanes.filter(l => !members.includes(l) && l.read?.status === "ready");
+    if (!ready.length) return this.markLanes(members);
+    this.ctx.board.planMoves(ready.map(l => l.def.id), id).then(r => {
+      this.markLanes(r ? [...members, ...ready.filter(l => r.plans.get(l.def.id)?.kind === "already")] : this.lanes);
     }, () => this.markLanes(this.lanes));
   }
 
-  /** Could `m` belong in lane `l` now? Loose on purpose: a yes only means "ask the service". */
-  private couldHold(l: Lane, m: Msg): boolean {
-    const read = l.read;
-    if (!read || read.status !== "ready") return false;             // an invalid lane stays invalid until its definition changes
-    // OR, NOT, dates: evaluated on its properties; a range the record can't tell (no timestamps) is a maybe.
-    if (read.query) return holds(read.query.expr, { properties: m.properties ?? [] }) !== false;
-    if (read.unpatchable) return true;
-    return !read.filters.length || matchesFilters(m.properties ?? [], read.filters);
+  /** The lanes (other than `except`) the service says `card` is in now. */
+  private async lanesHolding(card: Msg, except: number): Promise<string[]> {
+    const others = this.lanes.filter((l, i) => i !== except && l.read?.status === "ready");
+    if (!others.length) return [];
+    const r = await this.ctx.board.planMoves(others.map(l => l.def.id), card.id).catch(() => null);
+    return r ? others.filter(l => r.plans.get(l.def.id)?.kind === "already").map(l => l.name) : [];
+  }
+
+  /**
+   * The service's plan for moving `card` into lane `l`, for drawing: from the plans asked for this card
+   * at this revision and these lane definitions, or null while they're being asked (the first call asks).
+   */
+  private cachedPlan(card: Msg, l: Lane): MovePlan | null {
+    const key = `${card.id}@${card.revision}|${this.lanes.map(x => `${x.def.id}@${x.def.revision}`).join(",")}`;
+    if (this.movePlans?.key !== key) {
+      const entry: { key: string; plans: Map<string, MovePlan> | null } = { key, plans: null };
+      this.movePlans = entry;
+      planMoves(this.ctx.board, card, this.lanes.map(x => x.def.id)).then(
+        plans => { entry.plans = plans; this.redraw(); },
+        (e: Error) => { entry.plans = new Map(this.lanes.map(x => [x.def.id, { kind: "refused" as const, reason: e.message }])); this.redraw(); },
+      );
+    }
+    return this.movePlans.plans?.get(l.def.id) ?? null;
   }
 
   private markLanes(lanes: Lane[]) {
@@ -721,7 +741,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
     return {
       kind: "board", hub: brief(this.hub), focus: this.focus,
-      lanes: this.lanes.map((l, i) => ({ name: l.name, count: l.items?.length ?? null, status: l.read?.status, by: l.read?.by, truncated: l.read?.truncated, collapsed: this.collapsed.has(l.name), focused: i === this.lane, selected: brief(l.items?.[l.sel]) })),
+      lanes: this.lanes.map((l, i) => ({ name: l.name, count: l.items?.length ?? null, status: l.read?.status, truncated: l.read?.truncated, collapsed: this.collapsed.has(l.name), focused: i === this.lane, selected: brief(l.items?.[l.sel]) })),
       preview: brief(this.preview.msg),
       details: this.details.map((d, i) => ({ ...brief(d.msg), opensHere: i === this.active })),
       floats: this.floats.map(f => ({ ...brief(f.pane.msg), rect: f.rect })),
@@ -735,8 +755,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       agentSelected: Object.fromEntries(this.agentCards),
       trashArmed: this.trashArm?.id ?? null, trashed: this.trashed, lastWrite: this.lastWrite,
       refreshes: { ...this.refreshes },
-      views: this.lanes[0]?.read?.by ?? null,
-      mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans[i], selected: i === this.mover!.sel })) } : null,
+      mover: this.mover ? { card: brief(this.mover.card), options: this.lanes.map((l, i) => ({ lane: l.name, plan: this.mover!.plans?.[i] ?? "planning", selected: i === this.mover!.sel })) } : null,
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => ({ name: r.name, focused: r.region === this.focus, ...r.pane.describe(), ...this.collapsedState(r.pane) })),
       collapsedReaders: this.namedReaders().filter(r => this.shut.has(r.pane)).map(r => r.name),
       editing: this.readers().filter(r => r.draft).map(r => draftState(r)),
@@ -1203,19 +1222,25 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const by = actor.kind === "agent" ? { by: actor.id } : {};
     const blocked = this.moveBlocked(card);
     if (blocked) { this.lastMove = { card: card.id, to: target.name, result: `refused: ${blocked}`, ...by }; return ctx.flash(`not moved: ${blocked}`); }
-    const plan = planMove(card, target);
-    if (plan.kind === "refused") { this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}`, ...by }; return ctx.flash(`can't move to ${target.name}: ${plan.reason}`); }
+    // From here until it lands or is refused, this card is moving: a second move waits for it.
+    this.moving = card.id; this.status = `${actor.kind === "agent" ? `${agentLabel(actor)} is ` : ""}moving to ${target.name}...`; this.redraw();
+    const plan = (await planMoves(this.ctx.board, card, [target.def.id]).catch((e: Error) => new Map<string, MovePlan>([[target.def.id, { kind: "refused", reason: e.message }]]))).get(target.def.id)
+      ?? { kind: "refused" as const, reason: NO_PLANNER };
+    if (plan.kind !== "patch") { this.moving = null; this.status = ""; }
+    if (plan.kind === "refused") {
+      this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}`, ...by };
+      return ctx.flash(plan.stale ? `not moved: ${plan.reason}` : `can't move to ${target.name}: ${plan.reason}`);
+    }
     if (plan.kind === "already") {
       if (person) { this.lane = to; target.want = card.id; }
       this.loadLanes();
       this.lastMove = { card: card.id, to: target.name, result: "already there", ...by };
       return ctx.flash(`already in ${target.name} · nothing to change`);
     }
-    this.moving = card.id; this.status = `${actor.kind === "agent" ? `${agentLabel(actor)} is ` : ""}moving to ${target.name}...`; this.redraw();
     let landed = false;
     try {
-      const m = await applyMove(this.ctx.board, card, plan.changes, actor);
-      const also = this.lanes.filter((l, i) => i !== to && l.read?.status === "ready" && (l.read.query ? holds(l.read.query.expr, { properties: m.properties ?? [], createdAt: m.createdAt, updatedAt: m.updatedAt }) === true : l.read.filters.length && matchesFilters(m.properties ?? [], l.read.filters))).map(l => l.name);
+      const m = await applyMove(this.ctx.board, card, plan, actor);
+      const also = await this.lanesHolding(m, to);
       this.lastMove = { card: card.id, to: target.name, result: `moved: ${describeChanges(plan.changes)} · revision ${m.revision}`, ...by };
       ctx.flash(`moved to ${target.name} · ${describeChanges(plan.changes)}${also.length ? ` · still in ${also.join(", ")} too` : ""}`);
       for (const r of this.readers()) r.refresh({ ...m, childIds: r.msg?.id === m.id ? r.msg.childIds : m.childIds });
@@ -1243,10 +1268,20 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (!card) return this.ctx.flash("select a card to move");
     const blocked = this.moveBlocked(card);
     if (blocked) return this.ctx.flash(`not moved: ${blocked}`);
-    const plans = this.lanes.map(l => planMove(card, l));
-    const first = plans.findIndex((p, i) => i !== this.lane && p.kind === "patch");
-    this.mover = { card, from: this.lane, plans, sel: first >= 0 ? first : this.lane };
+    const M: NonNullable<DeliveryBoard["mover"]> = { card, from: this.lane, plans: null, sel: this.lane };
+    this.mover = M;
     this.redraw();
+    const ids = this.lanes.map(l => l.def.id);
+    planMoves(this.ctx.board, card, ids).then(
+      plans => {
+        if (this.mover !== M) return;
+        M.plans = ids.map(id => plans.get(id) ?? { kind: "refused", reason: NO_PLANNER });
+        const first = M.plans.findIndex((p, i) => i !== M.from && p.kind === "patch");
+        if (first >= 0 && M.sel === M.from) M.sel = first;
+        this.redraw();
+      },
+      (e: Error) => { if (this.mover === M) { M.plans = ids.map(() => ({ kind: "refused" as const, reason: e.message })); this.redraw(); } },
+    );
   }
 
   private moverKey(k: Key, c: string) {
@@ -1302,19 +1337,20 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    * A roadmap lane's items go where the workboard's allocator puts them (their project's work queue), so
    * it has no parent to pick and a named one is refused.
    */
-  private cardPlan(lane: Lane, parent?: string): CardPlan {
-    const plan = planCreate(lane);
+  private async cardPlan(lane: Lane, parent?: string, text = ""): Promise<CardPlan> {
+    const plan = await this.ctx.board.planCreate(lane.def.id, text);
+    if (!plan) throw new ActionRefused(`this outline can't plan new cards (views.planWrite, PIE-490); restart it from a current pi-herdr-outliner`);
     if (plan.kind === "refused") throw new ActionRefused(plan.reason);
-    const needs = plan.needs.map(t => showExpr(t, true));
+    const { needs } = plan;
     if (plan.roadmap) {
       if (this.ctx.board.hasRoadmapAllocator() === false)
         throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
       if (parent) throw new ActionRefused(`${lane.name} lists roadmap items: the workboard's allocator puts them under their project's work queue, so parent= can't be chosen`);
-      return { born: plan.props, defaults: plan.defaults, needs, parent: null };
+      return { born: plan.born, defaults: plan.defaults, needs, parent: null, plan };
     }
     const where = parent ? { id: parent, why: "named by the caller" } : pickParent(lane.name, lane.def, lane.items ?? [], this.lanes.flatMap(l => l.items ?? []));
     if ("refused" in where) throw new ActionRefused(where.refused);
-    return { born: plan.props, defaults: plan.defaults, needs, parent: where };
+    return { born: plan.born, defaults: plan.defaults, needs, parent: where, plan };
   }
 
   /**
@@ -1324,18 +1360,29 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private openCardComposer() {
     const lane = this.lanes[this.lane];
     if (!lane || this.composer) return;
-    let plan: ReturnType<DeliveryBoard["cardPlan"]>;
-    try { plan = this.cardPlan(lane); } catch (e) { return this.ctx.flash(`can't create in ${lane.name}: ${(e as Error).message}`); }
-    const pick = plan.parent;
-    const C0: Composer = { kind: "card", lane, born: plan.born, defaults: plan.defaults, needs: plan.needs, parent: pick ? { ...pick, title: pick.id.slice(0, 8) } : null, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
+    // Open now, so what's typed next is the card's text; what the lane gives it is filled in when the
+    // service's plan arrives. A lane that can't define a card says why, and the text is kept.
+    const C0: Composer = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
     this.composer = C0;
     this.redraw();
-    if (pick) this.ctx.board.get(pick.id).then(parent => {
-      if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
-      if (parent) C0.parent.title = titleOf(parent);
-      else C0.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+    this.cardPlan(lane).then(plan => {
+      if (this.composer !== C0 || C0.kind !== "card") return;
+      const pick = plan.parent;
+      Object.assign(C0, { planning: false, born: plan.born, defaults: plan.defaults, needs: plan.needs, parent: pick ? { ...pick, title: pick.id.slice(0, 8) } : null });
       this.redraw();
-    }, () => {});
+      if (pick) this.ctx.board.get(pick.id).then(parent => {
+        if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
+        if (parent) C0.parent.title = titleOf(parent);
+        else C0.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+        this.redraw();
+      }, () => {});
+    }, (e: Error) => {
+      if (this.composer !== C0 || C0.kind !== "card") return;
+      C0.planning = false; C0.draft.note = `not created: can't create in ${lane.name}: ${e.message}`;
+      if (!C0.draft.dirty) this.composer = null;                     // nothing typed yet: nothing to keep
+      this.ctx.flash(`can't create in ${lane.name}: ${e.message}`);
+      this.redraw();
+    });
   }
 
   /** `N`: a note under the selected card, opened at once like `n`. */
@@ -1388,18 +1435,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   async createCard(lane: Lane, text: string, actor: Actor, parent?: string): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the card's title first");
-    const plan = this.cardPlan(lane, parent);
-    if (!plan.parent) return this.createItem(lane, body, actor, plan);
-    const board = this.ctx.board;
-    const typed = await board.previewPropertyList(body);
-    const composed = composeCardText(body, plan.born, typed, plan.defaults);
-    if ("refused" in composed) throw new ActionRefused(composed.refused);
-    const final = typed ? await board.previewPropertyList(composed.text) : null;
-    if (final) { const miss = createMisses(lane, final); if (miss) throw new ActionRefused(miss); }
-    else if (plan.needs.length) throw new ActionRefused(`${lane.name} needs ${plan.needs.join(" and ")}, and this service can't preview properties, so the door can't check the text meets it; give the lane a [create::key=value]`);
-    const m = await this.landCreate(plan.parent.id, composed.text, actor);
-    const seen = typed ?? scanTokens(body);
-    const bornWith = [...plan.born, ...plan.defaults.filter(p => !seen.some(t => t.key === p.key))];   // a default the text didn't override
+    const plan = await this.cardPlan(lane, parent, body);
+    if (!plan.parent) return this.createItem(lane, actor, plan);
+    const composed = plan.plan.text;
+    if (composed === undefined) throw new ActionRefused(`the outline planned no text for the card in ${lane.name}`);
+    const m = await this.landCreate(plan.parent.id, composed, actor);
+    const bornWith = plan.plan.bornWith ?? [];
     this.created(lane, m, actor, `created in ${lane.name} · ${titleOf(m)}${bornWith.length ? ` · born with ${bornWith.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`, `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`);
     return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recordedAs(actor) };
   }
@@ -1407,31 +1448,31 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   /**
    * A roadmap item in a roadmap lane, through the workboard's allocator (`roadmap.items.create`), never
    * a plain create: it issues the work-id and puts the item under its project's one active work queue.
-   * Its fields come from the typed tokens, the lane's plain clauses and its create:: default
-   * (planRoadmapItem); the item as it will be is checked against the lane's whole query first. Not
-   * retried: a lost answer is looked for among the project's newest items.
+   * Its fields are the service's plan (typed tokens, else the lane's plain clauses, else its create::
+   * default), already checked against the lane's whole query. Not retried: a lost answer is looked for
+   * among the project's newest items.
    */
-  private async createItem(lane: Lane, body: string, actor: Actor, plan: CardPlan) {
+  private async createItem(lane: Lane, actor: Actor, plan: CardPlan) {
     const board = this.ctx.board;
-    const typed = await board.previewPropertyList(body);
-    const item = planRoadmapItem(lane.name, body, plan.born, plan.defaults, typed);
-    if ("refused" in item) throw new ActionRefused(item.refused);
-    const miss = createMisses(lane, item.props);
-    if (miss) throw new ActionRefused(miss);
+    const input = plan.plan.item;
+    if (!input) throw new ActionRefused(`the outline planned no roadmap item for ${lane.name}`);
     const since = Date.now();
     let made: { workId: string; workQueueId: string; block: Msg } | null;
-    try { made = await board.createRoadmapItem(item.input, actor); }
+    try { made = await board.createRoadmapItem(input, actor); }
     catch (e) {
       if (e instanceof Refused) throw new ActionRefused(e.message);
-      const found = await this.findItem(item.input.project, item.input.title, since).catch(() => null);
+      const found = await this.findItem(input.project, input.title, since).catch(() => null);
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
       made = { workId: found.props["work-id"] ?? "", workQueueId: found.parentId ?? "", block: found };
     }
     if (!made) throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
     const m = made.block;
-    const fields = [`priority=${item.input.priority}`, `arc=${item.input.arc}`, ...item.input.tracks.map(t => `track=${t}`), `project=${item.input.project}`];
-    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${item.input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
-    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith: item.props.filter(p => ["type", "work-stage", "project", "priority", "arc", "track", "work-batch"].includes(p.key)).map(p => `${p.key}=${p.value}`), recordedAs: recordedAs(actor) };
+    const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
+    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
+    const stage = input.workStage ?? (input.workBatchId ? "queued" : "unprioritized");
+    const bornWith = ["type=roadmap-item", `priority=${input.priority}`, `work-stage=${stage}`, ...(input.workBatchId ? [`work-batch=${input.workBatchId}`] : []),
+      `project=${input.project}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`)];
+    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAs(actor) };
   }
 
   /** After an allocator create whose answer was lost: the project's item with that title, made since. */
@@ -1865,7 +1906,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       this.laneRects.push({ lane: i, rect, spine });
       x += w;
       const on = this.focus === "lanes" && i === this.lane;
-      const drop = this.drag?.kind === "card" && this.drag.over === i && i !== this.drag.from ? planMove(this.drag.card, l) : null;
+      const dragging = this.drag?.kind === "card" && this.drag.over === i && i !== this.drag.from ? this.drag.card : null;
+      const drop = dragging ? this.cachedPlan(dragging, l) : null;
       if (spine) {
         const p = drawSpine(canvas, rect, { key: `lane-spine:${i}`, title: `${l.name} ${l.items?.length ?? "…"}`, colour: on ? C.white : C.cyan, cellStyle: on ? SEL : undefined }, this.ctx);
         if (p) this.placed.push({ layer: 0, p });
@@ -1873,7 +1915,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       }
       canvas.box(rect, fg(drop ? (drop.kind === "refused" ? C.lred : C.yellow) : on ? C.lcyan : i === this.lane ? C.cyan : C.blue),
         `${fg(on ? C.white : C.grey)}${l.name} ${fg(C.dark)}${l.items ? l.items.length : "…"}${l.read?.truncated ? fg(C.yellow) + ` of ${l.read.limit}+` : ""}${l.read && l.read.status !== "ready" ? fg(C.lred) + " " + l.read.status : ""}`,
-        drop ? (drop.kind === "patch" ? fg(C.yellow) + "drop: " + describeChanges(drop.changes) : drop.kind === "already" ? fg(C.dark) + "already here" : fg(C.lred) + "can't: " + drop.reason) : on ? fg(C.dark) + "c collapse · H L move" : "");
+        dragging && !drop ? fg(C.dark) + "planning…" : drop ? (drop.kind === "patch" ? fg(C.yellow) + "drop: " + describeChanges(drop.changes) : drop.kind === "already" ? fg(C.dark) + "already here" : fg(C.lred) + "can't: " + drop.reason) : on ? fg(C.dark) + "c collapse · H L move" : "");
       const inner = { col: rect.col + 1, row: rect.row + 1, cols: rect.cols - 2, rows: rect.rows - 2 };
       const items = l.items ?? [];
       const fit = Math.max(1, Math.floor(inner.rows / 2));
@@ -1919,9 +1961,10 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + `move · ${subject(M.card).slice(0, r.cols - 20)}`, fg(C.dark) + "enter move · esc back");
     const inner = r.cols - 2;
     this.lanes.forEach((l, i) => {
-      const p = M.plans[i]!, sel = i === M.sel, y = r.row + 1 + i * 2;
+      const p = M.plans?.[i], sel = i === M.sel, y = r.row + 1 + i * 2;
       if (y + 1 >= r.row + r.rows - 1) return;
       const what = i === M.from ? fg(C.dark) + "the card's lane now"
+        : !p ? fg(C.dark) + "asking the outline what would be patched…"
         : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
         : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
         : fg(C.lred) + "can't: " + p.reason;
@@ -1938,7 +1981,10 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc back");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
-    const status = C0.kind === "card" ? [
+    const status = C0.kind === "card" && C0.planning ? [
+      line(`asking the outline what a card in ${C0.lane.name} is born with…`, C.dark),
+      line(d.note || "the first line is the title; [key::value] tokens are properties", C.dark),
+    ] : C0.kind === "card" ? [
       line(`born with ${C0.born.map(p => `${p.key}=${p.value}`).join(" ") || "nothing (the lane sets no values)"}${C0.defaults.length ? ` · ${C0.defaults.map(p => `${p.key}=${p.value}`).join(" ")} unless the text says otherwise` : ""}`, C.lgreen),
       ...(C0.needs.length ? [line(`the text must also meet ${C0.needs.join(" and ")} · e.g. type [${hintToken(C0.needs[0]!)}]`, C.yellow)] : []),
       C0.parent
@@ -2095,8 +2141,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const d = this.drag?.kind === "card" ? this.drag : null;
     if (d) {
       const over = d.over === null ? null : this.lanes[d.over];
-      const p = over && d.over !== d.from ? planMove(d.card, over) : null;
-      const say = !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
+      const p = over && d.over !== d.from ? this.cachedPlan(d.card, over) : null;
+      const say = over && d.over !== d.from && !p ? `|08 asking the outline what a move into |15${over.name}|08 would patch…`
+        : !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
         : p.kind === "patch" ? `|08 release to move into |15${over.name}|08 · |14${describeChanges(p.changes)}`
         : p.kind === "already" ? `|08 already in |15${over.name}|08 · nothing to change`
         : `|12 can't drop into ${over.name}: ${p.reason}`;
@@ -2515,8 +2562,11 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
 }
 
-/** A new card's plan: born-with properties, create:: defaults, what the text must meet, and its parent (null: a roadmap item, placed by the allocator). */
-interface CardPlan { born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: ParentPick | null }
+/**
+ * A new card's plan: born-with properties, create:: defaults, what the text must meet (the service's
+ * plan, `plan`), and its parent (null: a roadmap item, placed by the allocator).
+ */
+interface CardPlan { born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: ParentPick | null; plan: Extract<CreatePlan, { kind: "create" }> }
 /** The tokens a roadmap item still needs from the text: `[priority::high|medium|low] [arc::…] [track::…]`. */
 const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] }) =>
   ["project", "priority", "arc", "track"].filter(k => !C0.born.some(p => p.key === k) && !C0.defaults.some(p => p.key === k))
@@ -2524,14 +2574,14 @@ const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] 
 const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
 
 type Composer =
-  | { kind: "card"; lane: Lane; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; draft: Draft }
+  | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; draft: Draft }
   | { kind: "child"; parent: Msg; draft: Draft };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
 /** A step's first line, without its list mark, checkbox and ^id. */
 const stepText = (t: string) => (t.split("\n")[0] ?? "").replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~!]\]\s*/, "").replace(/\s*\^[\w-]+\s*$/, "").trim();
 /** `(project=a OR project=b)` → `project::a`: a token the person could type to meet it. */
-const hintToken = (need: string) => { const m = need.match(/([A-Za-z][\w.-]*)=("[^"]*"|[^\s()]+)/); return m ? `${m[1]}::${m[2]!.replace(/^"|"$/g, "")}` : `${need.replace(/[()]/g, "")}::…`; };
+const hintToken = (need: string) => { const m = need.match(new RegExp(`(${PROPERTY_KEY_SOURCE})=("[^"]*"|[^\\s()]+)`)); return m ? `${m[1]}::${m[2]!.replace(/^"|"$/g, "")}` : `${need.replace(/[()]/g, "")}::…`; };
 
 const draftState = (r: ReaderPane) => {
   const d = r.draft!;

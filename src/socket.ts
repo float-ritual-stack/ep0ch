@@ -9,6 +9,7 @@ import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
+import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
 /** Oldest service protocol the door reads (the actions it can't do without). */
@@ -23,7 +24,13 @@ const CLIENT_PROTOCOL = 82;
  */
 export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views.read", "query.expression", "changes.since", "references.backlinks.facets", "resources.projection",
   /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
-  "fragments.read", "transclusions.read", "fragments.candidates"] as const;
+  "fragments.read", "transclusions.read", "fragments.candidates",
+  /**
+   * The service plans writes into saved views (pi-herdr-outliner PIE-490): the property patch that moves
+   * a card into a lane, and what a new card there is born with. `query.matches` tests a query against
+   * given blocks; `ping.propertyGrammar` reports the token grammar src/vendor/property-grammar.ts copies.
+   */
+  "views.planWrite", "query.matches", "ping.propertyGrammar"] as const;
 /** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
 export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
@@ -175,6 +182,26 @@ export interface PropertyToken { key: string; value: string; ordinal: number; sc
 export type PropertyPatch =
   | { op: "replace"; ordinal: number; value: string }
   | { op: "append"; key: string; value: string };
+
+/** One property change a planned move makes: `from` null when the key is appended. */
+export interface PlannedChange { key: string; to: string; from: string | null }
+/** The service's plan for moving a block into one saved view (`views.planWrite` with a block). */
+export type MovePlan =
+  | { kind: "patch"; revision: number; changes: PlannedChange[]; operations: PropertyPatch[] }
+  | { kind: "already" }
+  /** `stale`: set by the door when the card changed since the board showed it (src/move.ts). */
+  | { kind: "refused"; reason: string; stale?: boolean };
+/** The service's plan for a new block in one saved view (`views.planWrite` with text). */
+export type CreatePlan =
+  | {
+      kind: "create"; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; roadmap: boolean;
+      /** With text: what a plain create saves. */
+      text?: string;
+      /** With text in a roadmap view: what `roadmap.items.create` is called with. */
+      item?: RoadmapItemInput;
+      bornWith?: { key: string; value: string }[];
+    }
+  | { kind: "refused"; reason: string };
 
 export type StepStatus = "todo" | "done" | "waiting" | "problem";
 /** One checklist step as `checklist.query` reads it. */
@@ -375,7 +402,7 @@ export class SocketBoard implements Board {
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
+    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus; propertyGrammar?: { version: number } }>("ping");
     // A single-outline service ignores `outline` and would serve its own outline: never read the wrong one.
     if (this.outline && !r.capabilities?.includes("request.outline"))
       throw new Error(`${this.path} serves one outline and can't route by name (no request.outline), so it can't open the outline "${this.outline}"; start the outline host, or name a folder root with --ws <root>`);
@@ -389,8 +416,15 @@ export class SocketBoard implements Board {
     this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
     this.protocol = r.protocolVersion;
     this.unsupported.clear();
+    // The door finds [key::value] tokens while it paints with its copy of the outliner's grammar; a
+    // different version on the service means titles may hide or show tokens differently from Detail.
+    const grammar = r.propertyGrammar?.version;
+    const warning = grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
+      ? `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`
+      : undefined;
     return {
       host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null,
+      ...(warning ? { warning } : {}),
       // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).
       ...(r.host ? { outline: r.outline?.name ?? this.outline } : {}),
     };
@@ -561,11 +595,33 @@ export class SocketBoard implements Board {
 
   /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
-   * Null when this service can't; the door then evaluates the view itself (src/views.ts).
+   * Null when this service can't; the door then says so (src/views.ts) rather than evaluating it itself.
    */
   async readSavedView(viewId: string): Promise<SavedViewRead | null> {
     const r = await this.optional<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", "views.read", { viewId, format: "tree" });
     return r && { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /**
+   * What moving `blockId` into each view would patch, or why it can't (`views.planWrite`, PIE-490), at the
+   * block's current revision. Null when this service can't plan writes.
+   */
+  async planMoves(viewIds: string[], blockId: string): Promise<{ revision: number; plans: Map<string, MovePlan> } | null> {
+    const r = await this.optional<{ revision: number; plans: { viewId: string; plan: MovePlan }[] }>("views.planWrite", "views.planWrite", { viewIds, blockId });
+    return r && { revision: r.revision, plans: new Map(r.plans.map(p => [p.viewId, p.plan])) };
+  }
+
+  /** What a new block in `viewId` is born with; with `text`, the text (or allocator input) it's saved as. Null: can't plan. */
+  async planCreate(viewId: string, text = ""): Promise<CreatePlan | null> {
+    const r = await this.optional<{ plans: { viewId: string; plan: CreatePlan }[] }>("views.planWrite", "views.planWrite", { viewIds: [viewId], text });
+    return r ? r.plans[0]!.plan : null;
+  }
+
+  /** Which of `blockIds` the saved-view query `expression` holds for (`query.matches`); null when this service can't say. */
+  async matchQuery(expression: string, blockIds: string[]): Promise<Set<string> | null> {
+    if (!blockIds.length) return new Set();
+    const r = await this.optional<{ blockIds: string[] }>("query.matches", "query.matches", { expression, blockIds });
+    return r && new Set(r.blockIds);
   }
 
   /** What changed after `sequence` (PIE-399), or an explicit reset. Null when this service has no feed. */

@@ -1,5 +1,6 @@
 // Text helpers shared by the BBS screens and the desk panes.
 import { balanceStyles, balanceTags, C, fg, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { isEscapedAt, propertyTokenPattern } from "./vendor/property-grammar";
 
 export const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -52,7 +53,7 @@ export function colourBody(line: string, literal = false): string {
   return fg(C.grey) + line
     .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
-    .replace(/\[([\w-]+)::([^\]]*)\]/g, (all, k: string, v: string) => literal ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
+    .replace(propertyTokenPattern(), (all: string, k: string, v: string, at: number, s: string) => literal || isEscapedAt(s, at) ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))

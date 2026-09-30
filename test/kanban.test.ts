@@ -9,154 +9,23 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { startControl } from "../src/control";
 import { DeliveryBoard } from "../src/desk/delivery";
-import { composeCardText, pickParent, planRoadmapItem } from "../src/desk/writes";
+import { pickParent } from "../src/desk/writes";
 import { Mirror } from "../src/mirror";
-import { createMisses, planCreate, planMove } from "../src/move";
-import { holds, parseQuery } from "../src/query";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { queryShape, type ViewRead } from "../src/views";
 import { outliner, Scratch, until } from "./scratch";
 
 const card = (props: Record<string, string>, over: Partial<Msg> = {}): Msg => ({
   id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
   properties: Object.entries(props).map(([key, value]) => ({ key, value })), ...over,
 });
-const lane = (name: string, q: string, defProps: Record<string, string> = {}, items: Msg[] = []) => {
-  const shape = queryShape(q);
-  const read: ViewRead = { status: "ready", items, limit: 200, truncated: false, errors: [], filters: [], by: "service", ...shape };
-  return { name, read, def: card({ type: "virtual-branch", query: q, ...defProps }, { id: `lane-${name}` }) };
-};
+
 const ALL_WORK = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
 
-describe("the query grammar, as the outliner reads it", () => {
-  test.skipIf(!outliner)("parses and evaluates like block-query.ts, OR / NOT / groups / ranges included", async () => {
-    const theirs = await import(join(outliner!, "src/block-query.ts"));
-    const queries = [ALL_WORK("doing"), "a=1 OR b=2", "not a=1", "NOT (a=1 b=2) c", "(a=1 OR (b=2 AND NOT c)) d=4", "a=1 and b=2", "x=f(y)", "(x=f(y))",
-      'title="two words" OR a', "updated >= -7d a=1", "created<2026-01-01", "a OR", "(a=1", "a=1)", "NOT", "() a", "deleted=true OR a", "updated > nonsense", "stage=Done"];
-    const subjects = [
-      { props: [], created: "2026-09-01T00:00:00Z" },
-      { props: [["a", "1"]], created: "2025-06-01T00:00:00Z" },
-      { props: [["a", "1"], ["b", "2"]], created: "2026-09-27T00:00:00Z" },
-      { props: [["b", "2"], ["d", "4"], ["c", "x"]], created: "2026-09-27T00:00:00Z" },
-      { props: [["title", "two words"], ["x", "f(y)"], ["stage", "done"]], created: "2026-09-27T00:00:00Z" },
-    ];
-    const now = Date.parse("2026-09-28T12:00:00Z");
-    for (const q of queries) {
-      let mine: unknown, ref: unknown;
-      try { mine = parseQuery(q).expr; } catch { mine = "error"; }
-      try { ref = theirs.parseQueryExpression(q); } catch { ref = "error"; }
-      expect({ q, parsed: mine }).toEqual({ q, parsed: ref });
-      if (ref === "error") continue;
-      const f = theirs.compileQueryExpression(ref, now);
-      for (const s of subjects) {
-        const properties = s.props.map(([key, value]) => ({ key: key!, value: value! }));
-        const at = Date.parse(s.created);
-        expect({ q, s, v: holds(mine as any, { properties, createdAt: at, updatedAt: at }, now) })
-          .toEqual({ q, s, v: f({ createdAt: s.created, updatedAt: s.created }, properties) });
-      }
-    }
-  });
-});
-
-describe("deleted=true, the Trash switch", () => {
-  const PLAIN = ["deleted=true", "deleted=true type=card"], EXPRESSIONS = ["deleted=true OR a", "NOT deleted=true", "(deleted=true) a", "deleted=true updated > -7d"];
-
-  test("a plain clause list reads it; OR, NOT, groups and ranges refuse it", () => {
-    for (const q of PLAIN) expect(parseQuery(q).simple).toBe(true);
-    expect(parseQuery("deleted=true type=card").expr).toEqual({ kind: "and", operands: [{ kind: "property", key: "deleted", value: "true" }, { kind: "property", key: "type", value: "card" }] });
-    for (const q of EXPRESSIONS) expect(() => parseQuery(q)).toThrow("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges");
-  });
-
-  test.skipIf(!outliner)("the same queries the outliner's saved-query parser takes and refuses", async () => {
-    const theirs = await import(join(outliner!, "src/block-query.ts"));
-    for (const q of [...PLAIN, ...EXPRESSIONS]) {
-      let mine = "ok", ref = "ok";
-      try { parseQuery(q); } catch (e) { mine = (e as Error).message; }
-      try { theirs.parseSearchExpression(q); } catch (e) { ref = (e as Error).message; }
-      expect({ q, ok: mine === "ok" }).toEqual({ q, ok: ref === "ok" });
-    }
-  });
-
-  test("a Trash lane is read, and a write into it is refused with that reason, never a deleted:: property", () => {
-    const trash = lane("Trash", "deleted=true type=card");
-    expect(trash.read.unpatchable).toBe("selects Trash (deleted=true); a card goes there with d (card.trash), not a move");
-    const why = "Trash's query selects Trash (deleted=true); a card goes there with d (card.trash), not a move";
-    expect(planMove(card({ type: "card", stage: "doing" }), trash)).toEqual({ kind: "refused", reason: why });
-    expect(planCreate(trash)).toEqual({ kind: "refused", reason: why });
-    expect(planCreate(lane("Doing", "stage=doing", { create: "deleted=true" }))).toEqual({ kind: "refused", reason: "Doing's create:: default can't be deleted=true: that selects Trash, it isn't a property to set" });
-  });
-});
-
-describe("planning writes into a lane", () => {
-  test("a new card is born with the plain clauses; an OR group is left for the text or the lane's create:: default", () => {
-    expect(planCreate(lane("Doing", "stage=doing track=door"))).toEqual({ kind: "create", props: [{ key: "stage", value: "doing" }, { key: "track", value: "door" }], defaults: [], needs: [], roadmap: false });
-    const p = planCreate(lane("Doing", ALL_WORK("doing")));
-    expect(p.kind === "create" && p.props).toEqual([{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }]);
-    expect(p.kind === "create" && p.needs.length).toBe(1);
-    expect(p.kind === "create" && p.roadmap).toBe(true);
-    // A create:: default is a default, not a requirement: it's kept apart from what the query sets.
-    expect(planCreate(lane("Queued", ALL_WORK("queued"), { create: "project=ep0ch-door" })))
-      .toEqual({ kind: "create", props: [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }], defaults: [{ key: "project", value: "ep0ch-door" }], needs: [], roadmap: true });
-    // Roadmap items are never created straight into Review, Validate, Done or Superseded.
-    for (const s of ["review", "validate", "done", "superseded"])
-      expect(planCreate(lane("Late", ALL_WORK(s)))).toEqual({ kind: "refused", reason: `Late is a ${s} lane: roadmap items are created in Queued or Doing, then moved` });
-    // Lanes that can't define a card say why.
-    expect(planCreate(lane("Odd", "stage=a stage=b"))).toEqual({ kind: "refused", reason: "Odd asks for stage to be a and b at once; a card has one value" });
-    expect(planCreate(lane("Old", "stage=doing created < 2020-01-01"))).toEqual({ kind: "refused", reason: "Old needs created < 2020-01-01, which a new card doesn't meet" });
-    expect(planCreate(lane("Clash", "stage=doing", { create: "stage=done" }))).toEqual({ kind: "refused", reason: "Clash's create:: default stage=done contradicts its query (stage=doing)" });
-    expect(planCreate({ name: "Broken", read: { status: "invalid", items: [], limit: 200, truncated: false, errors: ["Unclosed ("], filters: [] } })).toEqual({ kind: "refused", reason: "Broken is invalid: Unclosed (" });
-  });
-
-  test("the text: needed properties go on the first line, unless the text says so; a contradiction is refused", () => {
-    const born = [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }];
-    expect(composeCardText("Mend the fence\nThe north side.", born, [])).toEqual({ text: "Mend the fence [type::roadmap-item] [work-stage::doing]\nThe north side." });
-    expect(composeCardText("Mend the fence [work-stage::Doing]", born, [{ key: "work-stage", value: "Doing" }])).toEqual({ text: "Mend the fence [work-stage::Doing] [type::roadmap-item]" });
-    expect(composeCardText("Mend the fence [work-stage::queued]", born, [{ key: "work-stage", value: "queued" }])).toEqual({ refused: "the text sets work-stage::queued, but the lane needs work-stage=doing" });
-    // A card with the group met by a typed property passes; one without is refused with the term.
-    const l = lane("Doing", ALL_WORK("doing"));
-    expect(createMisses(l, [...born, { key: "project", value: "pi-outliner" }])).toBeNull();
-    expect(createMisses(l, [...born, { key: "project", value: "garden" }])).toBe("Doing needs (project=pi-outliner OR project=ep0ch-door) and the card would have project=garden");
-    expect(createMisses(l, born)).toBe("Doing needs (project=pi-outliner OR project=ep0ch-door) and the card would have no project");
-  });
-
-  test("a create:: default applies only to keys the text doesn't set; a typed value in the lane's OR group wins (B3)", () => {
-    const chores = lane("Chores", "type=chore (area=kitchen OR area=garden) stage=todo", { create: "area=kitchen" });
-    const p = planCreate(chores);
-    expect(p).toEqual({ kind: "create", props: [{ key: "type", value: "chore" }, { key: "stage", value: "todo" }], defaults: [{ key: "area", value: "kitchen" }], needs: [], roadmap: false });
-    if (p.kind !== "create") throw new Error("unreachable");
-    expect(composeCardText("Weed the beds [area::garden]", p.props, [{ key: "area", value: "garden" }], p.defaults)).toEqual({ text: "Weed the beds [area::garden] [type::chore] [stage::todo]" });
-    expect(composeCardText("Wipe the counters", p.props, [], p.defaults)).toEqual({ text: "Wipe the counters [type::chore] [stage::todo] [area::kitchen]" });
-    // Whatever the text sets, the whole query still decides.
-    expect(createMisses(chores, [...p.props, { key: "area", value: "garden" }])).toBeNull();
-    expect(createMisses(chores, [...p.props, { key: "area", value: "attic" }])).toBe("Chores needs (area=kitchen OR area=garden) and the card would have area=attic");
-  });
-
-  test("a roadmap item's fields: typed tokens, else the lane's clauses, else its default; missing ones named at once", () => {
-    const born = [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }];
-    const dflt = [{ key: "project", value: "ep0ch-door" }];
-    const scan = null;                                                    // no preview: a plain scan of the text
-    expect(planRoadmapItem("Queued", "Oil the hinges\nThe back door squeaks.", born, dflt, scan))
-      .toEqual({ refused: "Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text" });
-    const ok = planRoadmapItem("Queued", "Oil the hinges [priority::Medium] [arc::home] [track::doors] [track::metal] [room::hall]\nThe back door [depends-on::((b-1))] squeaks.", born, dflt, scan);
-    expect(ok).toEqual({
-      input: { title: "Oil the hinges [room::hall]", body: "The back door squeaks.", priority: "medium", workStage: "queued", project: "ep0ch-door", arc: "home", tracks: ["doors", "metal"], dependsOn: ["b-1"] },
-      props: [
-        { key: "type", value: "roadmap-item" }, { key: "priority", value: "medium" }, { key: "work-stage", value: "queued" }, { key: "project", value: "ep0ch-door" },
-        { key: "arc", value: "home" }, { key: "track", value: "doors" }, { key: "track", value: "metal" }, { key: "depends-on", value: "b-1" }, { key: "room", value: "hall" },
-      ],
-    });
-    // The typed project wins over the default; a typed stage that contradicts the lane is refused.
-    expect((planRoadmapItem("Queued", "Tune it [project::pi-outliner] [priority::low] [arc::a] [track::t]", born, dflt, scan) as any).input.project).toBe("pi-outliner");
-    expect(planRoadmapItem("Queued", "Tune it [work-stage::doing] [priority::low] [arc::a] [track::t]", born, dflt, scan)).toEqual({ refused: "the text sets work-stage::doing, but Queued needs work-stage=queued" });
-    // A lane with no stage clause: a typed late stage is refused; none at all is the allocator's default.
-    expect(planRoadmapItem("Everything", "Tune it [work-stage::done] [project::p] [priority::low] [arc::a] [track::t]", [born[0]!], [], scan)).toEqual({ refused: "roadmap items aren't created in done: create in Queued or Doing, then move" });
-    expect((planRoadmapItem("Everything", "Tune it [project::p] [priority::low] [arc::a] [track::t]", [born[0]!], [], scan) as any).props[2]).toEqual({ key: "work-stage", value: "unprioritized" });
-    expect(planRoadmapItem("Queued", "Tune it [work-id::HOME-9] [priority::low] [arc::a] [track::t]", born, dflt, scan)).toEqual({ refused: "the workboard's allocator issues the work-id; take [work-id::] out of the text" });
-    expect(planRoadmapItem("Queued", "Tune it [priority::urgent] [arc::a] [track::t]", born, dflt, scan)).toEqual({ refused: "priority must be high, medium or low, not urgent" });
-  });
-
+// What a card is born with, and what a move patches, are the service's plans (views.planWrite, PIE-490);
+// pi-herdr-outliner's test/view-writes.test.ts covers that planning. Where a new card goes is the door's.
+describe("where a new card goes", () => {
   test("where a new card goes: the lane's create-parent, else where most of its (or the board's) cards live, else refused", () => {
     const at = (parentId: string | null, id: string) => card({}, { id, parentId });
     expect(pickParent("Doing", card({ "create-parent": "p9" }), [], [])).toEqual({ id: "p9", why: "Doing's create-parent" });
@@ -167,10 +36,6 @@ describe("planning writes into a lane", () => {
     expect(pickParent("Doing", undefined, [at(null, "a"), at(null, "b")], [])).toEqual({ refused: "there's no card on the board to take a parent from; give Doing a [create-parent::<block id>]" });
   });
 
-  test("the acceptance case: an All-work lane patches only work-stage for a card already in one of its projects", () => {
-    const c = card({ type: "roadmap-item", project: "pi-outliner", "work-stage": "queued" });
-    expect(planMove(c, lane("Doing", ALL_WORK("doing")))).toEqual({ kind: "patch", changes: [{ key: "work-stage", to: "doing", from: "queued" }] });
-  });
 });
 
 // ── against a scratch outliner service ────────────────────────────────────────
@@ -259,10 +124,11 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await select("Everything", cards.club.id);
     const before = await current(cards.club.id);
     B().mover = null; press({ kind: "char", ch: "m" });
+    await until(() => !!B().mover?.plans, "the service's plans");
     const plan = B().mover.plans[laneIndex("Doing")];
-    expect(plan).toEqual({ kind: "refused", reason: "Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden-club; a move sets only the plain clauses beside it" });
+    expect(plan).toEqual({ kind: "refused", reason: "Doing needs (project=pi-outliner OR project=ep0ch-door) and the note has project=garden-club; a move sets only the plain clauses beside it" });
     press({ kind: "esc" });
-    await expect(act("card.move", { lane: "Doing", card: cards.club.id })).rejects.toThrow("Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden-club");
+    await expect(act("card.move", { lane: "Doing", card: cards.club.id })).rejects.toThrow("Doing needs (project=pi-outliner OR project=ep0ch-door) and the note has project=garden-club");
     expect((await current(cards.club.id)).revision).toBe(before.revision);
   });
 
@@ -271,7 +137,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     B().focus = "lanes"; B().lane = laneIndex("Queued");
     const full = B().refreshes.full, asked = B().asked.length, sent = board.sent.length;
     press({ kind: "char", ch: "n" });
-    await until(() => !!B().composer, "the composer");
+    await until(() => B().composer && !B().composer.planning, "the composer and the lane's plan");
     expect(B().composer.born).toEqual([{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }]);
     expect(B().composer.defaults).toEqual([{ key: "project", value: "ep0ch-door" }]);
     expect(B().composer.parent).toBeNull();                                  // the allocator places it
@@ -312,7 +178,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(m.properties.filter((p: any) => p.key === "project").map((p: any) => p.value)).toEqual(["pi-outliner"]);
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     await expect(act("card.create", { lane: "Queued", text: "Mow the lawn [project::garden-club] [priority::low] [arc::a] [track::t]" }))
-      .rejects.toThrow("Queued needs (project=pi-outliner OR project=ep0ch-door) and the card would have project=garden-club");
+      .rejects.toThrow("Queued needs (project=pi-outliner OR project=ep0ch-door) and the note would have project=garden-club");
     // The same rule on an ordinary lane: the text's area wins; without one, the default applies.
     const weed: any = await act("card.create", { lane: "Chores", text: "Weed the beds [area::garden]" });
     expect((await current(weed.id)).text).toBe("Weed the beds [area::garden] [type::chore] [stage::todo]");
@@ -327,7 +193,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await settled();
     B().focus = "lanes"; B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
-    await until(() => !!B().composer, "the composer");
+    await until(() => B().composer && !B().composer.planning, "the composer and the lane's plan");
     expect(B().composer.needs).toEqual(["(project=pi-outliner OR project=ep0ch-door)"]);
     type("Replace the doormat [priority::low] [arc::home] [track::doors]");
     ctrl("s");
@@ -347,10 +213,10 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await settled();
     B().focus = "lanes"; B().lane = laneIndex("Review");
     press({ kind: "char", ch: "n" });
-    expect(B().composer).toBeNull();
-    expect(message()).toBe("can't create in Review: Review is a review lane: roadmap items are created in Queued or Doing, then moved");
+    await until(() => !B().composer, "the refusal closes the empty composer");
+    expect(message()).toBe("can't create in Review: Review lists work-stage=review: roadmap items are created in Queued or Doing, then moved");
     await expect(act("card.create", { lane: "Done", text: "Paint the railings [project::ep0ch-door] [priority::low] [arc::a] [track::t]" }))
-      .rejects.toThrow("Done is a done lane: roadmap items are created in Queued or Doing, then moved");
+      .rejects.toThrow("Done lists work-stage=done: roadmap items are created in Queued or Doing, then moved");
     await expect(act("card.create", { lane: "Everything", text: "Paint the railings [work-stage::review] [project::ep0ch-door] [priority::low] [arc::a] [track::t]" }))
       .rejects.toThrow("roadmap items aren't created in review: create in Queued or Doing, then move");
     await expect(act("card.create", { lane: "Queued", text: "Paint it [priority::low] [arc::a] [track::t]", parent: chores.id }))

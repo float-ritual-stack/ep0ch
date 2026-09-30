@@ -214,17 +214,25 @@ describe("live figures: the query grammar", () => {
     expect(seen[0].filters).toBeUndefined();
   });
 
-  test("without it: plain clauses still work, and anything more says which capability it needs", async () => {
+  test("without it, a live query says which capability it needs instead of parsing the query itself", async () => {
     const seen: any[] = [];
     setLiveSource(fake(false, seen), () => {}); invalidateLive();
-    const plain = { query: "type=chore priority=high" }, or = { query: "type=chore OR type=task" };
-    answer(plain); answer(or);
-    await until(() => answer(plain)?.state === "ready" && answer(or)?.state === "error", "the answers");
-    expect(seen[0]).toMatchObject({ filters: [{ key: "type", value: "chore" }, { key: "priority", value: "high" }] });
-    expect(answer(or)!.error).toBe("this query uses OR, which needs a service with query.expression (PIE-398)");
-    expect(seen).toHaveLength(1);
-    // done: is matched against each result here, so it stays plain clauses whatever the service has.
-    expect(resolveLive("check", { query: "type=chore priority=high", done: "stage=done OR stage=dropped" })!.error).toContain("done: takes plain property clauses");
+    const plain = { query: "type=chore priority=high" };
+    answer(plain);
+    await until(() => answer(plain)?.state === "error", "the answer");
+    expect(answer(plain)!.error).toBe("a live query needs a service that parses queries (query.expression, PIE-398)");
+    expect(seen).toHaveLength(0);
+  });
+
+  test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
+    const asked: [string, string[]][] = [];
+    const b = { ...fake(true, []), matchQuery: async (e: string, ids: string[]) => { asked.push([e, ids]); return new Set(ids); } };
+    setLiveSource(b, () => {}); invalidateLive();
+    const p = { query: "type=chore", done: "stage=done OR stage=dropped" };
+    resolveLive("check", p);
+    await until(() => answer(p)?.state === "ready", "the answer");
+    expect(asked).toEqual([["stage=done OR stage=dropped", ["a"]]]);
+    expect(resolveLive("check", p)!.props.items[0].done).toBe(true);
   });
 });
 
