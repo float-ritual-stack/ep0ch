@@ -101,6 +101,13 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(shape.tiles.find((t: any) => t.tile === "claude")).toMatchObject({ kind: "pty", pinned: true, cmd: ["sh"] });
   });
 
+  test("a terminal tile is told this door's control socket (EP0CH_CONTROL) and its own name (EP0CH_TILE)", async () => {
+    // The door serves on its own path, not EP0CH_CONTROL's default: `ep0ch act` from the tile reaches this door.
+    await act("tile.type", { text: "echo \"ctl=$EP0CH_CONTROL tile=$EP0CH_TILE\"\r" }, "claude");
+    const said = () => (tile("claude")?.terminal?.text ?? []).join("\n");
+    await until(() => said().includes(`ctl=${control.path} tile=claude`), "the tile's echo");
+  });
+
   test("view.subscribe from another process: a click moves focus and the event arrives; a move is layout.changed", async () => {
     const f = feed();
     await until(() => f.events.some(e => e.type === "hello"), "the hello");

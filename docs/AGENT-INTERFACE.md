@@ -18,7 +18,10 @@ An agent sees what the person sees, live, and can change anything except where t
 
 ## The control socket
 
-`EP0CH_CONTROL` names it (default `~/.local/state/ep0ch-door/door.sock`). It speaks newline-delimited JSON:
+`EP0CH_CONTROL` names it (default `~/.local/state/ep0ch-door/door.sock`; a second door serves on
+`door-<pid>.sock`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
+reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
+README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
 
 | Request | Answer | CLI |
