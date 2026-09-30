@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { cacheDir } from "./state";
 
 export interface PngRef { png: Buffer; width: number; height: number; key: string }
 export type Media =
@@ -13,7 +14,8 @@ export type Media =
   | { state: "error"; path: string; kind: "img" | "video"; reason: string };
 
 const MAX_PX = 1600;
-const CACHE = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "ep0ch-door", "media");
+/** Where converted images are kept: media/ in the door's cache (under EP0CH_STATE when it is set). */
+export const mediaCache = () => join(cacheDir(), "media");
 const store = new Map<string, Media>();
 let onChange: () => void = () => {};
 export function onMediaChange(fn: () => void) { onChange = fn; }
@@ -41,6 +43,7 @@ async function run(cmd: string[]): Promise<string> {
 async function produce(path: string, kind: "img" | "video"): Promise<PngRef> {
   const st = statSync(path);
   const key = createHash("sha1").update(`${path}\0${st.mtimeMs}\0${st.size}`).digest("hex").slice(0, 16);
+  const CACHE = mediaCache();
   mkdirSync(CACHE, { recursive: true });
   const out = join(CACHE, `${key}.png`);
   if (!existsSync(out)) {

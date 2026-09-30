@@ -117,13 +117,7 @@ export class Draft {
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
   copyOut(label = this.blockId.slice(0, 8)): string {
-    const dir = join(stateDir(), "drafts");
-    mkdirSync(dir, { recursive: true });
-    const path = join(dir, `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
-    writeFileSync(path, this.text + "\n");
-    this.savedCopy = path;
-    pruneDrafts(dir, path);
-    return path;
+    return (this.savedCopy = keepCopy(this.text + "\n", label));
   }
 
   key(k: Key): DraftAction {
@@ -237,6 +231,19 @@ export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind ==
 const isLow = (s: string, i: number) => { const c = s.charCodeAt(i); return c >= 0xdc00 && c <= 0xdfff; };
 const stepBack = (s: string, i: number) => (i >= 2 && isLow(s, i - 1) ? i - 2 : i - 1);
 const stepForward = (s: string, i: number) => (isLow(s, i + 1) ? i + 2 : i + 1);
+
+/**
+ * Keep `text` in `state/drafts/` as `<label>-<time>.md` (0600, the folder 0700) and prune old copies: the one
+ * place unsaved text is copied to, for a draft (`Draft.copyOut`) and for a ctrl+e editor's file alike.
+ */
+export function keepCopy(text: string, label: string): string {
+  const dir = join(stateDir(), "drafts");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const path = join(dir, `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
+  writeFileSync(path, text, { mode: 0o600 });
+  pruneDrafts(dir, path);
+  return path;
+}
 
 /** Copies kept in `state/drafts/`: the newest this many, and anything younger than DRAFT_DAYS. */
 export const DRAFT_KEEP = 50, DRAFT_DAYS = 30;

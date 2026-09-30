@@ -7,7 +7,7 @@
 #       (say, one with views.read and the change feed). Writes go to the copy, which is deleted on exit.
 #   scripts/try-it.sh --showcase [--reset] [--prepare] --outliner <pi-herdr-outliner checkout>
 #       the showcase (PIE-439): every shared door part on a seeded, made-up outline, served privately
-#       from ${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase. Seeded on first run; edits persist
+#       from <the door's state>/showcase (EP0CH_STATE, else ${XDG_STATE_HOME:-~/.local/state}/ep0ch-door). Seeded on first run; edits persist
 #       until --reset stops its service, deletes that state and reseeds. --prepare sets it up and exits.
 #
 # --hub <block-id> opens that board; otherwise the door picks the workspace's board (or asks).
@@ -43,6 +43,7 @@ halt() {
 # A private outliner service: its own state, workspace and config dirs, background agents off, Herdr
 # unset, so nothing reaches a real outline. `serve <dir> <workspace> <log>`; sets $pid and $sock.
 serve() {
+  # The -u list is HERDR_VARS in src/desk/pty.ts (test/runtime-parts.test.ts checks they match).
   (cd "$outliner" && exec env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID \
     OUTLINER_STATE_DIR="$1/state" OUTLINER_WORKSPACE_ROOT="$2" XDG_CONFIG_HOME="$1/config" \
     OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun src/server-main.ts >"$3" 2>&1) &
@@ -65,7 +66,7 @@ need_outliner() {
 
 if [ "$showcase" = 1 ]; then
   need_outliner --showcase
-  base="${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch-door/showcase"
+  base="${EP0CH_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch-door}/showcase"
   pidfile="$base/service.pid"
   # Is process $1 this showcase's service? A pidfile outlives a crash, a SIGKILL or a reboot, and the
   # OS may have given its pid to something else since: the process must be the outliner's server,

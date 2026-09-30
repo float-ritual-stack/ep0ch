@@ -21,7 +21,7 @@ import { destinationOf, external, externalOpenCommand } from "../open";
 import { Draft, sameParty } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
-import { actorIdOf, EditConflict, mutationFor, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type PropertyRecord } from "../socket";
+import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type PropertyRecord } from "../socket";
 import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -941,10 +941,17 @@ export class NoteSurface {
    * host's say, once the service has answered, that the draft is still wanted (the person may have pressed
    * esc or moved on while it was read); without it the draft opens anyway.
    */
-  async edit(host: SurfaceHost, external = false, still?: () => boolean): Promise<void> {
+  async edit(host: SurfaceHost, external = false, still?: () => boolean): Promise<string | void> {
     const m = this.msg;
     if (!m || this.editing) return;
-    const fresh = await host.ctx.board.get(m.id);
+    let fresh: Msg | null;
+    try { fresh = await host.ctx.board.get(m.id); }
+    catch (e) {
+      // The first thing said when the tether drops is that it dropped, not something about revisions.
+      const why = e instanceof Offline ? "offline · the edit will work when the outline is back" : `can't edit: ${(e as Error).message}`;
+      if (!still || still()) host.ctx.flash(why);
+      return why;
+    }
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { host.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
     if (this.msg?.id !== m.id || this.editing) return;
@@ -2483,8 +2490,8 @@ export class NoteSurface {
     if (this.session) throw new ActionRefused("this reader is commenting; finish or close the comment first (comment.close)");
     if (!this.draft) {
       this.requireNote();
-      await this.edit(host);
-      if (!this.draft) throw new ActionRefused("the note couldn't be opened for editing (its revision is unknown)");
+      const why = await this.edit(host);
+      if (!this.draft) throw new ActionRefused(why || "the note couldn't be opened for editing (its revision is unknown)");
     }
     return this.draft;
   }

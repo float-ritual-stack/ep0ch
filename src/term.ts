@@ -17,6 +17,24 @@ export type Key =
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
   | { kind: "paste"; text: string };
 
+/** Everything `start` turns on, turned off: paste, mouse, colours, wrap, the cursor, then the normal screen. */
+export const TERM_RESET = "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+
+/**
+ * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
+ * door. The pipe closes when the door ends; the watcher then sends TERM_RESET and `stty sane`, so the
+ * terminal is usable again. The door dismisses it (SIGKILL, synchronous) when it restores the terminal itself.
+ */
+function terminalGuard(): { dismiss(): void } | null {
+  try {
+    const p = Bun.spawn(["sh", "-c", `trap '' INT QUIT HUP TERM; cat >/dev/null; printf '%s' "$EP0CH_TERM_RESET"; stty sane </dev/tty 2>/dev/null`], {
+      stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { PATH: process.env.PATH ?? "/usr/bin:/bin", EP0CH_TERM_RESET: TERM_RESET },
+    });
+    p.unref();
+    return { dismiss() { try { process.kill(p.pid, "SIGKILL"); } catch { /* it's gone */ } } };
+  } catch { return null; }
+}
+
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
 export class Term {
@@ -49,7 +67,10 @@ export class Term {
     }
   }
 
+  private guard: { dismiss(): void } | null = null;
+
   async start(): Promise<void> {
+    this.guard = terminalGuard();
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.on("data", (d: Buffer) => this.feed(this.decoder.decode(d, { stream: true })));
@@ -66,13 +87,15 @@ export class Term {
   }
 
   stop(): void {
-    this.write("\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l");
+    this.write(`\x1b[2J${TERM_RESET}`);
     process.stdin.setRawMode?.(false);
     process.stdin.pause();
+    this.guard?.dismiss(); this.guard = null;
   }
 
   /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */
   resume(): void {
+    this.guard ??= terminalGuard();
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.pending = "";

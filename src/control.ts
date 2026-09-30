@@ -4,19 +4,39 @@
 // `actions` lists what the current screen can do, and `act` does one of those things as the agent.
 //   bun src/main.ts peek | snap [file.png] | open <block-id> | actions | act <action> [key=value…] [--as <actor-id>]
 //   bun src/main.ts subscribe [focus.changed,viewport,cursor,layout.changed,marks.changed]   (the live feed)
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+//
+// The socket is the door's shell: whoever can connect can do what the person can, including start a program in
+// a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
+// the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
+import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
 import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
+import { privateDir, stateDir } from "./state";
 
-const DIR = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door");
-export const CONTROL_SOCKET = process.env.EP0CH_CONTROL ?? join(DIR, "door.sock");
+/** Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in the state dir. */
+export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(stateDir(), "door.sock");
 
 /** How much of the live feed may wait unread for one subscriber before it's disconnected. */
 export const FEED_LIMIT = 1 << 20;
+/** The longest request line: a connection that sends more without a newline is cut off. */
+export const LINE_LIMIT = 1 << 20;
+
+/**
+ * Where `snap` may write: `path` inside the state dir (relative to it, or absolute under it), default
+ * screen.png there. Anything else is refused: a path elsewhere is written by the `ep0ch snap` command
+ * itself, which asks for the PNG's bytes (`data`), so the door never writes where a client names.
+ */
+export function snapPath(path: unknown): string {
+  const root = stateDir();
+  const p = typeof path === "string" && path ? resolve(root, path) : join(root, "screen.png");
+  const rel = relative(root, p);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`snap writes only under the door's state (${root}); \`ep0ch snap <file>\` writes anywhere you can`);
+  return p;
+}
 
 /**
  * One subscriber's end of the feed: each event (of the types asked for) as a JSON line. A subscriber that stops
@@ -34,10 +54,12 @@ export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
   if (req.cmd === "peek") return { screen: d.app.describe(), text: d.mirror.text() };
   if (req.cmd === "snap") {
-    const path = req.path || join(DIR, "screen.png");
-    mkdirSync(dirname(path), { recursive: true });
     // Render at the VGA font's own 9×16 cell, whatever the real terminal's cell size is.
-    writeFileSync(path, d.mirror.snapshot({ ...d.info(), cellW: 9, cellH: 16 }));
+    const png = () => d.mirror.snapshot({ ...d.info(), cellW: 9, cellH: 16 });
+    if (req.data) return { png: Buffer.from(png()).toString("base64"), cols: d.mirror.cols, rows: d.mirror.rows };
+    const path = snapPath(req.path);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(path, png(), { mode: 0o600 });
     return { path, cols: d.mirror.cols, rows: d.mirror.rows };
   }
   if (req.cmd === "open") {
@@ -59,19 +81,45 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
  */
 export let controlPath: string | null = null;
 
-/** Serve on door.sock; if another live door already has it, use door-<pid>.sock. */
-export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise<{ path: string; close(): void }> {
-  mkdirSync(dirname(at), { recursive: true });
+/** Is a door listening on `path`? False only when nobody is (the file is left from a door that died). */
+const listening = (path: string) => new Promise<boolean>(res => {
+  const c = connect(path, () => { c.end(); res(true); });
+  c.on("error", (e: NodeJS.ErrnoException) => res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT"));
+});
+
+/**
+ * Remove control sockets that no door listens on any more (a door killed with kill -9, or before this
+ * sweep existed): door.sock and door-<pid>.sock in `dir`. Returns what was removed.
+ */
+export async function sweepSockets(dir: string): Promise<string[]> {
+  let names: string[];
+  try { names = readdirSync(dir).filter(n => /^door(-\d+)?\.sock$/.test(n)); } catch { return []; }
+  const gone: string[] = [];
+  await Promise.all(names.map(async n => {
+    const p = join(dir, n);
+    if (!(await listening(p))) { try { unlinkSync(p); gone.push(p); } catch { /* someone else swept it */ } }
+  }));
+  return gone;
+}
+
+/**
+ * Serve on door.sock; if another live door already has it, use door-<pid>.sock. The folder must be the
+ * user's alone (the state dir is tightened to 0700 if it isn't); anything else is refused, with why.
+ */
+export async function startControl(d: ControlDeps, at = controlSocket()): Promise<{ path: string; close(): void }> {
+  const dir = dirname(at);
+  if (!privateDir(dir, dir === stateDir())) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
+  await sweepSockets(dir);
   let path = at;
   if (existsSync(path)) {
-    const live = await new Promise<boolean>(res => { const c = connect(path, () => { c.end(); res(true); }); c.on("error", () => res(false)); });
-    if (live) path = join(dirname(at), `door-${process.pid}.sock`);
+    if (await listening(path)) path = join(dir, `door-${process.pid}.sock`);
     else unlinkSync(path);
   }
   const server: Server = createServer(sock => {
     let buf = "";
     sock.on("data", chunk => {
       buf += chunk.toString();
+      if (buf.length > LINE_LIMIT && !buf.includes("\n")) { sock.end(JSON.stringify({ ok: false, error: "request line too long" }) + "\n"); sock.destroy(); buf = ""; return; }
       for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
         let req: any;
@@ -90,7 +138,11 @@ export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise
     });
     sock.on("error", () => {});
   });
-  await new Promise<void>((res, rej) => { server.once("error", rej); server.listen(path, () => res()); });
+  // Made 0600 from the start (the umask covers the moment between listen and chmod), and chmodded to be sure.
+  const umask = process.umask(0o177);
+  try { await new Promise<void>((res, rej) => { server.once("error", rej); server.listen(path, () => res()); }); }
+  finally { process.umask(umask); }
+  chmodSync(path, 0o600);
   controlPath = path;
   return { path, close: () => { server.close(); try { unlinkSync(path); } catch { /* gone */ } } };
 }
@@ -101,7 +153,7 @@ export async function controlClient(args: string[]): Promise<number> {
   let req: Record<string, unknown>;
   // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
   if (cmd === "subscribe") {
-    const path = process.env.EP0CH_CONTROL ?? CONTROL_SOCKET;
+    const path = controlSocket();
     return new Promise(res => {
       const c = connect(path, () => c.write(JSON.stringify({ cmd, ...(arg ? { types: arg.split(",") } : {}) }) + "\n"));
       let buf = "";
@@ -114,12 +166,14 @@ export async function controlClient(args: string[]): Promise<number> {
     });
   }
   try {
-    req = cmd === "snap" ? { cmd, path: arg } : cmd === "open" ? { cmd, id: arg }
+    // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
+    // itself writes only under its state (snapPath).
+    req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd }) : cmd === "open" ? { cmd, id: arg }
       : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act).
   if (cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
-  const path = process.env.EP0CH_CONTROL ?? CONTROL_SOCKET;
+  const path = controlSocket();
   return new Promise(res => {
     const c = connect(path, () => c.write(JSON.stringify(req) + "\n"));
     let buf = "";
@@ -138,6 +192,12 @@ export async function controlClient(args: string[]): Promise<number> {
           const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
           console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}`);
         }
+      }
+      else if (cmd === "snap" && arg) {
+        const out = resolve(arg);
+        try { writeFileSync(out, Buffer.from(r.result.png, "base64")); }
+        catch (e) { console.error(`can't write ${out}: ${(e as Error).message}`); return res(1); }
+        console.log(JSON.stringify({ path: out, cols: r.result.cols, rows: r.result.rows }));
       }
       else console.log(JSON.stringify(r.result));
       res(0);
