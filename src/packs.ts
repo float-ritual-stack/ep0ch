@@ -14,10 +14,20 @@ function unzip(args: string[]): Uint8Array {
   return r.stdout;
 }
 
+const PACK = /^r?a?woe.*\.zip$/i;
+
+/** The packs in `dir` and in its folders one level down (a tidied `woe/` folder), sorted by file name. */
 export function packs(dir = PACK_DIR): string[] {
-  try {
-    return readdirSync(dir).filter(f => /^r?a?woe.*\.zip$/i.test(f)).sort().map(f => join(dir, f));
-  } catch { return []; }
+  const found: string[] = [];
+  let entries: import("node:fs").Dirent[];
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+  for (const e of entries) {
+    if (e.isFile() && PACK.test(e.name)) found.push(join(dir, e.name));
+    else if (e.isDirectory() && !e.name.startsWith(".")) {
+      try { for (const f of readdirSync(join(dir, e.name))) if (PACK.test(f)) found.push(join(dir, e.name, f)); } catch { /* unreadable folder */ }
+    }
+  }
+  return found.sort((a, b) => basename(a).localeCompare(basename(b)));
 }
 
 export function members(pack: string): Member[] {
