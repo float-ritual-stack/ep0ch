@@ -64,14 +64,33 @@ export function peekDoor(path: string, timeoutMs = 2000): Promise<any | null> {
   });
 }
 
-function procAncestors(pid: number): number[] {
+/** Each process's parent: read from /proc on Linux; where there's no /proc (macOS, the BSDs), `ps` lists them all once. */
+function parents(): (pid: number) => number | null {
+  if (existsSync("/proc/self/stat")) {
+    return pid => {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+        return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+      } catch { return null; }
+    };
+  }
+  const table = new Map<number, number>();
+  try {
+    const r = Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
+    for (const line of r.stdout.toString().split("\n")) {
+      const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+      if (Number.isInteger(pid) && Number.isInteger(ppid)) table.set(pid!, ppid!);
+    }
+  } catch { /* no ps: the walk finds nothing, and `where` says it couldn't tell */ }
+  return pid => table.get(pid) ?? null;
+}
+
+export function procAncestors(pid: number, parent: (pid: number) => number | null = parents()): number[] {
   const out: number[] = [];
   let p = pid;
   for (let i = 0; i < 64; i++) {
-    let stat: string;
-    try { stat = readFileSync(`/proc/${p}/stat`, "utf8"); } catch { return out; }
-    const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-    if (!(ppid > 1)) return out;
+    const ppid = parent(p);
+    if (ppid === null || !(ppid > 1)) return out;
     out.push(ppid); p = ppid;
   }
   return out;

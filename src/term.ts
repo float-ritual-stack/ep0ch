@@ -20,6 +20,20 @@ export type Key =
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
   | { kind: "enter" | "tab"; pasted: true };
 
+/**
+ * macOS's Option with a letter or digit, as a US keyboard types it when the terminal doesn't send Option as
+ * Alt (kitty's default; Ghostty's too, unless `macos-option-as-alt` is set): alt+l arrives as ¬. Option+e,
+ * i, n and u are dead keys (they wait for the next key), so alt+n can't be read this way at all.
+ */
+export const OPTION_KEYS: Readonly<Record<string, string>> = {
+  "å": "a", "∫": "b", "ç": "c", "∂": "d", "ƒ": "f", "©": "g", "˙": "h", "∆": "j", "˚": "k", "¬": "l", "µ": "m",
+  "ø": "o", "π": "p", "œ": "q", "®": "r", "ß": "s", "†": "t", "√": "v", "∑": "w", "≈": "x", "¥": "y", "Ω": "z",
+  "¡": "1", "™": "2", "£": "3", "¢": "4", "∞": "5", "§": "6", "¶": "7", "•": "8", "ª": "9", "º": "0",
+};
+
+/** The terminal setting that makes Option send Alt, said once when an Option character stands in for alt. */
+export const OPTION_AS_ALT_HINT = "set macos-option-as-alt = true (Ghostty) or macos_option_as_alt yes (kitty)";
+
 /** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
 export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));

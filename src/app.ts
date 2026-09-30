@@ -6,7 +6,7 @@ import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } 
 import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
-import { pasteKeys, type Key, type Term, type TermInfo } from "./term";
+import { OPTION_AS_ALT_HINT, OPTION_KEYS, pasteKeys, type Key, type Term, type TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
@@ -394,8 +394,25 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
-    this.stack.at(-1)?.key(k, this);
+    const alt = this.optionAsAlt(k);
+    this.stack.at(-1)?.key(alt, this);
+    // Said after the key did its work, so the hint isn't covered by what the key said.
+    if (alt !== k && !this.saidOptionKeys) { this.saidOptionKeys = true; this.flash(`${(k as { ch: string }).ch} read as alt+${(alt as { ch: string }).ch}: this terminal types Option as characters; ${OPTION_AS_ALT_HINT}`, 10_000); }
   }
+
+  /**
+   * A Mac terminal that types Option as characters sends ¬ for alt+l. Where nobody is typing text (no edit,
+   * filter, panel or terminal tile holds the keys), such a character is the alt key it stands for, and the
+   * first one says once which terminal setting sends alt itself. In text it stays what was typed (façade, µm).
+   */
+  private optionAsAlt(k: Key): Key {
+    if (k.kind !== "char" || k.ctrl || k.pasted) return k;
+    const alt = OPTION_KEYS[k.ch];
+    const top = this.stack.at(-1);
+    if (!alt || top?.holdsKeys?.() || top?.rawKeys?.()) return k;
+    return { kind: "alt", ch: alt };
+  }
+  private saidOptionKeys = false;
 
   private tick() {
     const s = this.stack.at(-1);

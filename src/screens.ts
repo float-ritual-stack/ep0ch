@@ -898,6 +898,8 @@ export class Conferences implements BbsList {
 export class Search implements Screen {
   title = "search";
   private q = "";
+  /** The query is typed here: every key is text (an Option character too, not an alt key). */
+  holdsKeys() { return true; }
   render(ctx: Ctx): Frame {
     return { lines: ["", center(paint("|09─=|11[ |15TEXT SEARCH |11]|09=─"), ctx.t.cols), "", paint(`  |11Search for: |15${this.q}|07_`), "", paint("|08  ENTER to scan the whole board · ESC back")] };
   }

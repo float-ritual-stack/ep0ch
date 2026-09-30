@@ -118,8 +118,11 @@ describe.skipIf(!outliner)("the showcase seed", () => {
 describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
   const home = mkdtempSync(join(tmpdir(), "ep0ch-showcase-home-"));
   const base = join(home, "ep0ch-door", "showcase");
+  // Without EP0CH_STATE, which the script would put the showcase under: another test file may have left it
+  // set in this process (the order files run in differs between machines; on macOS it broke this one).
+  const env = () => { const e: Record<string, string | undefined> = { ...process.env, XDG_STATE_HOME: home }; delete e.EP0CH_STATE; return e; };
   const run = (...args: string[]) => Bun.spawnSync(["sh", "scripts/try-it.sh", "--showcase", "--prepare", "--outliner", outliner!, ...args], {
-    cwd: join(import.meta.dir, ".."), env: { ...process.env, XDG_STATE_HOME: home }, stdout: "pipe", stderr: "pipe",
+    cwd: join(import.meta.dir, ".."), env: env(), stdout: "pipe", stderr: "pipe",
   });
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
