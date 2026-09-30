@@ -13,6 +13,7 @@ import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -52,9 +53,8 @@ export interface CompletionLookup {
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
 
-const PROPS = /\[[\w-]+::[^\]]*\]/g;
 const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
-const snippet = (text: string) => text.split(/\r?\n/).slice(1).join(" ").replace(PROPS, "").replace(/\s+/g, " ").trim().slice(0, 240);
+const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim().slice(0, 240);
 
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote): Promise<CompletionLookup> {

@@ -28,6 +28,7 @@ import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
 import { ScreenTile } from "../desk/screen-tile";
 import { loadShowcase, SEED, type SeedName } from "./seed";
+import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
 
 type Notes = Partial<Record<SeedName, Msg>>;
 
@@ -426,7 +427,7 @@ export class ActionsPane implements Pane {
   wheel(dir: 1 | -1, desk: DeskApi) { for (let i = 0; i < 3; i++) this.step(dir); desk.redraw(); }
 }
 
-const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression", "references.backlinks.facets"];
+const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression", "references.backlinks.facets", "views.planWrite", "query.matches", "ping.propertyGrammar"];
 
 /** What the service says about the seed, asked the way the door asks it. `r` asks again. */
 export class ServicePane implements Pane {
@@ -448,6 +449,12 @@ export class ServicePane implements Pane {
     out.push("");
     if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return r ? `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(subject).join(", ")}` : "this service can't read views"; });
     if (n.hub) await tryIt(`blocks.read (${SEED.hub}'s lanes)`, async () => { const kids = await b.children(n.hub!.id); const r = await b.readMany(kids.map(k => k.id), ["title", "properties"]); return r.map(subject).join(", "); });
+    if (n.hub) await tryIt(`views.planWrite (a new card, first lane)`, async () => {
+      const lane = (await b.children(n.hub!.id))[0];
+      const p = lane ? await b.planCreate(lane.id) : null;
+      return !lane ? "no lanes" : !p ? "this service can't plan writes" : p.kind === "refused" ? `refused: ${p.reason}` : `${subject(lane)}: born with ${p.born.map(x => `${x.key}=${x.value}`).join(" ") || "nothing"}${p.needs.length ? ` · needs ${p.needs.join(" and ")}` : ""}`;
+    });
+    say("property grammar (vendored)", `version ${PROPERTY_GRAMMAR_VERSION} · src/vendor/property-grammar.ts, the outliner's own file`);
     if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r ? r.map(p => `${p.key}::${p.value}`).join(" ") : "this service can't preview"; });
     if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => { const c = await b.backlinks(n.shed!.id); return `${describeBacklinkView(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, new Set()).status}: ${c.sources.map(x => x.title).join(", ") || "none"}`; });
     await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return !r ? "this service has no change feed" : r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });

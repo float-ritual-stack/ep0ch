@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Msg } from "./board";
 import type { PropertyRecord, SocketBoard } from "./socket";
 import { stateDir } from "./state";
+import { isPropertyTokenLine } from "./vendor/property-grammar";
 
 /** Detail's default (`OUTLINER_PROPERTY_SUMMARY_KEYS`). */
 export const DEFAULT_SUMMARY_KEYS = ["status", "work-stage", "priority", "track"] as const;
@@ -147,6 +148,6 @@ export function metadataLines(text: string, tokens: PropertyRecord[] | null): Se
   const lines = text.split("\n");
   let i = 1;
   while (i < lines.length && !lines[i]!.trim()) i++;
-  for (; i < lines.length && (meta ? meta.has(i) : /^\s*(\[[\w-]+::[^\]\n]*\]\s*)+$/.test(lines[i]!)); i++) out.add(i);
+  for (; i < lines.length && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!)); i++) out.add(i);
   return out;
 }

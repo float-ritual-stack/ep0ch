@@ -11,6 +11,7 @@ import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art"
   /** Tiles (PIE-413): a reader that keeps its note, one that follows a tile or a file, a program, a whole screen. */
@@ -389,7 +390,7 @@ export class ThreadPane implements Pane {
       this.kidLine.push(lines.length);
       const head = `${last ? "└" : "├"} ${k.author ?? "?"} · ${ago(k.updatedAt)} · ${subject(k)}`;
       lines.push(i === this.sel ? (focused ? SEL_ON : SEL_OFF) + pad(head, w) + RESET : fg(C.blue) + head.slice(0, 1) + " " + fg(C.yellow) + pad(head.slice(2), w - 2) + RESET);
-      const snippet = k.text.split("\n").slice(1).map(l => l.replace(/\[[\w-]+::[^\]]*\]/g, "").trim()).find(Boolean) ?? "";
+      const snippet = k.text.split("\n").slice(1).map(l => withoutPropertyTokens(l).trim()).find(Boolean) ?? "";
       if (snippet) lines.push(fg(C.blue) + (last ? " " : "│") + "   " + fg(C.dark) + pad(snippet, w - 4) + RESET);
     });
     lines.push("");

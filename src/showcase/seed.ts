@@ -9,6 +9,7 @@
 import type { Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -353,7 +354,7 @@ export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
 }
 
 /** The first line without its property tokens: how the seed names a note. */
-export const titleOf = (m: Msg) => m.text.split("\n")[0]!.replace(/\s*\[[\w-]+::[^\]]*\]/g, "").trim();
+export const titleOf = (m: Msg) => withoutPropertyTokens(m.text.split("\n")[0]!).replace(/\s{2,}/g, " ").trim();
 
 /** The seeded notes on this outline by name, found by title under the root (null: no showcase here). */
 export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; notes: Partial<Record<SeedName, Msg>> } | null> {
