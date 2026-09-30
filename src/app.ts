@@ -159,6 +159,7 @@ export class App implements Ctx {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     term.onKey(k => this.key(k));
+    term.onBatch?.(run => this.batched(run));
     // Raw input while the person types in a terminal tile: the screen says where it goes (Term keeps mouse and ctrl+]).
     (term as { rawSink?: unknown }).rawSink = () => this.stack.at(-1)?.rawInput?.() ?? null;
     setLiveSource(board, () => this.redraw());
@@ -379,6 +380,7 @@ export class App implements Ctx {
   quit() {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
     for (const s of [...this.stack, ...this.background]) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
+    this.closed = true;
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
@@ -421,10 +423,18 @@ export class App implements Ctx {
   }
 
   /**
-   * A repaint: at most one a frame (16ms). The first comes at once; calls within the frame after it are one
-   * more paint at its end, so a busy terminal tile (or several) never renders the screen more than 60 times a second.
+   * A repaint: at most one a frame. The first comes at once; calls within the frame after it are one more
+   * paint at its end, so a busy terminal tile (or several) never renders the screen more than 60 times a
+   * second. The frame is 16ms from the end of the last paint, not its start: a screen that takes longer
+   * than that to render (a long note) still leaves the door time to read what came in meanwhile.
+   *
+   * While a chunk of input is being read (`batched`), a redraw is only noted, and the chunk ends with one
+   * paint: a trackpad sends wheel reports by the hundred, and a paint for each (then one for each report
+   * that arrived during that paint) kept the screen scrolling for seconds after the fingers stopped.
    */
   redraw() {
+    if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
+    if (this.batching) { this.wanted = true; return; }
     if (this.paintTimer) return;
     const since = Date.now() - this.lastPaint;
     if (since >= 16) return this.paint();
@@ -432,10 +442,23 @@ export class App implements Ctx {
   }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
+  private batching = 0;
+  private closed = false;
+  private wanted = false;
+
+  /** Read a chunk of input (Term's onBatch): every key in it is handled, then the screen is painted once. */
+  private batched(run: () => void) {
+    this.batching++;
+    try { run(); }
+    finally { if (--this.batching === 0 && this.wanted) { this.wanted = false; this.redraw(); } }
+  }
 
   private paint() {
     if (this.away) return;                 // another program has the terminal; resume repaints
-    this.lastPaint = Date.now();
+    try { this.drawFrame(); } finally { this.lastPaint = Date.now(); }
+  }
+
+  private drawFrame() {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;

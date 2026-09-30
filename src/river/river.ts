@@ -12,6 +12,7 @@
 // was opened on, or the selected one in the Library and a #tag column. Reading keeps the river's own
 // cards; editing, quoting and comment threads draw the surface in the column, with the same keys and
 // the same named actions as the board. Peek and spine columns stay read-only views.
+import { wheelRows } from "../term";
 import type { Ctx, Frame, Screen } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
@@ -1304,7 +1305,7 @@ export class River implements Screen {
       if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
       this.seen(p);
       // The wheel scrolls a column by lines, like the desk reader, a peek under its neighbour too; nothing else moves.
-      this.scroll(p, k.action === "wheel-down" ? 3 : -3);
+      this.scroll(p, k.action === "wheel-down" ? wheelRows : -wheelRows);
       p.surface.clearLink();
       this.ctx.redraw();
     }

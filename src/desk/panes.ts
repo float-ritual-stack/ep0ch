@@ -1,4 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
+import { wheelRows } from "../term";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -198,7 +199,7 @@ export class TreePane implements Pane {
     this.pick(desk);
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, Math.min(this.rows.length - 1, this.sel + dir * 3)); this.pick(desk); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, Math.min(this.rows.length - 1, this.sel + dir * wheelRows)); this.pick(desk); }
 }
 
 // ── reader ───────────────────────────────────────────────────────────────────
@@ -424,7 +425,7 @@ export class ThreadPane implements Pane {
     if (i >= 0) { this.sel = i; desk.redraw(); }
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.top = Math.max(0, this.top + dir * 3); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.top = Math.max(0, this.top + dir * wheelRows); desk.redraw(); }
 }
 
 // ── activity (last callers, live) and who's online ───────────────────────────
@@ -462,7 +463,7 @@ export class ActivityPane implements Pane {
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) { this.sel = this.top + y; desk.redraw(); }
-  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, this.sel + dir * 3); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, this.sel + dir * wheelRows); desk.redraw(); }
 }
 
 export class WhoPane implements Pane {
