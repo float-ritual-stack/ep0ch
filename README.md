@@ -19,7 +19,9 @@ The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
 [AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
-verification and the review checklist.
+verification and the review checklist. The [architecture map](docs/architecture/map.json) records every
+structure in the door and the outliner, its ladder position and its open questions; `bun
+scripts/architecture-map.ts` checks its file:line citations against both checkouts and draws it as one page.
 
 ## Outlines on the outline host
 
