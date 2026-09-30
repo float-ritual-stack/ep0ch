@@ -231,7 +231,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
 | `marks.next` | | refused while the person is typing |
 | `pane.*` | `split`, `close`, `resize`, `zoom`, `float`, `pin` | as before (PIE-412) |
-| `tree.links` | `reader` (an outline tree), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row |
+| `tree.links` | `reader` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
 | `tree.pick` | `reader`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a resource is registered if it must be, fetched once if nothing is stored, and shown). Never the person's selection or keys |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark; `focus.set` is its older name), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
@@ -281,7 +281,7 @@ at, and what it does while they're typing:
 | `tile.type` | no | refused for the terminal they're in |
 | `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
-| `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row; an open lands where the tree's opens go | allowed |
+| `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `tile.herdr` | no | allowed |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |

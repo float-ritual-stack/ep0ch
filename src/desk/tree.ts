@@ -131,7 +131,7 @@ export class TreePane implements Pane {
   }
 
   private rebuild() {
-    const was = this.rows[this.sel]?.key;
+    const was = this.rows[this.sel]?.key, wasDepth = this.rows[this.sel]?.depth;
     const out: TreeRow[] = [];
     const walk = (list: Msg[], depth: number) => {
       for (const m of list) {
@@ -148,7 +148,7 @@ export class TreePane implements Pane {
     let i = was ? out.findIndex(r => r.key === was) : -1;
     // A link whose key changed in place (a resource just registered is keyed by its id now) keeps its place.
     const parent = was?.slice(0, Math.max(0, was.lastIndexOf(SEP)));
-    if (i < 0 && parent && out[this.sel]?.key.startsWith(parent + SEP) && out[this.sel]!.depth === this.rows[this.sel]?.depth) i = this.sel;
+    if (i < 0 && parent && out[this.sel]?.key.startsWith(parent + SEP) && out[this.sel]!.depth === wasDepth) i = this.sel;
     if (i < 0 && was) {
       let best = -1;
       out.forEach((r, j) => { if (was.startsWith(r.key + SEP) && (best < 0 || r.key.length > out[best]!.key.length)) best = j; });
@@ -256,11 +256,12 @@ export class TreePane implements Pane {
    * group, a resource) is refused. The rows are the person's to move through: an agent's leaves the
    * selection on the row it was on.
    */
-  toggleLinks(i: number, desk: DeskApi, on?: boolean): boolean {
+  toggleLinks(i: number, desk: DeskApi, on?: boolean, agent = false): boolean {
     const r = this.rows[i];
     const id = rowBlock(r);
     if (!r || !id) throw new ActionRefused(r ? `row ${i + 1} is ${r.kind === "resource" ? "a resource" : "a group"}: only a note has links to show` : `no row ${i + 1}; the tree has ${this.rows.length}`);
     const shown = this.panels.has(r.key);
+    if (agent && shown && !(on ?? !shown)) this.refuseAgentFold(r.key, i);
     if (on ?? !shown) {
       if (!shown) { this.panels.set(r.key, { blockId: id, shut: new Set(), kinds: new Set(), links: { kind: "loading" }, backlinks: { kind: "loading" }, asked: 0 }); this.load(r.key, desk); }
     } else if (shown) {
@@ -289,6 +290,11 @@ export class TreePane implements Pane {
       e => { if (current()) { p.backlinks = { kind: "error", message: why(e) }; this.rebuild(); desk.redraw(); } });
   }
 
+  /** An agent never folds away the row the person has selected: that would move their selection. */
+  private refuseAgentFold(key: string, i: number) {
+    if (this.rows[this.sel]?.key.startsWith(key + SEP)) throw new ActionRefused(`the person's selection is under row ${i + 1}; an agent doesn't fold it away`);
+  }
+
   /** Open or fold a group row (Outlinks, Resources, Backlinks, or a backlink kind). */
   private fold(r: TreeRow, open?: boolean) {
     const p = this.panels.get(r.kind === "group" || r.kind === "kind" ? r.owner : "");
@@ -315,6 +321,7 @@ export class TreePane implements Pane {
     if (!r) throw new ActionRefused(this.roots ? `no row ${i + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
     const agent = actor.kind === "agent";
     if (r.kind === "group" || r.kind === "kind") {
+      if (agent && (r.kind === "group" ? r.open : r.expanded)) this.refuseAgentFold(r.key, i);
       this.fold(r); desk.redraw();
       const p = this.panels.get(r.owner);
       return { row: i + 1, open: r.kind === "group" ? !p?.shut.has(r.group) : !!p?.kinds.has(r.group.kind) };
@@ -360,7 +367,8 @@ export class TreePane implements Pane {
     if (!id) throw new ActionRefused(`row ${i + 1} stands for no note: open=true opens a group or shows a resource`);
     const m = await this.target(id, desk);
     if (!m) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
-    desk.showFrom?.(this, m, true);
+    // Where the tree's selection goes (a desk's previews and link); a view without that, its tree's own preview.
+    if (desk.showFrom) desk.showFrom(this, m, true); else desk.setCurrent(m, { from: this, agent: true });
     return { row: i + 1, id: m.id };
   }
 
@@ -507,7 +515,7 @@ export const TREE_ACTIONS = new ActionSet<{
     },
     run({ n, id, show }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
-      const shown = pane.toggleLinks(i, desk, show);
+      const shown = pane.toggleLinks(i, desk, show, actor.kind === "agent");
       if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${shown ? "showed" : "hid"} the links under row ${i + 1}`);
       return { row: i + 1, shown };
     },

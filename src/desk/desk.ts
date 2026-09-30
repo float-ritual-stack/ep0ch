@@ -460,6 +460,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   /** The reader the person has focused (PIE-453). */
   holdsFocus(pane: ReaderPane) { return this.panes.get(this.focus) === pane; }
+  /** The kind of tile that has the person's keys (a view's own keys step aside for a tile that uses them). */
+  protected focusedKind(): PaneKind | undefined { return this.panes.get(this.focus)?.kind as PaneKind | undefined; }
 
   focusKind(kind: PaneKind) {
     const id = leaves(this.root).find(i => this.panes.get(i)?.kind === kind);

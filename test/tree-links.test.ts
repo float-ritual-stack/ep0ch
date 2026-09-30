@@ -8,7 +8,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import {
-  isOutlineNote, outlinkWords, resourceNote, resourceWords,
+  isOutlineNote, outlinkWords, resourceNote, resourceWords, SHOWN_LIMIT,
   type AuthoredOutlink, type AuthoredResourceLink, type ResourceDescription,
 } from "../src/authored";
 import type { Msg } from "../src/board";
@@ -72,8 +72,39 @@ describe("the rows' words, as the outliner's Tree says them", () => {
     }));
     expect(ticket.text.split("\n")[0]).toBe("ACME-12 · Rollout checklist");
     expect(ticket.text).toContain("status In progress · labels rollout\n\nSteps for the depot.");
-    expect(resourceNote(desc({})).text).toContain("Nothing is stored for this Resource yet.");
+    expect(resourceNote(desc({ resource: { ...desc({}).resource, provider: "jira", address: { kind: "jira", key: "ACME-3" } }, source: { id: "s2", name: "Tickets (made up)", provider: "jira" } })).text).toContain("Nothing is stored for this Resource yet.");
     expect(isOutlineNote({ id: "file:/x", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "file", props: {} })).toBe(false);
+  });
+
+  const at = "2026-09-01T10:00:00.000Z";
+  const fileAt = (path: string, text: string | null, over: Partial<ResourceDescription> = {}) =>
+    resourceNote(desc({ resource: { ...desc({}).resource, address: { kind: "filesystem", path } }, filesystem: text === null ? null : { text, capturedAt: at }, ...over }));
+
+  test("a binary file says so instead of drawing its bytes", () => {
+    const png = fileAt("pics/gate.png", "\uFFFDPNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR\u0000\u0000", { resource: { ...desc({}).resource, mediaType: "image/png", address: { kind: "filesystem", path: "pics/gate.png" } } });
+    expect(png.text).toContain("A binary file (image/png): the door shows text files only.");
+    expect(png.text).not.toContain("IHDR");
+  });
+
+  test("terminal controls in a file never reach the terminal; tabs read as spaces", () => {
+    const note = fileAt("logs/run.txt", "ok\u001b]0;renamed\u0007 then\u001b[2J cleared\tdone\r\n");
+    expect(note.text).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+    expect(note.text).toContain("ok]0;renamed then[2J cleared  done");
+  });
+
+  test("a long file is cut at a line and says how much is shown; a fence in the file doesn't close the door's", () => {
+    const long = Array.from({ length: 30_000 }, (_, i) => `line ${i + 1} of the seed catalogue`).join("\n");
+    const note = fileAt("notes/catalogue.txt", long);
+    expect(note.text.length).toBeLessThan(SHOWN_LIMIT + 1000);
+    expect(note.text).toMatch(/Showing the first [\d,]+ of 30,000 lines/);
+    const fenced = fileAt("notes/howto.txt", "before\n```\ninside\n```\nafter\n");
+    expect(fenced.text).toContain("````txt\nbefore\n```\ninside\n```\nafter\n````");
+  });
+
+  test("a registered file the service can't read now says why; a policy that denies reading says so", () => {
+    expect(fileAt("notes/gone.md", null).text).toContain("The file can't be read now: it's gone, isn't a regular file, or is over 2 MiB.");
+    expect(fileAt("notes/secret.md", null, { source: { id: "s1", name: "Filesystem · notes", provider: "filesystem", policy: { deniedCapabilities: ["read"] } } }).text)
+      .toContain("doesn't let Filesystem · notes be read");
   });
 });
 
@@ -126,7 +157,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await ticketSource(board);
     mkdirSync(join(scratch.workspace, "notes"), { recursive: true });
     file = join(scratch.workspace, "notes", "compost.md");
-    writeFileSync(file, "# Compost rota\n\n- Turn the heap on Saturdays.\n");
+    writeFileSync(file, "# Compost rota\n\n- Turn the heap on Saturdays.\n- [ ] Buy a second fork\n");
     writeFileSync(join(scratch.workspace, "notes", "gone.md"), "soon gone\n");
     const create = (parentId: string | null, text: string) => board.createBlock(parentId, text);
     n.log = await create(null, "Allotment log");
@@ -212,6 +243,10 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     expect(board.sent.slice(before)).toEqual(expect.arrayContaining(["resources.follow-authored", "resources.describe"]));
     expect(reader().msg!.text).toContain("- Turn the heap on Saturdays.");
     expect(message()).toContain("compost.md registered and shown");
+    // A Resource isn't a block: its checkbox isn't asked about as an outline step.
+    desk.render(D().ctx);
+    await Bun.sleep(100);
+    expect(board.sent.slice(before)).not.toContain("checklist.query");
     await until(() => rowOf("compost.md").context?.includes("filesystem") ?? false, "the row says it's registered");
     // A Resource is read, never edited.
     expect(reader().readOnly).toBe(true);
@@ -279,4 +314,41 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => reader().msg?.id.startsWith("resource:") ?? false, "the resource from the token", 8000);
     expect(reader().msg!.text).toContain("Compost rota");
   }, 20_000);
+  test("the short-lived Detail client is dropped after every read: a success, a refusal, a missing Resource", async () => {
+    const detailsNow = async () => (await board.callers()).filter(c => c.id.includes("-resource-")).length;
+    expect(await detailsNow()).toBe(0);
+    const reg = await board.followAuthored({ kind: "filesystem", path: "notes/compost.md" });
+    await board.describeResource(reg.id, true);
+    await expect(board.describeResource("00000000-0000-4000-8000-00000000dead", true)).rejects.toThrow();
+    await expect(board.refreshResource(reg.id)).rejects.toThrow();
+    let left = -1;
+    for (let t = Date.now(); Date.now() - t < 5000 && left !== 0; await Bun.sleep(50)) left = await detailsNow();
+    expect(left).toBe(0);
+  }, 15_000);
+
+  test("a registered file that goes missing says it can't be read, not that nothing is stored", async () => {
+    const path = join(scratch.workspace, "notes", "fleeting.md");
+    writeFileSync(path, "here for now\n");
+    const reg = await board.followAuthored({ kind: "filesystem", path: "notes/fleeting.md" });
+    rmSync(path);
+    const d = await board.describeResource(reg.id, true);
+    expect(resourceNote(d).text).toContain("The file can't be read now");
+  }, 15_000);
+
+  test("an agent never folds away the rows the person's selection is in", async () => {
+    D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
+    const plan = () => rows().find(r => r.kind === "block" && r.text === "Weekend plan")!;
+    await app.act({ action: "tree.links", args: { n: plan().n, show: true }, as: "walker-7" });
+    await until(() => !!rows().find(r => r.n > plan().n && r.text.startsWith("→ outlinks (2)")), "the plan's links");
+    tree().selectRow(rowOf("soil-test → Soil test results", plan().n).n - 1, desk, false);
+    const was = tree().describe().selected?.key;
+    expect(was).toStartWith(`b:${n.plan.id} > outlinks`);
+    await expect(app.act({ action: "tree.links", args: { n: plan().n, show: false }, as: "walker-7" })).rejects.toThrow("an agent doesn't fold it away");
+    await expect(app.act({ action: "tree.pick", args: { n: rowOf("→ outlinks", plan().n).n, open: true }, as: "walker-7" })).rejects.toThrow("an agent doesn't fold it away");
+    expect(tree().describe().selected?.key).toBe(was);
+    // The person's own L still hides them, and their selection goes to the row the links were under.
+    tree().selectRow(plan().n - 1, desk, false);
+    ch("L");
+    await until(() => rows()[plan().n]?.kind === "block", "the plan's links hidden");
+  }, 15_000);
 });

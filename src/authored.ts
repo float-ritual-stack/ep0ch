@@ -46,7 +46,7 @@ export type AuthoredLinksSnapshot =
 /** What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. */
 export interface ResourceDescription {
   resource: { id: string; provider: string; mediaType: string | null; address: Record<string, unknown> & { kind: string }; createdAt: string; updatedAt: string };
-  source: { id: string; name: string; provider: string };
+  source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: string[] } };
   filesystem?: { text: string; capturedAt: string } | null;
   pdf?: unknown;
   web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null } } | null;
@@ -77,6 +77,36 @@ export const isOutlineNote = (m: Msg | null | undefined): boolean => !!m && !m.i
 
 const MARKDOWN = new Set([".md", ".markdown", ".mdx", ""]);
 
+/** The service reads a file of at most this many bytes (pi-herdr-outliner src/files.ts `MAX_TEXT_FILE_BYTES`). */
+export const SERVICE_FILE_LIMIT = 2 * 1024 * 1024;
+/** The most of a Resource's text a reader is given (the surface draws the whole body each paint): a longer one is cut, and says so. */
+export const SHOWN_LIMIT = 40_000;
+
+/**
+ * Text from outside the outline (a file, a fetched page, a ticket) as the reader may draw it: no terminal
+ * controls (an escape sequence in a file would reach the person's terminal), tabs as spaces, CRLF as LF.
+ */
+export function readable(text: string): string {
+  return text.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+}
+
+/** The service read these bytes as UTF-8, but they aren't text: a NUL, or many undecodable bytes. */
+export function looksBinary(text: string): boolean {
+  const head = text.slice(0, 8000);
+  if (head.includes("\0")) return true;
+  const bad = head.match(/\uFFFD/g)?.length ?? 0;
+  return head.length > 0 && bad / head.length > 0.05;
+}
+
+/** A long text cut at a line break before `SHOWN_LIMIT`, and how much was left out. */
+function cut(text: string): { text: string; note: string } {
+  if (text.length <= SHOWN_LIMIT) return { text, note: "" };
+  const at = text.lastIndexOf("\n", SHOWN_LIMIT);
+  const shown = text.slice(0, at > 0 ? at : SHOWN_LIMIT);
+  const lines = (t: string) => t.split("\n").length;
+  return { text: shown, note: `*Showing the first ${lines(shown).toLocaleString("en")} of ${lines(text).toLocaleString("en")} lines · Detail shows the whole file.*\n\n` };
+}
+
 /** The address as the service labels it (`resourceAddressLabel`). */
 function addressLabel(a: ResourceDescription["resource"]["address"]): string {
   const v = a.path ?? a.url ?? a.key ?? a.identifier ?? a.uri;
@@ -96,20 +126,30 @@ export function resourceNote(d: ResourceDescription): Msg {
     title = `${where} · ${d.remoteEntity.title}`;
     // The ticket's fields as the provider sent them (status, assignee, …), then its text.
     const fields = Object.entries(d.remoteEntity.metadata).filter(([k, v]) => k !== "key" && v !== null && (!Array.isArray(v) || v.length)).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : v}`);
-    body = (fields.length ? fields.join(" · ") + "\n\n" : "") + d.remoteEntity.markdown.replace(/^# .*\n+/, "");
+    body = readable((fields.length ? fields.join(" · ") + "\n\n" : "") + cut(d.remoteEntity.markdown.replace(/^# .*\n+/, "")).text);
     when = d.remoteEntity.sourceSnapshot?.fetchedAt ?? "";
   } else if (d.filesystem) {
     title = basename(where);
     const ext = extname(where).toLowerCase();
-    body = MARKDOWN.has(ext) ? d.filesystem.text : "```" + ext.slice(1) + "\n" + d.filesystem.text.replace(/\n$/, "") + "\n```";
     when = d.filesystem.capturedAt;
-  } else if (d.web) { body = d.web.markdown; when = d.web.sourceSnapshot?.fetchedAt ?? ""; }
-  else if (d.computed) { body = d.computed.markdown; when = d.computed.derivedAt; }
-  else if (d.pdf) body = "A PDF: the door doesn't draw PDFs yet. Detail shows it.";
-  else body = d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet.";
+    if (looksBinary(d.filesystem.text)) body = `A binary file${r.mediaType ? ` (${r.mediaType})` : ""}: the door shows text files only.`;
+    else {
+      const { text, note } = cut(readable(d.filesystem.text));
+      // A fence long enough that a fence inside the file doesn't close it.
+      const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/^\s*(`{3,})/gm)].map(m => m[1]!.length + 1)));
+      body = note + (MARKDOWN.has(ext) ? text : fence + ext.slice(1) + "\n" + text.replace(/\n$/, "") + "\n" + fence);
+    }
+  } else if (d.web) { body = cut(readable(d.web.markdown)).text; when = d.web.sourceSnapshot?.fetchedAt ?? ""; }
+  else if (d.computed) { body = cut(readable(d.computed.markdown)).text; when = d.computed.derivedAt; }
+  else if (d.pdf || r.mediaType === "application/pdf") body = "A PDF: the door doesn't draw PDFs yet. Detail shows it.";
+  else if (d.source.policy?.deniedCapabilities?.includes("read")) body = `The workspace's policy doesn't let ${d.source.name} be read.`;
+  // The service reads a file each time it's asked; nothing means it couldn't (src/files.ts `readFileContents`).
+  else if (r.provider === "filesystem") body = `The file can't be read now: it's gone, isn't a regular file, or is over ${SERVICE_FILE_LIMIT / 1024 / 1024} MiB.`;
+  else body = readable(d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet.");
   const said = [d.source.name, d.source.name.toLowerCase().startsWith(r.provider) ? "" : r.provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
   const at = Date.parse(r.updatedAt) || Date.now();
-  return { id: `${RESOURCE_NOTE}${r.id}`, text: `${title}\n*${said}*\n\n${body}`, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {} };
+  const line = (t: string) => readable(t).replace(/\n/g, " ");
+  return { id: `${RESOURCE_NOTE}${r.id}`, text: `${line(title)}\n*${line(said)}*\n\n${body}`, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {} };
 }
 
 /** An ISO time as the person's local "YYYY-MM-DD HH:MM". */

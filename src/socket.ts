@@ -459,7 +459,8 @@ export class SocketBoard implements Board {
         }) + "\n"));
       });
       return await fn(clientId);
-    } finally { s.end(); }
+      // Closed outright, whatever happened: the service drops the client when its socket closes.
+    } finally { s.removeAllListeners("data"); s.on("error", () => {}); s.destroy(); }
   }
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }

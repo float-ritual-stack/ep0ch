@@ -569,7 +569,9 @@ export class NoteSurface {
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
     // page's, on the subject or its preamble, above the first), its age painted now.
-    const regions = this.projectionRegions(projectionsOf(m, src), noteLines);
+    // A Resource or a file shown as a note isn't a block: nothing the outline keeps for blocks is asked for it.
+    const outline = isOutlineNote(m);
+    const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines);
     const now = Date.now(), bodyText = source.split("\n");
     // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
     const tokens = resourceTokensOf(m, src);
@@ -707,10 +709,12 @@ export class NoteSurface {
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
       }).lines;
     };
-    const steps = stepsOf(m, src);
+    // A Resource or a file shown as a note has no steps, and its `!((…))` isn't the outline's to transclude.
+    const outline = isOutlineNote(m);
+    const steps = outline ? stepsOf(m, src) : null;
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
-      embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id),
+      ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
