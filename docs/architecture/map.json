@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch-door + pi-herdr-outliner: the architecture map",
   "about": "Every structure in the two repos, where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes with `bun scripts/architecture-map.ts`; the generator checks every file:line below against the checkouts before it draws anything.",
-  "verified": { "door": "187e099", "outliner": "3b81e66", "on": "2026-09-30" },
+  "verified": { "door": "09eea67", "outliner": "e0b99e0", "on": "2026-09-30" },
   "repos": {
     "door": { "name": "ep0ch-door", "url": "https://github.com/float-ritual-stack/ep0ch-door", "branch": "main" },
     "outliner": { "name": "pi-herdr-outliner", "url": "https://github.com/float-ritual-stack/pi-herdr-outliner", "branch": "main" }
