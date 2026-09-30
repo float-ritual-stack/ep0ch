@@ -2,6 +2,7 @@
 // a thread, resolve or reopen one. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
+import { wheelRows } from "./term";
 import type { Msg } from "./board";
 import { Draft } from "./edit";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
@@ -241,7 +242,7 @@ export class CommentSession {
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
   wheel(dir: 1 | -1) {
     if (this.mode !== "threads") return;
-    this.top = Math.max(0, this.top + dir * 3); this.free = true;
+    this.top = Math.max(0, this.top + dir * wheelRows); this.free = true;
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
