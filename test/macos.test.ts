@@ -109,6 +109,8 @@ describe("ep0ch where without /proc", () => {
     expect(procAncestors(77, () => null)).toEqual([]);
   });
   test("this process's own parent is found on this machine, /proc or not", () => {
-    expect(procAncestors(process.pid)[0]).toBe(process.ppid);
+    // A runner started straight by init or launchd (a container's entry point) has no ancestors to walk.
+    if (process.ppid > 1) expect(procAncestors(process.pid)[0]).toBe(process.ppid);
+    else expect(procAncestors(process.pid)).toEqual([]);
   });
 });
