@@ -1,0 +1,191 @@
+// A block's authored links as the outliner's Tree shows them (PIE-259, PIE-324, PIE-329): its Outlinks and
+// Resources from `blocks.authored-links`, its Backlinks from `references.backlinks` (grouped as Detail groups
+// them, src/backlinks.ts), and a Resource's stored content shown as a note in a reader.
+//
+// The service owns the meaning: which links a block has, where each resolves, whether a Resource is
+// registered and what is stored for it. The door only lays the answer out. The row words mirror the
+// outliner's `renderAuthoredLinkDisplay` (src/tree-renderer.ts) and `authoredHeaderStateText`, with PIE-329's
+// concise labels: a label that repeats its target's title or Work ID reads once.
+import { basename, dirname, extname } from "node:path";
+import type { Msg } from "./board";
+
+// ── the wire (pi-herdr-outliner src/authored-links.ts, src/resource-references.ts, src/resources.ts) ──
+
+export type AuthoredResourceReference =
+  | { kind: "resource"; resourceId: string }
+  | { kind: "filesystem"; path: string }
+  | { kind: "web"; url: string }
+  | { kind: "jira"; key: string }
+  | { kind: "application"; uri: string };
+
+export interface AuthoredLinkDiagnostic { span: { start: number; end: number }; message: string }
+export type AuthoredLinkCompleteness = { kind: "complete" } | { kind: "limited"; reason: string; shown: number };
+
+interface EntryBase { key: string; label: string; firstSpan: { start: number; end: number }; occurrenceCount: number }
+
+export type AuthoredOutlinkResolution =
+  | { kind: "ready"; target: { kind: "block"; blockId: string; fragmentId?: string }; title: string }
+  | { kind: "deleted"; blockId: string; fragmentId?: string; title: string; reason: string }
+  | { kind: "unregistered-page"; address: string; reason: string }
+  | { kind: "missing"; reason: string };
+export interface AuthoredOutlink extends EntryBase { kind: "outlink"; referenceKind: "block" | "page" | "work-id"; resolution: AuthoredOutlinkResolution }
+
+export type AuthoredResourceResolution =
+  | { kind: "ready"; target: { kind: "resource"; resourceId: string }; sourceName: string; provider: string; addressLabel: string }
+  | { kind: "unregistered"; reference: AuthoredResourceReference; reason: string }
+  | { kind: "missing"; reason: string };
+export interface AuthoredResourceLink extends EntryBase { kind: "resource"; resourceId?: string; resolution: AuthoredResourceResolution }
+
+export interface AuthoredLinkGroup<E> { entries: E[]; completeness: AuthoredLinkCompleteness; invalidCount: number; diagnostics: AuthoredLinkDiagnostic[] }
+
+export type AuthoredLinksSnapshot =
+  | { kind: "ready"; ownerId: string; ownerTextDigest: string; outlinks: AuthoredLinkGroup<AuthoredOutlink>; resources: AuthoredLinkGroup<AuthoredResourceLink> }
+  | { kind: "owner-unavailable"; ownerId: string; reason: "missing" | "deleted" }
+  | { kind: "source-too-large"; ownerId: string; maximumUtf16Units: number };
+
+/** What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. */
+export interface ResourceDescription {
+  resource: { id: string; provider: string; mediaType: string | null; address: Record<string, unknown> & { kind: string }; createdAt: string; updatedAt: string };
+  source: { id: string; name: string; provider: string };
+  filesystem?: { text: string; capturedAt: string } | null;
+  pdf?: unknown;
+  web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null } } | null;
+  webError?: string;
+  remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Record<string, string | string[] | null>; sourceSnapshot?: { fetchedAt: string } } | null;
+  remoteError?: string;
+  computed?: { markdown: string; derivedAt: string } | null;
+}
+
+/** Providers the service fetches on `resources.refresh` (a file is read as it is; `refresh` refuses one). */
+export const REFRESHABLE: ReadonlySet<string> = new Set(["web", "jira", "linear", "computed"]);
+
+/** Something is stored for the Resource to show: a file's text, a fetched page, a ticket, a computed document. */
+export function resourceStored(d: ResourceDescription): boolean {
+  return !!(d.filesystem || d.web || d.remoteEntity || d.computed);
+}
+
+// ── a Resource shown in a reader ─────────────────────────────────────────────────────────────────────
+
+/** The id a Resource shown as a note carries: never a block id, so nothing writes to it. */
+export const RESOURCE_NOTE = "resource:";
+
+/**
+ * A note that isn't a block in the outline: a file a preview follows (`file:`) or a Resource shown in a reader
+ * (`resource:`). It is read, never edited, commented on or asked for its backlinks.
+ */
+export const isOutlineNote = (m: Msg | null | undefined): boolean => !!m && !m.id.startsWith("file:") && !m.id.startsWith(RESOURCE_NOTE);
+
+const MARKDOWN = new Set([".md", ".markdown", ".mdx", ""]);
+
+/** The address as the service labels it (`resourceAddressLabel`). */
+function addressLabel(a: ResourceDescription["resource"]["address"]): string {
+  const v = a.path ?? a.url ?? a.key ?? a.identifier ?? a.uri;
+  if (typeof v === "string") return v;
+  if (a.kind === "github") return `${a.entity} #${a.number}`;
+  return a.kind;
+}
+
+/**
+ * A Resource's stored content as a note the reader draws: a title, a line saying where it's from, then the
+ * content (Markdown as it is, any other file in a fence). Nothing stored yet says so.
+ */
+export function resourceNote(d: ResourceDescription): Msg {
+  const r = d.resource, where = addressLabel(r.address);
+  let title = where, body = "", when = "";
+  if (d.remoteEntity) {
+    title = `${where} · ${d.remoteEntity.title}`;
+    // The ticket's fields as the provider sent them (status, assignee, …), then its text.
+    const fields = Object.entries(d.remoteEntity.metadata).filter(([k, v]) => k !== "key" && v !== null && (!Array.isArray(v) || v.length)).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : v}`);
+    body = (fields.length ? fields.join(" · ") + "\n\n" : "") + d.remoteEntity.markdown.replace(/^# .*\n+/, "");
+    when = d.remoteEntity.sourceSnapshot?.fetchedAt ?? "";
+  } else if (d.filesystem) {
+    title = basename(where);
+    const ext = extname(where).toLowerCase();
+    body = MARKDOWN.has(ext) ? d.filesystem.text : "```" + ext.slice(1) + "\n" + d.filesystem.text.replace(/\n$/, "") + "\n```";
+    when = d.filesystem.capturedAt;
+  } else if (d.web) { body = d.web.markdown; when = d.web.sourceSnapshot?.fetchedAt ?? ""; }
+  else if (d.computed) { body = d.computed.markdown; when = d.computed.derivedAt; }
+  else if (d.pdf) body = "A PDF: the door doesn't draw PDFs yet. Detail shows it.";
+  else body = d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet.";
+  const said = [d.source.name, d.source.name.toLowerCase().startsWith(r.provider) ? "" : r.provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
+  const at = Date.parse(r.updatedAt) || Date.now();
+  return { id: `${RESOURCE_NOTE}${r.id}`, text: `${title}\n*${said}*\n\n${body}`, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {} };
+}
+
+/** An ISO time as the person's local "YYYY-MM-DD HH:MM". */
+function localTime(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
+}
+
+/** Where an authored resource row leads: its registered Resource, one to register first, or why neither. */
+export function resourceTarget(link: AuthoredResourceLink): { resourceId: string } | { reference: AuthoredResourceReference } | { refused: string } {
+  const r = link.resolution;
+  if (r.kind === "ready") return { resourceId: r.target.resourceId };
+  if (r.kind === "unregistered") return { reference: r.reference };
+  return { refused: `${link.label} · ${r.reason}` };
+}
+
+/**
+ * Open a Resource as a note: register it when it isn't yet (`resources.follow-authored`), then read what is
+ * stored, fetching it once when nothing is (`resources.describe`, `resources.refresh`). One step, as the
+ * outliner's Tree's ⏎ is.
+ */
+export async function openResource(board: { followAuthored(r: AuthoredResourceReference): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }): Promise<{ note: Msg; registered: boolean }> {
+  const followed = "resourceId" in to ? { id: to.resourceId, created: false } : await board.followAuthored(to.reference);
+  return { note: resourceNote(await board.describeResource(followed.id, true)), registered: followed.created };
+}
+
+// ── the rows' words ──────────────────────────────────────────────────────────────────────────────────
+
+/** A Work ID needs a token boundary: PIE-18 is not a prefix of PIE-181 (PIE-329). */
+const redundantLabel = (label: string, title: string) =>
+  label === title || (/^[A-Z][A-Z0-9]*-\d+$/i.test(label) && title.startsWith(label) && /^(?:\s|[—–:])/u.test(title.slice(label.length)));
+
+const occurrences = (n: number) => (n > 1 ? `${n} occurrences` : "");
+
+/** An outlink's row: its text (the target, once) and dim context (fragment, reference kind, count, or why). */
+export function outlinkWords(l: AuthoredOutlink): { text: string; context: string; problem: boolean } {
+  const r = l.resolution, label = l.label.trim();
+  if (r.kind === "ready") {
+    const title = r.title.trim();
+    return { text: redundantLabel(label, title) ? title : `${label} → ${title}`, context: [r.target.fragmentId ? `^${r.target.fragmentId}` : "", l.referenceKind, occurrences(l.occurrenceCount)].filter(Boolean).join(" · "), problem: false };
+  }
+  if (r.kind === "deleted") return { text: redundantLabel(label, r.title) ? r.title : `${label} → ${r.title}`, context: ["Trash", l.referenceKind, occurrences(l.occurrenceCount)].filter(Boolean).join(" · "), problem: false };
+  if (r.kind === "unregistered-page") return { text: label, context: ["page not registered", occurrences(l.occurrenceCount)].filter(Boolean).join(" · "), problem: true };
+  return { text: label, context: [`unavailable: ${r.reason}`, occurrences(l.occurrenceCount)].filter(Boolean).join(" · "), problem: true };
+}
+
+/** A resource's row: its label and dim context (where it's registered, or that ⏎ registers it, or why not). */
+export function resourceWords(l: AuthoredResourceLink): { text: string; context: string; problem: boolean } {
+  const r = l.resolution;
+  const n = occurrences(l.occurrenceCount);
+  // A file reads as its name; the rest of its path is context (a tree row is narrow).
+  const file = (r.kind === "ready" && r.provider === "filesystem") || (r.kind === "unregistered" && r.reference.kind === "filesystem");
+  const text = file && l.label.includes("/") ? basename(l.label) : l.label;
+  const dir = text !== l.label ? dirname(l.label) : "";
+  if (r.kind === "ready") return { text, context: [`${r.sourceName} · ${r.provider}`, r.addressLabel !== text ? r.addressLabel : "", n].filter(Boolean).join(" · "), problem: false };
+  if (r.kind === "unregistered") return { text, context: ["not registered · ⏎ registers and shows it", dir, n].filter(Boolean).join(" · "), problem: false };
+  return { text, context: [`unavailable: ${r.reason}`, n].filter(Boolean).join(" · "), problem: true };
+}
+
+/** A group's dim state, as the Tree's header says it: its count's extras (invalid, limited, diagnostics). */
+export function groupNote(g: AuthoredLinkGroup<unknown>): string {
+  const parts: string[] = [];
+  if (g.invalidCount > 0) parts.push(`${g.invalidCount} invalid reference${g.invalidCount === 1 ? "" : "s"}`);
+  if (g.completeness.kind === "limited") parts.push("results limited");
+  if (g.diagnostics.length) parts.push(g.diagnostics.map(d => d.message).join("; "));
+  return parts.join(" · ");
+}
+
+/** Whether an Outlinks or Resources group is shown: the Tree hides one with nothing to say (Backlinks always shows). */
+export const groupHasSomething = (g: AuthoredLinkGroup<unknown>) => g.entries.length > 0 || g.invalidCount > 0 || g.diagnostics.length > 0 || g.completeness.kind === "limited";
+
+/** Why a snapshot has no groups (the owner is gone or too long), or null. */
+export function snapshotProblem(s: AuthoredLinksSnapshot): string | null {
+  if (s.kind === "owner-unavailable") return s.reason === "deleted" ? "the note is in the Trash" : "the note is missing";
+  if (s.kind === "source-too-large") return `the note is longer than ${s.maximumUtf16Units} UTF-16 units`;
+  return null;
+}

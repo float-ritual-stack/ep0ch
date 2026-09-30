@@ -290,7 +290,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 
 | Tile | What it shows |
 |---|---|
-| outline (`tree`) | the tree; `←/→` fold, `⏎` opens (into its link, if it has one) |
+| outline (`tree`) | the tree; `←/→` fold, `⏎` opens (into its link, if it has one). `L` shows the selected row's links under it, as the outliner's Tree does: `→ outlinks`, `♦ resources` (`[file::]`, `jira::`), `← backlinks` (grouped as Detail groups them); each group folds (`space`, `h l`, a click); `l` or a click on a link's `▸` shows that note's links a level down; `⏎` or a click opens a link's note, or shows a resource's stored content in the reader (registering it first, and fetching it once, if it must) (`tree.links`, `tree.pick`) |
 | reader | the current note; follows the selection unless held (`p hold`, `p` again follows); `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold |
 | detail | a reader that keeps its note: it changes only by an open into it (its link, `open`, a click) |
 | preview | a reader that follows a source: a tile's selection (`tile:tree`, `tile:board`) or a file (`file:~/draft.md`), re-read when it's saved. Read-only for a file |
@@ -1086,6 +1086,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
+| `tree.links`, `tree.pick` | `reader=<outline tile>`; `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
 | `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |

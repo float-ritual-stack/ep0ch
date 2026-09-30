@@ -34,7 +34,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["brief", "projection", "backlinks", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
+const wide = ["brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -50,8 +50,8 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `bbs`, `brief`, `backlinks`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+// `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -306,6 +306,43 @@ if (scenario === "backlinks") {
   await snap("4-filter", 800); said();
   press({ kind: "enter" }); press({ kind: "esc" });
   board.close(); process.exit(0);
+}
+if (scenario === "tree-links") {
+  // The outline tree's authored links (the outliner's Tree, PIE-324): L under a note shows its outlinks,
+  // resources and backlinks; l on a link shows that note's own, a level down; ⏎ on a file resource and on a
+  // made-up ticket registers it and shows what the service stores. Its own scratch service, fictional notes.
+  const { mkdirSync: md, writeFileSync: wf } = await import("node:fs");
+  const { installTickets, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
+  installTickets(join(scratch!.root, "config"), SHOWCASE_TICKETS);
+  await ticketSource(board);
+  md(join(scratch!.workspace, "notes"), { recursive: true });
+  wf(join(scratch!.workspace, "notes", "compost.md"), "# Compost rota\n\n- Turn the heap on Saturdays.\n- Browns and greens, half and half.\n");
+  const mk = (parentId: string | null, text: string) => board.createBlock(parentId, text);
+  const log = await mk(null, "Allotment log");
+  await mk(log.id, "Soil test results [page::soil-test]\nA little low on nitrogen.");
+  const shed = await mk(log.id, "Tool shed inventory\nTwo spades and a fork.");
+  const plan = await mk(log.id, `Weekend plan\nCheck [[soil-test]] and ((${shed.id}|the shed list)).\nCompost: [file::notes/compost.md]\nThe van is [jira::ACME-12].`);
+  await mk(log.id, `Compost notes\nSee ((${plan.id})) for when.`);
+  await mk(log.id, `Seed order\nAfter ((${plan.id}|the weekend)) and the [[soil-test]].`);
+  board.subscribe(e => app.event(e));
+  const desk = new Desk(), D = desk as any;
+  app.push(new MainMenu()); app.push(desk);
+  const treeId = () => [...D.panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
+  const tree = () => D.panes.get(treeId());
+  for (let i = 0; i < 100 && !tree().list().length; i++) await Bun.sleep(50);
+  await tree().reveal(plan, desk);
+  D.focus = treeId();
+  ch("L");
+  await snap("1-links", 1500);
+  const rowAt = (text: string) => tree().list().findIndex((r: any) => (r.kind === "outlink" ? r.link.label : r.kind === "resource" ? r.link.label : "") .includes(text));
+  tree().selectRow(rowAt("the shed list"), desk); ch("l");
+  await snap("2-nested", 1500);
+  tree().selectRow(rowAt("compost.md"), desk); press({ kind: "enter" });
+  await snap("3-file-shown", 2500);
+  D.focus = treeId();
+  tree().selectRow(rowAt("ACME-12"), desk); press({ kind: "enter" });
+  await snap("4-ticket-shown", 3500);
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "kanban") {
   // PIE-406 on an All-work-shaped board (its own scratch service, fictional cards): OR lanes, moving into
@@ -619,7 +656,7 @@ if (scenario === "projection") {
   await ticketSource(board);
   const ready = await registerTicket(board, "ACME-12");
   await registerTicket(board, "ACME-14");
-  await refreshTicket(board, scratch!.sock, ready);
+  await refreshTicket(board, ready);
   const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira::\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira:: --comments");
   await mk(null, "Rollout ticket [jira::ACME-12] [type::call]\nOur own notes under the ticket: book the van for the 14th.");

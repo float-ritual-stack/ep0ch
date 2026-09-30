@@ -273,7 +273,7 @@ async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   installTickets(ticketsConfig, SHOWCASE_TICKETS);
   const ready = await registerTicket(board, "ACME-12");
   await registerTicket(board, "ACME-14");
-  await refreshTicket(board, board.path, ready);
+  await refreshTicket(board, ready);
 }
 
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */

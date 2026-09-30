@@ -272,7 +272,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
-    entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved"],
+    entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks ("],
     presence: ["who's online", "parallel version, to consolidate · WhoOnline", "parallel version, to consolidate · LastCallers"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · not fetched yet", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered"],

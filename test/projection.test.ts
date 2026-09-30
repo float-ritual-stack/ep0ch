@@ -338,7 +338,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     ticketsFile = installTickets(join(scratch.root, "config"), SHOWCASE_TICKETS);
     await ticketSource(seeder);
     n.ticket = await registerTicket(seeder, "ACME-12");
-    await refreshTicket(seeder, scratch.sock, n.ticket);
+    await refreshTicket(seeder, n.ticket);
     const hub = await create(null, "Ticket board");
     await create(hub.id, "Calls [type::virtual-branch] [query::type=call]");
     n.call = await create(null, "Vendor call ACME-12 [type::call]\nWhat we agreed.\njira::\nACME-14 is the printer one\njira:: --compact");
@@ -369,17 +369,17 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     const before = reads();
     const id = await registerTicket(seeder, "ACME-14");
     await until(() => frame().includes("Jira ACME-14 · not fetched yet"), "the new registration", 5000);
-    await refreshTicket(seeder, scratch.sock, id);
+    await refreshTicket(seeder, id);
     await until(() => frame().includes("Jira ACME-14 · Label printer drops the last line"), "the fetched ticket", 5000);
     // Changed content under the same revision is refused: the reader keeps the stored copy and says why (stale).
     const changed = { ...SHOWCASE_TICKETS["ACME-12"]!, title: "Rollout checklist, now with dates" };
     writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": changed }));
-    await refreshTicket(seeder, scratch.sock, n.ticket).catch(() => undefined);
+    await refreshTicket(seeder, n.ticket).catch(() => undefined);
     await until(() => frame().includes("the last refresh failed"), "the stale ticket", 5000);
     expect(frame()).toContain("Jira ACME-12 · Rollout checklist for the vendor switch");
     // A new revision is stored, and the reader draws it.
     writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": { ...changed, updatedAt: "2026-09-21T09:00:00.000Z" } }));
-    await refreshTicket(seeder, scratch.sock, n.ticket);
+    await refreshTicket(seeder, n.ticket);
     await until(() => frame().includes("Jira ACME-12 · Rollout checklist, now with dates"), "the refreshed ticket", 5000);
     expect(frame()).not.toContain("the last refresh failed");
     expect(reads()).toBeGreaterThan(before);

@@ -25,6 +25,7 @@ import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, TreePane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import { PreviewPane, sourceName } from "./preview";
 import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
+import { TREE_ACTIONS } from "./tree";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
@@ -515,7 +516,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   actions() {
     return {
-      actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...BACKLINKS_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: leaves(this.root).map(id => this.nameOf(id)),
+      actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...BACKLINKS_ACTIONS.list(), ...TREE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: leaves(this.root).map(id => this.nameOf(id)),
       rev: this.rev, expected: "any action here takes expected=<rev> (layout.get's rev): refused, with nothing done, when the layout changed since",
     };
   }
@@ -528,6 +529,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (TILE_ACTIONS.has(req.action)) return TILE_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
     if (BACKLINKS_ACTIONS.has(req.action)) return { tile: this.backlinksTile(req.reader).name, ...(await BACKLINKS_ACTIONS.runUntyped(req.action, args, { pane: this.backlinksTile(req.reader).pane, desk: this }, actor) as object) };
+    if (TREE_ACTIONS.has(req.action)) { const t = this.treeTile(req.reader); return { tile: t.name, ...(await TREE_ACTIONS.runUntyped(req.action, args, { pane: t.pane, desk: this }, actor) as object) }; }
     // A whole screen's own actions (the board's card.*), in its tile.
     const t = req.reader ? this.tileNamed(req.reader, false) : null;
     const sp = t ? this.panes.get(t.id) : null;
@@ -544,6 +546,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const id = t && all.includes(t.id) ? t.id : !sel ? all[0] : undefined;
     if (id === undefined) throw new ActionRefused(all.length ? `${sel} isn't a backlinks tile; backlinks tiles: ${all.map(i => this.nameOf(i)).join(", ")}` : "no backlinks tile here; ^W o l opens one beside a reader");
     return { name: this.nameOf(id), pane: this.panes.get(id) as BacklinksPane };
+  }
+
+  /** An outline tree tile by name or number, or the first one. */
+  private treeTile(sel?: string): { name: string; pane: TreePane } {
+    const all = leaves(this.root).filter(id => this.panes.get(id) instanceof TreePane);
+    const t = sel ? this.tileNamed(sel, false) : null;
+    const id = t && all.includes(t.id) ? t.id : !sel ? all[0] : undefined;
+    if (id === undefined) throw new ActionRefused(all.length ? `${sel} isn't an outline tree; trees: ${all.map(i => this.nameOf(i)).join(", ")}` : "no outline tree here; ^W o t opens one");
+    return { name: this.nameOf(id), pane: this.panes.get(id) as TreePane };
   }
 
   /** A key or a click runs the same action as `act`, as the person; a refusal is said, not thrown. */
@@ -684,6 +695,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       ...(this.over.has(id) ? { drawer: this.shut.has(id) ? "shut" : "open" } : {}),
       ...(p instanceof PreviewPane ? { source: sourceName(p.source) } : {}),
       ...(p instanceof BacklinksPane ? { source: `tile:${p.source}`, backlinks: p.describe() } : {}),
+      ...(p instanceof TreePane ? { tree: p.describe() } : {}),
       ...(p instanceof PtyPane ? { terminal: p.describe(), ...(p.herdr ? { herdr: p.herdr } : {}) } : {}),
       showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : p instanceof ScreenTile && p.current() ? { id: p.current()!.id, title: subject(p.current()!) } : undefined,
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
@@ -978,7 +990,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (!pane.running && pane.exited !== null) { pane.restart(); return this.redraw(); }
       this.ptyIn = pane; ctx.flash(`typing in ${this.nameOf(this.focus)} · ${ESCAPE_CHORD} back to the door`); return this.redraw();
     }
-    const readOnly = pane instanceof PreviewPane && pane.readOnly;
+    const readOnly = pane instanceof ReaderPane && pane.readOnly;
     const start = focused && !focused.holdsKeys && focused.msg && !readOnly ? sessionStart(k) : null;
     if (focused && start) return this.start(focused, start);
     if (!focused?.holdsKeys && !(pane instanceof PtyPane) && pane?.key(k, this)) return;
