@@ -31,13 +31,62 @@ one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":
 
 | Request | Answer | CLI |
 |---|---|---|
-| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()` | `ep0ch peek` |
+| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
 | `{"cmd":"act","action":"…","args":{…},"reader":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … reader=<tile> [--as id]` |
 | `{"cmd":"open","id":"<block>"}` | puts a block in front of the person | `ep0ch open <id>` |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
+
+## Where am I: `EP0CH_NEST` and `ep0ch where`
+
+A program can't tell from its own variables which stack it runs in: each layer only sets its own, and the
+door drops the Herdr pane's variables from a tile, since the tile isn't that pane. So each layer appends itself
+to `EP0CH_NEST` as it starts the next: one line, outermost first, layers joined by ` › `, at most 480
+characters (past that, the oldest layers after the first become one `…`). `src/nest.ts` writes and reads it.
+
+| Layer | Written by | Form |
+|---|---|---|
+| an ssh session | the door, from `SSH_TTY` (else `SSH_CONNECTION`), when the nest has no ssh layer | `ssh:pts/5`, or `ssh:-` without a tty (the client address is never recorded) |
+| a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
+| a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
+| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-claude` (the pane's label) |
+
+The three routes:
+
+    ssh:pts/5 › door:1388380/desk/t1:claude                               # plain ssh: a door, a tile
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude                 # the door in a Herdr pane
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/daily/t3:claude › herdr:door-claude   # the daily agent in Herdr
+
+The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
+launch place, and the agent's Herdr pane keeps the door that made it while another door shows it.
+
+`ep0ch where [--json]` checks it and says what is live. It only reads:
+
+- **the door:** its pid is running, and its control socket (`EP0CH_CONTROL`) answers `peek`. `peek`, not
+  `layout.get`: the same tiles, ids and focus, without an agent's act being announced on the person's
+  screen each time an agent starts;
+- **the tile:** the desk has a tile with that id (by name for a door older than tile ids), and this process
+  descends from its program;
+- **a Herdr pane:** `herdr pane list` has it (read-only), and whether it is focused;
+- **an ssh layer:** its tty is still there;
+- **the keys:** whether the person is typing in this tile, has it focused without typing, is on another tile,
+  or is on another screen than the desk.
+
+In the daily agent's Herdr pane, `EP0CH_CONTROL` is the link to whichever door is attached, so `where` names
+the tile that shows the pane now, in that door, and marks the door that made it `✗` when it has gone. With no
+`EP0CH_NEST` and no `EP0CH_CONTROL` it answers `not in a door`, with the ssh and Herdr layers the environment
+shows. A door older than these fields is still read: what it can't check is `?`, never guessed.
+
+    you are in: ssh:pts/5 › door:1388380/desk/t1:claude
+      ✓ ssh   pts/5                           /dev/pts/5 is there
+      ✓ door  pid 1388380 · desk · outline pie  running · its control socket answers
+      ✓ tile  tile t1 claude                  on the desk · this process runs in it
+    keys: the person is typing in this tile (t1 claude)
+
+`--json` gives `{ inDoor, recorded, nest, layers: [{ kind, label, live, why }], door, keys, summary }`;
+`summary` is one line for an agent's context (the Claude mod hands it to Claude at the start of a session).
 
 `as` (or `EP0CH_AGENT` for the CLI) names the agent. It is shown on screen and recorded with what it writes.
 

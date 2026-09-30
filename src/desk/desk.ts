@@ -279,7 +279,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const p = this.panes.get(id)!;
     // The program learns its tile's id (EP0CH_TILE_ID) as it starts, at the tile's first paint.
     const term = this.panes.get(id);
-    if (term instanceof PtyPane) term.tileId = this.tileId(id);
+    if (term instanceof PtyPane) { term.tileId = this.tileId(id); term.place = this.layoutName ?? "desk"; }
     p.init?.(this);
     p.select?.(this.current, this);
     if (p instanceof DetailPane && p.page && !p.msg) {
