@@ -9,12 +9,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
-import type { Msg } from "../src/board";
+import { subject, type Msg } from "../src/board";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { external } from "../src/open";
-import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
-import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
+import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { RULER_BG } from "../src/surface/selection";
@@ -337,11 +338,9 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     await seeder.info();
     ticketsFile = installTickets(join(scratch.root, "config"), SHOWCASE_TICKETS);
     await ticketSource(seeder);
-    n.ticket = await registerTicket(seeder, "ACME-12");
-    await refreshTicket(seeder, n.ticket);
     const hub = await create(null, "Ticket board");
     await create(hub.id, "Calls [type::virtual-branch] [query::type=call]");
-    n.call = await create(null, "Vendor call ACME-12 [type::call]\nWhat we agreed.\njira::\nACME-14 is the printer one\njira:: --compact");
+    n.call = await create(null, "Vendor call ACME-12 [type::call]\nWhat we agreed.\njira:: --comments\nACME-14 is the printer one\njira:: --compact");
     n.hub = hub;
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
@@ -353,54 +352,94 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   }, 30_000);
   afterAll(async () => { board?.close(); seeder?.close(); await scratch.stop(); });
 
-  test("the service advertises the capability, and the preview draws the stored ticket and a registered-but-unfetched one", async () => {
+  test("opening a note is the one step: the service fetches its tickets and the preview draws each from its ticket block", async () => {
     expect(board.supports("resources.projection")).toBe(true);
-    await until(() => frame().includes("Jira ACME-12 · Rollout checklist for the vendor switch"), "the ready ticket", 5000);
-    await until(() => frame().includes("Jira ACME-14 · not registered"), "the unregistered one", 5000);
-    expect(frame()).toContain("Status: In progress · Assignee: A. Person");
-    expect(frame()).toMatch(/fetched \d{4}-\d\d-\d\d \d\d:\d\d \(just now\)/);
-    expect(board.sent.filter(a => a === "resources.projection.read").length).toBeGreaterThan(0);
-    // The door only reads projections: no registration, refresh, open or Source call came from it.
+    expect(board.supports("resources.projection.materialize")).toBe(true);
+    await until(() => frame().includes("Jira ACME-12 · Rollout checklist for the vendor switch"), "the ticket", 10_000);
+    // ACME-14 was never registered: the open registered and fetched it too.
+    await until(() => frame().includes("Jira ACME-14 · Label printer drops the last line"), "the other ticket", 10_000);
+    await until(() => frame().includes("│ Steps for moving the depot to the new supplier."), "the ticket's body", 10_000);
+    expect(frame()).toContain("In progress · A. Person · Spring 2 · High · Task · rollout, vendor");
+    expect(frame()).toMatch(/fetched just now · r refresh/);
+    // The door only reads: the fetching is the service's, asked for by the read.
     expect([...new Set(board.sent.filter(a => a.startsWith("resource")))]).toEqual(["resources.projection.read"]);
+    const blocks = await board.children(n.call.id);
+    expect(blocks.map(m => m.author)).toEqual(["ext:jira", "ext:jira"]);
+  }, 30_000);
+
+  test("r fetches the tickets again and the preview repaints with Jira's new text; the person's lines stay theirs", async () => {
+    writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": { ...SHOWCASE_TICKETS["ACME-12"]!, title: "Rollout checklist, now with dates", status: "Review", updatedAt: new Date().toISOString() } }));
+    B().focus = "preview";
+    key(char("r"));
+    await until(() => frame().includes("Jira ACME-12 · Rollout checklist, now with dates"), "the refreshed ticket", 10_000);
+    expect(frame()).toContain("Review · A. Person");
+    expect(board.sent).toContain("resources.projection.refresh");
+    const call = await board.get(n.call.id);
+    expect(call!.text).toBe(n.call.text);
+  }, 30_000);
+
+  test("⏎ on the ticket's title opens its block: a header on top, the body, the comments after; its age refreshes it", async () => {
+    B().focus = "preview";
+    key({ kind: "enter" });
+    await until(() => !!B().details[0]?.msg && !B().details[0].msg.partial, "the detail");
+    const d = B().details[0];
+    for (let i = 0; i < 12 && d.surface.describe().elements?.current?.label !== "Jira ACME-12"; i++) { key(char("]")); frame(); }
+    expect(d.surface.describe().elements.current).toMatchObject({ kind: "resource", label: "Jira ACME-12" });
+    key({ kind: "enter" });
+    await until(() => B().details.some((x: any) => x.msg?.author === "ext:jira"), "the ticket block opened", 10_000);
+    const ticket = B().details.find((x: any) => x.msg?.author === "ext:jira");
+    expect(subject(ticket.msg)).toBe("Rollout checklist, now with dates");
+    await until(() => frame().includes("B. Person · 2026-09-18") || frame().includes("B. Person · 2026-09-18 09:10"), "its comments", 10_000);
+    expect(frame()).toContain("Van is booked for the 14th.");
+    // Refused if typed into: the ticket's text is Jira's (the service says why; the draft is kept).
+    await expect(board.update(ticket.msg.id, ticket.msg.text + "\nmy note", ticket.msg.revision)).rejects.toThrow("comes from Jira");
+  }, 30_000);
+
+  test("what changed leaves the extension's writes out: the +N count and the new scan, until the person asks for them", async () => {
+    const all = await board.changedSince(0, 200, true);
+    const people = await board.changedSince(0, 200);
+    expect(all.some(m => m.author === "ext:jira")).toBe(true);
+    expect(people.some(m => m.author === "ext:jira")).toBe(false);
+    expect(people.map(m => m.id)).toContain(n.call.id);
+    const before = { events: app.events, ext: app.extEvents };
+    app.event({ domain: "content", action: "ext.jira.sync", sequence: 1, change: { sequence: 1, changeId: 1, action: "ext.jira.sync", kind: "edit", blockId: "t", actor: { author: "agent", actorId: "ext:jira" }, recordedAt: "" } } as any);
+    expect(app.events).toBe(before.events);
+    expect(app.extEvents).toBe(before.ext + 1);
+    const { SHELL_ACTIONS } = await import("../src/screens");
+    expect(() => SHELL_ACTIONS.run("changes.extensions", {}, { ctx: app as any }, { kind: "agent", id: "helper" })).toThrow("an agent reads changes itself");
+    await SHELL_ACTIONS.run("changes.extensions", { include: true }, { ctx: app as any }, { kind: "user" });
+    expect(app.extensionChanges).toBe(true);
+    expect(app.events).toBe(before.events + app.extEvents);
+    await SHELL_ACTIONS.run("changes.extensions", {}, { ctx: app as any }, { kind: "user" });
+    expect(app.extensionChanges).toBe(false);
+    expect(app.events).toBe(before.events);
   }, 20_000);
 
-  test("repaint: registering the other ticket and refreshing the first redraw the preview with the service's new answer", async () => {
-    const reads = () => board.sent.filter(a => a === "resources.projection.read").length;
-    const before = reads();
-    const id = await registerTicket(seeder, "ACME-14");
-    await until(() => frame().includes("Jira ACME-14 · not fetched yet"), "the new registration", 5000);
-    await refreshTicket(seeder, id);
-    await until(() => frame().includes("Jira ACME-14 · Label printer drops the last line"), "the fetched ticket", 5000);
-    // Changed content under the same revision is refused: the reader keeps the stored copy and says why (stale).
-    const changed = { ...SHOWCASE_TICKETS["ACME-12"]!, title: "Rollout checklist, now with dates" };
-    writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": changed }));
-    await refreshTicket(seeder, n.ticket).catch(() => undefined);
-    await until(() => frame().includes("the last refresh failed"), "the stale ticket", 5000);
-    expect(frame()).toContain("Jira ACME-12 · Rollout checklist for the vendor switch");
-    // A new revision is stored, and the reader draws it.
-    writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": { ...changed, updatedAt: "2026-09-21T09:00:00.000Z" } }));
-    await refreshTicket(seeder, n.ticket);
-    await until(() => frame().includes("Jira ACME-12 · Rollout checklist, now with dates"), "the refreshed ticket", 5000);
-    expect(frame()).not.toContain("the last refresh failed");
-    expect(reads()).toBeGreaterThan(before);
-    expect([...new Set(board.sent.filter(a => a.startsWith("resource")))]).toEqual(["resources.projection.read"]);
-  }, 20_000);
+  test("what changed never lets extension writes push the person's own edit out of the list", async () => {
+    const since = Date.now() - 1;
+    const mine = await board.request<any>("create", { parentId: null, text: "Sort the seed packets", author: "user" });
+    // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
+    for (let i = 0; i < 120; i++) await board.request<any>("create", { parentId: null, text: `Made-up synced row ${i}`, author: "agent", provenance: { actorId: "ext:test" } });
+    const first = await board.changedSince(since, 40);
+    expect(first.map(m => m.id)).toContain(mine.id);
+    expect(first.some(m => m.author === "ext:test")).toBe(false);
+    expect((await board.changedSince(since, 40, true)).some(m => m.author === "ext:test")).toBe(true);
+  }, 30_000);
 
-  test("keys on the board: [ ] reach the region in a detail, ⏎ opens the ticket's page", async () => {
-    const opened: string[][] = [];
-    const run = external.run;
-    external.run = cmd => { opened.push(cmd); };
-    try {
-      B().focus = "preview";
-      key({ kind: "enter" });
-      await until(() => !!B().details[0]?.msg && !B().details[0].msg.partial, "the detail");
-      await until(() => frame().split("Jira ACME-12 ·").length > 2, "the region in the detail too");
-      const d = B().details[0];
-      for (let i = 0; i < 10 && d.surface.describe().elements?.current?.kind !== "resource"; i++) { key(char("]")); frame(); }
-      expect(d.surface.describe().elements.current).toMatchObject({ kind: "resource", label: "Jira ACME-12" });
-      key({ kind: "enter" });
-      await until(() => opened.length === 1, "the page opened");
-      expect(opened[0]!.at(-1)).toBe("https://tickets.example.test/browse/ACME-12");
-    } finally { external.run = run; }
-  }, 20_000);
+  test("a second note asking for the same ticket shows the one ticket block, and its age refreshes through that block", async () => {
+    const ticket = (await board.children(n.call.id)).find(m => m.author === "ext:jira" && subject(m).startsWith("Rollout checklist"))!;
+    expect(ticket).toBeDefined();
+    const followUp = await create(null, "Depot follow-up\nACME-12 again\njira::");
+    let read: ResourceProjectionRead | undefined;
+    const end = Date.now() + 10_000;
+    do { read = await board.readResourceProjections(followUp.id); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
+    const p = read!.projections[0]!;
+    expect(p.record?.blockId).toBe(ticket.id);
+    expect(await board.children(followUp.id)).toEqual([]);
+    const targets: LinkTarget[] = [];
+    ticketRegion(p, { record: ticket, comments: [] }, "page", 120, 0, Date.now(), (to, text) => { targets.push(to); return text; });
+    expect(targets.find(t => t.refresh)).toMatchObject({ refresh: ticket.id });
+    expect(targets.find(t => t.refresh)?.refreshLine).toBeUndefined();
+    expect(targets.find(t => t.block)).toMatchObject({ block: ticket.id });
+  }, 30_000);
 });

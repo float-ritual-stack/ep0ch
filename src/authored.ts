@@ -34,7 +34,12 @@ export type AuthoredResourceResolution =
   | { kind: "ready"; target: { kind: "resource"; resourceId: string }; sourceName: string; provider: string; addressLabel: string }
   | { kind: "unregistered"; reference: AuthoredResourceReference; reason: string }
   | { kind: "missing"; reason: string };
-export interface AuthoredResourceLink extends EntryBase { kind: "resource"; resourceId?: string; resolution: AuthoredResourceResolution }
+export interface AuthoredResourceLink extends EntryBase {
+  kind: "resource"; resourceId?: string;
+  /** The block the Resource is kept as (a Jira ticket the extension owns, PIE-445): ⏎ opens it. */
+  recordBlockId?: string;
+  resolution: AuthoredResourceResolution;
+}
 
 export interface AuthoredLinkGroup<E> { entries: E[]; completeness: AuthoredLinkCompleteness; invalidCount: number; diagnostics: AuthoredLinkDiagnostic[] }
 
@@ -54,10 +59,10 @@ export interface ResourceDescription {
   remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Record<string, string | string[] | null>; sourceSnapshot?: { fetchedAt: string } } | null;
   remoteError?: string;
   computed?: { markdown: string; derivedAt: string } | null;
+  /** What the service allows for this Resource here: `refresh.status` is `unavailable` when it won't fetch it. */
+  capabilities?: { refresh?: { status: string; reason?: string } };
 }
 
-/** Providers the service fetches on `resources.refresh` (a file is read as it is; `refresh` refuses one). */
-export const REFRESHABLE: ReadonlySet<string> = new Set(["web", "jira", "linear", "computed"]);
 
 /** Something is stored for the Resource to show: a file's text, a fetched page, a ticket, a computed document. */
 export function resourceStored(d: ResourceDescription): boolean {
@@ -173,8 +178,8 @@ export function resourceTarget(link: AuthoredResourceLink): { resourceId: string
  * stored, fetching it once when nothing is (`resources.describe`, `resources.refresh`). One step, as the
  * outliner's Tree's ⏎ is.
  */
-export async function openResource(board: { followAuthored(r: AuthoredResourceReference): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }): Promise<{ note: Msg; registered: boolean }> {
-  const followed = "resourceId" in to ? { id: to.resourceId, created: false } : await board.followAuthored(to.reference);
+export async function openResource<A>(board: { followAuthored(r: AuthoredResourceReference, actor?: A): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }, actor?: A): Promise<{ note: Msg; registered: boolean }> {
+  const followed = "resourceId" in to ? { id: to.resourceId, created: false } : await board.followAuthored(to.reference, actor);
   return { note: resourceNote(await board.describeResource(followed.id, true)), registered: followed.created };
 }
 
@@ -206,7 +211,7 @@ export function resourceWords(l: AuthoredResourceLink): { text: string; context:
   const file = (r.kind === "ready" && r.provider === "filesystem") || (r.kind === "unregistered" && r.reference.kind === "filesystem");
   const text = file && l.label.includes("/") ? basename(l.label) : l.label;
   const dir = text !== l.label ? dirname(l.label) : "";
-  if (r.kind === "ready") return { text, context: [`${r.sourceName} · ${r.provider}`, r.addressLabel !== text ? r.addressLabel : "", n].filter(Boolean).join(" · "), problem: false };
+  if (r.kind === "ready") return { text, context: [`${r.sourceName} · ${r.provider}`, r.addressLabel !== text ? r.addressLabel : "", l.recordBlockId ? "⏎ opens the ticket" : "", n].filter(Boolean).join(" · "), problem: false };
   if (r.kind === "unregistered") return { text, context: ["not registered · ⏎ registers and shows it", dir, n].filter(Boolean).join(" · "), problem: false };
   return { text, context: [`unavailable: ${r.reason}`, n].filter(Boolean).join(" · "), problem: true };
 }

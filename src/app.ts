@@ -1,7 +1,7 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
-import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
+import { AGENT_ACTOR_ID, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
 import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
@@ -25,6 +25,10 @@ export type Video = "kitty+crt" | "kitty" | "cells";
 
 export interface Ctx {
   t: TermInfo;
+  /** "What changed" includes extension writes (`changes.extensions`); off by default. */
+  extensionChanges?: boolean;
+  /** Extension writes since logon, counted apart from `events`. */
+  extEvents?: number;
   board: SocketBoard;
   host: string;
   workspace: string;
@@ -156,6 +160,12 @@ export class App implements Ctx {
   outline: string | undefined;
   video: Video;
   events = 0;
+  /** Changes extensions wrote since logon (a refreshed ticket): counted apart, shown when asked for. */
+  extEvents = 0;
+  /** Whether "what changed" (the +N count, newscan) includes what extensions wrote: `changes.extensions`. */
+  extensionChanges = false;
+  /** Where the status bar's `+N ext` sits, for a click. */
+  private extAt: { from: number; to: number; row: number } | null = null;
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
@@ -323,7 +333,9 @@ export class App implements Ctx {
       if (!c && (e.action === "reconnected" || e.action === "reset")) resourceChanged(null);
       invalidatePropertyErrors();
     }
-    if (e.change || e.action !== "reconnected") this.events++;
+    // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
+    if (isExtensionChange(e)) { this.extEvents++; if (this.extensionChanges) this.events++; }
+    else if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
     this.redraw();
   }
@@ -436,6 +448,12 @@ export class App implements Ctx {
   }
 
   private dispatch(k: Key) {
+    // A click on the status bar's `+N ext` shows (or hides) what extensions wrote, as `changes.extensions` does.
+    const ext = this.extAt;
+    if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
+      if (k.action === "down") void SHELL_ACTIONS.run("changes.extensions", {}, { ctx: this, here: this.stack.at(-1) }, USER);
+      return;
+    }
     // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
@@ -563,8 +581,14 @@ export class App implements Ctx {
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
     // The dock's chip starts the right part, so it's always whole and always in the same place from the right.
     const chip = this.dock.active ? this.dock.chip() : "";
-    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${this.video} │ on ${mins}m │ ${clock} `;
+    // Extension writes hidden from the count read `+N ext` (a click shows them); shown, `ext on`.
+    const ext = this.extEvents ? (this.extensionChanges ? "ext on" : `+${this.extEvents} ext`) : "";
+    const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
+    const tail = `${this.video} │ on ${mins}m │ ${clock} `;
+    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${extPart}${tail}`;
     const from = cols - width(right);
+    const extFrom = cols - width(extPart + tail);
+    this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     this.dock.chipAt = chip && from >= 0 ? { from, to: from + width(this.dock.chipText()), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
@@ -588,6 +612,11 @@ export function statusLine(left: string, middle: string, right: string, cols: nu
  * Which service events the screens see: content changes, and change records in other domains (a
  * lane's reorder arrives with `domain: "view"`). Other view events (clients registering) aren't news.
  */
+/** A change an extension wrote (`actorId` `ext:…`, a refreshed Jira ticket): not the person's news by default. */
+export function isExtensionChange(e: OutlineEvent): boolean {
+  return !!e.change?.actor?.actorId?.startsWith("ext:");
+}
+
 export function forScreens(e: OutlineEvent): boolean {
   return e.domain === "content" || !!e.change;
 }

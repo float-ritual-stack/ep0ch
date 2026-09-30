@@ -331,11 +331,18 @@ export class TreePane implements Pane {
       desk.setCurrent(m, { from: this, link: true, ...(agent ? { agent: true } : {}) });
       if (!routed && !agent) desk.focusKind("reader");
     };
+    // A ticket the Jira extension keeps as a block (PIE-445): ⏎ opens that block, a note like any other.
+    if (r.kind === "resource" && r.link.recordBlockId) {
+      const m = await desk.ctx.board.get(r.link.recordBlockId);
+      if (!m) throw new ActionRefused(`${r.link.label}'s ticket block isn't there any more`);
+      land(m);
+      return { row: i + 1, id: m.id, ticket: r.link.label };
+    }
     if (r.kind === "resource") {
       const to = resourceTarget(r.link);
       if ("refused" in to) throw new ActionRefused(to.refused);
       desk.ctx.flash(`reading ${r.link.label}…`);
-      const { note, registered } = await openResource(desk.ctx.board, to).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
+      const { note, registered } = await openResource(desk.ctx.board, to, actor).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
       land(note);
       if (registered) { desk.ctx.flash(`${r.link.label} registered and shown`); this.load(r.owner, desk); }
       return { row: i + 1, resource: note.id.slice("resource:".length), title: subject(note), registered };
