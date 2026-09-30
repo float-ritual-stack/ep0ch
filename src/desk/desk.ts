@@ -224,16 +224,24 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         id = o; names.set(id, l.name!);
       } else {
         let pane = makeTile({ ...l, kind });
-        // The dock's agent (PIE-498) is one tile: a second agent tile in the same layout gets a program of its own.
-        if (this.isShared(pane) && [...this.panes.values()].includes(pane)) pane = new PtyPane({ cmd: l.cmd?.length ? l.cmd : dailyAgent().cmd, cwd: l.cwd, label: l.name });
-        // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
-        const saved = /^t(\d+)$/.exec(l.id ?? "");
-        const n = saved ? Number(saved[1]) : 0;
-        id = mine(n, this.nextId) && !this.panes.has(n) ? n : this.nextId++;
-        this.nextId = Math.max(this.nextId, id + 1);
-        this.panes.set(id, pane);
-        names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : this.autoName(kind));
-        fresh.push(id);
+        // The dock's agent (PIE-498) is one tile. Laid out again with `reuse`, the desk may hold it already under
+        // another name: that tile is this one (a new program would be a second attach to the agent).
+        const had = reuse && this.isShared(pane) ? [...old].find(([, q]) => q === pane)?.[0] : undefined;
+        if (had !== undefined && !used.has(had)) {
+          id = had;
+          names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : oldNames.get(id) ?? this.autoName(kind));
+        } else {
+          // A second agent tile in the same layout gets a program of its own.
+          if (this.isShared(pane) && [...names.keys()].some(n => this.panes.get(n) === pane)) pane = new PtyPane({ cmd: l.cmd?.length ? l.cmd : dailyAgent().cmd, cwd: l.cwd, label: l.name });
+          // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
+          const saved = /^t(\d+)$/.exec(l.id ?? "");
+          const n = saved ? Number(saved[1]) : 0;
+          id = mine(n, this.nextId) && !this.panes.has(n) ? n : this.nextId++;
+          this.nextId = Math.max(this.nextId, id + 1);
+          this.panes.set(id, pane);
+          names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : this.autoName(kind));
+          fresh.push(id);
+        }
       }
       used.add(id);
       if (l.link) wantLinks.push([id, l.link]);
@@ -365,6 +373,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private running(shared = false) { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running && (shared || !this.isShared(p))); }
   /** The dock's agent tile (PIE-498): shown here, owned by the App. */
   private isShared(p: unknown): boolean { return !!sharedAgent()?.isShared(p); }
+  /**
+   * The dock's agent is pulled up in the drawer: its tile here draws a note, and isn't entered from here (the
+   * drawer has it, at its own size; ctrl+] or a click there types in it). Said, with how to bring it back.
+   */
+  private inDrawer(p: unknown, say = true): boolean {
+    if (!sharedAgent()?.drawnElsewhere(p)) return false;
+    if (say) this.ctx.flash(`${this.nameOf(this.focus)} is in the agent drawer · type there (a click, or ctrl+]) · alt+a or Esc puts it back here`);
+    return true;
+  }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
     const r = this.preset ? this.running() : [];
@@ -570,7 +587,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return this.inPty(); }
-  private inPty(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
+  private inPty(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn && !this.inDrawer(this.ptyIn, false); }
   /** Raw input goes straight to the program while it runs (F-keys, shift-arrows, a bracketed paste): Term keeps the mouse and ctrl+]. */
   rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.inPty() && p.running ? (s: string) => p.inputRaw(s) : null; }
   acceptsPaste(): boolean { return this.inPty(); }
@@ -905,7 +922,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
-    if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running) {
+    if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running && !this.inDrawer(this.chord.pane, false)) {
       const p = this.chord.pane;
       this.chord = null; this.ptyIn = p; p.input("\x1d");
       ctx.flash(`sent ctrl+] to ${this.nameOf(this.focus)}`); return this.redraw();
@@ -957,6 +974,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const pane = this.panes.get(this.focus);
     // A terminal tile the person isn't in: ⏎ or e starts typing in it (⏎ on one that exited runs it again).
     if (pane instanceof PtyPane && (k.kind === "enter" || c === "e")) {
+      if (this.inDrawer(pane)) return this.redraw();
       if (!pane.running && pane.exited !== null) { pane.restart(); return this.redraw(); }
       this.ptyIn = pane; ctx.flash(`typing in ${this.nameOf(this.focus)} · ${ESCAPE_CHORD} back to the door`); return this.redraw();
     }
@@ -1255,6 +1273,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile`);
     if (!p.running) throw new ActionRefused(`${t.name}'s program isn't running · tile.restart runs it again`);
     if (actor.kind === "agent" && this.ptyIn === p && this.focus === t.id) throw new ActionRefused(`the person is typing in ${t.name}; an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)`);
+    // The dock's agent is this tile too (PIE-498): the person typing in it in the drawer holds its keys as well.
+    if (actor.kind === "agent" && sharedAgent()?.personIn(p)) throw new ActionRefused(`the person is typing in ${t.name} in the agent drawer; an agent doesn't type there`);
     p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
     return { tile: t.name, chars: text.length };
   }
@@ -1701,6 +1721,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         const x = k.x - r.col - 1, y = k.y - r.row - 1;
         if (pane instanceof PtyPane) {
           // A click in a terminal starts typing in it; the program gets the click when it asked for the mouse.
+          if (this.inDrawer(pane)) return this.redraw();
           if (pane.running) this.ptyIn = pane;
           if (pane.wantsMouse()) { this.mouseTile = { id, r }; pane.mouse(k, x, y); }
         } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this); }

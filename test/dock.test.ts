@@ -8,8 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { makeTile, sharedAgent } from "../src/desk/tiles";
-import { DOCK_TILE_ID, nextStep } from "../src/dock";
+import { makeTile, saveLayout, sharedAgent } from "../src/desk/tiles";
+import { PtyPane } from "../src/desk/pty";
+import { DOCK_TILE_ID, MAX_SHARE, MIN_SHARE, nextStep } from "../src/dock";
 import { WATCH_TITLE } from "../src/desk/herdr-agent";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -149,6 +150,56 @@ describe("the agent drawer", () => {
       d.paint();
       d.key(mouse("down", chip.from + 1, 29));
       expect(d.app.dock.open).toBe(false);
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  });
+
+  test("dragged onto the status row (or past the top), the edge stops at the drawer's least (or most): no refusal is said", () => {
+    const d = door();
+    try {
+      d.app.push(d.screen("desk") as any);
+      d.key(ALT("a")); d.paint();
+      const top = d.app.dock.rect!.row;
+      d.key(mouse("down", 50, top));
+      d.key(mouse("drag", 50, 29));                            // the status row
+      expect(d.app.dock.share).toBe(MIN_SHARE);
+      expect(d.A.message ?? "").not.toContain("fraction");
+      d.key(mouse("drag", 50, 0));
+      expect(d.app.dock.share).toBe(MAX_SHARE);
+      d.key(mouse("up", 50, 0));
+      expect(d.A.message ?? "").not.toContain("fraction");
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  });
+
+  test("ctrl+] by the keyboard: out, back in; twice at once sends the agent a ctrl+]; a terminal tile's own ctrl+] stays the screen's", async () => {
+    const d = door();
+    const got: Key[] = [];
+    let raw = false;
+    try {
+      d.app.push(d.screen("desk", { key: (k: Key) => got.push(k), rawKeys: () => raw }) as any);
+      d.key(ALT("a")); d.paint();
+      await wait(() => d.app.dock.tile?.running === true);
+      d.key(CTRL_RB);
+      expect(d.app.dock.entered).toBe(false);
+      expect(d.A.message).toContain("ctrl+] or a click goes back in");
+      // Right away again: back in, and the agent gets the ctrl+] (the tty echoes it as ^]).
+      d.key(CTRL_RB);
+      expect(d.app.dock.entered).toBe(true);
+      await wait(() => d.app.dock.tile!.text().some(l => l.includes("^]")));
+      // Out, and later ctrl+] again: back in, nothing sent.
+      d.key(CTRL_RB);
+      (d.app.dock as any).leftAt = 0;
+      d.key(CTRL_RB);
+      expect(d.app.dock.entered).toBe(true);
+      expect(d.term.rawSink()).not.toBeNull();                 // the keys are the agent's again
+      // The person in the screen's terminal tile: ctrl+] leaves the tile (the screen's), and its second is the tile's too.
+      d.key(CTRL_RB); (d.app.dock as any).leftAt = 0;
+      raw = true;
+      d.key(CTRL_RB);
+      raw = false;
+      d.key(CTRL_RB);
+      expect(d.app.dock.entered).toBe(false);
+      expect(got.filter(k => k.kind === "char" && k.ch === "]")).toHaveLength(2);
+      expect(plain(d.paint()[d.app.dock.rect!.row + d.app.dock.rect!.rows - 1]!)).toContain("click in it or ctrl+] to type");
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
@@ -308,5 +359,72 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
       expect(app.dock.tile!.running).toBe(true);
       expect(app.dock.tile!.pid).toBe(pid);
     } finally { app.quit(); app.dock.tile?.kill(); }
+  }, 30_000);
+
+  /** A door on the daily desk, and its claude tile running (`cat`). */
+  async function dailyDoor() {
+    let key: (k: Key) => void = () => {};
+    let painted: string[] = [];
+    const term: any = { info: { cols: 150, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term, board, Date.now(), () => {});
+    const desk = new Desk(undefined, { layout: "daily" });
+    app.push(desk);
+    (app as any).paint();
+    await wait(() => app.dock.tile?.running === true);
+    const ptys = () => [...(desk as any).panes.values()].filter((p: any) => p instanceof PtyPane);
+    return { app, desk, key: (k: Key) => key(k), paint: () => { (app as any).paint(); return painted.map(plain); }, ptys };
+  }
+
+  test("laid out again with reuse, the claude tile under another name is still the drawer's one program: no second attach", async () => {
+    const d = await dailyDoor();
+    try {
+      const pid = d.app.dock.tile!.pid;
+      const spec = JSON.parse(JSON.stringify((d.desk as any).layoutSpec()), (k, v) => (k === "name" && v === "claude" ? "helper" : v));
+      saveLayout("helper-day", spec);
+      await d.desk.act({ action: "layout.load", args: { name: "helper-day" } }, { kind: "user" } as any);
+      const agents = d.ptys().filter((p: any) => p.run.cmd.join(" ") === "cat");
+      expect(agents.length).toBe(1);
+      expect(agents[0] === d.app.dock.tile).toBe(true);
+      expect(d.app.dock.tile!.pid).toBe(pid);
+      expect((d.desk.describe().panes as any[]).find(p => p.name === "helper")?.kind).toBe("pty");
+      // And back to the daily layout: the same one again.
+      await d.desk.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" } as any);
+      const again = d.ptys().filter((p: any) => p.run.cmd.join(" ") === "cat");
+      expect(again.length === 1 && again[0] === d.app.dock.tile).toBe(true);
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  }, 30_000);
+
+  test("while the drawer has it, the desk's claude tile isn't entered: ⏎ and a click say where it is", async () => {
+    const d = await dailyDoor();
+    try {
+      d.key(ALT("a")); d.key(CTRL_RB);                          // up, and the keys back to the desk
+      expect(d.app.dock.entered).toBe(false);
+      await d.desk.act({ action: "tile.focus", reader: "claude" }, { kind: "user" } as any);
+      d.key({ kind: "enter" });
+      expect(d.desk.rawKeys()).toBe(false);
+      expect((d.app as any).message).toContain("is in the agent drawer");
+      const shown = d.paint();
+      const row = shown.findIndex(l => l.includes("is in the agent drawer below"));
+      const col = shown[row]!.indexOf("is in the agent drawer below");
+      d.key(mouse("down", col, row)); d.key(mouse("up", col, row));
+      expect(d.desk.rawKeys()).toBe(false);
+      expect(d.app.dock.entered).toBe(false);
+      // Put away, the tile is the desk's again: ⏎ types in it.
+      d.key(ALT("a"));
+      d.key({ kind: "enter" });
+      expect(d.desk.rawKeys()).toBe(true);
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  }, 30_000);
+
+  test("an agent's tile.type never goes into the claude tile while the person types in it in the drawer", async () => {
+    const d = await dailyDoor();
+    try {
+      d.key(ALT("a"));                                           // the person's pull: they're in it
+      expect(d.app.dock.entered).toBe(true);
+      await expect(d.app.act({ action: "tile.type", reader: "claude", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      d.key(CTRL_RB);                                            // out of it: an agent may type there again
+      const r: any = await d.app.act({ action: "tile.type", reader: "claude", args: { text: "seed list" }, as: "claude-7" });
+      expect(r).toMatchObject({ tile: "claude" });
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   }, 30_000);
 });
