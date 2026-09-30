@@ -19,8 +19,8 @@ An agent sees what the person sees, live, and can change anything except where t
 ## The control socket
 
 `EP0CH_CONTROL` names it (default `~/.local/state/ep0ch-door/door.sock`; a second door serves on
-`door-<pid>.sock`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, so a program in a tile
-reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
+`door-<pid>.sock`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as
+`EP0CH_TILE` and its id as `EP0CH_TILE_ID`, so a program in a tile reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
 README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
 
@@ -48,7 +48,7 @@ The door paints at most once a frame (16ms), however busy its terminal tiles are
 | `focus.changed` | `tile`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
 | `viewport` | `tile`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
 | `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
-| `layout.changed` | `layout`: `name`, `rule`, `zoom`, `tree` (splits with their `path` and `shares`, tab sets with the tab `shown`), `tiles` (each `tile`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer`, `source`, and for a terminal `cmd` and its nvim `socket`) | a split, move, tab, pin, drawer, resize, load |
+| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, pin, drawer, resize, load |
 | `marks.changed` | `marks`: each mark's `n`, `block` or `tile`+`line`, `reason`, `by`, `at`, `showing` | a mark set or dismissed |
 | `screen` | `screen` | the door moved to another screen (the feed is the desk's) |
 
@@ -59,7 +59,7 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 | Action | Gives |
 |---|---|
-| `layout.get` | the tile tree (`describeTree` by name) and each tile's `name`, `kind`, `rect`, `tabs`, `link`, `drawer`, `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, and `nvim.socket` |
+| `layout.get` | `rev` (below); the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link`, `drawer`, `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `view.get` (`reader=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info reader=<tile>` | one tile as `layout.get` gives it |
 | `marks.list` | every mark, and the tiles showing it |
@@ -92,17 +92,46 @@ These change what the person looks at, so an agent's is a visible, attributed mo
     ep0ch act list.read --as claude-7
     ep0ch act list.open n=3 --as claude-7
 
+## Naming tiles and splits (PIE-491)
+
+Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same
+thing after someone else's change.
+
+- **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t7`) has an id, in `layout.get` and the feed. It
+  stays with its split, tab set or tile through moves, tabs, resizes and saves (`desk.json` and
+  `layouts.json` keep them, so a restarted door gives the same ones), and is never given to another. A split
+  that's gone (its tiles moved or closed) is refused by id, never swapped for another.
+- **Names.** A tile's name starts with a letter, then letters, digits, `.`, `-` or `_`, at most 40 (`middle`,
+  `claude`, `reader2`), and isn't shaped like an id (`t`, `s` or `g`, then digits). So a name is never a number,
+  never an id, and never holds the `:` of a `tile:<name>` source. `tile.open name=1` and `name=s2` are refused.
+  (Ids have no sigil because the CLI reads a value starting with `@` from a file.) A layout saved before this
+  rule with a tile named `2` (or `t2`) loads with that tile renamed to its kind (`detail`, or `detail2` when
+  taken), and its links, sources and focus follow.
+- **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
+- **`reader=<tile>`** takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
+  place.
+- **The revision.** `layout.get` gives `rev`, a number that changes whenever the tree's shape does: a split,
+  tab set or tile added, taken away or moved. A resize or showing another tab doesn't change it. Any desk
+  action takes `expected=<rev>`; if the layout changed since, it's refused and nothing is done ("the layout
+  changed since revision 7 …"). Pass it whenever you name something by place: a `path`, or a `#number`.
+- **The board's readers** are `preview`, `detail1`, `detail2`, `float1`…: a detail keeps its name while it
+  lives, whatever closes around it, so after `detail1` closes the other is still `detail2`. A detail floated
+  (or a float docked) gets a new name for what it now is (`float2`, `detail3`); the old one is refused.
+
+    ep0ch act layout.get                                  # rev 12; the right column is split s5
+    ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since
+    ep0ch act layout.resize path=2 border=0 share=0.3 expected=12   # refused if the layout changed
+
 ## Commands
 
-The desk's commands, by what they change. `reader=<tile>` names a tile by name (`middle`), by its number on
-screen (`5`), or `focused`. Each is also a key or a mouse gesture; see the README's desk section and
-`docs/UI-GRAMMAR.md` §7.
+The desk's commands, by what they change. `reader=<tile>` names a tile as above. Each is also a key or a mouse
+gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 
 | Command | Args | Agent rules |
 |---|---|---|
 | `layout.load` (`layout.restore`), `layout.save` | `name` | load is refused while the person is typing; running programs are never ended |
 | `layout.move` | `reader`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
-| `layout.resize` | `path` (from `layout.get`), `border`, `share` | a dragged border runs this |
+| `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id |
 | `layout.even`, `layout.swap` | `to` | |
 | `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` | `reader` | never the person's tile, never a running program |
@@ -112,7 +141,8 @@ screen (`5`), or `focused`. Each is also a key or a mouse gesture; see the READM
 | `tile.preview` | `reader`, `where` | |
 | `tile.type`, `tile.restart` | `text` | never into the terminal the person is in |
 | `tab.select` | `reader`, `by` | never hides the person's tab |
-| `open` | `id`, `reader` | shows the note in that tile; the person's own open gives the tile the keys, an agent's never does |
+| `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where `ep0ch open` puts it). A program in a tile passes `from=$EP0CH_TILE` and never names a reader. The person's own open gives the tile the keys, an agent's never does |
+| `tile.herdr` | `reader`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits |
 | `view.scrollTo` | `reader`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
 | `block.mark` | `id` (default: the note `reader` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
@@ -120,9 +150,9 @@ screen (`5`), or `focused`. Each is also a key or a mouse gesture; see the READM
 | `pane.*` | `split`, `close`, `resize`, `zoom`, `float`, `pin` | as before (PIE-412) |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark; `focus.set` is its older name), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
-Example: bring the person's attention to a decision.
+Example: bring the person's attention to a decision, from an agent running in a tile.
 
-    ep0ch act open id=<block> reader=middle --as claude-7
+    ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers reader=middle (the tile's link)
     ep0ch act view.scrollTo text="needs a decision" reader=middle --as claude-7
     ep0ch act block.mark reason="needs your call" reader=middle --as claude-7
 
@@ -164,6 +194,7 @@ at, and what it does while they're typing:
 | `tile.type` | no | refused for the terminal they're in |
 | `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
+| `tile.herdr` | no | allowed |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 

@@ -524,7 +524,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     try {
       expect(await act("open", { id: cards.mine.id })).toMatchObject({ id: cards.mine.id });
       const out: any = await act("edit.text", { text: "Turn the compost [stage::queued]\nEvery two weeks, with a fork." });
-      expect(out.reader).toMatch(/^\d$/);
+      expect(out.reader).toBe("reader");                               // the tile's name, not its place (PIE-491)
       expect(await act("edit.save")).toMatchObject({ saved: true });
       expect(await lastBy(cards.mine.id)).toEqual(["agent", AS]);
       expect((app.describe() as any).state.panes.find((p: any) => p.showing?.id === cards.mine.id).agent.id).toBe(AS);

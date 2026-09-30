@@ -17,9 +17,15 @@ export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[];
   /** A name the view finds it by ("readers"); a named split stays when one kid is left. */
   key?: string;
+  /**
+   * Its stable id (PIE-491), given by the view that owns the tree (the desk's `s<n>`): it stays with the split
+   * through every change that keeps the split, where its path doesn't. It changes nothing about the layout.
+   */
+  id?: string;
 };
-/** Tiles stacked in one place (PIE-413): `active` is the one shown; the others keep their state. */
-export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number };
+/** Tiles stacked in one place (PIE-413): `active` is the one shown; the others keep their state. `id` as a split's. */
+export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: string };
+const idOf = (n: { id?: string }) => (n.id ? { id: n.id } : {});
 export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I>;
 
 /** How a view sizes its panes as they're placed. */
@@ -181,7 +187,7 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
     if (ids.length === 1) return leaf(ids[0]!);
     // The tab after the one taken out is shown, as closing a browser tab does; the one shown stays shown.
     const active = at < n.active ? n.active - 1 : at === n.active ? Math.min(at, ids.length - 1) : n.active;
-    return { t: "tabs", ids, active };
+    return { t: "tabs", ids, active, ...idOf(n) };
   }
   const kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k, i) => { const r = remove(k, id); if (r) { kids.push(r); weights.push(n.weights[i]!); } });
@@ -382,7 +388,7 @@ export function tabInto<I>(root: LNode<I>, target: I, add: I, index?: number): L
     const ids = slot.t === "tabs" ? slot.ids.filter(x => x !== add) : [target];
     const at = Math.max(0, Math.min(ids.length, index ?? (slot.t === "tabs" ? Math.min(slot.active, ids.length - 1) + 1 : 1)));
     ids.splice(at, 0, add);
-    return { t: "tabs", ids, active: at };
+    return { t: "tabs", ids, active: at, ...(slot.t === "tabs" ? idOf(slot) : {}) };
   });
 }
 
@@ -450,7 +456,7 @@ export function reorder<I>(root: LNode<I>, id: I, index: number): LNode<I> | nul
 /** A copy of the tree's shape (the ids themselves are kept). */
 export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
-  if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active };
+  if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights] };
 }
 
@@ -464,9 +470,9 @@ export function normalise<I>(n: LNode<I>, min = 0.05): LNode<I> {
   if (n.t === "leaf") return n;
   if (n.t === "tabs") {
     const ids = [...new Set(n.ids)];
-    if (!ids.length) return { t: "tabs", ids: [], active: 0 };
+    if (!ids.length) return { t: "tabs", ids: [], active: 0, ...idOf(n) };
     if (ids.length === 1) return leaf(ids[0]!);
-    return { t: "tabs", ids, active: Math.max(0, Math.min(ids.length - 1, Number.isInteger(n.active) ? n.active : 0)) };
+    return { t: "tabs", ids, active: Math.max(0, Math.min(ids.length - 1, Number.isInteger(n.active) ? n.active : 0)), ...idOf(n) };
   }
   let kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k0, i) => {
@@ -491,10 +497,11 @@ export function normalise<I>(n: LNode<I>, min = 0.05): LNode<I> {
 // ── saved forms ──────────────────────────────────────────────────────────────
 
 /** The desk.json form before PIE-412: binary splits by ratio. The desk still writes it (it only makes pairs). */
-export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L> };
-export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string } | TabsForm<L>;
-/** A tab set as saved: its tiles and which one is shown. */
-export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number };
+export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string };
+export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string } | TabsForm<L>;
+/** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
+export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string };
+const savedId = (x: any) => (typeof x?.id === "string" && x.id ? { id: x.id as string } : {});
 
 /** Read either saved form (binary `ratio a b` or `kids weights`), making each leaf with `leafOf`. */
 export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L>, leafOf: (l: L) => I): LNode<I> {
@@ -503,17 +510,17 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
   if (x.t === "tabs") {
     const ids = (Array.isArray(x.tabs) ? x.tabs : []).filter((l: any) => l?.t === "leaf").map((l: L) => leafOf(l));
     if (ids.length === 1) return leaf(ids[0]);
-    return { t: "tabs", ids, active: Number.isInteger(x.active) && x.active >= 0 && x.active < ids.length ? x.active : 0 };
+    return { t: "tabs", ids, active: Number.isInteger(x.active) && x.active >= 0 && x.active < ids.length ? x.active : 0, ...savedId(x) };
   }
   const dir: Axis = x.dir === "col" ? "col" : "row";
   if (Array.isArray(x.kids)) {
     const kids = x.kids.map((k: any) => revive(k, leafOf));
     // Weights that aren't positive, finite numbers (or don't match the kids) fall back to equal shares.
     const ok = Array.isArray(x.weights) && x.weights.length === kids.length && x.weights.every(good);
-    return splitOf(dir, kids, ok ? [...x.weights] : undefined, typeof x.key === "string" ? x.key : undefined);
+    return { ...splitOf(dir, kids, ok ? [...x.weights] : undefined, typeof x.key === "string" ? x.key : undefined), ...savedId(x) };
   }
   const ratio = good(x.ratio) && x.ratio < 1 ? x.ratio : 0.5;
-  return pair(dir, ratio, revive(x.a, leafOf), revive(x.b, leafOf));
+  return { ...pair(dir, ratio, revive(x.a, leafOf), revive(x.b, leafOf)), ...savedId(x) };
 }
 
 const good = (w: unknown): w is number => typeof w === "number" && Number.isFinite(w) && w > 0;
@@ -521,20 +528,24 @@ const good = (w: unknown): w is number => typeof w === "number" && Number.isFini
 /** Write a tree, pairs in the binary form (so an older door still reads it), anything wider as kids and weights. */
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L> | NaryForm<L> {
   if (n.t === "leaf") return leafOf(n.id);
-  if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active };
+  if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
   if (n.kids.length === 2 && !n.key) {
     const sum = n.weights[0]! + n.weights[1]! || 1;
-    return { t: "split", dir: n.dir, ratio: n.weights[0]! / sum, a: serialize(n.kids[0]!, leafOf) as BinaryForm<L>, b: serialize(n.kids[1]!, leafOf) as BinaryForm<L> };
+    return { t: "split", dir: n.dir, ratio: n.weights[0]! / sum, a: serialize(n.kids[0]!, leafOf) as BinaryForm<L>, b: serialize(n.kids[1]!, leafOf) as BinaryForm<L>, ...idOf(n) };
   }
-  return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}) };
+  return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...idOf(n) };
 }
 
-/** The tree as `peek` shows it: each pane by name with its share of its split. */
-export type LayoutView = { pane: string; share: number; fixed?: number } | { split: Axis; key?: string; share: number; kids: LayoutView[] } | { tabs: string[]; active: string; share: number };
-export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: PlaceOpts<I> = {}, sh = 1, parent: Axis = "row"): LayoutView {
+/**
+ * The tree as `peek` and `layout.get` show it: each pane by name with its share of its split. Each split
+ * says its `path` (kid indexes from the root, "1.0"); a split or tab set that has an id says it, and so does
+ * each pane when `leafId` is given.
+ */
+export type LayoutView = { pane: string; id?: string; share: number; fixed?: number } | { split: Axis; key?: string; id?: string; path: string; share: number; kids: LayoutView[] } | { tabs: string[]; id?: string; active: string; share: number };
+export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: PlaceOpts<I> = {}, leafId?: (id: I) => string, sh = 1, parent: Axis = "row", path = ""): LayoutView {
   const round = (x: number) => Math.round(x * 1000) / 1000;
-  if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { pane: name(n.id), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
-  if (n.t === "tabs") return { tabs: n.ids.map(name), active: name(n.ids[n.active]!), share: round(sh) };
+  if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { pane: name(n.id), ...(leafId ? { id: leafId(n.id) } : {}), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
+  if (n.t === "tabs") return { tabs: n.ids.map(name), ...idOf(n), active: name(n.ids[n.active]!), share: round(sh) };
   const sum = n.weights.reduce((a, w) => a + w, 0) || 1;
-  return { split: n.dir, ...(n.key ? { key: n.key } : {}), share: round(sh), kids: n.kids.map((k, i) => describeTree(k, name, opts, n.weights[i]! / sum, n.dir)) };
+  return { split: n.dir, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), kids: n.kids.map((k, i) => describeTree(k, name, opts, leafId, n.weights[i]! / sum, n.dir, path ? `${path}.${i}` : String(i))) };
 }
