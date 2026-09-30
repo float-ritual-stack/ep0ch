@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { App } from "./app";
 import { Logon } from "./screens";
 import { startScreens } from "./start";
-import { SocketBoard } from "./socket";
+import { Offline, SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients, startControl } from "./control";
 import { skillCommand } from "./skills";
@@ -13,15 +12,11 @@ import { resolveTarget } from "./discover";
 import { attachTarget, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
 import { setupCommand } from "./setup/apply";
+import { alive, claimState, readState, writeState } from "./state";
+import { recoverEdits } from "./surface/editor";
 
-const STATE = join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door", "lastcall.json");
-
-function readLastCall(): number {
-  try { return Number(JSON.parse(readFileSync(STATE, "utf8")).at) || 0; } catch { return 0; }
-}
-function writeLastCall(at: number) {
-  try { mkdirSync(dirname(STATE), { recursive: true }); writeFileSync(STATE, JSON.stringify({ at })); } catch { /* not fatal */ }
-}
+const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json")?.at) || 0;
+const writeLastCall = (at: number) => writeState("lastcall.json", { at });
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
@@ -108,6 +103,39 @@ catch (e) {
 }
 
 const term = new Term();
+// Every way the door ends goes through `end`: a signal (SIGINT, SIGQUIT, SIGTERM, SIGHUP) or a crash (an
+// uncaught exception or rejection). Unsaved drafts and comments are copied to disk (App.terminate), the
+// terminal is put back, the control socket removed, and where the drafts went is said. kill -9 can't be
+// caught: Term's guard puts the terminal back, and the next door sweeps the socket and ctrl+e files.
+let app: App | null = null;
+let control: { close(): void } | null = null;
+let ending: { code: number; crash?: unknown } | null = null;
+const end = (code: number, crash?: unknown) => {
+  if (ending || !app) {
+    // A second signal or a fault during teardown (or before the door was up): put the terminal back, go.
+    term.stop();
+    if (crash !== undefined) console.error(`ep0ch: ${crash instanceof Error ? crash.stack ?? crash.message : String(crash)}`);
+    control?.close();
+    process.exit(ending?.code ?? code);
+  }
+  ending = { code, crash };
+  app.terminate();
+};
+const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 } as const;
+// SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
+for (const [sig, n] of Object.entries(SIGNALS)) process.on(sig, () => end(sig === "SIGTERM" || sig === "SIGHUP" ? 0 : 128 + n));
+// "Couldn't ask the outline" is never a crash: an Offline that no caller caught (a key or a click that reads
+// a note first, while the service is down) is said, and the door carries on.
+// A write to a terminal that has gone (EIO, EPIPE: the ssh connection dropped before its SIGHUP was handled)
+// is a hangup, not a crash: the door ends as it does on SIGHUP.
+const fault = (e: unknown) => {
+  if (e instanceof Offline && app && !ending) { app.flash(e.message); return; }
+  const code = (e as NodeJS.ErrnoException | null)?.code;
+  if (code === "EIO" || code === "EPIPE") return end(0);
+  end(1, e);
+};
+process.on("uncaughtException", fault);
+process.on("unhandledRejection", fault);
 await term.start();
 // Everything the terminal is sent also goes to a mirror, so `snap` can show exactly this screen.
 const mirror = new Mirror(term.info.cols, term.info.rows);
@@ -118,22 +146,32 @@ term.write = (s: string) => { rawWrite(s); mirror.write(s); };
 process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
-const app = new App(term, board, lastCall, () => {
-  term.stop();
-  if (app.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app.keptOnExit.join("\n  ")}`);
+app = new App(term, board, lastCall, () => {
+  term.stop();                                          // never throws: a terminal that's gone is skipped
+  if (app!.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app!.keptOnExit.join("\n  ")}`);
+  if (ending?.crash !== undefined) console.error(`ep0ch: the door crashed:\n${ending.crash instanceof Error ? ending.crash.stack ?? ending.crash.message : String(ending.crash)}`);
   control?.close();
   board.close();
   writeLastCall(loggedOnAt);
-  process.exit(0);
+  process.exit(ending?.code ?? 0);
 });
 app.host = info.host;
 app.workspace = info.workspace;
 app.outline = info.outline;
-board.subscribe(e => app.event(e));
-// No one to ask on a signal: unsaved drafts and comments are copied to disk, then the door quits.
-for (const sig of ["SIGTERM", "SIGHUP"] as const) process.on(sig, () => app.terminate());
+board.subscribe(e => app!.event(e));
 // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
-const control: { close(): void } | null = await startControl({ app, mirror, info: () => term.info }).catch(() => null);
-for (const s of startScreens(args, process.env, then => new Logon(app, then))) app.push(s);
-const said = [info.warning, created ? `created outline ${target.outline}` : target.notice].filter(Boolean);
-if (said.length) app.flash(said.join(" · "), 12_000);
+let refused = "";
+control = await startControl({ app, mirror, info: () => term.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });
+// Another door on the same state: marks are shared (marks.json is merged), the desk layout is whoever saves last.
+const others = claimState();
+// ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
+const recovered = recoverEdits(alive);
+for (const s of startScreens(args, process.env, then => new Logon(app!, then))) app.push(s);
+if (refused) app.flash(refused, 20_000);
+else if (others.length) app.flash(`another door (pid ${others.join(", ")}) uses this state dir · marks are shared, the desk layout is whichever saves last`, 20_000);
+else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);
+else {
+  // The outliner's grammar differs from the door's (info.warning), said with the outline's own notice.
+  const said = [info.warning, created ? `created outline ${target.outline}` : target.notice].filter(Boolean);
+  if (said.length) app.flash(said.join(" · "), 12_000);
+}

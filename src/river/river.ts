@@ -597,7 +597,7 @@ export class River implements Screen {
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
     if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
-    return pad(paint(`|08 h l columns · |15w|08 widen · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15esc|08 menu${meter}`), W);
+    return pad(paint(`|08 h l columns · |15w|08 widen · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15q|08 menu${meter}`), W);
   }
 
   private overlay(canvas: Canvas, W: number, rows: number, wFrac: number, hFrac: number, title: string): Rect {
@@ -645,6 +645,7 @@ export class River implements Screen {
       "[ ] u          select a link (⏎ follows it beside) · the parent",
       "               the column's note: the one it opened on; in the Library and a #tag, the selected one",
       "click          in a column: its keys, a note, replies · on its header or a spine: widen it",
+      "q / esc        back to the menu (esc first lets go of a selected link)",
     ];
     help.forEach((l, i) => canvas.text(r.col + 1, r.row + i, fg(C.grey) + l + RESET, r.cols - 1));
   }
@@ -888,6 +889,16 @@ export class River implements Screen {
   // ── draft safety: leaving the river or a signal copies unsaved text out ──
 
   unsaved() { return this.panes().some(p => p.surface.unsaved()); }
+  /**
+   * Screen.holdsKeys: the person's keys are the river's own business right now: the filter, the jump palette
+   * or the tag choice being typed, or in the focused column the property panel, a step's status choice, or an
+   * edit or comment they're in. A tile around the river gives it every key then, and an agent doesn't move the
+   * person's screen (agentMayMove, PIE-489).
+   */
+  holdsKeys(): boolean {
+    const p = this.paneS;
+    return (this.mode !== "" && this.mode !== "help") || !!p?.surface.panel || !!p?.surface.choosing || (!!p?.surface.editing && this.isEntered(p));
+  }
   keepDrafts() { return this.panes().flatMap(p => p.surface.keepDrafts()); }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
@@ -1173,9 +1184,10 @@ export class River implements Screen {
     else if (c === "/") { this.mode = "palette"; this.input = ""; this.matches = this.idx.search(""); this.msel = 0; }
     else if (c === "?") this.mode = "help";
     else if (c === "c") ctx.flash("the river squeezes columns itself (w widens one, p docks one) · C comments on a passage");
-    else if (c === "q") ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
+    // " is quote-to-be (q is back, as on every screen: PIE-489).
+    else if (c === "\"") ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
     else if (c === "V") return ctx.cycleVideo();
-    else if (k.kind === "esc") return ctx.pop();
+    else if (k.kind === "esc" || c === "q") return ctx.pop();
     else return;
     if (this.entered && this.entered.p !== this.paneS) this.entered = null;
     this.save();

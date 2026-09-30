@@ -28,7 +28,9 @@ verification steps and the review checklist.
   - start the door with `EP0CH_STATE` and `EP0CH_CONTROL` set under a temp directory, and with
     `EP0CH_SOCKET` (or the socket argument) pointing at a scratch service;
   - pass the same `EP0CH_CONTROL` to every control command.
-- `EP0CH_CONTROL` moves the control socket; `EP0CH_STATE` moves the saved layouts and drafts. Set both.
+- `EP0CH_CONTROL` moves the control socket; `EP0CH_STATE` moves everything else the door writes (layouts,
+  drafts, marks, `lastcall.json`, snaps, `ctrl+e` files, the media cache, and the default socket). Set both.
+  Two doors on one `EP0CH_STATE` share marks, but the desk layout is whichever saves last; the second is warned.
 
 ## Fixtures and commits
 

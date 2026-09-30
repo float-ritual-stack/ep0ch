@@ -12,6 +12,7 @@ import { DeliveryBoard } from "../src/desk/delivery";
 import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { readView } from "../src/views";
+import { HERDR_VARS } from "../src/desk/pty";
 
 const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
@@ -65,7 +66,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
       OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: join(root, "ws"), XDG_CONFIG_HOME: join(root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"]) delete env[k];
+    for (const k of HERDR_VARS) delete env[k];
     proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner, env, stdout: "ignore", stderr: "ignore" });
     let path = "";
     await until(() => {

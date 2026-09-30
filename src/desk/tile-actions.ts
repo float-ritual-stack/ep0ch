@@ -25,7 +25,10 @@ export interface TileDone { tile: string; [k: string]: unknown }
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
 export interface NewTile { kind: PaneKind; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string }
 
-/** The view that holds the tiles (the desk). `sel` names a tile by name or number, as `peek` shows it. */
+/**
+ * The view that holds the tiles (the desk). `sel` names a tile by name, by id (`t4`), by its number on screen
+ * (`#3`) or `focused` (PIE-491). Any of its actions takes `expected=<rev>`, checked before it runs.
+ */
 export interface TileHost {
   ctx: { flash(msg: string): void };
   moveTile(sel: string | undefined, to: string | undefined, where: Where, index: number | undefined, actor: Actor): TileDone;
@@ -44,7 +47,8 @@ export interface TileHost {
   loadLayout(name: string, actor: Actor): { layout: string; [k: string]: unknown } | Promise<{ layout: string; [k: string]: unknown }>;
   layouts(): unknown;
   layoutGet(): unknown;
-  resizeBorder(path: string, border: number, share: number, actor: Actor): TileDone | { split: string; [k: string]: unknown };
+  resizeBorder(at: { path?: string; split?: string }, border: number, share: number, actor: Actor): TileDone | { split: string | undefined; [k: string]: unknown };
+  herdrTile(sel: string | undefined, pane: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
   evenOut(actor: Actor): { even: true };
   swapTile(sel: string | undefined, to: string, actor: Actor): TileDone;
   viewGet(sel: string | undefined): unknown;
@@ -87,7 +91,8 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.type": { text: string };
   "tile.restart": Record<string, never>;
   "tab.select": { by?: number };
-  "layout.resize": { path: string; border: number; share: number };
+  "tile.herdr": { pane?: string; on?: boolean };
+  "layout.resize": { split?: string; path?: string; border: number; share: number };
   "layout.even": Record<string, never>;
   "layout.swap": { to: string };
   "view.get": Record<string, never>;
@@ -98,7 +103,7 @@ export const TILE_ACTIONS = new ActionSet<{
   "marks.next": Record<string, never>;
 }, On>("tile", {
   "layout.get": {
-    summary: "the layout as data: the tile tree (splits with their shares, tab sets with the tab shown) and each tile's kind, name, source, note, link, drawer state and rect",
+    summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, source, note, link, drawer state and rect",
     args: {},
     run(_, { d }) { return d.layoutGet(); },
   },
@@ -241,10 +246,24 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "layout.resize": {
-    summary: "move a border: in the split at path=<p> (as layout.get gives it: \"\" the root, \"1.0\" its second kid's first kid), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share)",
+    summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",
     keys: "drag a border; ^W < > + - (pane.resize)",
-    args: { path: { type: "string", about: "the split's path from layout.get" }, border: { type: "number", about: "the border after this kid (0 first)" }, share: { type: "number", about: "kid border's part of the pair, 0.08-0.92" } },
-    run({ path, border, share }, { d }, actor) { return d.resizeBorder(path, border, share, actor); },
+    args: {
+      split: { type: "string", optional: true, about: "the split's id from layout.get (s<n>)" },
+      path: { type: "string", optional: true, about: "or: the split's path from layout.get (check it with expected=<rev>)" },
+      border: { type: "number", about: "the border after this kid (0 first)" },
+      share: { type: "number", about: "kid border's part of the pair, 0.08-0.92" },
+    },
+    run({ split, path, border, share }, { d }, actor) { return d.resizeBorder({ split, path }, border, share, actor); },
+  },
+  "tile.herdr": {
+    summary: "terminal tile reader=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
+    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
+    run({ pane, on }, { d, reader }, actor) {
+      const r = d.herdrTile(reader, pane, on, actor);
+      say(d, actor, on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${pane} in Herdr (quitting the door leaves it running)`);
+      return r;
+    },
   },
   "layout.even": {
     summary: "every split shares its room equally", keys: "^W =",

@@ -17,7 +17,6 @@ import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath } from "../control";
-import { inHerdrTitle } from "./herdr-agent";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -49,6 +48,34 @@ process.on("exit", () => { for (const p of LIVE) p.kill(); });
 export const ESCAPE_CHORD = "ctrl+]";
 export const isEscapeChord = (k: Key) => k.kind === "char" && !!k.ctrl && k.ch === "]";
 
+/**
+ * Herdr's variables, the one list: a scratch service or showcase started by tests and scripts runs with all of
+ * them unset (test/scratch.ts, scripts/try-it.sh), so nothing it starts reaches a real Herdr.
+ */
+export const HERDR_VARS = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"] as const;
+/** The ones naming the door's own Herdr pane and tab: a tile's program is in neither, so they never reach it. */
+export const HERDR_PANE_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID"] as const;
+/** How this door was opened: a door started inside a tile mustn't repeat it (the daily agent, the landing). */
+export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
+
+/**
+ * A terminal tile's environment: the person's own (a shell in a tile is their shell, keys and all), without
+ * the door's Herdr pane and tab and without how this door was started; with the terminal it runs in and
+ * the door and tile it is in (EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID). Everything else passes through on
+ * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
+ * An inherited EP0CH_TILE_ID is always dropped: a door run in a tile mustn't hand its own tiles the outer
+ * tile's id.
+ */
+export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID"]);
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
+  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile });
+  if (tileId) out.EP0CH_TILE_ID = tileId;
+  if (control) out.EP0CH_CONTROL = control;
+  return out;
+}
+
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
 export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean }
 
@@ -64,10 +91,13 @@ export class PtyPane implements Pane {
   /** The program's own title (OSC 0/2), if it set one. */
   private programTitle = "";
   /**
-   * It shows an agent that lives in a Herdr pane (scripts/door-agent-herdr.ts said so in its title): quitting
-   * the door ends only the attach, not the agent. Kept until the program exits (the agent sets its own title).
+   * It shows an agent that lives in this Herdr pane: quitting the door ends only the attach, not the agent.
+   * Set by `tile.herdr`, which scripts/door-agent-herdr.ts calls over the control socket as it attaches (PIE-491:
+   * a typed field, not what the program puts in its title); cleared when the program starts again or exits.
    */
-  inHerdr = false;
+  herdr: { pane: string } | null = null;
+  /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
+  tileId: string | null = null;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -105,11 +135,11 @@ export class PtyPane implements Pane {
 
   /** Start the program at this size (the first time it's drawn: the tile's size is known then). */
   private start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.inHerdr = false;
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdr = null;
     this.term?.dispose();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
     this.term = term;
-    term.onTitleChange(t => { this.programTitle = t.slice(0, 60); if (inHerdrTitle(t)) this.inHerdr = true; });
+    term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
     term.onData(d => { if (this.running) this.pty?.write(d); });
@@ -128,11 +158,9 @@ export class PtyPane implements Pane {
         term.write(d, () => this.soon());
       },
     });
-    // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door.
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: this.run.label ?? "" };
-    for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID"]) delete env[k];
-    // This door's control socket: `ep0ch act` from the program reaches the door it runs in.
-    if (controlPath) env.EP0CH_CONTROL = controlPath;
+    // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
+    // door's control socket: `ep0ch act` from the program reaches the door it runs in.
+    const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId);
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
       // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.
@@ -156,6 +184,7 @@ export class PtyPane implements Pane {
       if (socket) void unlink(socket).catch(() => {});
       if (this.proc !== proc) return;
       this.exited = code ?? 0;
+      this.herdr = null;
       LIVE.delete(this);
       try { this.pty?.close(); } catch { /* already closed */ }
       this.soon();

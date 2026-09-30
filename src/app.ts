@@ -2,7 +2,8 @@
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, agentLabel, type ActionInfo, type ActRequest } from "./surface/actions";
+import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
+import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
 import type { Key, Term, TermInfo } from "./term";
@@ -51,6 +52,10 @@ export interface Ctx {
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
+  /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
+  screens?(): readonly Screen[];
+  /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
+  idleFor?(): number;
 }
 
 export interface Screen {
@@ -66,6 +71,8 @@ export interface Screen {
   unsaved?(): boolean;
   /** The screen is being closed with unsaved drafts: copy them to disk, return where they went. */
   keepDrafts?(): string[];
+  /** The door is ending (any way): copy what an editor still has open for a draft (ctrl+e) to disk, return where. */
+  keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
   holdsKeys?(): boolean;
   /** What this screen shows, for agents (`ep0ch-door peek`). */
@@ -128,6 +135,8 @@ export class App implements Ctx {
   /** The status bar's clock and uptime as last painted: a minute later, the bar alone is repainted. */
   private shownTime = "";
   private quitArmed = 0;
+  /** When the person last pressed a key or used the mouse (Date.now()). */
+  lastInput = 0;
   host = "";
   workspace = "";
   outline: string | undefined;
@@ -151,6 +160,8 @@ export class App implements Ctx {
   }
 
   get t() { return this.term.info; }
+  screens(): readonly Screen[] { return this.stack; }
+  idleFor(): number { return Date.now() - this.lastInput; }
   get graphics() { return this.video !== "cells"; }
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
@@ -294,17 +305,18 @@ export class App implements Ctx {
     const m = await this.board.get(id);
     if (!m) throw new Error(`no block ${id}`);
     const s = this.stack.at(-1);
-    if (!s?.openBlock) throw new Error(`the ${s?.title ?? "current"} screen can't open blocks; open the board or desk first`);
-    s.openBlock(m);
+    // A screen with no readers of its own (the menu, a BBS list) opens it in a message reader over itself.
+    if (s?.openBlock) s.openBlock(m); else shellOpenBlock(m, this, s);
     this.flash(`an agent opened: ${m.text.split("\n")[0]!.slice(0, 60)}`);
     this.redraw();
     return m.id;
   }
 
+  /** The screen's actions, then the shell's (`screen.*`), which work on every screen. */
   actions() {
     const s = this.stack.at(-1);
-    if (!s?.actions) return { screen: s?.title ?? null, actions: [], readers: [], note: "this screen has no actions yet; the board, the desk and the river do" };
-    return { screen: s.title, ...s.actions() };
+    const own = s?.actions?.() ?? { actions: [], readers: [] };
+    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list()] };
   }
 
   /**
@@ -314,11 +326,13 @@ export class App implements Ctx {
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
-    if (!s?.act) throw new ActionRefused(`the ${s?.title ?? "current"} screen has no actions yet; open the board, the desk or the river first`);
+    const shell = SHELL_ACTIONS.has(req.action);
+    if (!shell && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${SHELL_ACTIONS.list().map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {
-      const r = await s.act(req, actor);
+      // The shell's actions (screen.open, screen.back, screen.list) come first, on every screen.
+      const r = shell ? await SHELL_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: asActor(this, actor), here: s }, actor) : await s!.act!(req, actor);
       this.redraw();
       return r;
     } catch (e) {
@@ -336,12 +350,14 @@ export class App implements Ctx {
     for (const s of [...this.stack, ...this.background]) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
     this.keptOnExit = kept;
     this.quit();
-    return kept;
+    return this.keptOnExit;
   }
-  /** Where `terminate` copied unsaved text, for the exit message. */
+  /** Where `terminate` (and any quit, for ctrl+e editors) copied unsaved text, for the exit message. */
   keptOnExit: string[] = [];
 
   quit() {
+    // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
+    for (const s of [...this.stack, ...this.background]) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
@@ -350,6 +366,7 @@ export class App implements Ctx {
   }
 
   private key(k: Key) {
+    this.lastInput = Date.now();
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
       for (const ch of k.text.replace(/\r\n?/g, "\n")) this.key(ch === "\n" ? { kind: "enter" } : ch === "\t" ? { kind: "tab" } : { kind: "char", ch });

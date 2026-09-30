@@ -257,6 +257,11 @@ export class EditConflict extends Error {
   constructor(readonly blockId: string, message: string) { super(message); this.name = "EditConflict"; }
 }
 
+/** The service can't be reached: every refusal it causes starts with the status bar's word, "offline". */
+export class Offline extends Error {
+  constructor(detail: string) { super(`offline · ${detail}`); }
+}
+
 /**
  * The service answered with an error: it refused the request and wrote nothing. Anything else that
  * fails (a timeout, a dropped socket) leaves the outcome unknown, which is why comment writes carry a requestId.
@@ -440,11 +445,19 @@ export class SocketBoard implements Board {
     return (await this.request<WireBlock[]>("children", { parentId: null })).map(b => toMsg(b));
   }
 
+  /**
+   * A block, or null when the service says no (there is none, or it refused). When the service can't be
+   * asked (the connection is down, or it didn't answer in time) it throws `Offline`: "couldn't ask" never
+   * reads as "no block" (PIE-488).
+   */
   async get(id: string): Promise<Msg | null> {
     try {
       const ctx = await this.request<{ selected: WireBlock | null; children: WireBlock[] }>("blocks.context", { blockId: id });
       return ctx.selected ? toMsg(ctx.selected, ctx.children.map(c => c.id)) : null;
-    } catch { return null; }
+    } catch (e) {
+      if (e instanceof Refused) return null;
+      throw new Offline(`the outline isn't answering (${(e as Error).message})`);
+    }
   }
 
   /**

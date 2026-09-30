@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
+import { HERDR_VARS } from "../src/desk/pty";
 
 export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
   .find(p => p && existsSync(join(p, "src/server-main.ts")));
@@ -21,7 +22,7 @@ export class Scratch {
   /** `root`: serve that directory's ws/state/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
   constructor(root?: string) {
     this.root = root ?? mkdtempSync(join(tmpdir(), "ep0ch-scratch-"));
-    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true });
+    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
   }
   get workspace() { return join(this.root, "ws"); }
   /** The service's process id, while it runs. */
@@ -33,7 +34,7 @@ export class Scratch {
       OUTLINER_STATE_DIR: join(this.root, "state"), OUTLINER_WORKSPACE_ROOT: this.workspace, XDG_CONFIG_HOME: join(this.root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"]) delete env[k];
+    for (const k of HERDR_VARS) delete env[k];
     this.proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
     const ping = async (path: string) => {
       const { SocketBoard } = await import("../src/socket");
@@ -119,7 +120,7 @@ export class ScratchHost {
       ...(process.env as Record<string, string>), ...this.env,
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "OUTLINER_DEFAULT_OUTLINE", "EP0CH_SOCKET"]) delete env[k];
+    for (const k of [...HERDR_VARS, "OUTLINER_DEFAULT_OUTLINE", "EP0CH_SOCKET"]) delete env[k];
     if (defaultOutline) env.OUTLINER_DEFAULT_OUTLINE = defaultOutline;
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: "ignore" });
     const { hostLive } = await import("../src/discover");

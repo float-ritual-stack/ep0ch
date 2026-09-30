@@ -12,6 +12,7 @@ import { MainMenu } from "../src/screens";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { ACTOR_ID, EditConflict, Refused, SocketBoard } from "../src/socket";
 import { Term, type Key } from "../src/term";
+import { HERDR_VARS } from "../src/desk/pty";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -156,7 +157,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
       OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: join(root, "ws"), XDG_CONFIG_HOME: join(root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"]) delete env[k];
+    for (const k of HERDR_VARS) delete env[k];
     proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner, env, stdout: "ignore", stderr: "ignore" });
     let sock = "";
     await until(() => {

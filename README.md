@@ -8,6 +8,13 @@ The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art p
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
+**Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
+screen, and so is `Esc` once nothing on the screen is selected or open (a drawer, a link, a detail). The menu
+is the top, with nothing under it: there `q` is the Quay, as it always was, and `Esc` stays put and says so.
+Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with
+`screen.open`, `screen.back` and, on a list, `list.select`, `list.open`, `list.read` (see
+[Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)).
+
 The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
@@ -71,7 +78,7 @@ opens the showcase (PIE-439): the shared door parts, live, in fourteen sections,
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
-unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
+unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
 
 - **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
@@ -320,8 +327,9 @@ a running program or an unsaved edit the new layout has no place for becomes a s
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
 | quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
-| SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
-| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
+| SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
+| `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |
+| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its file was copied to `drafts/` when the door ended) |
 
 ### The daily agent in Herdr
 
@@ -356,14 +364,18 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
     `q` stops watching.
   - Only the attached door gets the agent's `ep0ch act` and `show` (below).
 - **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
-  `EP0CH_CONTROL`, and the program's name in the layout as `EP0CH_TILE`.
+  `EP0CH_CONTROL`, the program's name in the layout as `EP0CH_TILE`, and the tile's id as `EP0CH_TILE_ID`.
+  Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
+  how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
+  - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
+    the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
   - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
     points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
-  - The Outliner's `show` opens the note in the daily layout's middle detail, as an agent's `open`, which
-    never moves your focus.
+  - The Outliner's `show` opens the note where the agent's own tile's opens land (`open from=$EP0CH_TILE`:
+    the daily layout links the claude tile to middle), as an agent's `open`, which never moves your focus.
 - **No Herdr.** If Herdr isn't installed, no server answers (or one doesn't answer within 10s), or Herdr can't
   make the pane, the tile runs the agent directly, as before, and says why when it isn't simply "no server".
 - **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
@@ -865,7 +877,7 @@ Bodies render with `src/doc.ts`:
 
 - **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
-  `~/.cache/ep0ch-door/media`. `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
+  `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set). `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
@@ -912,7 +924,8 @@ Bodies render with `src/doc.ts`:
   - Starting a note action in a compressed column is refused; `widen` or `pin` (dock) widens it without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
 - **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
 - **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
-- **Quote** (a new note quoting this one) isn't here yet; `C` comments on a passage instead.
+- **Back:** `q`, or `Esc` once no link is selected, goes back to the menu (PIE-489: `q` used to be the quote flash).
+- **Quote** (a new note quoting this one) isn't here yet; `"` says so, and `C` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
 cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
@@ -950,10 +963,15 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
 [docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
 
-A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
+A running door listens on `door.sock` in its state dir (`EP0CH_CONTROL` moves it; a second door uses
+`door-<pid>.sock`, and sockets left by doors that died are swept when a door starts). **The socket is the
+door's shell:** whoever can connect can do what you can, including start a program in a terminal tile. So it
+is 0600 in a folder that is yours alone (0700, owner checked); a folder anyone else can reach is refused, and
+the door runs without a socket and says why.
 
     bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
-    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
+    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included (the door writes
+                                      # only under its state; out.png is written by this command, in a folder that exists)
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
@@ -969,7 +987,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 
 | Action | Arguments | Keys it stands for |
 |---|---|---|
-| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
+| `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
+| `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
+| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
@@ -1004,8 +1024,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
 | `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
 
-Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board, by pane
-number on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
+Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
+keeps its name while it lives: close `detail1` and the other is still `detail2`), by tile name, id (`t4`) or
+number (`#2`) on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
 and `message.thread`); `reader=focused`, or a block id (the reader showing it) work too, and no reader means
 the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
 stdin. For example:

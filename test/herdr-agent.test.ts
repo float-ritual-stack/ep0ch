@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { agentConfig, attachOutcome, attachTitle, findOrCreate, herdrRunner, inHerdrTitle, nameWhenReady, pointLink, releaseLink, WATCH_TITLE, withLock, type AgentConfig } from "../src/desk/herdr-agent";
+import { agentConfig, attachOutcome, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
 import { PtyPane } from "../src/desk/pty";
 
 const SCRIPT = resolve(import.meta.dir, "../scripts/door-agent-herdr.ts");
@@ -241,21 +241,29 @@ describe("the wrapper, end to end", () => {
 });
 
 describe("quitting the door", () => {
-  test("a tile whose title says its agent is in Herdr is marked so, and quitting doesn't say it ends it", async () => {
-    expect(inHerdrTitle(attachTitle("door-claude"))).toBe(true);
-    expect(inHerdrTitle(WATCH_TITLE)).toBe(true);
-    expect(inHerdrTitle("claude")).toBe(false);
+  test("a program that puts the attach title in its own title isn't taken for a Herdr agent (PIE-491: tile.herdr says so)", async () => {
     const title = (t: string) => `printf '\\033]2;${t}\\007'`;
-    const p = new PtyPane({ cmd: ["sh", "-c", `${title(attachTitle("door-claude"))}; sleep 0.2; ${title("✳ the agent sets its own")}; sleep 5`], label: "claude" });
-    const plain = new PtyPane({ cmd: ["sh", "-c", "sleep 5"], label: "shell" });
+    const p = new PtyPane({ cmd: ["sh", "-c", `${title(attachTitle("door-claude"))}; sleep 5`], label: "claude" });
     try {
       p.render(40, 5, false, { redraw() {} } as any);
-      plain.render(40, 5, false, { redraw() {} } as any);
-      for (let i = 0; i < 100 && !p.inHerdr; i++) await Bun.sleep(20);
-      await Bun.sleep(400);
-      // The agent's own title later doesn't undo it.
-      expect(p.inHerdr).toBe(true);
-      expect(plain.inHerdr).toBe(false);
-    } finally { p.dispose(); plain.dispose(); }
+      await Bun.sleep(300);
+      expect(p.herdr).toBeNull();
+      p.herdr = { pane: "door-claude" };
+      expect(p.running).toBe(true);
+    } finally { p.dispose(); }
+  });
+
+  test("the wrapper tells the door, as its tile, over EP0CH_CONTROL; with no door there it goes on", async () => {
+    const { createServer } = await import("node:net");
+    const sock = join(dir, "door.sock");
+    const heard: any[] = [];
+    const server = createServer(c => c.on("data", d => { heard.push(JSON.parse(d.toString())); c.write(JSON.stringify({ ok: true, result: {} }) + "\n"); }));
+    await new Promise<void>(r => server.listen(sock, r));
+    try {
+      expect(await tellDoor({ EP0CH_CONTROL: sock, EP0CH_TILE: "claude", EP0CH_TILE_ID: "t4" }, "door-claude", "door")).toBe(true);
+      expect(heard[0]).toEqual({ cmd: "act", action: "tile.herdr", args: { pane: "door-claude" }, reader: "t4", as: "door" });
+    } finally { server.close(); }
+    expect(await tellDoor({ EP0CH_CONTROL: join(dir, "none.sock"), EP0CH_TILE: "claude" }, "door-claude", "door")).toBe(false);
+    expect(await tellDoor({}, "door-claude", "door")).toBe(false);
   });
 });
