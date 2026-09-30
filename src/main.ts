@@ -135,6 +135,5 @@ for (const sig of ["SIGTERM", "SIGHUP"] as const) process.on(sig, () => app.term
 // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
 const control: { close(): void } | null = await startControl({ app, mirror, info: () => term.info }).catch(() => null);
 for (const s of startScreens(args, process.env, then => new Logon(app, then))) app.push(s);
-if (info.warning) app.flash(info.warning, 12_000);
-else if (created) app.flash(`created outline ${target.outline}`, 12_000);
-else if (target.notice) app.flash(target.notice, 12_000);
+const said = [info.warning, created ? `created outline ${target.outline}` : target.notice].filter(Boolean);
+if (said.length) app.flash(said.join(" · "), 12_000);

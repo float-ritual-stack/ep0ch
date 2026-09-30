@@ -154,7 +154,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    * The service's move plans for one card at one revision into the lanes as they're defined now, for
    * drawing a drag or the picker without asking on every paint. `plans` is null while they're asked.
    */
-  private movePlans: { key: string; plans: Map<string, MovePlan> | null } | null = null;
+  private movePlans: { key: string; plans: Map<string, MovePlan> | null; failed?: boolean } | null = null;
   /** The card a move is patching right now; a second move waits for it. */
   private moving: string | null = null;
   private lastMove: { card: string; to: string; result: string; by?: string } | null = null;
@@ -536,11 +536,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private cachedPlan(card: Msg, l: Lane): MovePlan | null {
     const key = `${card.id}@${card.revision}|${this.lanes.map(x => `${x.def.id}@${x.def.revision}`).join(",")}`;
     if (this.movePlans?.key !== key) {
-      const entry: { key: string; plans: Map<string, MovePlan> | null } = { key, plans: null };
+      const entry: NonNullable<DeliveryBoard["movePlans"]> = { key, plans: null };
       this.movePlans = entry;
       planMoves(this.ctx.board, card, this.lanes.map(x => x.def.id)).then(
         plans => { entry.plans = plans; this.redraw(); },
-        (e: Error) => { entry.plans = new Map(this.lanes.map(x => [x.def.id, { kind: "refused" as const, reason: e.message }])); this.redraw(); },
+        // Said for the rest of this drag only: the next drag asks again (a timeout or a dropped socket passes).
+        (e: Error) => { entry.failed = true; entry.plans = new Map(this.lanes.map(x => [x.def.id, { kind: "refused" as const, reason: e.message }])); this.redraw(); },
       );
     }
     return this.movePlans.plans?.get(l.def.id) ?? null;
@@ -1469,9 +1470,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const m = made.block;
     const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
     this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
-    const stage = input.workStage ?? (input.workBatchId ? "queued" : "unprioritized");
-    const bornWith = ["type=roadmap-item", `priority=${input.priority}`, `work-stage=${stage}`, ...(input.workBatchId ? [`work-batch=${input.workBatchId}`] : []),
-      `project=${input.project}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`)];
+    // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
+    const props = m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }));
+    const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
     return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAs(actor) };
   }
 
@@ -2498,6 +2499,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
           l.sel = idx; this.follow();
           // Drag it onto another lane to move it; a click on the selected card opens it when released.
           this.drag = { kind: "card", from: hit.lane, card: l.items[idx]!, over: null, open: same };
+          if (this.movePlans?.failed) this.movePlans = null;
         }
         this.redraw();
       }

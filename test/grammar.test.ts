@@ -6,7 +6,7 @@
 // reports its version (a different one is said at start), and these tests check the copy.
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { bodyLinesOf, titleLine } from "../src/board";
 import { metadataLines } from "../src/props";
@@ -40,6 +40,13 @@ describe("the vendored grammar", () => {
 
   test.skipIf(!outliner)("is byte for byte the outliner checkout's src/property-grammar.ts", () => {
     const theirs = join(outliner!, "src/property-grammar.ts");
+    if (!existsSync(theirs)) {
+      // A checkout from before PIE-490 has no grammar module to compare (the platform tests run against one).
+      // One that reports a grammar version but lost the file moved it: that's a change the copy must follow.
+      const types = readFileSync(join(outliner!, "src/types.ts"), "utf8");
+      expect(types.includes("ping.propertyGrammar"), `${theirs} is gone but the checkout still reports ping.propertyGrammar: find where the grammar moved and copy it`).toBe(false);
+      return;
+    }
     expect(readFileSync(VENDORED, "utf8"), `copy ${theirs} over src/vendor/property-grammar.ts and update PINNED_SHA256`).toBe(readFileSync(theirs, "utf8"));
   });
 });

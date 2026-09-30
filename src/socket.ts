@@ -419,9 +419,15 @@ export class SocketBoard implements Board {
     // The door finds [key::value] tokens while it paints with its copy of the outliner's grammar; a
     // different version on the service means titles may hide or show tokens differently from Detail.
     const grammar = r.propertyGrammar?.version;
+    // A service from before PIE-490 reads lanes but can't plan writes into them: say so once, up front,
+    // rather than only when a move or a new card is refused.
+    const NEEDS = { "views.planWrite": "moves, new cards", "query.matches": "live done:/now:" } as const;
+    const missing = Array.isArray(r.capabilities) ? (Object.keys(NEEDS) as (keyof typeof NEEDS)[]).filter(c => !r.capabilities!.includes(c)) : [];
     const warning = grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
       ? `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`
-      : undefined;
+      : missing.length
+        ? `older outline (no ${missing.join(", ")}; PIE-490): ${missing.map(c => NEEDS[c]).join(", ")} refused until it runs a current pi-herdr-outliner`
+        : undefined;
     return {
       host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null,
       ...(warning ? { warning } : {}),

@@ -883,10 +883,11 @@ Bodies render with `src/doc.ts`:
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
-    in the saved-view grammar: `OR`, `NOT`, parentheses and `created`/`updated` ranges go to the service as
-    `blocks.query` `expression` when it advertises `query.expression` (PIE-398). Older services take plain
-    clauses, and a query that needs more says so instead of being misread. `done:` and `now:` are matched
-    against each result in the door, so they stay plain clauses.
+    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
+    `blocks.query` `expression` (capability `query.expression`, PIE-398). `done:` and `now:` are queries in the
+    same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
+    properties only; there is no `author=` pseudo-key. A service without these capabilities makes the figure
+    say which one is missing instead of showing a guess.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
@@ -1162,7 +1163,8 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
 
-- Live figures' `done:` and `now:` take plain clauses; `query:` needs `query.expression` for OR/NOT/dates.
+- Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
+  cards need `views.planWrite`, and lanes `views.read`. The door has no fallback evaluator for older services.
 - Nested embeds each keep their title row and gutter; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.
