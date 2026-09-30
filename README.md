@@ -393,6 +393,33 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
 The current layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
+### The agent drawer (PIE-498)
+
+The daily agent stays with you on every screen: the menu, the BBS screens, the desk, the kanban, the Quay and
+the welcome. The chip at the start of the status bar's right part, `▲ claude`, pulls it up.
+
+- **Pulling it up.** Click the chip or press `alt+a`. The agent slides up over the lower half of the screen
+  as a drawer, and your keys go to it. The screen under it isn't redrawn smaller: the drawer lies over its
+  bottom rows, as the desk's drawers lie over its tiles.
+- **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
+  above does too, and a click in the drawer goes back in. Inside it, every key is the agent's except
+  `ctrl+]`, `alt+a` and `alt+A`.
+- **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
+- **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
+- **One agent.** It runs what the daily layout's agent tile runs (`EP0CH_DAILY_AGENT`: with the Herdr launcher,
+  the agent in the `door-claude` pane), and it starts the first time you pull it up. The daily layout's
+  `claude` tile is the same terminal, not a second attach: while the drawer is up, the tile says the agent is
+  in the drawer. Closing that tile or leaving the desk doesn't end it.
+- **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
+  agent in Herdr, it's Herdr's own state (`herdr agent get`, every few seconds): `working`, `idle`, or
+  `needs you` when Herdr says it's blocked. `exited` once the program has ended (`⏎` in the drawer runs it again).
+- **It persists.** Whether it's up and how tall are saved in `dock.json` in the door's state. The next door
+  shows it where you left it (not entered). With Herdr it's the same session on every screen and after a restart.
+- **Agents.** `agent.toggle [open=true|false]` and `agent.height share=0.2…0.9` work on every screen through
+  `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
+  and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
+  put it away or resize it while you're typing in it.
+
 ## The board
 
 `K` on the menu, or `bun src/main.ts [--ws <workspace root>] --board [hub-block-id]`. Any block with two or more

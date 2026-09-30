@@ -310,10 +310,10 @@
       "does": "screen.open, screen.back, screen.list on every screen; list.select, list.open, list.read on the BBS lists. Esc never logs off; q is back below the menu. An agent can't move the person's screen while they type.",
       "built": "SHELL_ACTIONS and LIST_ACTIONS in screens.ts; the menu's letters, Enter and clicks run them; App.act tries the shell's set first; agentMayMove guards.",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 377, "m": "export const SHELL_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 463, "m": "export const LIST_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 349, "m": "export function agentMayMove" },
-        { "r": "door", "p": "src/app.ts", "l": 328, "m": "async act(req" }
+        { "r": "door", "p": "src/screens.ts", "l": 379, "m": "export const SHELL_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 465, "m": "export const LIST_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 350, "m": "export function agentMayMove" },
+        { "r": "door", "p": "src/app.ts", "l": 343, "m": "async act(req" }
       ]
     },
     {
@@ -386,7 +386,7 @@
       "built": "Desk in desk.ts with TILE_ACTIONS; it dispatches by tile class (76 instanceof checks in desk.ts).",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 58, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 525, "m": "private cmd(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 533, "m": "private cmd(" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 76, "m": "export const TILE_ACTIONS" }
       ],
       "questions": [ { "text": "Pane operations aren't the same set on the desk and the board (no floats on the desk; no zoom or split on the board).", "finding": "A-F20", "route": "PIE-492" } ]
@@ -396,8 +396,8 @@
       "does": "What a tile can show: tree, reader, detail, preview, pty, thread, activity, who, art, board, river, brief, backlinks.",
       "built": "A closed union: PaneKind, TILE_KINDS, the makeTile switch, the ^W o letters and SCREEN_KINDS. Adding one means editing core.",
       "refs": [
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 164, "m": "export const TILE_KINDS" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 167, "m": "export function makeTile" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 184, "m": "export const TILE_KINDS" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 187, "m": "export function makeTile" },
         { "r": "door", "p": "src/desk/panes.ts", "l": 16, "m": "export type PaneKind" }
       ],
       "questions": [
@@ -433,8 +433,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 169, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 355, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 184, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 360, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -464,7 +464,7 @@
       "built": "PtyPane over Bun.Terminal and @xterm/headless; tileEnv is the one list of what a program doesn't inherit.",
       "refs": [
         { "r": "door", "p": "src/desk/pty.ts", "l": 89, "m": "export class PtyPane" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 155, "m": "new Bun.Terminal" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 157, "m": "new Bun.Terminal" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 74, "m": "export function tileEnv" }
       ],
       "questions": [
@@ -475,13 +475,16 @@
     },
     {
       "id": "door.herdragent", "name": "Herdr agent tile", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "kept.herdr", "door.control"],
-      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches.",
+      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498): the status bar's chip pulls it up as a drawer over any screen, and the daily layout's agent tile is the same instance.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 294, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 212, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 259, "m": "\"tile.herdr\"" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 105, "m": "herdr: { pane: string } | null" }
+        { "r": "door", "p": "src/desk/pty.ts", "l": 105, "m": "herdr: { pane: string } | null" },
+        { "r": "door", "p": "src/dock.ts", "l": 63, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 330, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 181, "m": "export function shareAgent" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -492,7 +495,7 @@
       "refs": [
         { "r": "door", "p": "src/main.ts", "l": 131, "m": "process.on(sig" },
         { "r": "door", "p": "src/main.ts", "l": 142, "m": "uncaughtException" },
-        { "r": "door", "p": "src/app.ts", "l": 350, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 382, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -560,10 +563,10 @@
       "does": "The logon, the main menu, the message lists and reader, Who's Online, Last Callers, Stats, the art viewer, Goodbye: the door as a 1997 BBS.",
       "built": "Screen classes in screens.ts. The art screens are compositions and stay as they are; the lists now take actions.",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 239, "m": "export class MainMenu" },
-        { "r": "door", "p": "src/screens.ts", "l": 629, "m": "export class MessageReader" },
-        { "r": "door", "p": "src/screens.ts", "l": 892, "m": "export class WhoOnline" },
-        { "r": "door", "p": "src/screens.ts", "l": 935, "m": "export class LastCallers" }
+        { "r": "door", "p": "src/screens.ts", "l": 240, "m": "export class MainMenu" },
+        { "r": "door", "p": "src/screens.ts", "l": 631, "m": "export class MessageReader" },
+        { "r": "door", "p": "src/screens.ts", "l": 894, "m": "export class WhoOnline" },
+        { "r": "door", "p": "src/screens.ts", "l": 937, "m": "export class LastCallers" }
       ],
       "questions": [ { "text": "Who's Online and Last Callers are built twice (screens and tiles).", "finding": "A-F7", "route": "PIE-493" } ]
     },
@@ -583,9 +586,9 @@
       "does": "Find a note: the desk's /, the river's palette, the board's picker. The BBS Search screen is never constructed.",
       "built": "Four implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1756, "m": "class SearchOverlay" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1766, "m": "class SearchOverlay" },
         { "r": "door", "p": "src/river/river.ts", "l": 122, "m": "function parseFilter" },
-        { "r": "door", "p": "src/screens.ts", "l": 875, "m": "export class Search" }
+        { "r": "door", "p": "src/screens.ts", "l": 877, "m": "export class Search" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
     },
@@ -617,8 +620,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the shell's actions first, then the screen's; App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 328, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 216, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 343, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 231, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

@@ -107,6 +107,8 @@ export class PtyPane implements Pane {
   tileId: string | null = null;
   /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
   place: string | null = null;
+  /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
+  lastOutput = 0;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -155,6 +157,7 @@ export class PtyPane implements Pane {
     this.pty = new Bun.Terminal({
       cols, rows, name: "xterm-256color",
       data: (_t, d) => {
+        this.lastOutput = Date.now();
         const s = Buffer.from(d).toString("latin1");
         // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
         // with other modes (ESC [ ? 1000 ; 1006 h) and maybe split across reads (the tail is kept).
