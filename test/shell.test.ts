@@ -102,15 +102,19 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(titles()).toEqual(["main menu"]);
     });
 
-    test("q on the menu itself doesn't open the Quay: it's back, and the menu is the top; Q opens the Quay", () => {
+    test("q on the menu is still the Quay (the menu is the top: nothing to go back to); q on the Quay comes back", () => {
       home();
       key(char("q"));
-      expect(titles()).toEqual(["main menu"]);
-      expect(message()).toContain("G logs off");
-      key(char("Q"));
       expect(top()).toBeInstanceOf(River);
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
+      key(char("Q"));
+      expect(top()).toBeInstanceOf(River);
+      key(ESC);
+      expect(titles()).toEqual(["main menu"]);
+      key(ESC);
+      expect(titles()).toEqual(["main menu"]);
+      expect(message()).toContain("G logs off");
     });
 
     test("q and Esc on a list are back", async () => {
@@ -147,6 +151,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(top()).toBeInstanceOf(Stats);
       expect(message()).toContain(`an agent (${AS})`);
       expect(message()).toContain("board stats");
+      expect(A().messageUntil - Date.now()).toBeGreaterThan(5000);   // "q goes back" stays 6s, through asActor
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
       idle();
@@ -172,6 +177,68 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       await expect(act("screen.open", { name: "S" })).rejects.toThrow(/typing|keys/);
       expect(titles()).toEqual(["main menu"]);
       await expect(act("screen.list")).resolves.toBeTruthy();   // reading is always fine
+    });
+
+    test("an edit, a comment or the property panel the person is in holds their screen, however long they pause", async () => {
+      home();
+      const b = new DeliveryBoard(hub.id), B = b as any;
+      app.push(b);
+      await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lanes and the preview", 10_000);
+      const refused = async () => {
+        idle();                                 // they've paused longer than the idle window
+        await expect(act("screen.open", { name: "S" })).rejects.toThrow(/edit, a comment or the property panel/);
+        await expect(act("screen.back")).rejects.toThrow(/edit, a comment or the property panel/);
+        expect(top()).toBe(b);
+      };
+      key(char("e"));                           // an edit in the preview
+      await until(() => !!B.preview.draft, "the draft");
+      await refused();
+      key(ESC);
+      await until(() => !B.preview.draft, "the edit closed");
+      key(char("i"));                           // the property panel
+      await until(() => !!B.preview.surface.panel, "the panel");
+      await refused();
+      key(ESC);
+      await until(() => !B.preview.surface.panel, "the panel closed");
+      key(char("C"));                           // a comment: picking the passage
+      await until(() => !!B.preview.surface.session, "the comment session");
+      await refused();
+      key(ESC);
+      await until(() => !B.preview.surface.session, "the comment closed");
+      // Nothing held: after the idle window, the agent may move them, and q brings them back.
+      idle();
+      await act("screen.open", { name: "S" });
+      expect(top()).toBeInstanceOf(Stats);
+      key(char("q"));
+      expect(top()).toBe(b);
+    });
+
+    test("the river's jump palette being typed holds the person's screen too", async () => {
+      home();
+      app.push(new River());
+      key(char("/"));
+      idle();
+      await expect(act("screen.back")).rejects.toThrow(/edit, a comment or the property panel/);
+      expect(top()).toBeInstanceOf(River);
+      key(ESC);
+      idle();
+      await act("screen.back");
+      expect(titles()).toEqual(["main menu"]);
+    });
+
+    test("an agent can't open a second copy of a screen already on the stack (a desk would start its programs twice)", async () => {
+      home();
+      app.push(new River());
+      idle();
+      await expect(act("screen.open", { name: "Q" })).rejects.toThrow(/already open/);
+      idle();
+      await act("screen.open", { name: "S" });
+      expect(top()).toBeInstanceOf(Stats);
+      idle();
+      await expect(act("screen.open", { name: "river" })).rejects.toThrow(/already open under this screen/);
+      expect(titles().filter(t => t === titles()[1])).toHaveLength(1);
+      key(char("q")); key(char("q"));
+      expect(titles()).toEqual(["main menu"]);
     });
 
     test("on a list: list.read reads the rows without moving anything; list.select and list.open act as ⏎ does", async () => {

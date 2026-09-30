@@ -10,8 +10,8 @@ slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 **Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
 screen, and so is `Esc` once nothing on the screen is selected or open (a drawer, a link, a detail). The menu
-is the top: there `q` and `Esc` stay put and say so. Only `G` (or a click on Goodbye) logs off, and at the
-logon `Q` hangs up. `Q` (shifted) on the menu is the Quay. An agent gets around the same way, with
+is the top, with nothing under it: there `q` is the Quay, as it always was, and `Esc` stays put and says so.
+Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with
 `screen.open`, `screen.back` and, on a list, `list.select`, `list.open`, `list.read` (see
 [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)).
 
@@ -977,7 +977,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 
 | Action | Arguments | Keys it stands for |
 |---|---|---|
-| `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` |
+| `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
 | `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |

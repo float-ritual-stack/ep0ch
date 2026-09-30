@@ -90,7 +90,8 @@ export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: A
   const prefix = `${agentLabel(actor)} · `;
   return new Proxy(ctx, {
     get(target, p) {
-      if (p === "flash") return (m: string) => target.flash(m.startsWith(prefix) ? m : prefix + m);
+      // How long it stays (Ctx.flash's `ms`) passes through: the shell's "q goes back" is meant to stay 6s.
+      if (p === "flash") return (m: string, ...rest: unknown[]) => (target.flash as (m: string, ...r: unknown[]) => void).call(target, m.startsWith(prefix) ? m : prefix + m, ...rest);
       const v = Reflect.get(target, p, target);
       return typeof v === "function" ? v.bind(target) : v;
     },

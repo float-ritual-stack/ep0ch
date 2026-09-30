@@ -10,6 +10,7 @@ import { Brief } from "../src/brief/brief";
 import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, LastCallers, Logon, MainMenu, MessageList, MessageReader, Stats, WhoOnline } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
+import { River } from "../src/river/river";
 import type { Activity } from "../src/socket";
 import type { Key } from "../src/term";
 
@@ -145,11 +146,15 @@ describe.skipIf(!art)("the main menu by mouse", () => {
 });
 
 describe.skipIf(!art)("the main menu never logs off by Esc (PIE-489)", () => {
-  test("Esc and q stay on the menu; G, or a click on Goodbye, logs off", () => {
+  test("Esc stays on the menu; q is the Quay; G, or a click on Goodbye, logs off", () => {
     const s = on(new MainMenu());
     s.key({ kind: "esc" });
-    s.key({ kind: "char", ch: "q" });
+    s.key({ kind: "esc" });
     expect(s.stack.length).toBe(1);
+    s.key({ kind: "char", ch: "q" });
+    expect(s.top()).toBeInstanceOf(River);
+    expect(s.stack.length).toBe(2);
+    s.stack.pop();
     s.key({ kind: "char", ch: "G" });
     expect(s.top()).toBeInstanceOf(Goodbye);
     s.stack.pop();

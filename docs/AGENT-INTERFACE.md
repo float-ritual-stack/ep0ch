@@ -78,12 +78,15 @@ message reader over it.
 These change what the person looks at, so an agent's is a visible, attributed move made only while they're idle:
 
 - refused while the top screen holds their keys (an edit, a comment, the property panel, a terminal tile
-  they're typing in), and within 2s of their last key or click (`SHELL_IDLE_MS`), so a key in flight never
+  they're typing in, a filter or palette being typed, a choice open: each screen's `holdsKeys`, on the
+  message reader, the desk and its views, the board, the river and the showcase), and within 2s of their last key or click (`SHELL_IDLE_MS`), so a key in flight never
   lands on a screen they didn't choose; the refusal says why, and the agent tries again later;
 - said on the status bar ("an agent (<id>) · opened board stats · q goes back"); the screen is pushed over
-  theirs, so `q` brings them back where they were;
+  theirs, so `q` brings them back where they were; a screen that starts programs or keeps a layout (the
+  desk, the board, the river, the brief, Waiting, the welcome, the showcase) is refused when it's already on
+  the stack (`screen.back` gets there);
 - never Goodbye: `screen.open name=G` is refused, and `screen.back` on the main menu is refused (the person's
-  `q` or `Esc` there only says "G logs off").
+  `Esc` there only says "G logs off"; their `q` there is the Quay, as it always was).
 
     ep0ch act screen.open name=J --as claude-7
     ep0ch act list.read --as claude-7

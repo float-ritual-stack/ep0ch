@@ -205,6 +205,9 @@ export class Showcase implements Screen {
     return f;
   }
 
+  /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
+  holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
+
   /** Show section `i` (by key, click or act); the keys go to its stage only when the person asks. */
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));

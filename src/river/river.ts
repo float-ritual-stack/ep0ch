@@ -888,6 +888,16 @@ export class River implements Screen {
   // ── draft safety: leaving the river or a signal copies unsaved text out ──
 
   unsaved() { return this.panes().some(p => p.surface.unsaved()); }
+  /**
+   * Screen.holdsKeys: the person's keys are the river's own business right now: the filter, the jump palette
+   * or the tag choice being typed, or in the focused column the property panel, a step's status choice, or an
+   * edit or comment they're in. A tile around the river gives it every key then, and an agent doesn't move the
+   * person's screen (agentMayMove, PIE-489).
+   */
+  holdsKeys(): boolean {
+    const p = this.paneS;
+    return (this.mode !== "" && this.mode !== "help") || !!p?.surface.panel || !!p?.surface.choosing || (!!p?.surface.editing && this.isEntered(p));
+  }
   keepDrafts() { return this.panes().flatMap(p => p.surface.keepDrafts()); }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────

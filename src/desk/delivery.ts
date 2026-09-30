@@ -538,6 +538,19 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   }
 
   unsaved() { return this.readers().some(r => r.unsaved()) || !!this.composer?.draft.dirty; }
+  /**
+   * Screen.holdsKeys: the person's keys are the board's own business right now: an edit, a comment or the
+   * property panel they're in (or one of theirs still opening), a step's status choice, a new card or note
+   * being written, a backlinks filter being typed, or the mover or steps overlay. A tile around the board
+   * gives it every key then, and an agent doesn't move the person's screen (agentMayMove, PIE-489).
+   */
+  holdsKeys(): boolean {
+    const rd = this.focusedReader();
+    return !!this.pending || (!!rd && !this.shut.has(rd) && !!this.personIn())
+      || this.readers().some(r => r.surface.choosing && !this.shut.has(r))
+      || !!this.composer || (this.linkView.draft !== null && this.focus === "backlinks" && !!this.links)
+      || !!this.steps || !!this.mover;
+  }
   keepDrafts() {
     const c = this.composer;
     return [...this.readers().flatMap(r => r.keepDrafts()), ...(c?.draft.dirty ? [c.draft.copyOut(c.kind === "card" ? `new-card-${slug(c.lane.name)}` : `new-note-${c.parent.id.slice(0, 8)}`)] : [])];

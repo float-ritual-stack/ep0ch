@@ -586,7 +586,8 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `^W v` | a preview of this tile | none | new |
 | `^W p` / `^W d` | pin or unpin / slide drawers | `p` holds a reader, `d d` trashes a card: both outside `^W` | new, under `^W` |
 | `^W r` / `^W w` | load / save a layout by name | none | new |
-| `q` | back, on every screen (PIE-489): the board's lanes (it did nothing), the river (it flashed "quote isn't here"); on the menu it stays and says `G` logs off (it opened the Quay) | the river's quote flash moves to `"` (free everywhere); the Quay is `Q` on the menu | changed |
+| `q` | back, on every screen but the menu (PIE-489): the board's lanes (it did nothing), the river (it flashed "quote isn't here"). On the menu, the top, it stays the Quay | the river's quote flash moves to `"` (free everywhere); the menu's `q` (Quay) is unchanged: there's nothing under the menu to go back to | changed, except on the menu |
+| `"` | the river: says quoting (a new note quoting this one) isn't here yet (PIE-489) | none: no screen, surface, draft or overlay binds it; typed text (a filter, the palette, an edit) takes it first | new |
 | `Esc` on the main menu | stays, says `G` logs off | it logged off (review C F1) | changed; Goodbye is `G`, a click, or the logon's `Q` |
 | `ctrl+]` | leave a terminal tile | nothing binds it; telnet's escape | new |
 | `ctrl+c` | the program's while in a terminal tile, else quit (asked twice) | the shell's quit | the terminal gets it |

@@ -206,29 +206,34 @@ export class Logon implements Screen {
 
 // ── main menu: the real ep0ch menu, with live commands in its "Menu Cmd" slots ─
 
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null }
+/**
+ * `one`: the class of a screen that keeps state or starts programs when it opens (the desk's terminal tiles,
+ * the board's and the river's saved layouts). Only one of it is on the stack: `screen.open` of it while it's
+ * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
+ */
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: abstract new (...args: any[]) => Screen }
 
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n), "since your last call") },
   { key: "J", label: "Join", open: () => new Conferences() },
-  { key: "K", label: "Kanban", open: () => new DeliveryBoard() },
+  { key: "K", label: "Kanban", open: () => new DeliveryBoard(), one: DeliveryBoard },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
   { key: "W", label: "Who's on", open: () => new WhoOnline() },
   { key: "L", label: "Lastcall", open: () => new LastCallers() },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
-  { key: "Q", label: "Quay", open: () => new River() },
+  { key: "Q", label: "Quay", open: () => new River(), one: River },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
-  { key: "D", label: "Desk", open: () => Desk.resume() },
+  { key: "D", label: "Desk", open: () => Desk.resume(), one: Desk },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
   // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
-  { key: "X", label: "Showcase", open: () => new Showcase() },
+  { key: "X", label: "Showcase", open: () => new Showcase(), one: Showcase },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
-  { key: "T", label: "Today", open: () => new Brief() },
+  { key: "T", label: "Today", open: () => new Brief(), one: Brief },
   // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::1]…; without
   // any, the agents' [[claude-now]] page, which C pinned before).
-  { key: "O", label: "Waiting", open: () => new Waiting() },
-  { key: "C", label: "Welcome", open: () => new Welcome() },
+  { key: "O", label: "Waiting", open: () => new Waiting(), one: Waiting },
+  { key: "C", label: "Welcome", open: () => new Welcome(), one: Welcome },
 ];
 
 export class MainMenu implements Screen {
@@ -301,9 +306,10 @@ export class MainMenu implements Screen {
     else if (k.kind === "up") this.sel = (this.sel + ITEMS.length - 1) % ITEMS.length;
     else if (k.kind === "down" || k.kind === "tab") this.sel = (this.sel + 1) % ITEMS.length;
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
-    // Esc and q are back, as everywhere; the menu is the top, so they stay here and say so (PIE-489).
-    // Goodbye is G (or a click on it). Q, shifted, is the Quay.
-    else if (k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) return shellKey("screen.back", {}, this, ctx);
+    // Esc is back, as everywhere; the menu is the top, so it stays here and says so (PIE-489). Goodbye is
+    // G (or a click on it). q stays the menu's own letter, the Quay, as it always was: there's nothing to
+    // go back to from here, and q → Quay is in the fingers.
+    else if (k.kind === "esc") return shellKey("screen.back", {}, this, ctx);
     else if (k.kind === "char" && k.ch.toUpperCase() === "V") { ctx.cycleVideo(); return; }
     else if (k.kind === "char" && k.ch === "?") return ctx.push(new Help());
     else if (k.kind === "char") {
@@ -335,7 +341,8 @@ export const SHELL_IDLE_MS = 2000;
 /**
  * An agent may change what the person sees (another screen, back, a list's lit row) only when it can't land
  * on something they're doing: never over an edit, a comment, the property panel or a terminal tile they're
- * typing in, and never within SHELL_IDLE_MS of their last key or click (the key in flight would land on a
+ * typing in (each screen says so through Screen.holdsKeys and rawKeys: the message reader, the desk and the
+ * views built on it, the board, the river), and never within SHELL_IDLE_MS of their last key or click (the key in flight would land on a
  * screen they didn't choose). Otherwise it's refused with the reason, and the agent tries again later.
  * What it does is said on the status bar ("an agent (<id>) · …"), and q brings the person back.
  */
@@ -344,7 +351,7 @@ export function agentMayMove(here: Screen | undefined, ctx: Ctx, actor: Actor, l
   if (!here) throw new ActionRefused("no screen is shown");
   if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
   if (here.rawKeys?.()) throw new ActionRefused(`the person is typing in a terminal tile on the ${here.title}; not moved`);
-  if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title}; not moved`);
+  if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title} (or typing a filter, or choosing); not moved`);
   if (leaving && here.unsaved?.()) throw new ActionRefused(`the ${here.title} holds unsaved text; not left`);
   const refusal = leaving ? here.leaveRefusal?.() : null;
   if (refusal) throw new ActionRefused(refusal);
@@ -376,13 +383,16 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       if (!item) throw new ActionRefused(`no screen ${JSON.stringify(name)} on the menu; screen.list lists them`);
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       agentMayMove(here, ctx, actor);
+      // Exact class: the brief, Waiting and the welcome are desks too, and each is its own screen.
+      const open = item.one && ctx.screens?.().find(x => x.constructor === item.one);
+      if (open) throw new ActionRefused(`the ${open.title} is already open${open === here ? "" : " under this screen; screen.back gets back to it"}`);
       const s = openItem(item, ctx);
       if (actor.kind === "agent") ctx.flash(`opened ${s?.title ?? item.label} · q goes back`, 6000);
       return { opened: s?.title ?? null, key: item.key };
     },
   },
   "screen.back": {
-    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q, Esc",
+    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q, Esc (on the main menu, Esc only: q there is the Quay)",
     args: {},
     run(_, { ctx, here }, actor) {
       if (here instanceof MainMenu) {
@@ -470,8 +480,10 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
       const at = n ?? list.sel + 1;
       const row = rowAt(list, at);
       agentMayMove(list, ctx, actor);
+      const was = list.sel;
       list.sel = at - 1;
-      list.openRow(at - 1, ctx);
+      // A row that opens nothing (a pack with no art) is refused, and the light goes back where it was.
+      try { list.openRow(at - 1, ctx); } catch (e) { list.sel = was; throw e; }
       const opened = ctx.screens?.().at(-1);
       if (actor.kind === "agent") ctx.flash(`opened row ${at}: ${row.title.slice(0, 50)} · q goes back`, 6000);
       return { opened: opened && opened !== list ? opened.title : null, row };
@@ -1139,7 +1151,7 @@ export class Help implements Screen {
         "", paint("|08   Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
-        paint("|08   |15q|08 or |15Esc|08 goes back on every screen. The menu is the top: only |15G|08 logs off."),
+        paint("|08   |15q|08 or |15Esc|08 goes back on every screen. The menu is the top: there |15q|08 is the Quay, |15Esc|08 stays, and only |15G|08 logs off."),
       ],
     };
   }
