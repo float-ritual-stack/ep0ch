@@ -21,7 +21,7 @@ import { spawn as spawnDetached } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
-import { stateDir } from "../state";
+import { alive, stateDir } from "../state";
 
 export interface Ran { code: number; out: string; err: string }
 /** Runs one `herdr` command to completion (a fake one in tests). */
@@ -95,7 +95,6 @@ export async function withLock<T>(path: string, f: () => Promise<T>, wait = 20_0
   }
   try { return await f(); } finally { if (held) rmSync(path, { force: true }); }
 }
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
 
 /**
  * The agent's pane on the server: the one labelled `cfg.pane`, else a new one with the agent started in it.

@@ -14,6 +14,7 @@ import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS, type OpenHow } from "../surface/note";
+import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import type { Key } from "../term";
@@ -624,6 +625,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   unsaved() { return this.drafts().length > 0; }
   keepDrafts() { return this.drafts().flatMap(p => p.keepDrafts()); }
+  /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
+  keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
   private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {

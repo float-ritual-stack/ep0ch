@@ -78,7 +78,7 @@ opens the showcase (PIE-439): the shared door parts, live, in fourteen sections,
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 elements and reading-ruler row (PIE-441) has no section yet. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
-unset) on a persistent workspace under `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door/showcase/`, with the
+unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
 
 - **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
@@ -327,8 +327,9 @@ a running program or an unsaved edit the new layout has no place for becomes a s
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
 | quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
-| SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
-| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
+| SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
+| `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |
+| a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its file was copied to `drafts/` when the door ended) |
 
 ### The daily agent in Herdr
 
@@ -364,6 +365,8 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - Only the attached door gets the agent's `ep0ch act` and `show` (below).
 - **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
   `EP0CH_CONTROL`, the program's name in the layout as `EP0CH_TILE`, and the tile's id as `EP0CH_TILE_ID`.
+  Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
+  how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
@@ -875,7 +878,7 @@ Bodies render with `src/doc.ts`:
 
 - **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
-  `~/.cache/ep0ch-door/media`. `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
+  `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set). `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
@@ -960,10 +963,15 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
 [docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
 
-A running door listens on `~/.local/state/ep0ch-door/door.sock` (a second door uses `door-<pid>.sock`):
+A running door listens on `door.sock` in its state dir (`EP0CH_CONTROL` moves it; a second door uses
+`door-<pid>.sock`, and sockets left by doors that died are swept when a door starts). **The socket is the
+door's shell:** whoever can connect can do what you can, including start a program in a terminal tile. So it
+is 0600 in a folder that is yours alone (0700, owner checked); a folder anyone else can reach is refused, and
+the door runs without a socket and says why.
 
     bun src/main.ts peek              # screen as text + structured state: board, lanes, selection, each reader's note, draft, comment, threads
-    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included
+    bun src/main.ts snap [out.png]    # PNG of exactly what the terminal was sent, images included (the door writes
+                                      # only under its state; out.png is written by this command, in a folder that exists)
     bun src/main.ts open <block-id>   # put a block in front of the user (board: the detail; desk: the reader; river: a column)
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same

@@ -48,6 +48,34 @@ process.on("exit", () => { for (const p of LIVE) p.kill(); });
 export const ESCAPE_CHORD = "ctrl+]";
 export const isEscapeChord = (k: Key) => k.kind === "char" && !!k.ctrl && k.ch === "]";
 
+/**
+ * Herdr's variables, the one list: a scratch service or showcase started by tests and scripts runs with all of
+ * them unset (test/scratch.ts, scripts/try-it.sh), so nothing it starts reaches a real Herdr.
+ */
+export const HERDR_VARS = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"] as const;
+/** The ones naming the door's own Herdr pane and tab: a tile's program is in neither, so they never reach it. */
+export const HERDR_PANE_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID"] as const;
+/** How this door was opened: a door started inside a tile mustn't repeat it (the daily agent, the landing). */
+export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
+
+/**
+ * A terminal tile's environment: the person's own (a shell in a tile is their shell, keys and all), without
+ * the door's Herdr pane and tab and without how this door was started; with the terminal it runs in and
+ * the door and tile it is in (EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID). Everything else passes through on
+ * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
+ * An inherited EP0CH_TILE_ID is always dropped: a door run in a tile mustn't hand its own tiles the outer
+ * tile's id.
+ */
+export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID"]);
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
+  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile });
+  if (tileId) out.EP0CH_TILE_ID = tileId;
+  if (control) out.EP0CH_CONTROL = control;
+  return out;
+}
+
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
 export interface PtySpec { cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean }
 
@@ -130,12 +158,9 @@ export class PtyPane implements Pane {
         term.write(d, () => this.soon());
       },
     });
-    // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door.
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: this.run.label ?? "", ...(this.tileId ? { EP0CH_TILE_ID: this.tileId } : {}) };
-    // EP0CH_TILE_ID too: a door run in a tile mustn't hand its own tiles the outer tile's id.
-    for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID", ...(this.tileId ? [] : ["EP0CH_TILE_ID"])]) delete env[k];
-    // This door's control socket: `ep0ch act` from the program reaches the door it runs in.
-    if (controlPath) env.EP0CH_CONTROL = controlPath;
+    // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
+    // door's control socket: `ep0ch act` from the program reaches the door it runs in.
+    const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId);
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
       // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.
