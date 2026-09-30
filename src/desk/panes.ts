@@ -14,7 +14,9 @@ import { ago, wrap } from "../text";
 
 export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art"
   /** Tiles (PIE-413): a reader that keeps its note, one that follows a tile or a file, a program, a whole screen. */
-  | "detail" | "preview" | "pty" | "board" | "river" | "brief";
+  | "detail" | "preview" | "pty" | "board" | "river" | "brief"
+  /** The backlinks of what another tile shows (PIE-432). */
+  | "backlinks";
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
@@ -32,6 +34,10 @@ export interface DeskApi {
   holdsFocus?(pane: ReaderPane): boolean;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
   routes?(pane: Pane): boolean;
+  /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
+  tileShowing?(name: string): Msg | null;
+  /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
+  showFrom?(from: Pane, m: Msg, agent?: boolean): void;
 }
 
 export interface Pane {
@@ -48,6 +54,8 @@ export interface Pane {
   reveal?(m: Msg, desk: DeskApi): void;
   onEvent?(desk: DeskApi): void;
   init?(desk: DeskApi): void;
+  /** The tile was just given the keys (a Tab, a click, `tile.focus`), by `actor`. */
+  focused?(desk: DeskApi, actor: Actor): void;
   /**
    * Every mouse event inside the tile, at x, y in it (a terminal tile, a whole screen): true when the tile
    * took it. Without it the desk sends clicks and the wheel as above.

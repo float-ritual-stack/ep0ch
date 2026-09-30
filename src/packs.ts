@@ -44,3 +44,12 @@ export function find(file: string, dir = PACK_DIR): Member | null {
   }
   return null;
 }
+
+const named = new Map<string, Art | null>();
+/** A piece by file name from the packs, read once and kept (null when no pack has it: another machine, a test). */
+export function artNamed(file: string): Art | null {
+  if (!named.has(file)) {
+    try { const m = find(file); named.set(file, m ? loadArt(m) : null); } catch { named.set(file, null); }
+  }
+  return named.get(file)!;
+}

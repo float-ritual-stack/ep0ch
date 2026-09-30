@@ -9,7 +9,7 @@
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
-import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
+import { Canvas, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
@@ -23,6 +23,7 @@ import { activate, besideSlot, cycle, describeTree, dividerAt, dragShare, edge, 
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, TreePane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type SessionKind } from "./panes";
 import { PreviewPane, sourceName } from "./preview";
+import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
@@ -31,11 +32,17 @@ import { builtin, DetailPane, dailyDraft, editor, layoutNamed, layoutNames, make
 
 /** desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open rule. */
 interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string }
-/** Panes a view puts on a desk of its own, and how they're laid out (default: side by side). */
-export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string }
+/**
+ * Panes a view puts on a desk of its own, and how they're laid out (default: side by side). `names`: each
+ * pane's tile name, in order (what `act reader=`, links and previews call it); `links`: [from, to] by place
+ * in `panes`, where the first's opens land (PIE-473); `focus`: the place of the pane that starts with the
+ * keys; `frame`: the glyphs its tiles' frames are drawn with; `digits: false`: the digits are the view's own
+ * (the welcome's notes), so the headers don't number the tiles and 1-9 don't focus them.
+ */
+export interface DeskPreset { panes: Pane[]; layout?: (ids: number[]) => LNode; title?: string; names?: string[]; links?: [number, number][]; focus?: number; frame?: BoxGlyphs; digits?: false }
 
 /** ^W o <key>: the tile a key adds. */
-const ADD: Record<string, PaneKind> = { t: "tree", r: "reader", d: "detail", p: "preview", e: "pty", s: "pty", h: "thread", a: "activity", w: "who", b: "art", k: "board", v: "river", f: "brief" };
+const ADD: Record<string, PaneKind> = { t: "tree", r: "reader", d: "detail", p: "preview", e: "pty", s: "pty", h: "thread", a: "activity", w: "who", b: "art", k: "board", v: "river", f: "brief", l: "backlinks" };
 const DOCK: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right" };
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
 
@@ -48,7 +55,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   ctx!: Ctx;
   current: Msg | null = null;
   private panes = new Map<number, Pane>();
-  private root: LNode;
+  protected root: LNode;
   private focus: number;
   private zoom: number | null = null;
   private nextId = 1;
@@ -104,9 +111,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   constructor(private readonly preset?: DeskPreset, opts: { layout?: string } = {}) {
     this.marksStore = new LocalMarks(!preset);
     if (preset) {
-      const ids = preset.panes.map(p => this.put(p));
+      const ids = preset.panes.map((p, i) => this.put(p, preset.names?.[i]));
       this.root = preset.layout ? preset.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, { t: "leaf", id }), { t: "leaf", id: ids[0]! });
-      this.focus = ids[0]!;
+      for (const [from, to] of preset.links ?? []) if (ids[from] !== undefined && ids[to] !== undefined) this.links.set(ids[from]!, ids[to]!);
+      this.focus = ids[preset.focus ?? 0] ?? ids[0]!;
       if (preset.title) this.title = preset.title;
       return;
     }
@@ -220,6 +228,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
   }
 
+  /** What tile `name` shows or has selected (a reader's note, the tree's row, a screen's card), for a tile that follows it. */
+  tileShowing(name: string): Msg | null {
+    const id = this.idNamed(name);
+    const p = id !== undefined ? this.panes.get(id) : undefined;
+    return p instanceof ReaderPane ? p.msg : p instanceof ScreenTile ? p.current() : p instanceof TreePane ? p.selected() : null;
+  }
+
   private idNamed(name: string): number | undefined { return [...this.names].find(([id, n]) => n === name && this.panes.has(id))?.[0]; }
 
   private specOf(id: number): TileSpec {
@@ -309,6 +324,19 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.redraw();
   }
 
+  /**
+   * A selection moved in `from` (a backlinks tile's row): the previews following it, and its link, show `m`.
+   * The current note stays, so a reader that follows it (maybe the tile `from` lists the backlinks of) doesn't move.
+   */
+  showFrom(from: Pane, m: Msg, agent = false) {
+    const id = this.idOf(from);
+    if (id === undefined) return;
+    for (const [pid, p] of this.panes) if (pid !== id && p instanceof PreviewPane && "tile" in p.source && this.idNamed(p.source.tile) === id) p.follow(m, this);
+    const to = this.links.get(id);
+    if (to !== undefined && this.panes.has(to)) this.openInto(to, m, agent);
+    this.redraw();
+  }
+
   /** Opens from `pane` land somewhere else (a link, the river's rule): a held reader doesn't follow them in place. */
   routes(pane: Pane): boolean {
     const id = this.idOf(pane);
@@ -372,7 +400,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   // ── actions: what the keys do, by name, for agents (`ep0ch act`) ─────────
 
   actions() {
-    return { actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: leaves(this.root).map(id => this.nameOf(id)) };
+    return { actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...BACKLINKS_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: leaves(this.root).map(id => this.nameOf(id)) };
   }
 
   async act(req: ActRequest, actor: Actor): Promise<unknown> {
@@ -380,6 +408,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (DESK_ACTIONS.has(req.action)) return DESK_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (TILE_ACTIONS.has(req.action)) return TILE_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
+    if (BACKLINKS_ACTIONS.has(req.action)) return { tile: this.backlinksTile(req.reader).name, ...(await BACKLINKS_ACTIONS.runUntyped(req.action, args, { pane: this.backlinksTile(req.reader).pane, desk: this }, actor) as object) };
     // A whole screen's own actions (the board's card.*), in its tile.
     const t = req.reader ? this.tileNamed(req.reader, false) : null;
     const sp = t ? this.panes.get(t.id) : null;
@@ -387,6 +416,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const r = this.pickReader(req.reader);
     const out = await r.pane.act(req.action, args, this, actor);
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
+  }
+
+  /** A backlinks tile by name or number, or the first one. */
+  private backlinksTile(sel?: string): { name: string; pane: BacklinksPane } {
+    const all = leaves(this.root).filter(id => this.panes.get(id) instanceof BacklinksPane);
+    const t = sel ? this.tileNamed(sel, false) : null;
+    const id = t && all.includes(t.id) ? t.id : !sel ? all[0] : undefined;
+    if (id === undefined) throw new ActionRefused(all.length ? `${sel} isn't a backlinks tile; backlinks tiles: ${all.map(i => this.nameOf(i)).join(", ")}` : "no backlinks tile here; ^W o l opens one beside a reader");
+    return { name: this.nameOf(id), pane: this.panes.get(id) as BacklinksPane };
   }
 
   /** A key or a click runs the same action as `act`, as the person; a refusal is said, not thrown. */
@@ -517,6 +555,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : {}),
       ...(this.over.has(id) ? { drawer: this.shut.has(id) ? "shut" : "open" } : {}),
       ...(p instanceof PreviewPane ? { source: sourceName(p.source) } : {}),
+      ...(p instanceof BacklinksPane ? { source: `tile:${p.source}`, backlinks: p.describe() } : {}),
       ...(p instanceof PtyPane ? { terminal: p.describe() } : {}),
       showing: p instanceof ReaderPane && p.msg ? { id: p.msg.id, title: subject(p.msg) } : p instanceof ScreenTile && p.current() ? { id: p.current()!.id, title: subject(p.current()!) } : undefined,
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
@@ -530,7 +569,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   render(ctx: Ctx): Frame {
     const { cols, rows } = ctx.t;
     const canvas = new Canvas(cols, rows - 1);
-    const area: Rect = { col: 0, row: 0, cols, rows: rows - 2 };
+    // A view built on the desk may keep rows above the tiles for its own art (the welcome's logo band).
+    const top = Math.max(0, Math.min(rows - 6, this.bandRows(cols, rows)));
+    const area: Rect = { col: 0, row: top, cols, rows: rows - 2 - top };
     this.area = area;
     const drawers: [number, Rect][] = [];
     if (this.zoom !== null && this.panes.has(this.zoom)) {
@@ -550,7 +591,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const docked = [...this.placed.rects];
     this.hits = [...drawers, ...docked];
     this.heads = []; this.markHits = [];
-    let placements: Placement[] = [];
+    let placements: Placement[] = top ? this.drawBand(canvas, { col: 0, row: 0, cols, rows: top }) : [];
     for (const [id, r] of docked) placements.push(...this.drawTile(canvas, id, r));
     for (const [id, r] of drawers) { canvas.clear(r, bg(C.black)); placements = placements.filter(p => !overlaps(p, r)); placements.push(...this.drawTile(canvas, id, r, true)); }
     if (this.dragging) this.drawGhost(canvas);
@@ -566,6 +607,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { lines: canvas.lines(), placements };
   }
 
+  /** alt+l is waiting for the tile to link to: its next key (a tile's number, h j k l) is the desk's. */
+  protected linkingNow(): boolean { return !!this.linking; }
+  /** Rows kept above the tiles for a view's own art (none on the desk itself). */
+  protected bandRows(_cols: number, _rows: number): number { return 0; }
+  /** Draw the band above the tiles in `r`; its images, if any. */
+  protected drawBand(_canvas: Canvas, _r: Rect): Placement[] { return []; }
+  /** A view's own hint row while nothing else is going on (a drag, a link, a terminal, a prefix), or null for the desk's. */
+  protected screenHint(): string | null { return null; }
+
   /** One tile: its frame, its header (its name, or its tab set's tabs), its body, its placements. */
   private drawTile(canvas: Canvas, id: number, r: Rect, drawer = false): Placement[] {
     const pane = this.panes.get(id)!;
@@ -580,7 +630,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : marked.length ? C.lmagenta : typing ? C.yellow : focused ? C.lcyan : drawer ? C.brown : C.blue;
     const title = this.header(id, r, focused) + (held ? fg(C.dark) + " (e enters)" : "") + more;
     const hint = focused ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : pane.hint()) : "";
-    canvas.box(r, fg(edgeC), title, hint);
+    canvas.box(r, fg(edgeC), title, hint, this.preset?.frame);
     const out: Placement[] = [];
     if (!view) return out;
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
@@ -608,15 +658,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
         const on = i === set.active;
-        put(` ${this.numberOf(t)} ${this.nameOf(t)} `, on ? bg(focused ? C.blue : C.dark) + fg(C.white) : fg(C.grey), t);
+        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? bg(focused ? C.blue : C.dark) + fg(C.white) : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as it always did: its number, then its title.
-      put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
+      if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
-      put(` ${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
+      put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
       return this.headerTail(id, put, xNow, r.row);
-    } else put(`${this.numberOf(id)} ${this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
+    } else put(`${this.numLabel(id)}${this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
     const what = p instanceof ReaderPane && p.msg && !(p instanceof PreviewPane && "file" in p.source) ? `${p.title()} · ${subject(p.msg)}` : p.title();
@@ -625,6 +675,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
 
   /** A name the desk gave by kind (reader, reader2): not worth saying before the title. */
+  /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
+  private get numbered() { return this.preset?.digits !== false; }
+  private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
   private plainName(id: number) { const k = this.panes.get(id)!.kind, n = this.nameOf(id); return n === k || new RegExp(`^${k}\\d+$`).test(n); }
 
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number): string {
@@ -681,10 +734,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const s = this.prefix === "wm"
       ? "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08pin · |07d |08drawer · |07r w |08layouts · |07x |08close · |07s |08swap"
       : this.prefix === "add" || this.prefix === "addtab"
-        ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: |07t |08outline · |07r |08reader · |07d |08detail · |07p |08preview · |07e |08editor · |07s |08shell · |07k |08board · |07v |08river · |07f |08brief · |07h |08thread · |07a |08activity · |07w |08who · |07b |08art`
+        ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: |07t |08outline · |07r |08reader · |07d |08detail · |07p |08preview · |07e |08editor · |07s |08shell · |07k |08board · |07v |08river · |07f |08brief · |07h |08thread · |07a |08activity · |07w |08who · |07b |08art · |07l |08backlinks`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a header · |15alt+l|08 link · |15alt+d|08 daily · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
+          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a header · |15alt+l|08 link · |15alt+d|08 daily · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -801,7 +854,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (k.kind === "char" && !k.ctrl) {
       if (k.ch === "/") { this.search = new SearchOverlay(); return this.redraw(); }
       if (k.ch === "V") return ctx.cycleVideo();
-      if (/^[1-9]$/.test(k.ch)) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) return this.cmd("tile.focus", {}, this.nameOf(id)); return; }
+      if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) return this.cmd("tile.focus", {}, this.nameOf(id)); return; }
       if (k.ch === "q") { this.pending = null; return ctx.pop(); }
     }
     if (k.kind === "esc") {
@@ -830,7 +883,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (mode === "add" || mode === "addtab") {
       const kind = ADD[c];
       if (!kind) return this.redraw();
-      const extra: Partial<NewTile> = kind === "pty" ? (c === "e" ? this.editorFor() : {}) : kind === "preview" ? { source: `tile:${me}` } : {};
+      const extra: Partial<NewTile> = kind === "pty" ? (c === "e" ? this.editorFor() : {}) : kind === "preview" || kind === "backlinks" ? { source: `tile:${me}` } : {};
       return this.cmd("tile.open", { kind, ...extra, where: mode === "addtab" ? "tabs" : "right" }, me);
     }
     if (mode === "move" || mode === "tab") {
@@ -951,11 +1004,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   async openTile(t: NewTile, at: string | undefined, where: Where, actor: Actor): Promise<TileDone> {
     if (!(TILE_KINDS as readonly string[]).includes(t.kind)) throw new ActionRefused(`tile.open: kind is ${TILE_KINDS.join(", ")}, not ${t.kind}`);
     if (t.kind === "preview" && t.source && !/^(tile|file):./.test(t.source)) throw new ActionRefused("tile.open: a preview's source is tile:<name> or file:<path>");
+    if (t.kind === "backlinks" && t.source && !/^tile:./.test(t.source)) throw new ActionRefused("tile.open: a backlinks tile's source is tile:<name>");
     if (t.kind === "preview" && t.file && !t.source) t.source = `file:${t.file}`;
     if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
     const base = this.tile(at);
     const spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name, ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.cwd ? { cwd: t.cwd } : {}) };
-    if (t.kind === "preview" && !t.source) spec.source = `tile:${base.name}`;
+    if ((t.kind === "preview" || t.kind === "backlinks") && !t.source) spec.source = `tile:${base.name}`;
     const id = this.put(makeTile(spec), t.name);
     const wasShown = shown(this.root);
     this.root = where === "tabs" ? tabInto(this.root, base.id, id) : where.startsWith("edge-") ? edge(this.root, id, where.slice(5) as Dir) : besideSlot(this.root, base.id, leaf(id), where as Dir);
@@ -1018,8 +1072,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   focusTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
     if (t.id !== this.focus) this.mayMoveKeys(actor, "move their keys");
-    if (t.id !== this.focus) this.entered.clear();
+    const moved = t.id !== this.focus;
+    if (moved) this.entered.clear();
     this.focus = t.id;
+    if (moved) this.panes.get(t.id)?.focused?.(this, actor);
     activate(this.root, t.id);
     if (this.over.has(t.id)) this.shut.delete(t.id);
     this.zoom = this.zoom !== null ? t.id : null;
@@ -1165,6 +1221,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
           ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), shown: set.ids[set.active] === id } : {}),
           ...(this.over.has(id) ? { drawer: this.shut.has(id) ? "shut" : "open" } : { pinned: true }),
           ...(p instanceof PreviewPane ? { source: sourceName(p.source) } : {}),
+          ...(p instanceof BacklinksPane ? { source: `tile:${p.source}` } : {}),
           ...(p instanceof PtyPane ? { cmd: p.run.cmd, ...(p.socket ? { nvim: p.socket } : {}) } : {}),
         };
       }),

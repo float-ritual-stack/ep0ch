@@ -119,7 +119,7 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     expect(selected(m)).toBe("J");
     s.mouse("wheel-up", 0, 0); s.mouse("wheel-up", 0, 0);
     expect(selected(m)).toBe("C");
-    expect(s.lines().some(l => l.includes(": Claude·now"))).toBe(true);
+    expect(s.lines().some(l => l.includes(": Welcome"))).toBe(true);
     expect(s.stack.length).toBe(1);
   });
 

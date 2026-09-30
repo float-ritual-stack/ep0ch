@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { groupWaiting, sentAt, Waiting, waitingOn } from "../src/hub/waiting";
-import { PinnedPage } from "../src/hub/pinned";
+import { claudeNow, PinnedPage } from "../src/hub/pinned";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -58,12 +58,12 @@ describe.skipIf(!outliner)("the float-hub views", () => {
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
-  test("the main menu names Waiting and Claude·now at 80 columns without running off the edge", () => {
+  test("the main menu names Waiting and Welcome at 80 columns without running off the edge", () => {
     app.push(new MainMenu());
     const lines = top().render(app).lines.map(plain) as string[];
     const at = lines.findIndex(l => l.includes("O Waiting"));
     expect(at).toBeGreaterThan(0);
-    expect(lines[at]).toContain("C Claude·now");
+    expect(lines[at]).toContain("C Welcome");
     for (const l of lines) expect(l.trimEnd().length).toBeLessThanOrEqual(80);
   });
 
@@ -113,7 +113,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
   });
 
   test("Claude · now waits for its page, then pins it; a change to the page shows live", async () => {
-    ch("C");
+    // C opens the welcome notes now (test/welcome.test.ts); the pinned page is still a screen of its own.
+    app.push(claudeNow());
     expect(top()).toBeInstanceOf(PinnedPage);
     await until(() => (top() as PinnedPage).asked, "the page asked for");
     expect(screen()).toContain("No [[claude-now]] page on this outline yet.");
