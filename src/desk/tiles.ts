@@ -94,10 +94,11 @@ export function migrateNames(spec: LayoutSpec): LayoutSpec {
 }
 
 /**
- * A desk saved from built-in layout `from` before PIE-491 (no tile has an id yet) gets the links that layout
- * has gained since, on tiles of the same name and kind that have none: the daily layout's claude tile now
- * links to middle, so an agent's `open from=claude` lands in middle, as the Claude mod's `--reader middle`
- * did. Once saved with ids, a link the person took away stays away.
+ * A desk saved from built-in layout `from` before PIE-491 (no tile has an id yet), or a layout saved in
+ * layouts.json under a built-in's name then, gets the links that layout has gained since, on tiles of the
+ * same name and kind that have none: the daily layout's claude tile now links to middle, so an agent's
+ * `open from=claude` lands in middle, as the Claude mod's `--reader middle` did. Once saved with ids, a link
+ * the person took away stays away.
  */
 export function migrateLinks(spec: LayoutSpec, from: string | undefined): LayoutSpec {
   const preset = from ? builtin(from) : null;
@@ -217,7 +218,7 @@ export function saveLayout(name: string, spec: LayoutSpec) { const all = savedLa
 /** A layout by name: the one saved under it, else the built-in. */
 export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
   const s = savedLayouts()[name];
-  if (s?.root) return { spec: s, saved: true };
+  if (s?.root) return { spec: migrateLinks(s, name), saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }

@@ -6,7 +6,7 @@
 //   was known by its terminal title; the Claude mod assumed a tile called `middle`.
 // Scratch services, fictional notes, `sh` and `tail` only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { startControl } from "../src/control";
@@ -250,6 +250,17 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     // Saved with ids, a desk whose claude tile has no link keeps none: the person's own choice.
     fromSaved(oldDaily(true));
     expect((await get()).tiles.find((t: any) => t.name === "claude").link).toBeUndefined();
+    // Review: a "daily" saved in layouts.json before ids is loaded by name, and gets the link the same way.
+    const layouts = join(state(), "layouts.json");
+    const had = await Bun.file(layouts).exists() ? await Bun.file(layouts).text() : null;
+    try {
+      writeFileSync(layouts, JSON.stringify({ ...(had ? JSON.parse(had) : {}), daily: { ...oldDaily(false), name: "daily" } }));
+      await mine("layout.load", { name: "daily" });
+      const g = await get();
+      expect(g.tiles.map((t: any) => t.name)).toEqual(["claude", "tree", "now", "middle"]);
+      expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
+      expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("middle");
+    } finally { if (had === null) rmSync(layouts, { force: true }); else writeFileSync(layouts, had); }
     await daily();
   });
 

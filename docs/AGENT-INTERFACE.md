@@ -107,8 +107,9 @@ thing after someone else's change.
   `claude`, `reader2`), and isn't shaped like an id (`t`, `s` or `g`, then digits). So a name is never a number,
   never an id, and never holds the `:` of a `tile:<name>` source. `tile.open name=1` and `name=s2` are refused.
   (Ids have no sigil because the CLI reads a value starting with `@` from a file.) A layout saved before this
-  rule with a tile named `2` (or `t2`) loads with that tile renamed to its kind (`detail`, or `detail2` when
-  taken), and its links, sources and focus follow. A `desk.json` saved from the `daily` layout before ids gets the
+  rule with a tile named `2` (or `t2`, or any name the rule refuses, such as one with a space) loads with that
+  tile renamed to its kind (`detail`, or `detail2` when taken), and its links, sources and focus follow. A
+  `desk.json` saved from the `daily` layout before ids, or a `daily` saved in `layouts.json` then, gets the
   links that layout has gained since (the claude tile's, to `middle`), on tiles that have none.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
 - **`reader=<tile>`** takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
