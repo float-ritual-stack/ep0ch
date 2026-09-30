@@ -217,7 +217,7 @@ pane operations
     ├── [~] close                         desk ^W x, board x, river x; pane.close (desk, board)
     ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; pane.resize
     ├── [~] dock / move                   desk ^W HJKL, board float HJKL; pane.float, pane.pin
-    ├── [~] squeeze (width tiers)         river full/peek/spine; board lanes, readers c · one spine part
+    ├── [~] squeeze (width tiers)         river full/peek/spine around the wide column (w widens); board lanes, readers c · one spine part
     └── [~] persist layout                the tree to desk.json, delivery.json (same fields); river.json
 entity navigation
     ├── [~] children                      thread pane, river replies, BBS T
@@ -226,7 +226,7 @@ entity navigation
     ├── [~] backlinks                     board drawer only (Detail's view, PIE-442)
     ├── [ ] resources list                none (PIE-432)
     ├── [~] search / jump                 4 versions
-    └── [~] history (back/forward)        note surface (board, desk); BBS and river next (PIE-453)
+    └── [~] history (back/forward)        note surface (board, desk); river (between columns, SurfaceHost.history); BBS next (PIE-453)
 extensions
     ├── [x] properties (summary, panel)   note surface
     ├── [x] edit, comments, completion    note surface + ed
@@ -375,6 +375,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | `o` | pop out float | `^W o` add pane | — | — |
 | `t` | outline drawer | `^W o t` add outline | — | thread (`t` `T`) |
 | `p` | — | hold reader | dock column | previous (`p` `P`) |
+| `w` | — (the backlinks drawer's `w` is stage) | — (`^W w` saves a layout) | widen: the focused column takes the wide place | — |
 | `f` | fold | fold | filter | fold |
 | `alt+⏎` | second detail | — | duplicate column | the next reader, as ⏎ |
 | `q` | — | menu | "quote isn't here" | back |
@@ -607,6 +608,38 @@ desk's.
 | `tile.preview` | `where` | `^W v` |
 | `tile.type`, `tile.restart` | `text` | typing in the tile, `⏎` on an exited one |
 | `tab.select` | `by` (1, -1) | a click on a tab, `alt+n alt+p`, `^W [ ]` |
+
+### The river: focus is not the layout
+
+Evan's notes (Sep 29): a click just to focus a column shifted the whole strip, and the column he'd been reading
+collapsed to its headings. So the river keeps two things apart:
+
+- **Focus** is which column has the keys (glossary: focus). A click in a column, `h` `l`, `tab`, and `back`
+  move it and its highlight only; every column's place, width, cover and scroll stay cell for cell. A column
+  off the strip altogether is the one exception: `h` `l` bring it on, one step.
+- **The wide column** is what the layout is built around (`describe()`'s `wide`). Only an explicit shift
+  moves it: `w`, a click on a column's **header** (its top border; anywhere on a spine, which is all title strip, as a click on a board spine opens it), the `widen` action,
+  and an open that couldn't otherwise show the new column full. The column the person was reading (the one
+  they were in before) stays full beside it when there's room; a dock (`p`) outranks it.
+- **Why these inputs:** the first click must be harmless, so the shift needs a different target, not a second
+  click on the same place (a second click on a card already opens it, and a double click selects a word). A
+  header is the tile grammar's place for acting on the whole pane (§7's drag). `w` is free on every screen's
+  reading keys (the backlinks drawer's `w` and the step choice's `w` only live while those are open; the desk's
+  is under `^W`); `z` was the obvious zoom key but it's the surface's unfold.
+- **Covered, not collapsed:** a peek column draws the same view a full column does, at the same reading width,
+  and shows its first cells; its right-hand neighbour lies over the rest like a drawer, with the board's
+  drawer shadow (`▒`) on the edge, and the visible part is dimmed (`Canvas.dim`). Nothing rewraps when it
+  widens. Only the far columns become spines, as before. It isn't the desk's drawer model
+  (`placeScreen`'s `over`): the river is still its own strip (below), so it uses the same drawing idea, not
+  the tree.
+- **Opens shift as little as they can:** ⏎ on a card or a followed link adds the column after its source as
+  before. If that column already shows full next to the source, nothing moves; otherwise the new column
+  becomes wide and the source stays full beside it. A close hands a full column's place to the column
+  sliding into the gap. A click opens a card only in the column that already has the keys.
+- **Back and forward** in the river go between columns (`SurfaceHost.history`): back gives the keys to the
+  column this one was opened (or last reached) from, forward returns; each widens its target only when it's
+  covered. Keys and mouse as in every reader (alt+← alt+→, backspace, the side buttons, the `← back` row
+  under the column's title). An agent's `back` is refused: it would move the person's keys.
 
 ### What's not done here
 

@@ -2548,6 +2548,8 @@ export class NoteSurface {
   closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost) { return this.follow(i, host); }
   clearLink() { this.letGo(); }
+  /** Where the reader's cursor is (its current element, its selected link): a host that reuses a digest keys on it. */
+  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}`; }
   selectLink(i: number) {
     const l = this.links[i];
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
