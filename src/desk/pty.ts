@@ -116,8 +116,8 @@ export class PtyPane implements Pane {
   private rows = 0;
   /** The program's exit code once it's gone (null while it runs, or before it starts). */
   exited: number | null = null;
-  /** The program's own title (OSC 0/2), if it set one. */
-  private programTitle = "";
+  /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
+  programTitle = "";
   /**
    * It shows an agent that lives in this Herdr pane: quitting the door ends only the attach, not the agent.
    * Set by `tile.herdr`, which scripts/door-agent-herdr.ts calls over the control socket as it attaches (PIE-491:

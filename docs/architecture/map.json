@@ -482,8 +482,8 @@
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 212, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 259, "m": "\"tile.herdr\"" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 105, "m": "herdr: { pane: string } | null" },
-        { "r": "door", "p": "src/dock.ts", "l": 63, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 346, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/dock.ts", "l": 67, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 357, "m": "export const DOCK_ACTIONS" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 182, "m": "export function shareAgent" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]

@@ -19,7 +19,7 @@
 // there after a screen switch and after a restart; with Herdr it's the same session everywhere.
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
-import { agentConfig, herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
+import { agentConfig, herdrBin, herdrRunner, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
 import type { DeskApi } from "./desk/panes";
 import { ESCAPE_CHORD, isEscapeChord, PtyPane } from "./desk/pty";
 import { dailyAgent, type SharedAgent } from "./desk/tiles";
@@ -46,8 +46,12 @@ const HERDR_POLL_MS = 3000;
 
 /** What dock.json keeps. */
 export interface DockSaved { open: boolean; share: number }
-/** What the chip says: not started, working, idle, waiting on the person (Herdr's `blocked`), or exited. */
-export type AgentState = "off" | "working" | "idle" | "blocked" | "exited";
+/**
+ * What the chip says: not started, working, idle, waiting on the person (Herdr's `blocked`), exited, or
+ * `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it (a
+ * second ssh session's door), where ⏎ would take the pane from that door.
+ */
+export type AgentState = "off" | "working" | "idle" | "blocked" | "exited" | "watching";
 
 /** What the dock needs from the App. */
 export interface DockHost {
@@ -78,6 +82,8 @@ export class AgentDock implements SharedAgent {
   private dragging = false;
   private capture: Rect | null = null;
   private herdrState: { state: AgentState; at: number } | null = null;
+  /** What the tile's own code asks of a desk: a repaint, and a flash (it has no setsid or perl to start with). */
+  private readonly api = { redraw: () => this.changed(), ctx: { flash: (m: string, ms?: number) => this.host.flash(m, ms) } } as unknown as DeskApi;
   private polling = false;
   private lastPoll = 0;
 
@@ -103,7 +109,7 @@ export class AgentDock implements SharedAgent {
     p.tileId = DOCK_TILE_ID;
     p.place = "dock";
     // The program's output repaints whatever shows it: the drawer, a desk tile, or only the chip.
-    p.init({ redraw: () => this.changed() } as unknown as DeskApi);
+    p.init(this.api);
     this.p = p;
     return p;
   }
@@ -138,6 +144,7 @@ export class AgentDock implements SharedAgent {
     const p = this.p;
     if (!p || (!p.running && p.exited === null)) return "off";
     if (p.exited !== null) return "exited";
+    if (p.programTitle === WATCH_TITLE) return "watching";
     if (p.herdr) {
       this.pollHerdr(now);
       const h = this.herdrState;
@@ -169,7 +176,7 @@ export class AgentDock implements SharedAgent {
   /** The chip as drawn on the status bar (its colour says the state). */
   chip(now = Date.now()): string {
     const s = this.state(now);
-    const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "exited" ? C.lred : C.white;
+    const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "exited" ? C.lred : s === "watching" ? C.lcyan : C.white;
     return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${this.chipText(now)}${bg(C.blue)}${fg(C.lcyan)}`;
   }
 
@@ -232,15 +239,19 @@ export class AgentDock implements SharedAgent {
     canvas.clear(box, bg(C.black));
     const p = this.pane();
     const by = this.openedBy ? ` · ${fg(C.lmagenta)}pulled up by ${agentLabel(this.openedBy)}${fg(C.yellow)}` : "";
-    const where = p.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
+    const watching = this.state() === "watching";
+    const where = watching ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
     const title = `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge`;
-    const hint = this.entered
+    // A second door only watches: its ⏎ would take the agent's pane from the door that has it, so it says so.
+    const hint = watching
+      ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
+      : this.entered
       ? `${fg(C.yellow)}every key goes to ${DOCK_NAME} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
       : `${fg(C.dark)}click in it to type · alt+a or Esc puts it away · alt+A height`;
     canvas.box(box, fg(this.entered ? C.yellow : C.brown), title, hint);
     const inner = { cols: cols - 2, rows: r.rows - 2 };
     if (inner.cols >= 2 && inner.rows >= 1) {
-      const view = p.render(inner.cols, inner.rows, this.entered, { redraw: () => this.changed() } as unknown as DeskApi, this.entered);
+      const view = p.render(inner.cols, inner.rows, this.entered, this.api, this.entered);
       view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(1, 1 + i, l, inner.cols));
     }
     return { rect: r, lines: canvas.lines() };
@@ -273,7 +284,7 @@ export class AgentDock implements SharedAgent {
         else this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the ${screen?.title ?? "screen"}`);
         return true;
       }
-      if (k.kind === "paste") p.paste(k.text); else p.key(k, null as unknown as DeskApi);
+      if (k.kind === "paste") p.paste(k.text); else p.key(k, this.api);
       return true;
     }
     if (isAlt(k, "a")) { run("agent.toggle", {}); return true; }

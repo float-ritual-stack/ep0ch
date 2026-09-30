@@ -414,6 +414,10 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
 - **Pulling it up.** Click the chip or press `alt+a`. The agent slides up over the lower half of the screen
   as a drawer, and your keys go to it. The screen under it isn't redrawn smaller: the drawer lies over its
   bottom rows, as the desk's drawers lie over its tiles.
+  On macOS, Option+a is `alt+a` only when the terminal sends Option as Alt (Ghostty
+  `macos-option-as-alt = true`, kitty `macos_option_as_alt left`, iTerm2's "Left Option key: Esc+",
+  Terminal's "Use Option as Meta key"). Otherwise it types `å`, which no screen binds (an edit, or the
+  agent in the drawer, gets the letter). The chip's click works in every terminal.
 - **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
   above does too, and a click in the drawer goes back in. Inside it, every key is the agent's except
   `ctrl+]`, `alt+a` and `alt+A`.
@@ -426,6 +430,8 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
 - **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
   agent in Herdr, it's Herdr's own state (`herdr agent get`, every few seconds): `working`, `idle`, or
   `needs you` when Herdr says it's blocked. `exited` once the program has ended (`⏎` in the drawer runs it again).
+  `watching` when another door (a second ssh session, say) is attached to the agent's Herdr pane: this door only
+  watches it, and the drawer says that `⏎` in it would take the pane from the other door.
 - **It persists.** Whether it's up and how tall are saved in `dock.json` in the door's state. The next door
   shows it where you left it (not entered). With Herdr it's the same session on every screen and after a restart.
 - **Agents.** `agent.toggle [open=true|false]` and `agent.height share=0.2…0.9` work on every screen through

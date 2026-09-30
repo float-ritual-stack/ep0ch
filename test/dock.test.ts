@@ -10,6 +10,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { makeTile, sharedAgent } from "../src/desk/tiles";
 import { DOCK_TILE_ID, nextStep } from "../src/dock";
+import { WATCH_TITLE } from "../src/desk/herdr-agent";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { where as whereIs } from "../src/where";
@@ -218,6 +219,26 @@ describe("the agent drawer", () => {
       d.type("\x04");                                            // ctrl+d: cat ends
       await wait(() => d.app.dock.state() === "exited");
       expect(d.app.dock.chipText()).toBe("▼ claude · exited 0");
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  });
+
+  test("a second door's drawer says it's only watching the Herdr pane, and that ⏎ would take it from the other door", async () => {
+    // The launcher, refused the attach because another door has the pane, watches it and titles its terminal so.
+    const watcher = join(dir, "watcher");
+    writeFileSync(watcher, `#!/bin/sh\nprintf '\\033]2;%s\\007' ${JSON.stringify(WATCH_TITLE)}\nexec cat\n`);
+    chmodSync(watcher, 0o755);
+    process.env.EP0CH_DAILY_AGENT = watcher;
+    const d = door();
+    try {
+      d.app.push(d.screen("main menu") as any);
+      d.key(ALT("a")); d.paint();
+      await wait(() => d.app.dock.tile?.running === true);
+      await d.app.act({ action: "tile.herdr", reader: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      await wait(() => d.app.dock.state() === "watching");
+      expect(d.app.dock.chipText()).toBe("▼ claude · watching");
+      const shown = d.paint().join("\n");
+      expect(shown).toContain("another door has it");
+      expect(shown).toContain("⏎ takes it over");
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
