@@ -50,20 +50,43 @@ export function doorRequest(path: string, request: Record<string, unknown>, time
 /**
  * Opens a block in the door as an agent's `open`: attributed to `actor` on
  * the door's screen, and never moving the person's focus (the door's rule for
- * every agent action). It goes to the `reader` tile (the daily layout's middle
- * detail). Only when the door has no such reader (its refusal "no reader
- * <name> …") is it asked again without one; any other refusal (the reader
- * holds an edit, the screen can't open notes) is the answer, so the note never
- * lands in whatever reader the person has focused instead.
+ * every agent action).
+ *
+ * - `from`: the tile the caller runs in (EP0CH_TILE). The door opens it where
+ *   that tile's opens land, its link (PIE-491: the daily layout links the
+ *   claude tile to its middle detail), so the caller never names a reader.
+ * - `reader`: a reader tile by name.
+ *
+ * They are tried in that order, each only when the one before can't be
+ * asked: `from` when the door doesn't know that tile ("no tile <name> …")
+ * or is older than `from` ("open takes no from"), then `reader` when the
+ * door has no such reader ("no reader <name> …"), then neither: where the
+ * door's own open puts notes. So a caller passes both while doors older than
+ * `from=` are about (the Claude mod: `--from $EP0CH_TILE --reader middle`).
+ * Any other refusal (the reader holds an edit, the screen can't open notes) is
+ * the answer, so the note never lands in whatever reader the person has
+ * focused instead.
  */
-export async function openInDoor(path: string, blockId: string, options: { actor: string; reader?: string }): Promise<{ reader?: string; id?: string }> {
+export async function openInDoor(path: string, blockId: string, options: { actor: string; reader?: string; from?: string }): Promise<{ reader?: string | null; id?: string }> {
   const request = { cmd: "act", action: "open", args: { id: blockId }, as: options.actor };
-  if (options.reader) {
+  /** Rethrows unless the door refused in a way `askAgain` says the next form answers. */
+  const unlessAskAgain = (error: unknown, askAgain: (message: string) => boolean) => {
+    if (!(error instanceof Error) || error instanceof DoorUnreachable || error instanceof DoorSilent || !askAgain(error.message)) throw error;
+  };
+  if (options.from) {
+    const from = options.from;
     try {
-      return (await doorRequest(path, { ...request, reader: options.reader })) as { reader?: string; id?: string };
+      return (await doorRequest(path, { ...request, args: { id: blockId, from } })) as { reader?: string | null; id?: string };
     } catch (error) {
-      if (!(error instanceof Error) || error instanceof DoorUnreachable || error instanceof DoorSilent) throw error;
-      if (!error.message.startsWith(`no reader ${options.reader} `)) throw error;
+      unlessAskAgain(error, message => message.startsWith(`no tile ${from};`) || message.startsWith(`no tile ${from} `) || message.startsWith("open takes no from"));
+    }
+  }
+  if (options.reader) {
+    const reader = options.reader;
+    try {
+      return (await doorRequest(path, { ...request, reader })) as { reader?: string; id?: string };
+    } catch (error) {
+      unlessAskAgain(error, message => message.startsWith(`no reader ${reader} `));
     }
   }
   return (await doorRequest(path, request)) as { reader?: string; id?: string };
