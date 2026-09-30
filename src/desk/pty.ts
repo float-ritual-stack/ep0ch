@@ -40,7 +40,26 @@ interface XTermLike {
   dispose(): void;
 }
 
-const SETSID = Bun.which("setsid");
+/**
+ * The pty becomes the program's controlling terminal, so it gets job control (ctrl+z, fg) and SIGWINCH when
+ * the tile is resized. Without that, a resize changes the pty's size but nothing tells the program: a shell,
+ * claude or nvim goes on drawing at the size it started at.
+ * - Linux: util-linux `setsid -c`.
+ * - macOS (and the BSDs) have no setsid binary. A tiny perl launcher (perl ships with macOS) does the same: a
+ *   new session, then TIOCSCTTY on stdin (the pty), then exec with the arguments as they were.
+ *   TIOCSCTTY is _IO('t', 97) = 0x20007461 on Darwin and the BSDs; sys/ioctl.ph isn't reliably installed there.
+ * - Neither: the program runs without a controlling terminal (`null`); the door says so once.
+ */
+export const PERL_CTTY = `use POSIX (); POSIX::setsid(); ioctl(STDIN, 0x20007461, 0) or warn "ep0ch: no controlling terminal: $!\\n"; exec { $ARGV[0] } @ARGV or do { print STDERR "ep0ch: can't run $ARGV[0]: $!\\n"; exit 127 }`;
+export function cttyPrefix(which: (b: string) => string | null = Bun.which, platform: string = process.platform): string[] | null {
+  if (platform === "linux") { const setsid = which("setsid"); return setsid ? [setsid, "-c"] : null; }
+  const perl = which("perl");
+  if (perl && platform !== "win32") return [perl, "-e", PERL_CTTY, "--"];
+  const setsid = which("setsid");
+  return setsid ? [setsid, "-c"] : null;
+}
+const CTTY = cttyPrefix();
+let saidNoCtty = false;
 /** Every live pty, so the door's exit takes them down with it. */
 const LIVE = new Set<PtyPane>();
 process.on("exit", () => { for (const p of LIVE) p.kill(); });
@@ -173,13 +192,13 @@ export class PtyPane implements Pane {
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
     const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId, this.place);
     try {
-      // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
-      // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.
+      // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
       // buffer, and an agent edits other lines through it without moving the person's cursor.
       const cmd = [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
-      this.proc = Bun.spawn(SETSID ? [SETSID, "-c", ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
+      this.proc = Bun.spawn(CTTY ? [...CTTY, ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
+      if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);
     } catch (e) {
       if (this.socket) { void unlink(this.socket).catch(() => {}); this.socket = null; }
