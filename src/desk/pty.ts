@@ -16,6 +16,7 @@ import { basename } from "node:path";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
+import { controlPath } from "../control";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -124,6 +125,8 @@ export class PtyPane implements Pane {
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door.
     const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: this.run.label ?? "" };
     for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID"]) delete env[k];
+    // This door's control socket: `ep0ch act` from the program reaches the door it runs in.
+    if (controlPath) env.EP0CH_CONTROL = controlPath;
     try {
       // The pty becomes the program's controlling terminal (setsid -c), so it gets job control and SIGWINCH
       // when the tile is resized. Where there's no setsid (macOS), it runs without; resizes still reach it.

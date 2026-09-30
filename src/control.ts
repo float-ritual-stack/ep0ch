@@ -53,6 +53,12 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
   throw new Error(`unknown command ${req.cmd}; try peek, snap, open, actions or act`);
 }
 
+/**
+ * The socket this door serves on, once it does. Terminal tiles get it as EP0CH_CONTROL, so `ep0ch act` from
+ * a program in a tile (an agent's `show`) reaches the door it runs in, not whichever door has door.sock.
+ */
+export let controlPath: string | null = null;
+
 /** Serve on door.sock; if another live door already has it, use door-<pid>.sock. */
 export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise<{ path: string; close(): void }> {
   mkdirSync(dirname(at), { recursive: true });
@@ -85,6 +91,7 @@ export async function startControl(d: ControlDeps, at = CONTROL_SOCKET): Promise
     sock.on("error", () => {});
   });
   await new Promise<void>((res, rej) => { server.once("error", rej); server.listen(path, () => res()); });
+  controlPath = path;
   return { path, close: () => { server.close(); try { unlinkSync(path); } catch { /* gone */ } } };
 }
 

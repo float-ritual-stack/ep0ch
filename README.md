@@ -247,7 +247,8 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`) |
+| `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
+| `EP0CH_HERDR_AGENT_CMD` | the agent that wrapper starts in its Herdr pane (default `door-claude` when it's on PATH, else `claude`) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## The desk
@@ -321,6 +322,48 @@ a running program or an unsaved edit the new layout has no place for becomes a s
 | quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
 | SIGTERM or SIGHUP, or a crash | they end with the door; unsaved edits are copied to disk first on a signal |
 | a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its temp file went with the door) |
+
+### The daily agent in Herdr
+
+With `EP0CH_DAILY_AGENT=<checkout>/scripts/door-agent-herdr.ts`, the daily layout's agent runs in a Herdr
+pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents message it
+(`herdr agent prompt door "…"`), and it keeps running when the door quits.
+
+- **Where it runs.** The wrapper looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own
+  default) for the pane labelled `door-claude`.
+  - If the pane isn't there, the wrapper makes it: a tab in the workspace labelled `door` (made too if
+    missing), in `EP0CH_DAILY_CWD` or the tile's folder, without taking Herdr's focus.
+  - It starts `EP0CH_HERDR_AGENT_CMD` there with `exec` (default `door-claude` if it's on PATH, else
+    `claude`), so `/exit` ends the pane. Once Herdr detects the agent, the wrapper names it `door`.
+  - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
+- **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
+  - `ctrl+b q` detaches: the tile says the program exited, and `⏎` attaches again. `ctrl+b ctrl+b` sends a
+    `ctrl+b` to the agent (Herdr's attach keeps `ctrl+b` for itself).
+  - The mouse is passed through as the agent asked for it.
+  - While attached, the tile's size is the pane's size: Herdr locks the pane to the attached client, so a
+    Herdr client viewing the same pane sees it at the tile's size.
+- **Quitting the door** ends only the attach. The agent keeps running in its pane.
+  - The next door's daily tile attaches to it again.
+  - In Herdr (on float-2, or from the laptop, where float-2's panes show under the `ep0ch` machine) it is
+    the `door-claude` pane in the `door` workspace, named `door` in the agent list. Open it there to carry on.
+- **A second door** attaches without `--takeover`, so it doesn't take the agent from the door showing it.
+  If another door has the agent, the tile watches it read-only instead: Herdr's observer stream, drawn at
+  the tile's size.
+  - The tile's title says `watching`. `⏎` takes the agent over, and the other door's tile starts watching.
+    `q` stops watching.
+  - Only the attached door gets the agent's `ep0ch act` and `show` (below).
+- **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
+  `EP0CH_CONTROL`, and the program's name in the layout as `EP0CH_TILE`.
+  - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
+    (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
+  - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
+  - The Outliner's `show` opens the note in the daily layout's middle detail, as an agent's `open`, which
+    never moves your focus.
+- **No Herdr.** If Herdr isn't installed, or no server answers, the tile runs the agent directly, as
+  before.
+- **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
+  says who sent it. An agent that messages `door` should say who it is and why ("from loki, on
+  PIE-123: …"). The agent should treat an unsigned message as it would text typed by an unknown person.
 
 The current layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
