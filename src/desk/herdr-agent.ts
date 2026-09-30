@@ -8,14 +8,18 @@
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
 // - The tile attaches without --takeover. If another door's tile already has it (or later takes it), this
 //   tile watches read-only (`terminal session observe`) and ⏎ takes it over; `q` stops watching.
-// - Herdr not installed, or no server answering: the agent runs in the tile directly, as before.
+// - Two doors starting at once make one pane: the look-and-make is done holding a lock beside the link.
+// - Herdr not installed, no server answering (or one not answering in 10s), or the pane couldn't be made: the
+//   agent runs in the tile directly, as before.
 //
 // The agent's pane gets EP0CH_TILE (so tools know they're in a door tile) and EP0CH_CONTROL: a link in the
 // door's state that this wrapper points at the attached door's control socket each time it attaches, so
 // `ep0ch act` (and the outliner's `show`) from the agent reach the door it is shown in, whichever that is.
+// When the attach ends (detached, or the door quit or crashed) the link is dropped if it's still this door's,
+// so the agent's `show` falls back to Herdr instead of reaching a door that doesn't show it.
 import { spawn as spawnDetached } from "node:child_process";
-import { mkdirSync, readlinkSync, renameSync, rmSync, symlinkSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { stateDir } from "../state";
 
 export interface Ran { code: number; out: string; err: string }
@@ -37,6 +41,8 @@ export interface AgentConfig {
   env: Record<string, string>;
   /** The link EP0CH_CONTROL names in the pane, re-pointed at each attach. */
   link: string;
+  /** Held while the pane is looked for and made, so two doors starting at once make one pane. */
+  lock: string;
 }
 
 /** The defaults, from the environment the door gave the tile. */
@@ -51,6 +57,7 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     cmd: env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude"),
     env: { EP0CH_TILE: env.EP0CH_TILE || "claude", EP0CH_CONTROL: link },
     link,
+    lock: `${link}.lock`,
   };
 }
 
@@ -60,13 +67,43 @@ const envArgs = (env: Record<string, string>) => Object.entries(env).flatMap(([k
 export type Found = { kind: "unreachable"; why: string } | { kind: "pane"; pane: string; terminal: string; created: boolean };
 
 /**
+ * Runs `f` holding a lock file (O_EXCL, with the holder's pid): two doors starting at once would otherwise
+ * both find no pane and both make one. A lock whose holder is gone, or older than `stale` ms, is taken over;
+ * after `wait` ms it goes ahead without (a wedged holder must not wedge the tile).
+ */
+export async function withLock<T>(path: string, f: () => Promise<T>, wait = 20_000, stale = 30_000): Promise<T> {
+  const until = Date.now() + wait;
+  let held = false;
+  try { mkdirSync(dirname(path), { recursive: true }); } catch { /* the open says why */ }
+  while (!held) {
+    try {
+      const fd = openSync(path, "wx");
+      try { writeSync(fd, String(process.pid)); } finally { closeSync(fd); }
+      held = true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") break;
+      let gone = false;
+      try {
+        const pid = Number(readFileSync(path, "utf8"));
+        gone = Date.now() - statSync(path).mtimeMs > stale || !(pid > 0 && alive(pid));
+      } catch { gone = false; /* being written or just removed: try again */ }
+      if (gone) { rmSync(path, { force: true }); continue; }
+      if (Date.now() > until) break;
+      await Bun.sleep(50);
+    }
+  }
+  try { return await f(); } finally { if (held) rmSync(path, { force: true }); }
+}
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
+
+/**
  * The agent's pane on the server: the one labelled `cfg.pane`, else a new one with the agent started in it.
  * `unreachable` when Herdr can't list panes (no server): the caller runs the agent directly.
  */
 export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<Found> {
   const listed = await herdr(["pane", "list"]);
   const panes = json(listed.out)?.result?.panes;
-  if (listed.code !== 0 || !Array.isArray(panes)) return { kind: "unreachable", why: listed.err.trim() || "herdr pane list failed" };
+  if (listed.code !== 0 || !Array.isArray(panes)) return { kind: "unreachable", why: listed.err.trim() || String(json(listed.out)?.error?.message ?? "") || "herdr pane list failed" };
   const had = panes.find((p: any) => p?.label === cfg.pane && typeof p.terminal_id === "string");
   if (had) return { kind: "pane", pane: String(had.pane_id), terminal: had.terminal_id, created: false };
 
@@ -104,9 +141,14 @@ export async function nameWhenReady(herdr: HerdrRun, pane: string, name: string,
  * Points the pane's EP0CH_CONTROL link at this door's control socket (replaced whole, never half-made).
  * Returns where it pointed before, so a refused attach can put it back.
  */
-export function pointLink(link: string, control: string | undefined): string | null {
+export function pointLink(link: string, control: string | undefined | null): string | null {
   let was: string | null = null;
   try { was = readlinkSync(link); } catch { /* none yet */ }
+  if (control === null) {
+    // Nothing to point at: the link goes, so the agent's `show` finds no door and falls back to Herdr.
+    try { rmSync(link, { force: true }); } catch { /* gone */ }
+    return was;
+  }
   if (!control || control === was) return was;
   try {
     mkdirSync(join(link, ".."), { recursive: true });
@@ -126,16 +168,39 @@ export function attachOutcome(code: number, err: string): Attached {
   return { kind: "done", code };
 }
 
+/**
+ * When the attach ends: the link is dropped if it still points at this door, so an agent left running after
+ * this door quit (or crashed) never reaches a door that doesn't show it, such as a later door on door.sock.
+ */
+export function releaseLink(link: string, control: string | undefined) {
+  if (!control) return;
+  try { if (readlinkSync(link) === control) rmSync(link, { force: true }); } catch { /* none */ }
+}
+
 /** The Herdr the wrapper talks to: EP0CH_HERDR_BIN, else `herdr` on PATH; null when there's none. */
 export const herdrBin = (env = process.env) => env.EP0CH_HERDR_BIN || Bun.which("herdr");
 
-export function herdrRunner(bin: string): HerdrRun {
+/** Runs `herdr` commands; one that takes longer than `timeoutMs` (a wedged server) is killed and fails. */
+export function herdrRunner(bin: string, timeoutMs = 10_000): HerdrRun {
   return async args => {
     const p = Bun.spawn([bin, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    return { code, out, err };
+    let timer: Timer | undefined;
+    const late = new Promise<Ran>(res => {
+      timer = setTimeout(() => {
+        try { p.kill("SIGKILL"); } catch { /* gone */ }
+        res({ code: 124, out: "", err: `herdr ${args.slice(0, 2).join(" ")} didn't answer in ${timeoutMs / 1000}s` });
+      }, timeoutMs);
+    });
+    const ran = Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]).then(([out, err, code]) => ({ code, out, err }));
+    try { return await Promise.race([ran, late]); } finally { clearTimeout(timer); }
   };
 }
+
+/** The tile's title while it shows the Herdr pane: the door reads it to know quitting leaves the agent running. */
+export const attachTitle = (pane: string) => `${pane} in Herdr · ctrl+b q detaches`;
+export const WATCH_TITLE = "watching · another door has it · ⏎ takes it over, q stops";
+/** The title says the tile shows an agent that lives in Herdr (attached or watching), not one it owns. */
+export const inHerdrTitle = (t: string) => / in Herdr · ctrl\+b q detaches$/.test(t) || t === WATCH_TITLE;
 
 /** Runs a program on the tile's terminal and resolves to its exit code (its stderr kept too, for attach). */
 async function onTerminal(argv: string[], keepErr = false): Promise<Ran> {
@@ -158,7 +223,7 @@ function watch(bin: string, terminal: string): Promise<"takeover" | "quit" | "cl
   const out = process.stdout;
   const size = () => [String(out.columns || 80), String(out.rows || 24)];
   // The tile's title says what this is; the terminal is cleared between streams.
-  out.write("\x1b]2;watching · another door has it · ⏎ takes it over, q stops\x07\x1b[2J\x1b[H");
+  out.write(`\x1b]2;${WATCH_TITLE}\x07\x1b[2J\x1b[H`);
   return new Promise(res => {
     let done = false, obs: ReturnType<typeof Bun.spawn> | null = null;
     const finish = (r: "takeover" | "quit" | "closed") => {
@@ -213,8 +278,12 @@ export async function main(script: string, env = process.env): Promise<number> {
   if (!bin) return direct();
   const herdr = herdrRunner(bin);
   let found: Found;
-  try { found = await findOrCreate(herdr, cfg); } catch (e) { process.stderr.write(`${(e as Error).message}\r\n`); return 1; }
-  if (found.kind === "unreachable") return direct();
+  try { found = await withLock(cfg.lock, () => findOrCreate(herdr, cfg)); } catch (e) { found = { kind: "unreachable", why: (e as Error).message }; }
+  if (found.kind === "unreachable") {
+    // No server, a wedged one, or it couldn't make the pane: the tile still gets its agent, run here.
+    if (found.why && !/server_not_running|no herdr server/.test(found.why)) process.stderr.write(`herdr: ${found.why.split("\n")[0]} · running the agent here\r\n`);
+    return direct();
+  }
   const { pane, terminal } = found;
   // Named in the background, so the tile shows the agent starting meanwhile.
   if (found.created || (await herdr(["agent", "get", cfg.name])).code !== 0) {
@@ -223,13 +292,14 @@ export async function main(script: string, env = process.env): Promise<number> {
   let takeover = false;
   for (;;) {
     // The tile's title while attached (the agent may set its own over it).
-    process.stdout.write(`\x1b]2;${cfg.pane} in Herdr · ctrl+b q detaches\x07`);
+    process.stdout.write(`\x1b]2;${attachTitle(cfg.pane)}\x07`);
     const was = pointLink(cfg.link, env.EP0CH_CONTROL);
     const ran = await onTerminal([bin, "terminal", "attach", terminal, ...(takeover ? ["--takeover"] : [])], true);
     const r = attachOutcome(ran.code, ran.err);
-    if (r.kind === "done") return r.code;
-    // Refused: the door that has it keeps the link.
-    if (r.kind === "busy" && was) pointLink(cfg.link, was);
+    // Detached, the agent gone, or this door going (a signal): the link no longer names a door showing it.
+    if (r.kind === "done") { releaseLink(cfg.link, env.EP0CH_CONTROL); return r.code; }
+    // Refused: the door that has it keeps the link (none before: none now).
+    if (r.kind === "busy") pointLink(cfg.link, was);
     const w = await watch(bin, terminal);
     if (w !== "takeover") return 0;
     takeover = true;

@@ -336,13 +336,16 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - It starts `EP0CH_HERDR_AGENT_CMD` there with `exec` (default `door-claude` if it's on PATH, else
     `claude`), so `/exit` ends the pane. Once Herdr detects the agent, the wrapper names it `door`.
   - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
+  - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
+    link below (`agent-door-claude.sock.lock`).
 - **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
   - `ctrl+b q` detaches: the tile says the program exited, and `⏎` attaches again. `ctrl+b ctrl+b` sends a
     `ctrl+b` to the agent (Herdr's attach keeps `ctrl+b` for itself).
   - The mouse is passed through as the agent asked for it.
   - While attached, the tile's size is the pane's size: Herdr locks the pane to the attached client, so a
     Herdr client viewing the same pane sees it at the tile's size.
-- **Quitting the door** ends only the attach. The agent keeps running in its pane.
+- **Quitting the door** ends only the attach. The agent keeps running in its pane, so quitting doesn't ask
+  twice for it (it still does for other programs running in tiles).
   - The next door's daily tile attaches to it again.
   - In Herdr (on float-2, or from the laptop, where float-2's panes show under the `ep0ch` machine) it is
     the `door-claude` pane in the `door` workspace, named `door` in the agent list. Open it there to carry on.
@@ -357,10 +360,12 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - The agent's pane gets `EP0CH_TILE` and an `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
+  - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
+    points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
   - The Outliner's `show` opens the note in the daily layout's middle detail, as an agent's `open`, which
     never moves your focus.
-- **No Herdr.** If Herdr isn't installed, or no server answers, the tile runs the agent directly, as
-  before.
+- **No Herdr.** If Herdr isn't installed, no server answers (or one doesn't answer within 10s), or Herdr can't
+  make the pane, the tile runs the agent directly, as before, and says why when it isn't simply "no server".
 - **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
   says who sent it. An agent that messages `door` should say who it is and why ("from loki, on
   PIE-123: …"). The agent should treat an unsigned message as it would text typed by an unknown person.

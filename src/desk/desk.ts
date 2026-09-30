@@ -532,7 +532,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {
-    const r = this.running();
+    // An agent attached from Herdr keeps running in its pane when the door quits: nothing of it ends here.
+    const r = this.running().filter(p => !p.inHerdr);
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 

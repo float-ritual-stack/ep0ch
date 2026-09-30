@@ -17,6 +17,7 @@ import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath } from "../control";
+import { inHerdrTitle } from "./herdr-agent";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -62,6 +63,11 @@ export class PtyPane implements Pane {
   exited: number | null = null;
   /** The program's own title (OSC 0/2), if it set one. */
   private programTitle = "";
+  /**
+   * It shows an agent that lives in a Herdr pane (scripts/door-agent-herdr.ts said so in its title): quitting
+   * the door ends only the attach, not the agent. Kept until the program exits (the agent sets its own title).
+   */
+  inHerdr = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -99,11 +105,11 @@ export class PtyPane implements Pane {
 
   /** Start the program at this size (the first time it's drawn: the tile's size is known then). */
   private start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0;
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.inHerdr = false;
     this.term?.dispose();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
     this.term = term;
-    term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
+    term.onTitleChange(t => { this.programTitle = t.slice(0, 60); if (inHerdrTitle(t)) this.inHerdr = true; });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
     term.onData(d => { if (this.running) this.pty?.write(d); });
