@@ -11,12 +11,16 @@
 import type { RequestInput } from "./client";
 import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from "./delivery-lifecycle";
 import { documentFolds } from "./document-folds";
+import { droppedStructure } from "./draft-patch";
 import { markdownSourceTokens } from "./markdown-structure";
 import { getProperty, matchesFilters, normalizePropertyKey, parsePropertyRecords, patchPropertyText, validateProperty } from "./properties";
+import { blockReferenceOccurrences } from "./references";
 import { parseWorkId } from "./work-ids";
 import {
   ROADMAP_WORK_STAGES,
+  type BacklinkCollection,
   type Block,
+  type BlockReadCollection,
   type BlockAuthor,
   type BlockProvenance,
   type DeliveryReceipt,
@@ -712,6 +716,38 @@ export async function setDeliveryStage(
 
 // ─── Prose ─────────────────────────────────────────────────────────────────
 
+/**
+ * Refuses an agent's rewrite of `block` to `next` that drops a `[page::…]`
+ * property, or an `^anchor` another note links to (`((id^anchor))`). Every
+ * agent text write that can drop them (outline_edit, a note section, an item
+ * body) asks this first; only outline_edit's explicit `allowStructural` skips it.
+ * When more notes link to the block than one backlink read returns, a dropped
+ * anchor is refused rather than guessed about.
+ */
+export async function refuseDroppedStructure(client: WorkToolsClient, block: Block, next: string): Promise<void> {
+  const dropped = droppedStructure(block.text, next);
+  const lost = [...dropped.pages];
+  if (dropped.anchors.length) {
+    const backlinks = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: block.id, limit: 1000 } });
+    const ids = backlinks.sources.filter(source => !source.deletedRootId && source.blockId !== block.id).map(source => source.blockId);
+    const texts = ids.length
+      ? (await client.request<BlockReadCollection>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["text"] })).blocks
+      : [];
+    const unchecked = backlinks.completeness.kind !== "complete";
+    for (const anchor of dropped.anchors) {
+      const count = texts.filter(row => blockReferenceOccurrences(row.text ?? "")
+        .some(reference => reference.blockId === block.id && reference.fragmentId === anchor)).length;
+      if (count) lost.push(`^${anchor} (${count} ${count === 1 ? "note links" : "notes link"} to it)`);
+      else if (unchecked) lost.push(`^${anchor} (too many notes link here to check it)`);
+    }
+  }
+  if (lost.length) {
+    throw new WorkToolRefusal(
+      `The edit would drop ${lost.join(", ")}; keep them, or use outline_edit with allowStructural: true if removing them is the point`,
+    );
+  }
+}
+
 export interface TextReplaceResult extends BlockRef {
   workId: string | null;
   previous: string;
@@ -734,13 +770,36 @@ export async function replaceNoteSection(
   actor: WorkActor,
   options: { expectedRevision?: number } = {},
 ): Promise<TextReplaceResult & { heading: string }> {
+  const block = await resolveBlock(client, address);
+  const revision = requireRevision(block, options.expectedRevision);
+  const section = replaceSectionText(block.text, heading, body, block.id);
+  if (actor.author === "agent") await refuseDroppedStructure(client, block, section.text);
+  const updated = await client.request<Block>({
+    action: "update",
+    blockId: block.id,
+    text: section.text,
+    expectedRevision: revision,
+    mutation: mutationOf(actor),
+  });
+  return { ...textResult(updated, section.previous), heading: section.heading };
+}
+
+/**
+ * A note's text with one heading's section replaced: what Detail folds under
+ * that heading, up to the next heading of the same or a higher level. The
+ * heading line stays. `heading` may carry its `##` level; a missing or
+ * ambiguous heading is refused, naming the headings there are.
+ */
+export function replaceSectionText(
+  text: string,
+  heading: string,
+  body: string,
+  blockId: string,
+): { text: string; previous: string; heading: string } {
   const wanted = /^(#{1,6})\s+(.*)$/.exec(heading.trim());
   const title = (wanted ? wanted[2]! : heading).trim();
   const depth = wanted ? wanted[1]!.length : undefined;
   if (!title) throw new WorkToolRefusal("Name the section heading to replace");
-  const block = await resolveBlock(client, address);
-  const revision = requireRevision(block, options.expectedRevision);
-  const text = block.text;
   const headings = markdownSourceTokens(text).flatMap((node) =>
     node.token.type === "heading" ? [{ node, depth: node.token.depth as number, text: String(node.token.text).trim() }] : []
   );
@@ -749,8 +808,8 @@ export async function replaceNoteSection(
     const available = headings.map((candidate) => `${"#".repeat(candidate.depth)} ${candidate.text}`).join("; ") || "none";
     throw new WorkToolRefusal(
       matches.length === 0
-        ? `No heading "${heading.trim()}" in ${block.id}; headings: ${available}`
-        : `More than one heading "${heading.trim()}" in ${block.id}; include its level (## …) or rename one`,
+        ? `No heading "${heading.trim()}" in ${blockId}; headings: ${available}`
+        : `More than one heading "${heading.trim()}" in ${blockId}; include its level (## …) or rename one`,
     );
   }
   const target = matches[0]!.node;
@@ -763,15 +822,11 @@ export async function replaceNoteSection(
   const sectionEnd = fold ? fold.sourceSpan!.end : Math.min(text.length, headingEnd + 1);
   const previous = text.slice(Math.min(text.length, headingEnd + 1), sectionEnd).trim();
   const rest = text.slice(sectionEnd).replace(/^\n+/, "");
-  const next = [text.slice(0, headingEnd), body.trim(), rest].filter(Boolean).join("\n\n");
-  const updated = await client.request<Block>({
-    action: "update",
-    blockId: block.id,
-    text: next,
-    expectedRevision: revision,
-    mutation: mutationOf(actor),
-  });
-  return { ...textResult(updated, previous), heading: `${"#".repeat(matches[0]!.depth)} ${title}` };
+  return {
+    text: [text.slice(0, headingEnd), body.trim(), rest].filter(Boolean).join("\n\n"),
+    previous,
+    heading: `${"#".repeat(matches[0]!.depth)} ${title}`,
+  };
 }
 
 /** The first line plus any block-property lines directly under it. */
@@ -799,10 +854,12 @@ export async function replaceItemBody(
   const head = lines.slice(0, preambleLineCount(block.text)).join("\n");
   const previous = lines.slice(preambleLineCount(block.text)).join("\n").trim();
   const content = body.trim();
+  const next = content ? `${head}\n\n${content}` : head;
+  if (actor.author === "agent") await refuseDroppedStructure(client, block, next);
   const updated = await client.request<Block>({
     action: "update",
     blockId: block.id,
-    text: content ? `${head}\n\n${content}` : head,
+    text: next,
     expectedRevision: revision,
     mutation: mutationOf(actor),
   });
