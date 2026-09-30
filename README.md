@@ -8,6 +8,13 @@ The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art p
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
+**Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
+screen, and so is `Esc` once nothing on the screen is selected or open (a drawer, a link, a detail). The menu
+is the top, with nothing under it: there `q` is the Quay, as it always was, and `Esc` stays put and says so.
+Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with
+`screen.open`, `screen.back` and, on a list, `list.select`, `list.open`, `list.read` (see
+[Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)).
+
 The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
@@ -915,7 +922,8 @@ Bodies render with `src/doc.ts`:
   - Starting a note action in a compressed column is refused; `widen` or `pin` (dock) widens it without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
 - **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
 - **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
-- **Quote** (a new note quoting this one) isn't here yet; `C` comments on a passage instead.
+- **Back:** `q`, or `Esc` once no link is selected, goes back to the menu (PIE-489: `q` used to be the quote flash).
+- **Quote** (a new note quoting this one) isn't here yet; `"` says so, and `C` comments on a passage instead.
 
 Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
 cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
@@ -977,7 +985,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 
 | Action | Arguments | Keys it stands for |
 |---|---|---|
-| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk) | `Enter`, `Alt+Enter`, `o` |
+| `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
+| `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
+| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |

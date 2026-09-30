@@ -207,6 +207,9 @@ export class CommentSession {
   private confirmNew = false;
   private readonly out = new Outgoing();
   private top = 0;
+  /** The person scrolled the list themselves (wheel, PgUp/PgDn): the view stops following the selection until j or k. */
+  private free = false;
+  private room = 10;
   /** Where Esc from the composer goes back to. */
   private back: CommentMode = "threads";
   /** The mode the session opened in; Esc there closes it. */
@@ -232,7 +235,13 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: "back" });
-    return "j k thread · r reply · x resolve/reopen · C comment on a passage · esc done";
+    return "j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · C comment on a passage · esc done";
+  }
+
+  /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
+  wheel(dir: 1 | -1) {
+    if (this.mode !== "threads") return;
+    this.top = Math.max(0, this.top + dir * 3); this.free = true;
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
@@ -264,8 +273,9 @@ export class CommentSession {
     const c = ch(k), n = this.threads.length;
     this.error = null;
     if (k.kind === "esc") return "close";
-    if (k.kind === "down" || c === "j") this.sel = Math.min(Math.max(0, n - 1), this.sel + 1);
-    else if (k.kind === "up" || c === "k") this.sel = Math.max(0, this.sel - 1);
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.top = Math.max(0, this.top + (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1)); this.free = true; return "keep"; }
+    if (k.kind === "down" || c === "j") { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.free = false; }
+    else if (k.kind === "up" || c === "k") { this.sel = Math.max(0, this.sel - 1); this.free = false; }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
     else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
     else if (c === "C") void this.pick(env);
@@ -448,14 +458,26 @@ export class CommentSession {
       lines.push(i === this.sel ? bg(C.blue) + fg(C.white) + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       if (t.quote) for (const l of wrap(`"${t.quote}"`, w - 4).slice(0, 2)) lines.push(fg(t.open ? C.green : C.dark) + "  " + MARK + " " + l + RESET);
       if (t.start === null && t.quote) lines.push(fg(C.brown) + "    (the quoted words moved; the service couldn't place them)" + RESET);
-      for (const l of wrap(t.body, w - 4).slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
-      for (const r of t.replies) for (const [j, l] of wrap(`${r.author} · ${ago(r.at)}: ${r.body}`, w - 6).slice(0, 3).entries()) lines.push(fg(C.cyan) + (j ? "      " : "    └ ") + l + RESET);
+      // The selected thread shows whole; the others show their start and say how much more there is.
+      const whole = i === this.sel;
+      const more = (n: number, indent: string) => { if (n > 0) lines.push(indent + fg(C.dark) + `… ${n} more line${n === 1 ? "" : "s"}${whole ? "" : " · j k to select it and read it whole"}` + RESET); };
+      const body = wrap(t.body, w - 4);
+      for (const l of whole ? body : body.slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
+      if (!whole) more(body.length - 4, "    ");
+      for (const r of t.replies) {
+        const rl = wrap(`${r.author} · ${ago(r.at)}: ${r.body}`, w - 6);
+        for (const [j, l] of (whole ? rl : rl.slice(0, 3)).entries()) lines.push(fg(C.cyan) + (j ? "      " : "    └ ") + l + RESET);
+        if (!whole) more(rl.length - 3, "      ");
+      }
       if (i === this.sel) selEnd = lines.length - 1;
       lines.push("");
     });
     const room = Math.max(1, h - head.length);
-    if (selAt < this.top) this.top = selAt;
-    if (selEnd >= this.top + room) this.top = Math.min(selAt, selEnd - room + 1);
+    this.room = room;
+    if (!this.free) {
+      if (selAt < this.top) this.top = selAt;
+      if (selEnd >= this.top + room) this.top = Math.min(selAt, selEnd - room + 1);
+    }
     this.top = Math.max(0, Math.min(this.top, Math.max(0, lines.length - room)));
     return [...head, ...lines.slice(this.top, this.top + room)];
   }

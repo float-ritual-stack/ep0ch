@@ -1204,7 +1204,7 @@ export class NoteSurface {
 
   /**
    * The wheel, whatever the surface is doing: the note scrolls (under an inline property panel too), a
-   * full panel moves its selection, a draft moves its cursor. A comment session keeps its own place.
+   * full panel moves its selection, a draft moves its cursor, and a comment session scrolls its thread list.
    */
   wheel(dir: 1 | -1, host: SurfaceHost) {
     const P = this.panel, m = this.msg;
@@ -1212,7 +1212,7 @@ export class NoteSurface {
     const pop = this.writing();
     if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
     if (this.draft) { if (!this.draft.busy) for (let i = 0; i < 3; i++) this.draft.key({ kind: dir > 0 ? "down" : "up" }); }
-    else if (this.session) return;
+    else if (this.session) this.session.wheel(dir);
     else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * 3)); }
     else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * 3)); }
     host.redraw();
