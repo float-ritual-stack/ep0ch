@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { App } from "../src/app";
-import { Outgoing, Passage } from "../src/comment";
+import { CommentSession, Outgoing, Passage } from "../src/comment";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { renderDoc } from "../src/doc";
@@ -367,5 +367,27 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect((app.describe() as any).screen).toBe(desk.title);
     expect(reader().session!.composer!.text).toBe("unsent");
     app.quit();
+  });
+});
+
+describe("long comments in the thread list", () => {
+  const long = Array.from({ length: 30 }, (_, i) => `line ${i + 1} of a long ramble about the garden shed`).join("\n");
+  const thread = (id: string, body: string) => ({ id, author: "user", body, quote: "", at: Date.now(), open: true, start: null, end: null, replies: [] });
+  const msg = { id: "note-1", title: "Garden", text: "Garden\nbeans", revision: 1 } as any;
+
+  test("the selected thread shows whole, another says how much more it has, and the wheel scrolls to the end", () => {
+    const s = new CommentSession(msg, [thread("a", "short one"), thread("b", long)], "threads");
+    let out = s.render(80, 20, "Garden").map(plain);
+    expect(out.some(l => l.includes("line 4 of"))).toBe(true);
+    expect(out.some(l => l.includes("line 5 of"))).toBe(false);
+    expect(out.some(l => l.includes("… 26 more lines"))).toBe(true);
+    s.key({ kind: "down" }, {} as any);
+    out = s.render(80, 20, "Garden").map(plain);
+    expect(out.some(l => l.includes("more lines"))).toBe(false);
+    for (let i = 0; i < 12; i++) s.wheel(1);
+    out = s.render(80, 20, "Garden").map(plain);
+    expect(out.some(l => l.includes("line 30 of"))).toBe(true);
+    s.key({ kind: "pgup" }, {} as any);
+    expect(s.render(80, 20, "Garden").map(plain).some(l => l.includes("line 30 of"))).toBe(false);
   });
 });
