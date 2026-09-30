@@ -17,6 +17,7 @@ socket, with the same checks (revisions, property warnings, duplicate-safe comme
     ep0ch outline attach <name> [--json]   open the door on it (--json: only attach, print the answer)
     ep0ch outline create <name> | adopt <path> <name> [--root <dir>] | stop <name> | delete <name> --yes
     ep0ch status [--json]            the host: socket, default outline, open outlines
+    ep0ch where [--json]             which door, tile and Herdr pane this process runs in, and where the keys are
     ep0ch clients [--ws <root>]      who is connected to the service (every role)
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
@@ -41,9 +42,11 @@ Claude mod. It only reads (`git fetch` aside).
 
 `ep0ch install` without `--apply` is safe to run any time: it prints the plan. Run `--apply` only when the
 person asked for the update. It backs up every outline database to `~/backups/ep0ch/` first, then
-fast-forwards the plugin and door checkouts and links `ep0ch`. `--restart-services` restarts the person's
-per-folder service panes: never pass it unless they asked for that too. Install never changes the outline
-host, its systemd or launchd unit, Herdr's config or Claude's settings; it reports them as notes.
+fast-forwards the plugin and door checkouts and links `ep0ch`. After a plugin update (or when the host runs
+old code) it also restarts the outline host through its systemd or launchd unit, and every door and pane on
+it reconnects: say so before you run it. `--restart-services` restarts the person's per-folder service
+panes: never pass it unless they asked for that too. Install never writes a unit, Herdr's config or
+Claude's settings; it reports them as notes.
 
 ## Which outline a door opens
 
@@ -59,7 +62,12 @@ person asked for it.
 
 ## Which door you reach
 
-- The control commands talk to the door on `EP0CH_CONTROL`, or the default socket
+- **Inside a door** (a terminal tile, the agent drawer, the daily agent's Herdr pane, the door's drop shell),
+  `EP0CH_CONTROL` is already that door's socket, `EP0CH_TILE` your tile's name and `EP0CH_NEST` the layers
+  you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
+  tile. Open notes with `ep0ch act open id=<block> from=$EP0CH_TILE`, so they land where your tile's opens
+  go; never name a reader you guessed.
+- Otherwise the control commands talk to the door on `EP0CH_CONTROL`, or the default socket
   `~/.local/state/ep0ch-door/door.sock` — **usually the person's own door.**
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
@@ -74,6 +82,20 @@ person asked for it.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
 - Test data belongs in scratch services with fictional notes, never a real outline.
+- Moving the person's screen (`screen.open`, `screen.back`, `list.*`, `agent.toggle open=true`) waits until
+  they've been idle 2s and aren't typing, and is said on their status bar. `screen.shell` (drop to shell) is
+  theirs only: yours is refused. Use a terminal tile (`tile.open kind=pty`) for a program of your own.
+
+## Useful actions beyond notes
+
+- **The agent drawer** (every screen): `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`. It
+  never takes the person's keys; you can't put it away or resize it while they type in it. `peek` shows it
+  as `dock`.
+- **The outline tree's links:** `tree.links reader=<tree tile> n=<row>` shows a row's outlinks, resources and
+  backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
+- **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
+  `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
+- The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 
 ## When something looks wrong
 

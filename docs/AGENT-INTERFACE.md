@@ -323,7 +323,7 @@ at, and what it does while they're typing:
 
 ## What still changes the UI without a command
 
-Audited for this interface (PIE-413 part b). Fixed in this PR on the desk:
+Audited for this interface (PIE-413 part b). Fixed then, on the desk:
 - a dragged border (now `layout.resize`);
 - `^W =` (`layout.even`) and `^W s` (`layout.swap`);
 - a drawer sliding shut when the keys leave (`tile.drawer`);
@@ -339,7 +339,8 @@ Still direct, next:
   and `[ ]` moves the person's element. These are the note surface's (`src/surface/note.ts`); the feed
   publishes their effect (`viewport`), and `view.scrollTo` is the agent's way to scroll.
 - **The outline tile's cursor** (`j k`, clicks). The feed publishes it (`viewport.selected`), but there is no
-  `tree.select` action yet.
+  `tree.select` action yet. An agent's `tree.pick` shows a row's note where the tree's selection goes without
+  moving the person's cursor, and `tree.links` shows a row's links (both above).
 - **Input states:** the search overlay (`/`), the layout picker, `alt+l` link mode, the `^W` prefix, and being
   "in" a terminal tile or a reader's edit. What they end in is a command.
 - **Other screens.** The board has `card.*` and `reader.*` for most of what its keys do (lane focus and the
