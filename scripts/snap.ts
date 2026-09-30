@@ -647,30 +647,28 @@ if (scenario === "elements") {
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "projection") {
-  // PIE-445 on its own scratch service: made-up tickets from a made-up extension (src/showcase/tickets),
-  // one fetched and one only registered, under jira:: lines in a board card, and a ticket page. The preview
-  // draws each projection under its line; [ ] reaches one (the ruler tints its region); the detail shows the
-  // ticket page with its projection at the top; y copies one as drawn.
-  const { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
+  // PIE-445 wave A on its own scratch service: made-up tickets from a made-up extension (src/showcase/tickets,
+  // a contract 2 folder). Nothing is registered first: opening the notes is the one step, and the service keeps
+  // each ticket as a block. The preview draws each ticket under its line (fields, age, body, comments); [ ]
+  // reaches one; ⏎ on its title opens the ticket block itself (header, body, comments); r refreshes.
+  const { installTickets, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
   installTickets(join(scratch!.root, "config"), SHOWCASE_TICKETS);
   await ticketSource(board);
-  const ready = await registerTicket(board, "ACME-12");
-  await registerTicket(board, "ACME-14");
-  await refreshTicket(board, ready);
   const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-  await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira::\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira:: --comments");
+  await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira:: --comments\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira::");
   await mk(null, "Rollout ticket [jira::ACME-12] [type::call]\nOur own notes under the ticket: book the van for the 14th.");
   const hub = await mk(null, "Calls board");
   await mk(hub.id, "Calls [type::virtual-branch] [query::type=call]");
   board.subscribe(e => app.event(e));
   const B = new DeliveryBoard(hub.id), S = B as any;
   app.push(new MainMenu()); app.push(B);
-  await snap("1-preview", 2500);
+  await snap("1-preview", 4000);
   S.focus = "preview";
   ch("]"); await snap("2-region-ruler", 400);
-  ch("y"); await snap("3-copied", 400);
-  press({ kind: "esc" }); press({ kind: "esc" });
-  S.focus = "lanes"; ch("j"); await snap("4-ticket-page", 1500);
+  press({ kind: "enter" }); await snap("3-ticket-block", 2500);
+  ch("r"); await snap("4-refreshed", 2500);
+  press({ kind: "esc" });
+  S.focus = "lanes"; ch("j"); await snap("5-ticket-page", 3000);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {

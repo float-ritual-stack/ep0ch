@@ -392,7 +392,7 @@ export class River implements Screen {
         let body = r;
         if (n > 1 || p.filter.length) {
           const active = focused && pi === col.pane;
-          const head = `${fg(active ? C.lcyan : C.blue)}── ${fg(active ? C.white : C.grey)}${this.titleOf(p)} ${p.filter.length ? fg(C.yellow) + "⌕ " + filterText(p.filter) + " " : ""}`;
+          const head = `${fg(active ? C.lcyan : C.blue)}── ${fg(active ? C.white : C.grey)}${this.titleOf(p)} ${p.filter.length ? fg(C.yellow) + "≡ " + filterText(p.filter) + " " : ""}`;
           canvas.text(r.col, r.row, pad(head + fg(active ? C.lcyan : C.blue) + "─".repeat(r.cols), r.cols), r.cols);
           body = { ...r, row: r.row + 1, rows: r.rows - 1 };
         }
@@ -479,8 +479,8 @@ export class River implements Screen {
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, { board: this.ctx.board, redraw: () => this.ctx.redraw() }, m.text));
       for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
       const count = this.idx.count(m.id) ?? (Array.isArray(p.kids.get(m.id)) ? (p.kids.get(m.id) as Msg[]).length : undefined);
-      if (p.kids.get(m.id) === "loading") push(rail + " " + fg(C.dark) + "↳ loading replies…" + RESET, n, true);
-      else if (count) push(rail + " " + fg(C.cyan) + (p.open.has(m.id) ? `▾ ${count} replies · hide` : `↳ ${count} replies`) + RESET, n, true);
+      if (p.kids.get(m.id) === "loading") push(rail + " " + fg(C.dark) + "» loading replies…" + RESET, n, true);
+      else if (count) push(rail + " " + fg(C.cyan) + (p.open.has(m.id) ? `▾ ${count} replies · hide` : `» ${count} replies`) + RESET, n, true);
       push(rail, n);
     });
     if (!p.items && !p.error) push(fg(C.dark) + "dialing…" + RESET);

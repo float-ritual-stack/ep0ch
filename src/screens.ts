@@ -217,7 +217,7 @@ export class Logon implements Screen {
 interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: abstract new (...args: any[]) => Screen; action?: "screen.shell" }
 
 const ITEMS: MenuItem[] = [
-  { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n), "since your last call") },
+  { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
   { key: "J", label: "Join", open: () => new Conferences() },
   { key: "K", label: "Kanban", open: () => new DeliveryBoard(), one: DeliveryBoard },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
@@ -378,10 +378,24 @@ const SCREEN_NAMES: Record<string, string[]> = {
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"],
 };
 
-type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never> };
+type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "changes.extensions": { include?: boolean } };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
+  "changes.extensions": {
+    summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes what extensions wrote (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
+    keys: "a click on the status bar's +N ext",
+    args: { include: { type: "boolean", optional: true, about: "true to include extension changes, false to leave them out; default: toggle" } },
+    run({ include }, { ctx }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent with extensions)");
+      ctx.extensionChanges = include ?? !ctx.extensionChanges;
+      ctx.events = (ctx.events ?? 0) + (ctx.extensionChanges ? (ctx.extEvents ?? 0) : -(ctx.extEvents ?? 0));
+      if (ctx.events < 0) ctx.events = 0;
+      ctx.flash(ctx.extensionChanges ? "what changed includes extension writes (refreshed tickets)" : "what changed leaves extension writes out");
+      ctx.redraw();
+      return { include: ctx.extensionChanges };
+    },
+  },
   "screen.open": {
     summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters, ⏎, a click on a menu item",
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },

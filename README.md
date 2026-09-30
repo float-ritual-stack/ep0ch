@@ -34,6 +34,43 @@ verification and the review checklist. The [architecture map](docs/architecture/
 structure in the door and the outliner, its ladder position and its open questions; `bun
 scripts/architecture-map.ts` checks its file:line citations against both checkouts and draws it as one page.
 
+## Getting started
+
+One walk through the door, in the order you meet things. Each step has its own section below.
+
+1. **Land in it.** On a machine set up like float-2, an interactive ssh login (outside Herdr and tmux) runs
+   `ep0ch` from `~/.bashrc` with `EP0CH_IN_DOOR=1`, and `EP0CH_LANDING=welcome` puts you on
+   [Welcome](#welcome) after the logon's `⏎`: the notes tagged `[welcome::n]`, the first one read. Quitting
+   the door leaves you at that shell; `ssh -t <host> EP0CH_NO_DOOR=1 bash -l` skips the door once.
+   Anywhere else, `ep0ch` opens the current folder's outline on the outline host, and `ep0ch --ws <name>`
+   opens another ([Outlines on the outline host](#outlines-on-the-outline-host)).
+2. **Get around.** The menu's letters or a click open its screens: `D` the desk, `K` the kanban, `Q` the Quay
+   (the river), `T` today's brief, `C` Welcome, `X` the showcase. `q` goes back on every screen below the
+   menu; only `G` logs off.
+3. **The desk.** `D`, then `alt+d` loads the `daily` layout: the agent's terminal, the outline, the "now" page,
+   an editor and details. Drag a tile's header to move it (onto another header it becomes a tab), `^W o` and a
+   kind opens a tile, `^W p` makes one a drawer, `^W w` and `^W r` save and load layouts by name
+   ([The desk](#the-desk)).
+4. **The agent drawer.** `alt+a` or a click on the status bar's `▲ claude` chip pulls the daily agent up over
+   any screen, with your keys in it. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once you're out,
+   puts it away ([The agent drawer](#the-agent-drawer-pie-498)).
+5. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
+   brings the door back where it was ([Getting around](#ep0ch-door), above).
+6. **Links in the tree.** In an outline tile, `L` shows the selected row's outlinks, resources and backlinks
+   under it, as the outliner's Tree does; `⏎` or a click opens one, and a resource shows what the service
+   stores for it ([The desk](#the-desk)).
+7. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
+   outdent, `Ctrl+P` previews, `Ctrl+S` saves (the first press says which properties would change). `Esc`
+   twice puts unsaved text aside as **unsent**; `e` on the same note brings it back
+   ([Editing notes](#editing-notes)).
+8. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
+   `macos_option_as_alt left`). Without it, where you aren't typing text, the door reads `å` as `alt+a`, `¬`
+   as `alt+l` and so on, and says once which setting to change ([The agent drawer](#the-agent-drawer-pie-498)).
+9. **Keep the stack current.** `ep0ch doctor` checks every piece; `ep0ch install` shows the plan and
+   `--apply` runs it ([Install and update](#install-and-update)). `ep0ch outline list` names the host's
+   outlines, and from a program in a tile `ep0ch where` says which door, tile and keys it's in
+   ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
+
 ## Outlines on the outline host
 
 With pi-herdr-outliner's outline host running (one socket per machine, `<state>/outliner.sock`, holding any
@@ -89,7 +126,9 @@ A journey to try, whichever service it is:
 
 opens the showcase (PIE-439): the shared door parts, live, in fourteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
-elements and reading-ruler row (PIE-441) has no section yet. It runs on an
+elements and reading-ruler row (PIE-441) has no section yet. The newest parts are in their rows' sections:
+the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
+(`L`) in `entity`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -100,8 +139,9 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   lane per work stage and cards in each, callouts, links and soft links (`HOME-001`), folds, a literal
   region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
   a saved view, one of every `::graph-*` kind, live ones included, and a call naming made-up tickets under
-  `jira::` lines with a ticket page under it (PIE-445: a made-up ticket extension, `src/showcase/tickets`,
-  is installed in the showcase's own config dir, and one ticket fetched through it; nothing real is contacted).
+  `jira::` lines with a ticket page under it (PIE-445: a made-up ticket extension, `src/showcase/tickets`, a
+  contract 2 folder like the outliner's Jira one, is installed in the showcase's own config dir; opening the
+  notes fetches the tickets, which the service keeps as blocks; nothing real is contacted).
 - **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
   deletes that state and reseeds. Its service is the process `service.pid` names only when that process
   is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
@@ -252,7 +292,7 @@ A door checkout from before `install` gets it by hand, once:
     bun install
     ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (or: ep0ch install --apply)
 
-    ep0ch                           # default socket: ~/.local/state/pi-herdr-outliner/float-box.sock
+    ep0ch                           # this folder's outline on the outline host (else the workspace this folder is in)
     ep0ch /path/to/outliner.sock
     ep0ch --ws /path/to/workspace   # the socket of that workspace's service
     ep0ch --showcase | --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
@@ -291,7 +331,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | Tile | What it shows |
 |---|---|
 | outline (`tree`) | the tree; `←/→` fold, `⏎` opens (into its link, if it has one). `L` shows the selected row's links under it, as the outliner's Tree does: `→ outlinks`, `♦ resources` (`[file::]`, `jira::`), `← backlinks` (grouped as Detail groups them); each group folds (`space`, `h l`, a click); `l` or a click on a link's `▸` shows that note's links a level down; `⏎` or a click opens a link's note, or shows a resource's stored content in the reader (registering it first, and fetching it once, if it must) (`tree.links`, `tree.pick`) |
-| reader | the current note; follows the selection unless held (`p hold`, `p` again follows); `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold |
+| reader | the current note; follows the selection unless held (`p hold`, `p` again follows); `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold; `r` fetches the note's tickets now (a click on a ticket's age does too), `⏎` on a ticket's title opens the ticket block |
 | detail | a reader that keeps its note: it changes only by an open into it (its link, `open`, a click) |
 | preview | a reader that follows a source: a tile's selection (`tile:tree`, `tile:board`) or a file (`file:~/draft.md`), re-read when it's saved. Read-only for a file |
 | terminal (`pty`) | a program in a pty the door owns: nvim, claude, a shell. Click it or `⏎` to type in it; `ctrl+]` back to the door |
@@ -1101,7 +1141,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
-| `tree.links`, `tree.pick` | `reader=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
+| `tree.links`, `tree.pick` | `reader=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
+| `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note). Fetches its tickets now; the service writes them as `ext:jira` | `r`, a click on a ticket's age |
+| `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `reader=<reader>` or `reader=lanes` | `Tab`, click |
 | `card.select`, `card.move` | `id`; `lane`, `card` (default the selected card; an agent's own `card.select` first) | `j k`, `H L`, `m`, drag |
@@ -1275,6 +1317,8 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts tree-links   # its own scratch service: the tree's L, a link's links, a file and a ticket shown
+    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts backlinks    # its own scratch service: the board's backlinks drawer as Detail shows it, a kind and a filter
     EP0CH_OUTLINER=<checkout> bun scripts/snap.ts steps     # its own scratch service: nested and anchored embeds, a cycle, a step's status choice, an agent's change
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
@@ -1299,7 +1343,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 - Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
   cards need `views.planWrite`, and lanes `views.read`. The door has no fallback evaluator for older services.
-- Nested embeds each keep their title row and gutter; PIE-185's flat composition (no chrome per level)
+- Nested embeds each keep their quiet `»` source line and bar; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.
 - Relation-view and checklist-view targets embed as ordinary notes, not as Detail's projections; an

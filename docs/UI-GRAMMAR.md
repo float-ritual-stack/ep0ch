@@ -22,7 +22,7 @@ three pane models and four searches (§4).
 | show children, outlinks, backlinks, resources, or go back and forward | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; history (PIE-453): each reader's back and forward in the surface (`track` records a follow, `u` or an open into it; `travel` restores the note, scroll and `[ ]` position; `back`/`forward` actions; alt+← alt+→, backspace, the mouse's side buttons, the `← back` row), or the view's own through `SurfaceHost.history` where a follow opens elsewhere; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents), drawn by `backlinkRowLine` and `layoutBacklinkStatus` (the board's drawer and the backlinks tile, one drawing); the **backlinks tile** (`BacklinksPane`, kind `backlinks`, `^W o l`): the backlinks of what another tile shows (`source: tile:<name>`, through `DeskApi.tileShowing`), its selection shown where the tile's selection goes (`DeskApi.showFrom`: the previews following it and its link, never the current note, so the reader it lists stays put) as it moves and when the tile is given the keys (`Pane.focused`), `backlinks.pick` and `backlinks.view` (BACKLINKS_ACTIONS); a row's **links in the tree** (the outliner's Tree's authored links, PIE-324, PIE-329): `L` (`tree.links`, TREE_ACTIONS) shows under a row its outlinks and resources (the service's `blocks.authored-links`, laid out by `src/authored.ts` in the Tree's words) and its backlinks (the same `backlinkView` and `backlinkRows`), each group folding, a link to a note showing its own a level down; ⏎ or a click (`tree.pick`) opens a note where the tree's opens go, and on a resource shows its stored content as a read-only note (`openResource`: `resources.follow-authored` when it isn't registered, `resources.describe`, `resources.refresh` once when nothing is stored). A resource token in a reader (`[file::…]`, `[jira::KEY]`, as the service's spans name them, `resourceTokensOf`) is a link that does the same | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts`, `src/desk/backlinks-pane.ts`, `src/desk/tree.ts`, `src/authored.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
-| show a Resource's stored details in a note (a ticket under `jira::`, a ticket page) | resource projections (PIE-445): `projectionsOf` asks the service (`resources.projection.read`, capability `resources.projection`; nothing extra without it), `projectionLayout` is Detail's `resourceProjectionLayout` as drawn (parity-tested), the surface draws each region after its line through `DocEnv.after`, and `resource-catalog` events repaint the ones shown. The door never registers, refreshes or contacts a provider | `src/projection.ts`, `src/surface/note.ts`, `src/doc.ts` |
+| show a Resource's stored details in a note (a ticket under `jira::`, a ticket page) | resource projections (PIE-445): `projectionsOf` asks the service (`resources.projection.read`, capability `resources.projection`; with `resources.projection.materialize` the read is the one step, and the service fetches in the background what isn't fetched or is stale), the surface draws each region after its line through `DocEnv.after`, and `resource-catalog` events repaint the ones shown. A ticket the Jira extension keeps as a block (the projection's `record`, capability `extensions.records`; one block per key, so every note whose line asks for it draws that same block, and its age refreshes through it) is drawn from that block by `ticketRegion` (head, `jira.*` fields, age, body, comments; on the ticket block itself, its header on top and its comments after the body), read through `ticketBlocksOf`; one without a record is `projectionLayout`, Detail's `resourceProjectionLayout` as drawn (parity-tested). `r` or a click on the age is `projection.refresh` (`resources.projection.refresh`, any client); ⏎ on a ticket's title opens its block. The door never registers or contacts a provider itself, and never keeps a table of what refreshes (a Resource's `capabilities.refresh` says) | `src/projection.ts`, `src/surface/note.ts`, `src/doc.ts` |
 | move through what a reader draws, or point someone at a block | elements and the reading ruler (PIE-441): `[ ]` over the surface's element list (links, folds, figure rows, embeds, resource projections, comment marks, an expanded thread's controls, checklist steps in the note and inside embeds), ⏎/alt+⏎/click through `enterElement`, `RULER_BG`; a comment mark expands its thread under the passage (PIE-420: `expanded`, the person's reading state like `folded`; drawn as body rows; its Select, Reply, Resolve controls act through `CommentSession`, the thread list's code); an agent's focus mark (`focus.set`) is the same tint. Hosts decide where a link opens from `SurfaceHost.navigate`'s `OpenHow`. A checklist step is an element too (PIE-472): its box is tagged (`task` in `DocEnv`) where the service's `checklist.query`, or an embed's projection, says a step is; ⏎ or a click opens its status choice (Detail's choices, `STEP_CHOICES`), drawn as body rows under it like an expanded thread; every change is `NoteSurface.changeStep` through `checklist.update` with the actor's provenance, Undo is `StepHistory`, and agents use `tasks`, `task.status`, `task.undo`, `task.link` (the board's steps overlay, `s`, is a card-level list over the same service calls). A tile-level attention mark is `block.mark` (a `MarkStore`, door-local until PIE-423's service store): framed and labelled in every tile showing the block, an extmark in an nvim tile | `src/surface/note.ts`, `src/surface/selection.ts`, `src/steps.ts`, `src/desk/marks.ts` |
 | select or copy text a reader draws | the selection model (PIE-419): `Selection` over drawn rows, `Gesture` (press, drag, release, double/triple click), `modeKey` (`v`), `paintRange`, `osc52`; the surface hosts it (`press`/`drag`/`release`, `y` `Y`, `select*` actions), and so does the river over its own rows | `src/surface/selection.ts`, `src/surface/note.ts` |
 | know anything the service can answer | ask the service: `views.read`, `blocks.read`, `properties.preview`, `changes.since`, `references.*`, `views.planWrite` (what a move into a lane patches, what a new card there is born with), `query.matches` (which results a query holds for), gated by `Capability`. Where a call per paint is too slow (finding `[key::value]` tokens in titles, digests, metadata lines, colour), the outliner's own property grammar, copied byte for byte and checked (`test/grammar.test.ts`; `ping` reports its version): `withoutPropertyTokens`, `isPropertyTokenLine`, `propertyTokenPattern`, `PROPERTY_KEY_SOURCE`, never a local regex | `src/socket.ts`, `src/move.ts`, `src/vendor/property-grammar.ts` |
@@ -56,8 +56,10 @@ three pane models and four searches (§4).
   menu and every screen have the shell's `screen.*`, and the BBS lists `list.*` (PIE-489).
 - **Words collide.** "Reader", "pin", "preview", "detail", "region" and "spine" each mean two
   things, and the door's "detail" is the outliner's *Current*, not its *Detail*.
-- **Entity navigation is scattered.** Backlinks exist only on the board. Children appear in
-  three shapes. There are no Outlinks/Resources lists and no history on any screen.
+- **Entity navigation is still in several places.** Backlinks are one drawing (`src/backlinks.ts`) in the
+  board's drawer, the backlinks tile, the welcome and the tree's `L`, which also lists a row's outlinks and
+  resources (PIE-324's Tree view). Readers have back and forward (PIE-453). Children still appear in three
+  shapes, and there is no connections screen (PIE-432).
 - **Duplicates.** Four searches, two Who's Online views, two activity views. The BBS `Search`
   screen (`scr:338`) is unreachable.
 
@@ -98,6 +100,8 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | status bar | Last row: screen, host:workspace, offline, video | `app:242` | Herdr frame title |
 | flash | A 4-second message in the status bar | `flash` `app:116` | expiring receipt |
 | agent drawer | The App's one agent tile, pulled up over any screen from the status bar; the first slice of the dock (PIE-498) | `AgentDock` (`src/dock.ts`) | a Herdr pane |
+| drop to shell | The BBS's drop to DOS: the door steps aside for the person's login shell and comes back where it was on `exit` (`screen.shell`, the person's only) | `screen.shell` in `SHELL_ACTIONS`, `runLoginShell` (`src/drop.ts`), `App.suspend` | none |
+| nest | The layers a program runs in, outermost first (`ssh:pts/5 › door:<pid>/desk/t1:claude`), each appended by the layer that starts the next; `ep0ch where` checks each | `EP0CH_NEST`, `src/nest.ts`, `src/where.ts` | none |
 | chip | A label on the status bar that stands for something docked there (`▲ claude`); a click pulls it up | `AgentDock.chip` | none |
 | hint row | Key help above the status bar | `dsk:210` `del:1450` `riv:397` | menu row |
 | workspace | The outline connected to (one per run) | `ctx.workspace`, `--ws` | workspace |
@@ -153,7 +157,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | reading ruler | The tint under the block the current element is in | `RULER_BG` `sel` | none |
 | tint | A block (maybe a passage) tinted in the ruler's colour inside one reader, with who set it named; PIE-423's "focus mark". `block.tint` (`focus.set` is its older name) | `block.tint` `note` | focus mark (PIE-423) |
 | attention mark | A mark on a block (or an nvim line) with a reason and who set it, framed and labelled in every tile showing it, until dismissed | `block.mark` `src/desk/marks.ts` | focus mark (PIE-423's shared part) |
-| embed | `!((id))` transclusion region; `!((id^fragment))` shows the fragment's slice; nested to the service's depth | `src/embeds.ts` | generated embed |
+| embed | `!((id))` transclusion region; `!((id^fragment))` shows the fragment's slice; nested to the service's depth. Drawn quietly: a dim, clickable `» note` source line (`≡ view` for a view) and a dim bar; only a problem heading stays loud | `src/embeds.ts` | generated embed |
 | step | A checklist item (`- [ ]`, `[x]`, `[~]`, `[!]`) whose box is a control, in the note or an embed | `task` elements, `src/steps.ts` | checklist control (PIE-367) |
 | status choice | The menu a step's box opens: done, to do, waiting, problem, Copy step link, Make addressable | `picker` `note`, `STEP_CHOICES` | status picker |
 | resource projection | A Resource's stored details (a ticket: key, summary, allowed fields, status, fetched time and its age) drawn read-only under the `jira::` line that names it, or at the top of a ticket page; ⏎ or a click opens the ticket's page, `y` copies it as drawn | `projectionsOf`, `projectionRegion` (`src/projection.ts`) | resource projection (a Detail region) |
@@ -204,7 +208,8 @@ The proposed tree, refined against what the code does. `[x]` = exists in shared 
 
 ```
 shell                                     App (app:72)
-├── [~] screen switcher                   MainMenu + stack; only via the menu
+├── [x] screen switcher                   MainMenu + stack; screen.open / screen.back on every screen (PIE-489)
+├── [x] drop to shell                     screen.shell: the menu's !, the desk's ^W ! (src/drop.ts, App.suspend)
 ├── [ ] workspace / outline switcher      one SocketBoard per run (PIE-427)
 ├── [x] status bar, flash                 app:242, app:116
 ├── [x] agent drawer (the dock's first slice)  src/dock.ts: a chip on the status bar, a drawer over any screen
@@ -222,7 +227,7 @@ pane operations
     ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s; pane.split
     ├── [~] close                         desk ^W x, board x, river x; pane.close (desk, board)
     ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; pane.resize
-    ├── [~] dock / move                   desk ^W HJKL, board float HJKL; pane.float, pane.pin
+    ├── [~] dock / move                   desk: drag a header, ^W m t T H J K L (layout.move, tabs on drop); board float HJKL; pane.float, pane.pin
     ├── [~] squeeze (width tiers)         river full/peek/spine around the wide column (w widens); board lanes, readers c · one spine part
     └── [~] persist layout                the tree to desk.json, delivery.json (same fields); river.json
 entity navigation
@@ -249,7 +254,8 @@ Refinements to the proposed tree:
 - **The hint row is part of the view.** Every view has one; only the edit control's is shared
   (`editHint` `ed:48`).
 - **Squeeze is a pane operation,** not a river feature. The board already has a manual version.
-- **History is missing** from the proposed tree and from the code; the outliner's Detail has it.
+- **History was missing** from the proposed tree and from the code; the outliner's Detail has it. Readers
+  have it since PIE-453 (back and forward, alt+← alt+→, the side buttons).
 
 ---
 
@@ -263,8 +269,9 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
-| enter from menu | S `K` k·· | S `N J R` k·· | S `D` k·· | S `Q` k·· |
-| back | R `del:1591` k·· | R `scr:28` k·· | R `dsk:300` k·· | R `riv:887` k·· |
+| enter from menu | S `K`, `screen.open` kma | S `N J R`, `screen.open` kma | S `D`, `screen.open` kma | S `Q`, `screen.open` kma |
+| back | S `q`, `screen.back` k·a (PIE-489) | S `q` `Esc`, `screen.back` k·a | S `q` `Esc`, `screen.back` k·a | S `q`, `screen.back` k·a |
+| drop to shell | S `screen.shell` (the person's only) k·· | S the menu's `!`, `! Shell` click km· | S `^W !` k·· | S k·· |
 | status bar, flash | S | S | S | S |
 | hint row | R `del:1450` | R `scr:242` | R `dsk:210` | R `riv:397` |
 | peek state | S `del:479` | S message reader `scr:430` | S `dsk:163` | S `riv:615` |
@@ -291,9 +298,9 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | split | — (a detail opens with a note) | — | S tree, `^W o`, `pane.split` k·a | R `s` `riv:496` k·a |
 | close | S tree, `x`, `pane.close` k·a | — | S tree, `^W x`, `pane.close` k·a | R `x` k·a |
 | resize | S tree, drag, `{ } < >`, `pane.resize` kma | — | S tree, drag, `^W <>`, `pane.resize` kma | — (automatic) |
-| dock / move | R float HJKL, drag km· | — | R `^W HJKL` k·· | R `p` pin k·a |
+| dock / move | R float HJKL, drag km· | — | S tree, drag a header (tabs on drop), `^W m t T H J K L`, `layout.move` kma | R `p` pin k·a |
 | float | S tree floats, `o`, `pane.float` kma | — | — | — |
-| drawer | S tree, `t b`, pin `T B` or `[ ] pin`, `pane.pin` kma | — | — | — |
+| drawer | S tree, `t b`, pin `T B` or `[ ] pin`, `pane.pin` kma | — | S tree, `^W p` `^W d`, a handle's click, `tile.pin` `tile.drawer` kma | — |
 | squeeze | S spine: lane `c` km·, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
 | persist | S tree → `delivery.json` (its old fields) | — | S tree → `desk.json` | R `river.json` |
 
@@ -360,13 +367,15 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 ### F3. Agents can read and edit, but not arrange
 
 - Every reader shares `NOTE_ACTIONS` (`note:1329`). Good.
-- Desk agent actions: `open`, `focus`, and since PIE-412 the shared `pane.*` actions (split, close,
-  resize, zoom). No dock or swap yet.
+- Desk agent actions: `open`, `focus`, the shared `pane.*` actions (split, close, resize, zoom, since
+  PIE-412), and since PIE-413 and PIE-491 `layout.*` (move, swap, even, load, save) and `tile.*`, by stable id
+  with a layout revision.
 - Board: `pane.*` since PIE-412 (close, resize, float, pin; split and zoom refuse with the reason). No lane
   collapse action. Readers collapse and expand by action since PIE-440 (`reader.collapse`,
   `reader.expand`). River: no filter, `#` or jump actions (`riv:976`).
 - The BBS message reader has `act`, `openBlock` and `describe` since PIE-426 (the note actions and
-  `message.*`); the other BBS screens have none (`app:163`, `app:183`).
+  `message.*`). Since PIE-489 every screen has the shell's `screen.*` and the BBS lists `list.*`; Who's
+  Online's `r`, the art viewer's keys and a message list's `t` aren't actions yet.
 - **Resolves:** PIE-434 should make "every pane operation is an action" part of core.
 
 ### F4. The same key means different things
@@ -384,7 +393,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | `w` | — (the backlinks drawer's `w` is stage) | — (`^W w` saves a layout) | widen: the focused column takes the wide place | — |
 | `f` | fold | fold | filter | fold |
 | `alt+⏎` | second detail | — | duplicate column | the next reader, as ⏎ |
-| `q` | — | menu | "quote isn't here" | back |
+| `q` | back (PIE-489) | menu | back (the quote flash moved to `"`) | back |
 | `space` | lanes: — · a reader: page (a current step: done / to do) | page (a current step: done / to do) | toggle replies (a column's current step: done / to do) | page (a current step: done / to do) |
 | `ctrl+z` | undo a step change | undo a step change | undo a step change | undo a step change |
 
@@ -426,7 +435,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   PIE-442 the drawer groups, filters and sorts as Detail does through `src/backlinks.ts`; the PIE-432
   connections screen should list backlinks through it too, not a new list.
 - Outlinks are in-note only (`[ ]`); no list of them. No resources list. No history anywhere. (Since then: the
-  tree's `L` lists a row's outlinks, resources and backlinks, as the outliner's Tree does.)
+  tree's `L` lists a row's outlinks, resources and backlinks, as the outliner's Tree does; the backlinks tile,
+  `^W o l`, shows another tile's; readers have back and forward, PIE-453.)
 - **Resolves:** PIE-432 (connections screen: children, outlinks, backlinks, resources) as one
   shared entity-nav component; PIE-413 puts backlinks under details.
 
@@ -465,18 +475,18 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 ### F10. Stale words in the code
 
-- Help says "Read-only. Nothing you do here writes to the outline." (`scr:568`). It writes now.
+- Help said "Read-only. Nothing you do here writes to the outline." It writes now; the line is gone.
 - `note:2` says the surface is hosted "(next) a river column". The river hosts it already.
-- Not fixed here: this PR changes no behaviour or strings.
+- Not fixed here: the audit changed no behaviour or strings.
 
 ### Backlog map
 
 | Item | What it resolves here |
 |---|---|
-| PIE-412 | F2: one layout tree for board, desk, river (slice 1: the board and `pane.*`; slice 2: the river; slice 3: screens in the outline) |
-| PIE-413 | F2, F5: tabs, drag-and-drop, backlinks under details, two previews |
+| PIE-412 | F2: one layout tree for board, desk, river (slice 1: the board and `pane.*`, done; slice 2: the river; slice 3: screens in the outline) |
+| PIE-413 | F2, F5: tabs, drag-and-drop, backlinks under details, two previews (done: §7) |
 | PIE-414 | bundles of readers: needs readers addressed the same way on every view |
-| PIE-417 | terminal panes: a new pane kind, not a `suspend` (`app:125`) |
+| PIE-417 | terminal panes: a new pane kind, not a `suspend` (done: the terminal tile; `suspend` stays for ctrl+e and drop to shell) |
 | PIE-418 | daemon: shell state (layout, drafts, presence) outlives a terminal |
 | PIE-426 | F1, F3: BBS reader on the note surface, with actions (done) |
 | PIE-427 | F6, F8: switcher in the status bar; per-connection caches |
@@ -611,6 +621,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | ctrl-click, alt-click a link | open beside | none | new, as `alt+⏎` |
 | `!` on the main menu, `^W !` on the desk | drop to shell (`screen.shell`): the person's login shell in their terminal, the door back where it was when it exits | the board's steps overlay takes `!` (mark problem), but only while it's open, on the board; the menu and `^W` bound nothing on `!`; typed text (a filter, an edit, a terminal tile) takes it first | new; the menu art has twelve slots, so it's on the key line (`! Shell`), as Showcase and Today are |
 | `^W o l` | a backlinks tile of this tile | `l` is right in `^W h j k l`, but only after `^W o` here, where `l` was free | new, under `^W o` |
+| `å` `¬` `∂` … (macOS Option characters) | read as `alt+a`, `alt+l`, `alt+d` … where nobody is typing text (`OPTION_KEYS`, `App.optionAsAlt`), with a one-time hint naming the terminal setting that sends Alt | none: no screen binds these characters; in an edit, a filter, the property panel, a terminal tile or the drawer's agent they stay the typed letter | new; only on a US-like keyboard by the locale, or `EP0CH_OPTION_KEYS=us`/`off`; Option+n is a dead key, so `alt+n` needs the setting |
 | `L` in the outline tree (a desk tile, the board's outline drawer) | show or hide the selected row's links under it (`tree.links`): outlinks, resources, backlinks, as the outliner's Tree's `l` | the outliner binds `l`, but the door's tree has `h l` as ← →; the desk takes `L` only after `^W` (to the right edge); the board's `L` moves a card, but only while its lanes have the keys, never its outline drawer; the welcome's `L` (next logo) is the welcome's own, and the welcome has no tree tile unless one is added (then `L` there is the logo) | new, in the tree only; on a link row `l` → space show its links, `h` ← hide them, as a group folds |
 
 Inside a terminal tile every key is the program's (`^W` included: vim's window keys work), so the only door

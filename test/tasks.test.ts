@@ -83,16 +83,16 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     const lines = draw();
     const at = (text: string) => lines.findIndex(l => l.includes(text));
     // The whole note, rendered: its heading and its numbered steps, not raw Markdown, anchors hidden.
-    expect(lines[at("↳ Allotment checklist") + 1]).toContain("## Spring");
+    expect(lines[at("» Allotment checklist") + 1]).toContain("## Spring");
     expect(lines.join("\n")).not.toContain("^t-a1b2c3");
-    expect(lines[at("↳ Allotment checklist") + 2]).toContain("1. [x] Turn the compost");
+    expect(lines[at("» Allotment checklist") + 2]).toContain("1. [x] Turn the compost");
     // The slice: the step with its continuation and nested step, and nothing else of the note.
-    const slice = at("↳ Allotment checklist ^t-d4e5f6");
+    const slice = at("» Allotment checklist ^t-d4e5f6");
     expect(lines.slice(slice + 1, slice + 4).map(l => l.trim())).toEqual(["▌ 2. [ ] Sow the beans", "▌    Soak them overnight first.", "▌    ∙ [~] Buy canes"]);
-    expect(lines[slice + 4]).toContain("↳ Hub of hubs");
+    expect(lines[slice + 4]).toContain("» Hub of hubs");
     // Nested one level in, with a second gutter; the cycle and the missing fragment are said where they are.
-    const hub = at("↳ Hub of hubs");
-    expect(lines[hub + 1]).toMatch(/▌ ▌↳ Allotment checklist \^t-0a0b0c/);
+    const hub = at("» Hub of hubs");
+    expect(lines[hub + 1]).toMatch(/▌ ▌» Allotment checklist \^t-0a0b0c/);
     expect(lines[hub + 2]).toMatch(/▌ ▌ ∙ \[~\] Buy canes/);
     expect(lines[hub + 3]).toContain(`!((${n.plan.id.slice(0, 8)}…)) · CYCLE · this embed is already open above it`);
     expect(lines[hub + 4]).toContain("^t-nothere)) · MISSING FRAGMENT");
@@ -357,7 +357,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       await until(() => !!col(), "the plan's column");
       R.focus = R.cols.indexOf(col());
       const draw = () => (R.render(app).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-      await until(() => draw().includes("CYCLE") && draw().includes("↳ Allotment checklist ^t-d4e5f6"), "the embeds in the column", 10_000);
+      await until(() => draw().includes("CYCLE") && draw().includes("» Allotment checklist ^t-d4e5f6"), "the embeds in the column", 10_000);
       expect(draw()).not.toContain("embed not expanded here");
       const s = col().panes[0].surface as NoteSurface;
       // "Net the kale": an earlier test reworded it.

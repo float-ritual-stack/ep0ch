@@ -65,6 +65,7 @@ function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | un
 export const SECTIONS: Section[] = [
   {
     key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts, src/components.ts",
+    aside: "the notebook's embeds read quietly: a dim, clickable » source line and a dim bar (src/embeds.ts); only a problem heading stays loud",
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
@@ -104,6 +105,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one", files: "src/desk/pty.ts, src/surface/editor.ts",
+    aside: "the agent drawer (src/dock.ts, PIE-498): the App's one agent tile, pulled up over any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (agent.toggle, agent.height) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
@@ -152,8 +154,8 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
-    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read, laid out in Detail's words, drawn under the jira:: line or at a ticket page's top ([ ] ⏎ click y)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
-    aside: "made-up tickets from a made-up extension (src/showcase/tickets); the door only reads what the service stored",
+    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
+    aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
       const r = new ReaderPane(), th = new ThreadPane();
       return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
