@@ -17,7 +17,7 @@ for (const [c, n] of [["☺", 1], ["♦", 4], ["◆", 4], ["•", 7], ["►", 16
   // drawer handles' arrows, an ellipsis as ·, an old sparkline's steps as _ ▄ █.
   ["⏎", 17], ["—", 196], ["–", 45], ["−", 45], ["✓", 251], ["✗", 120], ["□", 9], ["▣", 10], ["⧉", 8], ["◢", 217],
   ["⇥", 26], ["⤒", 24], ["⤓", 25], ["…", 250], ["›", 62], ["“", 34], ["”", 34], ["✎", 42], ["●", 7], ["✦", 15], ["⚠", 19],
-  ["┊", 179], ["▁", 95], ["▂", 220], ["▃", 220], ["▅", 219], ["▆", 219], ["▇", 219]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
+  ["┊", 179], ["○", 9], ["▁", 95], ["▂", 220], ["▃", 220], ["▅", 219], ["▆", 219], ["▇", 219]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
 
 /** The VGA font's glyph for `ch`: its CP437 code, a lookalike's, or 63 (?) when it has none. */
 export const vgaCode = (ch: string): number => (ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : toCp437.get(ch) ?? 63);

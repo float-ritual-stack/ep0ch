@@ -14,7 +14,7 @@ import type { Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
-import { viewSummaryKeys } from "../props";
+import { summarySegments, viewSummaryKeys } from "../props";
 import { wheelRows } from "../scroll";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import type { TileSource } from "./tile-kinds";
@@ -196,7 +196,7 @@ export class QueryPane implements Pane {
       const wid = m.props["work-id"] ?? m.props.ticket ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
       const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
-      const extra = (keys ? keys.map(k => m.props[k]) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
+      const extra = (keys ? summarySegments(m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value })), keys).map(x => x.value) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
       if (sel) {
         const style = focused ? SEL : bg(C.dark) + fg(C.white);
         lines.push(style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);

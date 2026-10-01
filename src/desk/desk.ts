@@ -1965,7 +1965,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       return { overlay: true, query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
-    const hits = rankHits(q, await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30))));
+    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)));
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
   }
 
@@ -2762,7 +2762,7 @@ class SearchOverlay {
     this.timer = setTimeout(() => {
       const n = ++this.seq;
       this.busy = true; desk.redraw();
-      desk.ctx.board.search(q, 30).then(h => { if (n === this.seq) { this.hits = rankHits(q, h); this.sel = 0; this.busy = false; desk.redraw(); } }, () => { this.busy = false; });
+      desk.ctx.board.search(q, 30).then(h => { if (n === this.seq) { this.hits = h; this.sel = 0; this.busy = false; desk.redraw(); } }, () => { this.busy = false; });
     }, 250);
   }
 
@@ -2820,18 +2820,6 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string 
     },
   },
 });
-
-/**
- * Search hits in the order a person expects: a note whose title is the words first, then titles that start with
- * them, then titles that hold them, then the rest (a mention in a body). The service's order (newest first)
- * stays within each.
- */
-export function rankHits(q: string, hits: Msg[]): Msg[] {
-  const w = q.trim().toLowerCase();
-  if (!w) return hits;
-  const rank = (m: Msg) => { const t = subject(m).toLowerCase(); return t === w ? 0 : t.startsWith(w) ? 1 : t.includes(w) ? 2 : 3; };
-  return hits.map((m, i) => ({ m, i, r: rank(m) })).sort((a, b) => a.r - b.r || a.i - b.i).map(x => x.m);
-}
 
 /** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
 function previewLines(m: Msg, w: number): string[] {

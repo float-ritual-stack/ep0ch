@@ -10,8 +10,8 @@ export const RESET = "\x1b[0m";
  * (they drew as ?, as ↳ and ⌕ did before #81). A shade ramp, the BBS way, over an underscore for the lowest.
  */
 export const SPARK_STEPS = "_░▒▓█";
-/** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁. */
-export const INPUT_CURSOR = "_";
+/** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁, and _ reads as typed. */
+export const INPUT_CURSOR = "▌";
 
 // Palette names, BBS style: the numbers artists typed as |07 or \x1b[1;36m.
 export const C = {

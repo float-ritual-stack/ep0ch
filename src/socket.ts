@@ -669,7 +669,21 @@ export class SocketBoard implements Board {
     return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since).filter(keep).slice(0, limit);
   }
 
+  /**
+   * Notes matching `text`, best first, as Tree's goto ranks them (`tree.search`: the service's order, an exact
+   * title before a title that starts with the words, before one that holds them, before a mention in a body),
+   * read whole for a preview. A service without it: `blocks.query`'s substring matches, newest first.
+   */
   async search(text: string, limit: number): Promise<Msg[]> {
+    const ranked = await this.request<{ matches: { block: { id: string } }[] }>("tree.search", { query: text }).catch(e => {
+      if (e instanceof Refused && unsupportedAction(e)) return null;
+      throw e;
+    });
+    if (ranked) {
+      const ids = ranked.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
+      const read = ids.length ? await this.readBlocks(ids) : { blocks: [], unavailable: [] };
+      if (read) { const by = new Map(read.blocks.map(m => [m.id, m])); return ids.flatMap(id => by.get(id) ?? []); }
+    }
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
       query: { limit: Math.min(1000, limit), text, sort: { field: "updated", direction: "desc" } },
     });

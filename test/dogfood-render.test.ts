@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
 import { DeliveryBoard } from "../src/desk/delivery";
-import { Desk, rankHits, searchPreviewLines } from "../src/desk/desk";
+import { Desk, searchPreviewLines } from "../src/desk/desk";
 import { renderGraph } from "../src/graphs";
 import { River } from "../src/river/river";
 import { vgaCode } from "../src/mirror";
@@ -37,12 +37,6 @@ test("a component's sparkline and a ::graph-spark figure draw only CP437 glyphs,
   expect(visible(fig)).toContain("_");
 });
 
-test("search ranks the note titled with the words first, then titles that hold them, then mentions", () => {
-  const hits = [msg("a", "Night now\nSee [[Seed catalogue]]."), msg("b", "Seed catalogue extras"), msg("c", "Seed catalogue\n- line"), msg("d", "Old seed catalogue")];
-  expect(rankHits("seed catalogue", hits).map(m => m.id)).toEqual(["c", "b", "d", "a"]);
-  expect(rankHits("", hits).map(m => m.id)).toEqual(["a", "b", "c", "d"]);
-});
-
 test("a search hit's preview reads a ((id|label)) by its label and **bold** as bold, never the id or the stars", () => {
   const m = msg("x", "Night now\n- **Shed inventory:** counted in ((f7904621-2e6c-42c2-abd6-7abb1d05cb73|the bike shed)).");
   const text = searchPreviewLines(m, 60).map(visible).join("\n");
@@ -66,6 +60,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     agent = new SocketBoard(scratch.sock);
     await agent.info();
     for (const [t, a, s] of [["The Hedge Layer's Year", "M. Thorn", "todo"], ["Small Engines", "R. Pike", "now"]]) await make(null, `${t} [type::reading] [author::${a}] [state::${s}]`);
+    await make(null, "Two Hands [type::reading] [author::A. Oak] [author::B. Ash] [state::todo]");
     hub = await make(null, "Reading hub");
     await make(hub.id, "To read [type::virtual-branch] [query::type=reading state=todo] [summary-properties::author]");
     await make(hub.id, "Reading now [type::virtual-branch] [query::type=reading state=now] [summary-properties::author]");
@@ -84,17 +79,27 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     delete process.env.EP0CH_STATE;
   }, 20_000);
 
+  test("search puts the note titled with the words first (the service's goto order), not the newest mention", async () => {
+    const titled = await make(null, "Seed catalogue\n- beans\n- peas");
+    for (const n of ["Night now\nSee [[Seed catalogue]].", "Order list\nFrom the Seed catalogue, page 4.", "Seed catalogue extras\nPostage."]) await make(null, n);
+    const hits = await board.search("Seed catalogue", 30);
+    expect(hits[0]!.id).toBe(titled.id);
+    expect(hits[0]!.text).toContain("- peas");                         // read whole, for the preview
+    expect(hits.map(m => m.text.split("\n")[0])).toContain("Night now");
+  });
+
   test("a lane's header names its view as written, and its cards show the view's summary properties", async () => {
     const b = new DeliveryBoard(hub.id, false);
     app.push(b);
-    await until(() => (b as any).lanes.length === 2 && (b as any).lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
+    await until(() => (b as any).lanes.length === 2 && (b as any).lanes.every((l: any) => l.items?.length) && (b as any).lanes[0].items.length === 2, "the lanes", 10_000);
     const top = lines()[0]!;
-    expect(top).toContain("To read 1");
+    expect(top).toContain("To read 2");
     expect(top).toContain("Reading now 1");
     expect(top).not.toContain("To-read");
     const all = lines().join("\n");
     expect(all).toContain("M. Thorn");
     expect(all).toContain("R. Pike");
+    expect(all).toContain("A. Oak, B. Ash");                           // repeated values joined, as the reader does
     // The tile keeps its name for reader=.
     expect((b as any).layoutGet().tiles.map((t: any) => t.name)).toContain("Reading-now");
     app.pop();
