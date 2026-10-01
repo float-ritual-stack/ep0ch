@@ -10,6 +10,15 @@ verification steps and the review checklist.
 - If no shared part fits, extend one or say in the PR why not. Don't add a parallel reader, pane
   model, search, editor or presence view.
 
+## Two clients, one outline
+
+- The outline service (pi-herdr-outliner) is the board software, and its Tree, Detail and Preview panes in
+  Herdr are the sysop console: find any block and fix it. The door is the board people call into, and a
+  client that calls more than one outline. Both are maintained; the door doesn't replace the outliner.
+- Before adding a feature to a door screen, ask which client it belongs in. Finding and editing any block
+  is the outliner's job, opened beside the door in Herdr (split, then zoom the door back). A screen
+  doesn't need its own copy of that.
+
 ## Mouse and agents are first-class
 
 - Every action works by mouse, by keys and through `act`. Define it as an action in an
