@@ -136,6 +136,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
     for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
     for (let i = 0; i < 2; i++) { snap(new Set()); await settle(); }
+    // Until it holds still (a terminal's prompt arriving), at most a second.
+    for (let i = 0, was = snap(new Set()); i < 20; i++) { await Bun.sleep(25); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
@@ -246,26 +248,40 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
         try { push(k2); await settle(); } finally { stop(); }
         const after = snap(mask);
         if (same(mid, after)) continue;
-        dirty = true;                                         // any change: the next key starts from the state again
-        if (runs.length) {
-          if (!declares(tokens(runs), k2, k1)) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
-          continue;
-        }
-        if (after.holds && after.top === mid.top) continue;   // still typing, or another input state
-        // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
-        // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
-        let cancelled = false;
-        for (let tries = 0; tries < 3 && !cancelled; tries++) {
-          if (tries) { mask = await fresh(label, make, [...setup, k1]); push(k2); await settle(); }
-          const ended = snap(mask);
-          await fresh(label, make, setup);
-          cancelled = alike(snap(mask), ended);
-        }
-        if (cancelled) continue;
-        if (!(await bare(label, make, [...setup, k1], k2))) continue;
-        findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: "ended an input state with a change and no action" });
+        // Typing that keeps the state goes on from where it is (most second keys are text); anything else
+        // starts the next key from the state again.
+        const typing = !runs.length && after.holds && after.top === mid.top;
+        if (!typing) dirty = true;
+        if (typing) continue;
+        // A finding is made only from the state built again: the keys before this one may have moved it on.
+        const problem = await second(label, make, setup, k1, k2);
+        if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
     }
+  }
+
+  /** `k1` then `k2` on a fresh screen: what's wrong, or null. */
+  async function second(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k1: Key, k2: Key): Promise<string | null> {
+    const mask = await fresh(label, make, [...setup, k1]);
+    const mid = snap(mask);
+    const runs: ActionRun[] = [];
+    const stop = traceActions(r => runs.push(r));
+    try { push(k2); await settle(); } finally { stop(); }
+    const after = snap(mask);
+    if (same(mid, after)) return null;
+    if (runs.length) return declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
+    if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
+    // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
+    // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
+    for (let tries = 0; tries < 3; tries++) {
+      let m = mask;
+      if (tries) { m = await fresh(label, make, [...setup, k1]); push(k2); await settle(); }
+      const ended = snap(m);
+      await fresh(label, make, setup);
+      if (alike(snap(m), ended)) return null;
+    }
+    if (!(await bare(label, make, [...setup, k1], k2))) return null;
+    return "ended an input state with a change and no action";
   }
 
   type Scenario = [string, () => Screen | Promise<Screen>, Key[]?];
@@ -339,8 +355,9 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   for (const [label, make, setup] of ALL) {
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
-      const before = found.length + hintFound.length;
+      const before = found.length + hintFound.length, t0 = Date.now();
       await audit(label, make, setup ?? []);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms\n`);
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
     }, 600_000);
