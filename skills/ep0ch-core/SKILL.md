@@ -21,6 +21,7 @@ use `ep0ch`.
 | plan any outliner feature | pi-herdr-outliner `CONTRIBUTING.md`, "Source boundaries" and "Architecture pass"; `docs/ARCHITECTURE.md` |
 | touch the agent interface | ep0ch-door `docs/AGENT-INTERFACE.md`; the Claude mod's `claude-mod/README.md` |
 | change workboard state | the live **How this workboard works** block (pi-herdr-outliner `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
+| build or change an extension | pi-herdr-outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
 | change the protocol | pi-herdr-outliner `CONTRIBUTING.md`, "Protocol and schema changes": additive means a capability, not a version bump |
 | need the whole picture | the architecture map, `docs/architecture/map.json` in the door: every structure in both repos, its ladder position and its open questions; `bun scripts/architecture-map.ts` checks its citations and draws it |
 
@@ -39,7 +40,9 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   (`src/vendor/`), never a local copy of the rule.
 - **Every action is an action.** Define it once as an `ActionDef` in an `ActionSet`
   (`src/surface/actions.ts`); the key, the click or drag and `act` all call it. A UI change that isn't an
-  action is a bug. Mouse is first-class: every feature states its mouse path and its key path.
+  action is a bug, and `test/parity.test.ts` catches it: it presses every key and clicks every row on every
+  screen and fails on a change no action named that key ran. Mouse is first-class: every feature states its
+  mouse path and its key path.
 - **Agents are first-class, and never take the person's cursor.** An agent can do what the person can, with
   honest provenance (`author: agent`, its actor id, said on screen). It never moves the person's focus,
   selection or keys, and never the reader they type in; refusals say why. Safety comes from revision
@@ -49,7 +52,8 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   Don't call the Herdr UI legacy.
 - **The layout words** (UI-GRAMMAR, "Layout: block, tile, container, screen"): a *block* is outline content,
   never UI; a *tile* shows one thing (its kind from the tile-kind registry); a *container* arranges tiles
-  (`split`, `tabs`, `columns`, `drawer`, `flow`) under a saved *policy*; a *screen* is a saved tree of
+  (`split`, `tabs`, `columns`, `drawer`; `flow`, the river's, is next) under a saved *policy* (`layout.policy`,
+  `^W P`; `locked` fixes a screen's shape); a *screen* is a saved tree of
   containers and tiles. *Pane* means Herdr's or tmux's box only. Don't switch on a tile kind's name. A
   container's tiles can come from data (a tile source: the board's columns are `hub:<id>`); a screen is a
   preset on the desk's one engine (the board, the welcome, the brief), never a second layout host.

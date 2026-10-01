@@ -343,8 +343,10 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
   `proposal.apply` (`A`, `[apply]`) applies it anyway, as an ordinary edit by whoever runs it;
   `proposal.dismiss` (`X`, `[dismiss]`) takes its embed line out of the note and puts it in Trash. The person's apply is
-  forced (placed as well as it can be); an agent's is held to the same compare as a patch (prose only, above
-  the mark and the cursor's block, against the text now), so an agent can't force its own proposal. A
+  forced (placed as well as it can be); an agent's is held to the same compare as a patch, under the policy its
+  patch named (`edit`, or `prose` for a `prose` patch and any proposal from before policies), above the mark
+  and the cursor's block, against the text now (`applyProposal` in pi-herdr-outliner's
+  `src/draft-patch-router.ts`), so an agent can't force its own proposal. A
   proposal applies only what its text shows.
 - **The structural policy is the service's,** one of two the agent picks (pi-herdr-outliner #263). The
   default, `edit`, is `outline_edit`'s guard: only a dropped `[page::…]`, or a dropped `^anchor` another
