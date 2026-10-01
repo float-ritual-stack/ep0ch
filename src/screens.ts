@@ -1,4 +1,6 @@
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
+import { ART_ACTIONS, type ArtOn } from "./art-actions";
+import { WHO_ACTIONS, type WhoHost } from "./who-actions";
 import { registerShellKey } from "./shell-keys";
 import { basename } from "node:path";
 import type { Art, Cell } from "./ansi";
@@ -1067,29 +1069,20 @@ export class WhoOnline implements Screen {
     if (isBack(k) || k.kind === "enter") back(this, ctx);
     else if (k.kind === "char" && !k.ctrl && (k.ch === "r" || k.ch === "R")) {
       const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-      try { WHO_ACTIONS.run("who.refresh", {}, { who: this, ctx }, USER).catch(say); } catch (e) { say(e); }
+      try { WHO_ACTIONS.run("who.refresh", {}, { pane: this.host(ctx) }, USER).catch(say); } catch (e) { say(e); }
     }
   }
-  /** Ask the service again (r): the callers, then their notes' titles. */
-  refresh(ctx: Ctx) { this.load(ctx); }
+  /** Who's online as the who actions' host (src/who-actions.ts): r asks the service again. */
+  private host(ctx: Ctx): WhoHost { return { refresh: () => this.load(ctx), rows: () => this.rows() }; }
   /** The callers as last read, for `who.refresh` and `peek`. */
   rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.subjects.get(c.target) ?? null : null })); }
   describe() { return { kind: "who's online", callers: this.callers ? this.rows() : null }; }
   actions() { return { actions: WHO_ACTIONS.list(), readers: [] }; }
   act(req: ActRequest, actor: Actor) {
     if (!this.ctx) throw new ActionRefused("who's online isn't shown yet");
-    return WHO_ACTIONS.runUntyped(req.action, req.args ?? {}, { who: this, ctx: asActor(this.ctx, actor) }, actor);
+    return WHO_ACTIONS.runUntyped(req.action, req.args ?? {}, { pane: this.host(this.ctx) }, actor);
   }
 }
-
-/** Who's online's own action: ask again. What it lists is in `peek` (describe) and the answer. */
-export const WHO_ACTIONS = new ActionSet<{ "who.refresh": Record<string, never> }, { who: WhoOnline; ctx: Ctx }>("who", {
-  "who.refresh": {
-    summary: "ask the outline again who is attached (every Tree, Detail, door and agent); answers the callers as they were before the new answer lands", keys: "r R, click on R refresh",
-    args: {},
-    run(_, { who, ctx }) { who.refresh(ctx); return { callers: who.rows() }; },
-  },
-});
 
 export class LastCallers implements BbsList {
   title = "last callers";
@@ -1253,7 +1246,7 @@ export class ArtViewer implements Screen {
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => {
       const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-      try { ART_ACTIONS.run(name, args, { art: this, ctx }, USER).catch(say); } catch (e) { say(e); }
+      try { ART_ACTIONS.run(name, args, this.on(ctx), USER).catch(say); } catch (e) { say(e); }
     };
     if (c === "." || c === ">" || k.kind === "right") return run("art.step", { by: 1 });
     if (c === "," || c === "<" || k.kind === "left") return run("art.step", { by: -1 });
@@ -1278,37 +1271,13 @@ export class ArtViewer implements Screen {
   actions() { return { actions: ART_ACTIONS.list(), readers: [] }; }
   act(req: ActRequest, actor: Actor) {
     if (!this.ctx) throw new ActionRefused("the art viewer isn't shown yet");
-    return ART_ACTIONS.runUntyped(req.action, req.args ?? {}, { art: this, ctx: asActor(this.ctx, actor) }, actor);
+    return ART_ACTIONS.runUntyped(req.action, req.args ?? {}, this.on(this.ctx), actor);
   }
+  /** The viewer as the art actions' host (src/art-actions.ts). */
+  private on(ctx: Ctx): ArtOn { return { pane: this, desk: { ctx, redraw: () => ctx.redraw() } }; }
 }
 
 type ArtArgs = { "art.step": { by: number }; "art.scroll": { by: number }; "art.ice": { on?: boolean }; "art.reveal": Record<string, never> };
-/**
- * The art viewer's actions (PIE-506): its keys and the hint's clicks run these, as `act` does. They change only
- * what the viewer shows; an agent's is said on the status bar.
- */
-export const ART_ACTIONS = new ActionSet<ArtArgs, { art: ArtViewer; ctx: Ctx }>("art", {
-  "art.step": {
-    summary: "show the next (by=1) or previous (by=-1) piece in the pack, drawn at modem speed", keys: ". > →, , < ←, click on , or .",
-    args: { by: { type: "number", about: "pieces to step: 1 next, -1 previous" } },
-    run({ by }, { art, ctx }, actor) { const out = art.step(Math.trunc(by) || 1); if (actor.kind === "agent") ctx.flash(`showed ${out.piece}`); ctx.redraw(); return out; },
-  },
-  "art.scroll": {
-    summary: "scroll the piece by rows (negative: up)", keys: "↑ ↓ j k PgUp PgDn, the wheel, click on ↑ or ↓",
-    args: { by: { type: "number", about: "rows; negative scrolls up" } },
-    run({ by }, { art, ctx }) { const out = art.scrollBy(by); ctx.redraw(); return out; },
-  },
-  "art.ice": {
-    summary: "iCE colours (blink as bright backgrounds): on=true or false, else toggled", keys: "i, click on i iCE",
-    args: { on: { type: "boolean", optional: true, about: "true or false; default toggles" } },
-    run({ on }, { art, ctx }) { const out = art.setIce(on ?? !art.iceOn); ctx.redraw(); return out; },
-  },
-  "art.reveal": {
-    summary: "draw the rest of the piece at once instead of at modem speed", keys: "⏎, space",
-    args: {},
-    run(_, { art, ctx }) { const out = art.revealAll(); ctx.redraw(); return out; },
-  },
-});
 
 // ── stats, help, goodbye ─────────────────────────────────────────────────────
 
