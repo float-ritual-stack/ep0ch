@@ -2,6 +2,7 @@
 import { KITTY_QUERY, kittyHint } from "./kitty";
 import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
+import { paintable } from "./text";
 
 export type Key =
   /** `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. */
@@ -339,7 +340,10 @@ export class Term {
  * whole row first left it black until the text arrived, and a terminal could show that (PIE-462). Autowrap
  * is off, so an erase from the last column would take the last character: a row that fills the width gets
  * none. Filling is measured in terminal cells (wide and joined characters, combining marks), not characters.
+ * Every row goes through `paintable`: the door's own SGR styling reaches the terminal, nothing else that acts
+ * on it does (an escape in a note title or an error message, PIE-510).
  */
-export function rowBytes(r: number, line: string, cols: number): string {
+export function rowBytes(r: number, raw: string, cols: number): string {
+  const line = paintable(raw);
   return `\x1b[${r + 1};1H\x1b[0m${line}\x1b[0m${Bun.stringWidth(visible(line)) >= cols ? "" : "\x1b[K"}`;
 }

@@ -125,7 +125,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const d = rect("draft"), t = rect("tree");
     drag(d.col + 4, d.row, t.col + Math.floor(t.cols / 2), t.row + t.rows - 2);
     expect(shape()).toBe("row(col(claude,now),col(tree,draft,preview,middle),side)");
-    expect(message()).toContain("you moved draft below tree");
+    expect(message()).toBe("moved draft below tree");
     expect(get().focus).toBe("draft");
     const n = rect("now"), t2 = rect("tree");
     drag(n.col + 4, n.row, t2.col + Math.floor(t2.cols / 2), t2.row + Math.floor(t2.rows / 2));

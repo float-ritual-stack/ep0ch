@@ -93,7 +93,7 @@ describe("the rows' words, as the outliner's Tree says them", () => {
   test("terminal controls in a file never reach the terminal; tabs read as spaces", () => {
     const note = fileAt("logs/run.txt", "ok\u001b]0;renamed\u0007 then\u001b[2J cleared\tdone\r\n");
     expect(note.text).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
-    expect(note.text).toContain("ok]0;renamed then[2J cleared  done");
+    expect(note.text).toContain("ok then cleared  done");             // each escape goes whole (PIE-510)
   });
 
   test("a long file is cut at a line and says how much is shown; a fence in the file doesn't close the door's", () => {

@@ -33,6 +33,8 @@ export interface TileKind {
   readonly kind: TileKindName;
   /** One line: what the tile shows (tile.open's list, the docs). */
   readonly about: string;
+  /** How a message names one ("a terminal tile", an extension's "Tarot"); default "a <its first key's label> tile". */
+  readonly noun?: string;
   /** Its keys under ^W o, in the order the hint row lists them. */
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */
@@ -114,6 +116,15 @@ export function kindsChanged(): void {
 }
 export const tileKind = (kind: string): TileKind | undefined => registry.get(kind);
 export const isTileKind = (kind: string): boolean => registry.has(kind);
+/** A kind as a message says it (an agent "opened a terminal tile"), never its internal name (`pty`). */
+export function kindNoun(kind: string): string {
+  const k = registry.get(kind);
+  if (k?.noun) return k.noun;
+  const word = k?.keys?.[0]?.label ?? kind;
+  return `${/^[aeiou]/i.test(word) ? "an" : "a"} ${word} tile`;
+}
+/** A tile as a message names it: its kind's word, and its name when that says more ("a terminal tile (editor)"). */
+export const tileNoun = (kind: string, tile: string): string => `${kindNoun(kind)}${tile.replace(/-\d+$/, "") === kind ? "" : ` (${tile})`}`;
 /** Every kind, in the order registered (the built-ins first). */
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */
@@ -239,8 +250,8 @@ const stateOf = (s: Partial<TileSpec>) => (s as { state?: Record<string, unknown
  * The registry entry for a kind the service provides: rows the service draws (`render`, a ServiceTile) or a
  * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks).
  */
-export function serviceKind(o: { kind: TileKindName; about: string; render?: ServiceRender; program?: ServiceProgram; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
-  const base = { kind: o.kind, about: o.about, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
+export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; program?: ServiceProgram; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
+  const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
   const prog = o.program;
   if (!prog) {
     const render = o.render ?? (async () => ({ lines: ["", `  ${o.kind} has nothing to draw with`] }));

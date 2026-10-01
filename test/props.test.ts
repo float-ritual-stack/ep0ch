@@ -39,7 +39,7 @@ describe("the summary line", () => {
     const props = P(["type", "roadmap-item"], ["status", "open"], ["work-stage", "doing"], ["priority", "high"], ["track", "soil"], ["track", "tools"], ["track", "soil"]);
     expect(summarySegments(props, ["status", "work-stage", "priority", "track"]).map(s => s.plain).join(" · ")).toBe("stage doing · priority high · track soil, tools");
     expect(summarySegments(P(["status", "open"]), ["status"]).map(s => s.plain)).toEqual(["status open"]);
-    expect(summarySegments(P(["priority", "hi\x1b[31mgh"]), ["priority"])[0]!.value).toBe("hi[31mgh");
+    expect(summarySegments(P(["priority", "hi\x1b[31mgh"]), ["priority"])[0]!.value).toBe("high");                  // the escape goes whole (PIE-510)
   });
 
   test("keys: the view's, then yours, then OUTLINER_PROPERTY_SUMMARY_KEYS (empty hides), then the default", () => withState(() => {

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Msg } from "./board";
 import type { PropertyRecord, SocketBoard } from "./socket";
 import { stateDir } from "./state";
+import { printable } from "./text";
 import { isPropertyTokenLine } from "./vendor/property-grammar";
 
 /** Detail's default (`OUTLINER_PROPERTY_SUMMARY_KEYS`). */
@@ -19,8 +20,8 @@ export function parseSummaryKeys(value: string | undefined | null): string[] | u
   return keys;
 }
 
-/** Control characters out of a value before it reaches the terminal. */
-export const printable = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+/** Control characters out of a value before it reaches the terminal: text.ts's one `printable`. */
+export { printable };
 
 export interface SummarySegment { key: string; label: string; value: string; plain: string }
 

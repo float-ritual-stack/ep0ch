@@ -13,6 +13,8 @@
 // The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 // launch-time place, and the Herdr agent's pane keeps the door that made it while another door shows it.
 // `ep0ch where` (src/where.ts) checks each layer and says what is live.
+import { printable } from "./text";
+
 export const NEST_SEP = " › ";
 /** The longest nest: past it, the oldest layers after the first go, replaced by one `…`. */
 export const NEST_MAX = 480;
@@ -28,7 +30,7 @@ export type Layer =
 
 /** One layer as it goes in the nest: one line, no separator inside, capped. */
 export function cleanLayer(s: string): string {
-  return s.replace(/[\x00-\x1f\x7f]+/g, " ").replaceAll("›", ">").trim().slice(0, LAYER_MAX);
+  return printable(s, " ").replaceAll("›", ">").trim().slice(0, LAYER_MAX);
 }
 
 export const nestLayers = (nest: string | undefined | null): string[] => (nest ?? "").split(NEST_SEP).map(s => s.trim()).filter(Boolean);

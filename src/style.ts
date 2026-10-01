@@ -70,7 +70,20 @@ export const stripTags = (s: string) => s.replace(TAGS, "");
 const isTag = (ch: string) => { const c = ch.codePointAt(0)!; return c >= TAG0 && c <= TAG_END; };
 
 export const visible = (s: string) => s.replace(ANSI_RE, "").replace(TAGS, "").replace(MARKS, "");
-export const width = (s: string) => [...visible(s)].length;
+
+// ── terminal cells (PIE-510) ──
+// A terminal lays text out in cells, not code points: a CJK character or an emoji takes two, a combining mark
+// or a joiner none, and a joined emoji (👩‍💻) is one glyph. Everything the door measures, pads or cuts goes
+// by cells, through `width` and `graphemes`, so a wide note title can't push a row past the screen's edge.
+/** How many terminal cells `s` takes once drawn (its colour codes, link tags and marks take none). */
+export const width = (s: string) => Bun.stringWidth(visible(s));
+const SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/** Characters one cell wide that never join a neighbour: a run of them is one glyph per code point. */
+const SIMPLE = /^[\x20-\x7e\xa0-\u02ff\u2010-\u205e\u2190-\u22ff\u2500-\u25fc]*$/;
+/** `s` as the glyphs a terminal draws (grapheme clusters), plain text with no colour codes. */
+export const graphemes = (s: string): string[] => (SIMPLE.test(s) ? [...s] : Array.from(SEGMENTER.segment(s), g => g.segment));
+/** One glyph's cells: 0 for a link tag, a mark or a lone zero-width character, 2 for a wide one. */
+export const glyphWidth = (g: string) => (isTag(g) || (g >= "\uE000" && g <= "\uE008") ? 0 : g.length === 1 && g < "\x7f" ? 1 : Bun.stringWidth(g));
 
 /** Where a link is on screen: row `line`, columns `from` (inclusive) to `to` (exclusive), link `n`. */
 export interface LinkRange { line: number; from: number; to: number; n: number }
@@ -142,6 +155,7 @@ export function splitVisible(s: string, n: number): [string, string] {
 /** `trim` that sees through the link tags at either end (`\u{100000}  plan` → `\u{100000}plan`). */
 export const trimTagged = (s: string) => s.trim().replace(/^([\u{100000}-\u{10FFFD}]*)\s+/u, "$1").replace(/\s+([\u{100000}-\u{10FFFD}]*)$/u, "$1");
 
+/** `s` in exactly `w` cells: padded with spaces, or cut with `…` (never through a wide glyph or a joined one). */
 export function pad(s: string, w: number): string {
   const n = width(s);
   if (n <= w) return s + " ".repeat(w - n);
@@ -150,16 +164,53 @@ export function pad(s: string, w: number): string {
   for (let p = 0; p < parts.length; p++) {
     const part = parts[p]!;
     if (part.startsWith("\x1b[")) { out += part; continue; }
-    const chars = [...part];
-    for (let i = 0; i < chars.length; i++) {
-      const ch = chars[i]!;
-      if (isTag(ch) || (ch >= "\uE000" && ch <= "\uE008")) { out += ch; continue; }
-      // Cut here; link tags past the cut still close what they opened.
-      if (seen >= w - 1) return out + "…" + RESET + tagsIn([...chars.slice(i), ...parts.slice(p + 1)].join(""));
-      out += ch; seen++;
+    const gs = graphemes(part);
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i]!, gw = glyphWidth(g);
+      if (!gw) { out += g; continue; }
+      // Cut here; link tags past the cut still close what they opened. A wide glyph that would end past the
+      // cut leaves a space instead.
+      if (seen + gw > w - 1) return out + " ".repeat(Math.max(0, w - 1 - seen)) + "…" + RESET + tagsIn([...gs.slice(i), ...parts.slice(p + 1)].join(""));
+      out += g; seen += gw;
     }
   }
   return out;
+}
+
+/**
+ * The first `n` cells of a styled string, its colour codes kept, never half a wide glyph. Its link tags and
+ * marks ride along.
+ */
+export function headOf(s: string, n: number): string {
+  let out = "", seen = 0;
+  for (const part of s.split(/(\x1b\[[\d;?]*[A-Za-z])/)) {
+    if (part.startsWith("\x1b[")) { out += part; continue; }
+    for (const g of graphemes(part)) {
+      const gw = glyphWidth(g);
+      if (seen + gw > n) return out;
+      out += g; seen += gw;
+    }
+  }
+  return out;
+}
+
+/**
+ * A hint (a row of key parts joined by " · ") cut to `w` cells: between parts, never inside a key's, ending
+ * with `more` (a "? more" chip, or a plain " …"). When even the first part is too wide it's cut at its last
+ * space that fits. `at`: the cell where `more` starts, so a click on it can be found. Short enough: as it is.
+ */
+export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { text: string; at: number; cut: boolean } {
+  if (width(s) <= w) return { text: s, at: -1, cut: false };
+  const room = Math.max(0, w - width(more));
+  const gs = graphemes(visible(s));
+  let col = 0, part = -1, space = -1;
+  for (let i = 0; i < gs.length && col <= room; i++) {
+    if (gs[i] === " " && gs[i + 1] === "·" && gs[i + 2] === " ") part = col;
+    else if (gs[i] === " " && col > 0) space = col;
+    col += glyphWidth(gs[i]!);
+  }
+  const at = part > 0 ? part : space > 0 ? space : room;
+  return { text: headOf(s, at) + RESET + more + RESET, at, cut: true };
 }
 const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 

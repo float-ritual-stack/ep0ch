@@ -17,7 +17,7 @@ import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surfac
 import { leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
-import { bg, C, fg, INPUT_CURSOR, pad, paint, RESET, visible as visibleText, width } from "../style";
+import { bg, C, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
@@ -1169,28 +1169,25 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const handles = this.shutDrawers().map(d => ({ id: leaves(d.kid)[0]!, drawer: d, text: ` ${EDGE_GLYPH[d.edge]} ${isLine(d.kid) && d.kid.key ? d.kid.key : shown(d.kid).map(i => this.nameOf(i)).join("+")} ` }));
     const locked = this.screenLocked();
     const chip = !this.preset || locked ? (locked ? " ▣ locked " : " □ lock ") : "";
-    const hw = handles.reduce((a, h) => a + h.text.length + 1, 0) + (chip ? chip.length + 1 : 0);
+    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0);
     this.handles = [];
     let x = cols - hw;
     let tail = "";
-    for (const h of handles) { this.handles.push({ id: h.id, drawer: h.drawer, from: x, to: x + h.text.length }); tail += `${bg(C.brown)}${fg(C.white)}${h.text}${RESET} `; x += h.text.length + 1; }
-    this.lockChip = chip ? { from: x, to: x + chip.length } : null;
+    for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, drawer: h.drawer, from: x, to: x + hw }); tail += `${bg(C.brown)}${fg(C.white)}${h.text}${RESET} `; x += hw + 1; }
+    this.lockChip = chip ? { from: x, to: x + width(chip) } : null;
     if (chip) tail += `${locked ? bg(C.yellow) + fg(C.black) : fg(C.dark)}${chip}${RESET} `;
     const room = Math.max(0, cols - hw);
     // Too long for the row (drawer handles take its end): cut between its parts, never inside a key's, and say
     // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
     this.hintFull = null; this.moreChip = null;
     const fit = (s: string) => {
-      if (width(s) <= room) return s;
-      const plain = [...visibleText(s)];
-      let cut = 0;
-      for (let i = 0; i + 2 < plain.length && i <= room - MORE_WIDTH; i++) if (plain[i] === " " && plain[i + 1] === "·" && plain[i + 2] === " ") cut = i;
-      if (!cut) return s;
+      const f = fitHint(s, room, MORE);
+      if (!f.cut) return s;
       this.hintFull = s;
       // A chord's row shows the rest at once, above it: its ? would be the chord's next key.
-      if (this.prefix) return headOf(s, cut) + RESET + paint("|08 · …") + RESET;
-      this.moreChip = { from: cut + 3, to: cut + MORE_WIDTH };
-      return headOf(s, cut) + RESET + MORE;
+      if (this.prefix) return fitHint(s, room, paint("|08 · …")).text;
+      this.moreChip = { from: f.at + 3, to: f.at + MORE_WIDTH };
+      return f.text;
     };
     const line = (s: string) => pad(fit(s), room) + tail;
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
@@ -1216,7 +1213,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.preset ? "" : "|15alt+d|08 daily · "}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
+          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.preset ? "" : "|15alt+d|08 daily · "}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.current), 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -2689,17 +2686,6 @@ export function wrapHint(s: string, w: number): string[] {
     for (const m of p.matchAll(/\x1b\[[\d;]*m/g)) sgr = m[0] === RESET ? "" : sgr + m[0];
   }
   if (line) out.push(lineSgr + line + RESET);
-  return out;
-}
-/** The first `n` visible cells of a styled string, its colour codes kept. */
-function headOf(s: string, n: number): string {
-  let out = "", seen = 0;
-  for (let i = 0; i < s.length && seen < n;) {
-    const m = s[i] === "\x1b" ? /^\x1b\[[\d;?]*[A-Za-z]/.exec(s.slice(i)) : null;
-    if (m) { out += m[0]; i += m[0].length; continue; }
-    const ch = String.fromCodePoint(s.codePointAt(i)!);
-    out += ch; i += ch.length; seen++;
-  }
   return out;
 }
 const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col", "row", "cols", "rows"].every(k => typeof (r as Record<string, unknown>)[k] === "number" && Number.isFinite((r as Record<string, number>)[k]));

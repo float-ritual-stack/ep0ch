@@ -30,6 +30,37 @@ export interface Art {
   bytes: number;
 }
 
+/** Every glyph a VGA (CP437) font has, by its code: the low symbols, ⌂, and the high half. */
+const CP437_CODES = new Map<string, number>([...[...CP437_LOW].slice(1).map((c, i) => [c, i + 1] as const), ["⌂", 127], ...[...CP437_HIGH].map((c, i) => [c, 128 + i] as const)]);
+
+/**
+ * The glyphs the door draws that a VGA font lacks, each as the nearest one it has. A kitty+crt screen's font is
+ * CP437, so these go to the terminal as their lookalike (term bytes, App.paint) and the snapshot mirror draws the
+ * same (PIE-509, PIE-510): Enter as ◄, a dash as ─, ✓ as √, the lock chip's □ ▣ as ○ ◙, a float's ⧉ as ◘ and its
+ * ◢ corner as ┘, drawer handles' arrows, an ellipsis as ·, an old sparkline's steps as _ ▄ █, the river's types.
+ */
+export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
+  ["◆", "♦"], ["◇", "♦"], ["▸", "►"], ["▶", "►"], ["◂", "◄"], ["▾", "▼"], ["⇤", "←"], ["⇐", "←"], ["⇒", "→"], ["⇓", "↓"], ["⇥", "→"],
+  ["⤒", "↑"], ["⤓", "↓"], ["⇱", "↑"], ["⠿", "■"], ["▭", "■"], ["✉", "■"], ["⌖", "☼"], ["⟳", "☼"], ["✦", "☼"], ["⊙", "☼"], ["⏎", "◄"],
+  ["—", "─"], ["–", "-"], ["−", "-"], ["✓", "√"], ["✗", "x"], ["×", "x"], ["□", "○"], ["☐", "○"], ["◌", "○"], ["◎", "○"], ["▣", "◙"],
+  ["⧉", "◘"], ["◢", "┘"], ["╭", "┌"], ["╮", "┐"], ["╰", "└"], ["╯", "┘"], ["…", "·"], ["›", ">"], ["“", '"'], ["”", '"'], ["❝", '"'],
+  ["✎", "*"], ["●", "•"], ["⚠", "‼"], ["ℹ", "i"], ["┊", "│"], ["▦", "▒"], ["▤", "≡"], ["◧", "▌"], ["⑂", "¥"],
+  ["▁", "_"], ["▂", "▄"], ["▃", "▄"], ["▅", "█"], ["▆", "█"], ["▇", "█"],
+]);
+const NEAREST_RE = new RegExp(`[${[...CP437_NEAREST.keys()].join("")}]`, "gu");
+
+/** `s` with every glyph a VGA font lacks swapped for its lookalike (CP437_NEAREST); the rest as it is. */
+export const toCp437Glyphs = (s: string): string => s.replace(NEAREST_RE, ch => CP437_NEAREST.get(ch)!);
+
+/** The VGA font's code for `ch`: ASCII as itself, a CP437 glyph's code, a lookalike's, or 63 (?) when it has none. */
+export function cp437Code(ch: string): number {
+  const c = ch.charCodeAt(0);
+  if (c < 128 && ch.length === 1) return c;
+  return CP437_CODES.get(ch) ?? CP437_CODES.get(CP437_NEAREST.get(ch) ?? "") ?? (CP437_NEAREST.get(ch)?.charCodeAt(0) ?? 63);
+}
+/** Does a VGA font draw `ch` as itself? */
+export const inCp437 = (ch: string) => (ch.length === 1 && ch.charCodeAt(0) < 128) || CP437_CODES.has(ch);
+
 export function glyph(code: number): string {
   if (code < 32) return code === 0 ? " " : CP437_LOW[code]!;
   if (code === 127) return "⌂";

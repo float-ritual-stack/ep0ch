@@ -91,7 +91,7 @@ const builtins = (): TileKind[] => [
     describe: p => ({ source: sourceName((p as PreviewPane).source) }),
   },
   {
-    kind: "pty", about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)",
+    kind: "pty", about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
     keys: [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },

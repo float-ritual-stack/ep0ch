@@ -128,7 +128,8 @@ A journey to try, whichever service it is:
 
 opens the showcase (PIE-439): the shared door parts, live, in sixteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
-scrolling row and its elements and reading-ruler row (PIE-441) have no section yet. The newest parts are in their rows' sections:
+scrolling row, its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
+CP437; it is under every section) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
 (`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
@@ -1485,5 +1486,5 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
-- The editor counts one cell per character, so wide (CJK, some emoji) characters misplace the cursor.
+- The editor wraps a line by cells, but a click and up/down count one cell per character, so on a line with wide (CJK, some emoji) characters they land a little off.
 - The Herdr capability check reads a config file; a lasting version should ask Herdr.

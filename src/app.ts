@@ -6,6 +6,8 @@ import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } 
 import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
+import { printable } from "./text";
+import { toCp437Glyphs } from "./ansi";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
 import { paintingScroll } from "./scroll";
@@ -239,7 +241,8 @@ export class App implements Ctx {
   }
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
-  flash(msg: string, ms = 4000) { this.message = msg; this.messageUntil = Date.now() + ms; this.redraw(); }
+  /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
+  flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.redraw(); }
 
   // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
   private viewers = new Set<(e: ViewEvent) => void>();
@@ -537,10 +540,17 @@ export class App implements Ctx {
     if (s && !this.paintTimer && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
+  /**
+   * A row as this terminal can draw it. Under kitty+crt the font is CP437 (the VGA font the CRT is drawn for): a
+   * glyph it lacks would show as ?, so it goes as its nearest lookalike (ansi.ts CP437_NEAREST). That covers a
+   * terminal tile's program output too, which a CP437 screen can't draw either. `peek` keeps the Unicode.
+   */
+  private onScreen(line: string): string { return this.video === "kitty+crt" ? toCp437Glyphs(line) : line; }
+
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
   private paintStatus(s: Screen) {
     const { cols, rows } = this.term.info;
-    if (this.term.paintRow) this.term.paintRow(rows - 1, this.statusBar(s, cols));
+    if (this.term.paintRow) this.term.paintRow(rows - 1, this.onScreen(this.statusBar(s, cols)));
     else this.redraw();
   }
 
@@ -613,7 +623,7 @@ export class App implements Ctx {
     lines.push(this.statusBar(s, cols));
     if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
     // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
-    const draw = () => { this.term.paint(lines); this.kitty.sync(placements); };
+    const draw = () => { this.term.paint(lines.map(l => this.onScreen(l))); this.kitty.sync(placements); };
     if (this.term.frame) this.term.frame(draw);
     else draw();
     this.schedulePublish();

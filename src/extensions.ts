@@ -16,6 +16,7 @@
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { hostname } from "node:os";
 import type { Actor, SocketBoard } from "./socket";
+import { printable } from "./text";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, setMissingKindReason, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/layout";
@@ -87,7 +88,7 @@ const boundKinds = new Map<string, string>();
 const serving = (e: ExtensionEntry) => e.state === "active" || (e.state === "failed" && !!e.name);
 
 /** One line of extension text (a name, a label, a message): no control characters reach the terminal. */
-export const oneLine = (v: unknown) => String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+export const oneLine = (v: unknown) => printable(v, " ").trim();
 const clean = (v: string | undefined) => (v === undefined ? undefined : oneLine(v));
 /** A key an extension binds in the door: one printable character, else none (it's still a click and `act`). */
 const keyOf = (k: string | undefined) => (k && [...k].length === 1 && /^[\x21-\x7e]$/.test(k) ? k : undefined);
@@ -232,6 +233,7 @@ function kindEntry(t: ExtensionTileKind): TileKind {
   const actions = new ActionSet<Record<string, ExtArgs>, TileHost>(t.kind, Object.fromEntries(t.actions.map(a => [a.name, tileAction(t, a)])));
   return serviceKind({
     kind: t.kind,
+    noun: t.name,
     about: `${t.description ?? t.name} (extension ${t.extension}; its program runs in a terminal tile${t.args?.block ? "; note=<id> is its block, default the note shown where it's opened" : ""})`,
     program: { command: t.command, cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : [])) },
     ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}),

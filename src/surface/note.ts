@@ -273,7 +273,7 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
-const printableBlock = (s: string) => s.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+const printableBlock = (s: string) => printable(s, "", { lines: true });
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
@@ -3037,7 +3037,7 @@ function threadPanel(c: Comment, W: number, cur: string | null): { lines: string
   const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)} · ${c.open ? "open" : "resolved"}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
   const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
-  const text = (s: string, w: number) => printable(s.replace(/\t/g, " ")).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
+  const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   for (const l of text(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
   for (const r of c.replies) text(`${r.author} · ${ago(r.at)}: ${r.body}`, Math.max(2, inner - 2)).forEach((l, j) => lines.push(edge + "│ " + fg(C.cyan) + (j ? "  " : "└ ") + l + RESET));
