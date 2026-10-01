@@ -78,8 +78,12 @@ describe("a patch in a draft being typed in", () => {
     for (const c of "peas") d.key(char(c));
     const below = span(d.text, "peas", "beans");
     expect(d.applyPatch({ patchId: "x", patches: [below], revision: 3, mark: "@tidy tidy this" }, TIDY)).toMatchObject({ applied: false, reason: expect.stringContaining("the mark or below") });
-    // Without a mark (an agent acting through `act`), the limit is the start of the cursor's block.
-    expect(d.applyPatch({ patchId: "x", patches: [below], revision: 3 }, TIDY)).toMatchObject({ applied: false, reason: expect.stringContaining("the block being typed in") });
+    // Without a mark (an agent's ordinary edit) there is no limit but the cursor's own passage.
+    const besideCursor = new Draft("note-5", 3, "Status\nNext: label  trays\nMood: steady");
+    besideCursor.place(1, 5);
+    expect(besideCursor.applyPatch({ patchId: "x", patches: [span(besideCursor.text, "Mood: steady", "Mood: busy")], revision: 3 }, TIDY)).toEqual({ applied: true });
+    expect(besideCursor.applyPatch({ patchId: "y", patches: [span(besideCursor.text, "Next: label  trays", "Next: label trays")], revision: 3 }, TIDY))
+      .toMatchObject({ applied: false, reason: "the cursor is in that passage" });
     expect(d.applyPatch({ patchId: "x", patches: [span(d.text, "Morning", "Evening")], revision: 2 }, TIDY)).toMatchObject({ applied: false, reason: expect.stringContaining("revision 3") });
     expect(d.applyPatch({ patchId: "x", patches: [span(d.text, "Morning", "Evening")], revision: 3, mark: "@nobody" }, TIDY)).toMatchObject({ applied: false, reason: "the mark isn't in the draft" });
     // The person changed the passage: the compare fails.

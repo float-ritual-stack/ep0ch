@@ -309,9 +309,9 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   proposal and nothing is written to the saved note under the draft. When two doors hold drafts of one
   note, a patch goes to neither. `drafts.read` gives the note as the draft has it now.
 - **The door runs the compare** (`Draft.applyPatch`, with the service's own `src/draft-patch-compare.ts`,
-  vendored): the observed text at or near its range, the draft on the revision read, every span above the
-  mark (without one, or when the cursor is above the mark, above the block the cursor is in), none around
-  the cursor. Then the cursor, the
+  vendored): the observed text at or near its range, the draft on the revision read, none around the
+  cursor, and with a mark every span above it (above the block the cursor is in when the cursor is above
+  the mark). Without a mark nothing else limits it: an agent's ordinary edit lands where it is. Then the cursor, the
   selection and the view shift by the change (the cursor's row stays where it was on screen), the change is
   lit for a moment (`@tidy · just now`) and is one undo unit (`draft.undo`, ctrl+z). The draft's writers
   gain the agent, so the person's save names it. `peek` shows it: `editing.held`, `editing.cursor`,

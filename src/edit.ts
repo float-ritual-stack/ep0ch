@@ -459,9 +459,10 @@ export class Draft {
 
   /**
    * An agent's patch, if its compare holds against the text as typed now: every span's observed text still
-   * there, at or near where it was seen; the draft still on the revision the agent read; and every span
-   * above the mark (the `@request` line) or, without one, above the block the cursor is in, and none around
-   * the cursor. Then the text changes, the cursor, selection and view move with it so nothing on screen
+   * there, at or near where it was seen; the draft still on the revision the agent read; none around the
+   * cursor; and, when the patch names a mark (the `@request` line), every span above it, or above the block
+   * the cursor is in when the person went back up above the mark to write. Without a mark there is no limit
+   * but the cursor's passage: an agent's ordinary edit of a note the person has open lands where it is. Then the text changes, the cursor, selection and view move with it so nothing on screen
    * jumps, and the change is one undo unit, lit for a moment with who made it. `force`: "apply anyway",
    * the person's own choice, placed as well as it can be and not held to the mark.
    */
@@ -475,12 +476,14 @@ export class Draft {
     if (!p.force) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
-      // Above the mark; and when the person went back up above the mark to write, above the block they're in.
-      const mark = p.mark !== undefined ? markStart(text, p.mark) : -1;
-      if (p.mark !== undefined && mark < 0) return no("the mark isn't in the draft");
-      const at = Math.min(c, a);
-      const limit = mark >= 0 && at > mark ? mark : Math.min(blockStartAt(text, at), mark >= 0 ? mark : Infinity);
-      if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
+      // With a mark: above it; and when the person went back up above the mark to write, above the block they're in.
+      if (p.mark !== undefined) {
+        const mark = markStart(text, p.mark);
+        if (mark < 0) return no("the mark isn't in the draft");
+        const at = Math.min(c, a);
+        const limit = at > mark ? mark : blockStartAt(text, at);
+        if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
+      }
     }
     this.commitPatch(located.spans, by, p.patchId);
     return { applied: true };
