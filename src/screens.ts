@@ -1023,7 +1023,7 @@ export class WhoOnline implements Screen {
   private subjects = new Map<string, string>();
   private asking = new Set<string>();
   private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { this.load(ctx); }
+  enter(ctx: Ctx) { this.ctx = ctx; this.load(ctx); }
   private load(ctx: Ctx) {
     ctx.board.callers().then(c => {
       this.callers = c; ctx.redraw();
@@ -1207,6 +1207,7 @@ export class ArtViewer implements Screen {
     this.reveal = 0;   // modem-speed draw, one row at a time
     this.title = `art · ${basename(this.items[this.index]!.path)}`;
   }
+  enter(ctx: Ctx) { this.ctx = ctx; }
   tick() { if (!this.art || this.reveal >= this.art.height) return false; this.reveal += 1; return true; }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;

@@ -131,6 +131,66 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     });
   });
 
+  describe("PIE-506: the BBS screens' keys are actions, and an agent can run each", () => {
+    test("menu.select: the arrows run it; an agent's lights an item, said, and waits for the person to be idle", async () => {
+      home(); idle();
+      const menu = top();
+      const keys: string[] = menu.describe().items.map((i: string) => i.split(" ")[0]);
+      const was = keys.indexOf(menu.describe().selected);
+      key({ kind: "down" });
+      expect(menu.describe().selected).toBe(keys[(was + 1) % keys.length]);
+      idle();
+      expect(await act("menu.select", { name: "S" })).toEqual({ selected: "S", label: "Stats" });
+      expect(menu.describe().selected).toBe("S");
+      expect(message()).toContain("an agent (shell-agent-9) · lit Stats");
+      key({ kind: "up" });
+      await expect(act("menu.select", { by: 1 })).rejects.toThrow(/at the keys/);
+    });
+
+    test("ctrl+letter on the menu no longer opens that letter's screen", () => {
+      home();
+      key({ kind: "char", ch: "s", ctrl: true });
+      expect(titles()).toEqual(["main menu"]);
+    });
+
+    test("? runs screen.help; any key on help is screen.back; V runs video.cycle", async () => {
+      home(); idle();
+      key(char("?"));
+      expect(top().title).toBe("help");
+      key(char("x"));
+      expect(titles()).toEqual(["main menu"]);
+      idle();
+      await act("screen.help");
+      expect(top().title).toBe("help");
+      expect(message()).toContain("an agent (shell-agent-9) · opened help");
+      home();
+    });
+
+    test("who.refresh: r and an agent's act, as soon as the screen is open", async () => {
+      home(); idle();
+      key(char("W"));
+      expect(top().title).toBe("who's online");
+      const out: any = await act("who.refresh");
+      expect(Array.isArray(out.callers)).toBe(true);
+      expect(top().actions().actions.map((a: any) => a.name)).toEqual(["who.refresh"]);
+      home();
+    });
+
+    test("list.thread: t on a message list, and an agent's names the row", async () => {
+      home(); idle();
+      key(char("R"));
+      await until(() => (top().listRows?.() ?? []).length > 0, "the recent list", 10_000);
+      const rows = top().listRows();
+      const n = rows.findIndex((r: any) => r.title === "Allotment plot 7") + 1;
+      expect(n).toBeGreaterThan(0);
+      idle();
+      const out: any = await act("list.thread", { n });
+      expect(out.opened).toBe("thread: Allotment plot 7");
+      expect(top().title).toBe("thread: Allotment plot 7");
+      home();
+    });
+  });
+
   describe("drop to shell (screen.shell): the person's, never an agent's", () => {
     const tick = () => new Promise(r => setTimeout(r, 0));
     test("an agent's is refused, and the terminal stays the door's", async () => {
