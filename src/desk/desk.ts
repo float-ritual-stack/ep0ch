@@ -23,7 +23,7 @@ import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
 import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
-import { activate, besideSlot, chainOf, EDGE_GLYPH, isLine, parentNode as parentNodeOf, parentOf, cycle, describeTree, dividerAt, drawerOf, drawers, drawerToEdge, dragShare, edge, effective, even, forgetIds, has, kidsOf, leaf, leaves, move, neighbour, nodeById, normalise, pair, placeScreen, policyOf, remove, resize, revive, serialize, shown, splitOf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer, POLICY_KEYS, type Axis, type Columns, type Container, type Dir, type Divider, type Drawer, type Effective, type Float, type Grab, type Line, type LNode, type Place, type Placed, type PlacedDrawer, type PlaceOpts, type Policy } from "./layout";
+import { activate, besideSlot, chainOf, clone, EDGE_GLYPH, isLine, parentNode as parentNodeOf, parentOf, cycle, describeTree, dividerAt, dockedTiles, drawerOf, drawers, drawerToEdge, dragShare, edge, effective, even, forgetIds, has, kidsOf, leaf, leaves, move, neighbour, nodeById, normalise, pair, placeScreen, policyOf, remove, resize, revive, serialize, shown, splitOf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer, POLICY_KEYS, type Axis, type Columns, type Container, type Dir, type Divider, type Drawer, type Effective, type Float, type Grab, type Line, type LNode, type Place, type Placed, type PlacedDrawer, type PlaceOpts, type Policy } from "./layout";
 import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
@@ -916,6 +916,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.area = area;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
+    this.showSomething();
     if (zoomed) {
       this.placed = { rects: new Map([[this.zoom!, area]]), nodes: new Map(), dividers: [] };
       this.dividers = [];
@@ -929,6 +930,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       this.dividers = [...this.slid.flatMap(d => [...(d.divider ? [d.divider] : []), ...d.placed.dividers]).reverse(), ...ps.dividers];
     }
     const docked = [...this.placed.rects];
+    // The keys never stay on a tile the room left no cells (a terminal made tiny): the largest tile shown takes them.
+    const fr = this.slid.find(d => d.placed.rects.has(this.focus))?.placed.rects.get(this.focus) ?? this.placed.rects.get(this.focus);
+    if (fr && (fr.cols <= 0 || fr.rows <= 0) && !this.personTyping()) {
+      const best = [...this.slid.flatMap(d => [...d.placed.rects]), ...docked].filter(([, r]) => r.cols > 0 && r.rows > 0).sort(([, a], [, b]) => b.cols * b.rows - a.cols * a.rows)[0];
+      if (best) this.focus = best[0];
+    }
     // Floats over everything (PIE-511): kept on the screen, the last on top.
     const floats = zoomed ? [] : this.floats.map(f => { this.keepOnScreen(f.rect); return [f.id, f.rect] as [number, Rect]; });
     // For the mouse: the top float first, then the top drawer's tiles, then the layout's.
@@ -969,6 +976,17 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { lines: canvas.lines(), placements };
   }
 
+  /**
+   * Never a blank screen: when every tile is in a shut drawer (a layout saved that way, the docked tiles closed),
+   * the drawer holding the keys opens (else the first), so something is shown and the keys are on it.
+   */
+  private showSomething() {
+    if (visible(this.root).length || !leaves(this.root).length) return;
+    const d = drawerOf(this.root, this.focus) ?? drawers(this.root).find(x => leaves(x.kid).length);
+    if (!d) return;
+    for (const c of chainOf(this.root, leaves(d.kid)[0]!)) if (c.t === "drawer") c.open = true;
+    if (!visible(this.root).includes(this.focus) && !this.isFloat(this.focus)) this.focus = visible(this.root)[0] ?? this.focus;
+  }
   /** How tiles are sized as they're placed: a folded tile (`tile.collapse`) is a spine across a row. */
   protected placeOpts(): PlaceOpts<number> {
     return { fixed: (id, dir) => (dir === "row" && this.collapsed.has(id) ? SPINE : undefined) };
@@ -976,7 +994,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** A float's rectangle kept on the screen: never smaller than a float is drawn, never off it. */
   private keepOnScreen(r: Rect) {
     const W = this.area.cols, H = this.area.rows, top = this.area.row;
-    r.cols = Math.max(FLOAT_MIN.cols, Math.min(W, Math.round(r.cols))); r.rows = Math.max(FLOAT_MIN.rows, Math.min(H, Math.round(r.rows)));
+    // Never smaller than a float is drawn, unless the screen itself is: then the screen.
+    r.cols = Math.max(0, Math.min(W, Math.max(FLOAT_MIN.cols, Math.round(r.cols)))); r.rows = Math.max(0, Math.min(H, Math.max(FLOAT_MIN.rows, Math.round(r.rows))));
     r.col = Math.max(0, Math.min(W - r.cols, Math.round(r.col))); r.row = Math.max(top, Math.min(top + H - r.rows, Math.round(r.row)));
   }
   /** A view's own overlays over the tiles (the board's pickers, its composer): true when images should go. */
@@ -1417,7 +1436,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
     if (c === "!") { void import("../screens").then(m => m.dropToShell(this, this.ctx)); return; }
     if (c === "s") {
-      const ids = leaves(this.root), i = ids.indexOf(this.focus), j = ids[(i + 1) % ids.length]!;
+      // The next tile in the tree (a float isn't in it: the swap says so).
+      const ids = leaves(this.root), i = ids.indexOf(this.focus), j = this.isFloat(this.focus) ? ids[0]! : ids[(i + 1) % ids.length]!;
       return j !== this.focus ? this.cmd("layout.swap", { to: this.nameOf(j) }, me) : this.redraw();
     }
     this.redraw();
@@ -1545,6 +1565,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** Why the shape can't change around tile `id` (it, or a container over it, is locked): `what` names the change. */
   protected shapeRefusal(id: number, what: string): string | null { const e = this.policyAt(id); return e.locked ? this.lockedWhy(e, what) : null; }
 
+  /**
+   * The one rule for floats (PIE-511): a float has no place in the tree, so nothing goes beside it or into its
+   * tabs, it swaps with nothing, and it doesn't fold or go in a drawer, until it's docked. Every action that needs
+   * a tile's place in the tree asks this (through `intoRefusal` for a target); `what` names the action.
+   */
+  protected floatRefusal(id: number, what: string): string | null {
+    return this.isFloat(id) ? `${this.nameOf(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ docks it first` : null;
+  }
   /** Why tile `src` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   protected dragRefusal(src: number): string | null {
     const e = this.policyAt(src);
@@ -1559,6 +1587,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private intoRefusal(kind: string, name: string, to: Place<number>): string | null {
     // An edge: the screen and the root. Beside a tile: the containers it would join (the target's chain, not its
     // tab set or kind, which it doesn't join). Into its tabs: everything over the target.
+    if (to.kind !== "edge") { const f = this.floatRefusal(to.target, `putting ${name} ${to.kind === "tabs" ? "into its tabs" : "beside it"}`); if (f) return f; }
     const chain = to.kind === "edge" ? (this.root.t !== "leaf" ? [this.root] : []) : chainOf(this.root, to.target);
     const joins = to.kind === "split" && chain.at(-1)?.t === "tabs" ? chain.slice(0, -1) : chain;
     const e = to.kind === "tabs" ? this.policyAt(to.target) : effective([{ by: "screen", policy: this.screenPolicy }, ...joins.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
@@ -1635,14 +1664,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.refuse(this.dragRefusal(src.id) ?? this.intoRefusal(this.panes.get(src.id)!.kind, src.name, place));
     // A float moved into the tree docks there: it isn't a float any more.
     if (this.isFloat(src.id)) {
-      if (place.kind !== "edge" && !has(this.root, place.target)) throw new ActionRefused(`${src.name} can't go into a float: o docks a float, then it moves like any tile`);
       this.floats = this.floats.filter(f => f.id !== src.id);
-      this.root = normalise(place.kind === "edge" ? edge(this.root, src.id, place.dir) : place.kind === "tabs" ? tabInto(this.root, place.target, src.id, place.index) : besideSlot(this.root, place.target, leaf(src.id), place.dir));
+      this.root = normalise(putAt(this.root, src.id, place));
       if (actor.kind !== "agent") this.focus = src.id;
       this.save(); this.redraw();
       return { tile: src.name, where, ...(to ? { to } : {}), tree: describeTree(this.root, id => this.nameOf(id)) };
     }
-    if (place.kind !== "edge" && this.isFloat(place.target)) throw new ActionRefused(`${this.nameOf(place.target)} is a float: nothing goes into it (o docks it first)`);
     const next = move(this.root, src.id, place);
     if (!next) throw new ActionRefused(`${src.name} can't go there: ${leaves(this.root).length < 2 ? "it's the only tile" : "that's where it is"}`);
     // Into a drawer, or beside a tile in one, it lives in that drawer (the tree's own move); out of one, it's docked.
@@ -1678,8 +1705,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.refuse(this.intoRefusal(t.kind, t.name ?? `a new ${t.kind} tile`, place));
     const id = this.put(makeTile(spec), t.name);
     const wasShown = shown(this.root);
-    this.root = where === "tabs" ? tabInto(this.root, base.id, id) : where.startsWith("edge-") ? edge(this.root, id, where.slice(5) as Dir) : besideSlot(this.root, base.id, leaf(id), where as Dir);
-    this.root = normalise(this.root);
+    this.root = normalise(putAt(this.root, id, place));
     // An agent's new tab is added without being shown over the tab the person has there.
     if (actor.kind === "agent" && wasShown.includes(this.focus) && !shown(this.root).includes(this.focus)) activate(this.root, this.focus);
     this.zoom = null;
@@ -1762,12 +1788,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    */
   pinTile(sel: string | undefined, on: boolean | undefined, edgeTo: Dir | undefined, actor: Actor, container?: string): TileDone {
     const t = this.tile(sel);
-    if (this.isFloat(t.id)) throw new ActionRefused(`${t.name} is a float: o docks it first`);
+    this.refuse(this.floatRefusal(t.id, "a drawer"));
     // A whole container (a split of tiles: the board's outline and its preview) goes into a drawer as one.
     if (container !== undefined && on !== true) {
       const c = nodeById(this.root, container);
       if (!c || c.t === "drawer") throw new ActionRefused(`no container ${container} to put in a drawer; layout.get gives each one's id`);
       if (!leaves(c).includes(t.id)) throw new ActionRefused(`${container} doesn't hold ${t.name}`);
+      if (leaves(c).includes(this.focus)) this.guard(this.focus, actor, "move");
       const inDrawer = drawerOf(this.root, t.id);
       if (inDrawer && chainOf(this.root, t.id).indexOf(inDrawer) < chainOf(this.root, t.id).indexOf(c)) {
         if (!edgeTo || inDrawer.edge === edgeTo) return { tile: t.name, pinned: false, changed: false, edge: inDrawer.edge, container: inDrawer.id };
@@ -1775,7 +1802,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       this.refuse(this.shapeRefusal(t.id, `putting ${container} in a drawer`));
       const open = actor.kind !== "agent" || leaves(c).includes(this.focus);
       const next = inDrawer && edgeTo ? drawerToEdge(this.root, inDrawer, edgeTo) : wrapNodeDrawer(this.root, c, edgeTo, open);
-      if (!next) throw new ActionRefused(`${container} is the whole layout (or in a drawer already); there's nothing for it to slide over`);
+      if (!next) throw new ActionRefused(`${container} is the whole layout, holds every tile still docked, or is in a drawer already; a drawer needs something to slide over`);
       this.root = normalise(next);
       const now = drawerOf(this.root, t.id);
       if (now && !inDrawer) this.rememberedPolicy(now, container);
@@ -1786,6 +1813,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const pinned = !d;
     const want = on ?? (edgeTo ? false : !pinned);
     if (want === pinned && !(edgeTo && !want && d && d.edge !== edgeTo)) return { tile: t.name, pinned, changed: false, ...(d ? { edge: d.edge, container: d.id } : {}) };
+    for (const id of tabsOf(this.root, t.id)?.ids ?? [t.id]) this.guard(id, actor, "move");
     this.refuse(this.shapeRefusal(t.id, want ? `taking ${t.name} out of its drawer` : `putting ${t.name} in a drawer`));
     if (want) { this.dockedPolicy.set(this.drawerKey(d!), d!.policy); this.root = normalise(unwrapDrawer(this.root, d!)); }
     else if (d && edgeTo) {
@@ -1796,7 +1824,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       // The person's drawer opens on what they have; an agent's starts shut unless it holds their keys.
       const open = actor.kind !== "agent" || (tabsOf(this.root, t.id)?.ids ?? [t.id]).includes(this.focus);
       const next = wrapDrawer(this.root, t.id, edgeTo, open);
-      if (!next) throw new ActionRefused(`${t.name} is the only tile (or its tab set is the whole layout); there's nothing for it to slide over`);
+      if (!next) throw new ActionRefused(`${t.name} is the last tile docked (or its tab set is the whole layout); a drawer needs something to slide over`);
       this.root = normalise(next);
       const nd = drawerOf(this.root, t.id);
       if (nd) this.rememberedPolicy(nd, this.drawerKey(nd));
@@ -1832,6 +1860,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     // Shutting the drawer that has the person's keys moves them: the same rule as any move of the keys.
     const inside = leaves(d.kid);
     if (!want && inside.includes(this.focus)) this.mayMoveKeys(actor, "shut the drawer they have");
+    // The last drawer showing anything stays open: shut, the screen would be blank (every tile in a drawer).
+    if (!want && d.open) { d.open = false; const none = !visible(this.root).length; d.open = true; if (none) throw new ActionRefused(`${d.id ?? "the drawer"} is all the screen shows: shut, nothing would be left · ^W p on a tile in it docks it`); }
     d.open = want;
     if (want) { if (actor.kind !== "agent" && !this.personTyping()) { this.focus = visible(d.kid).find(id => id === t.id) ?? visible(d.kid)[0] ?? t.id; activate(this.root, this.focus); } }
     else if (inside.includes(this.focus)) this.focus = visible(this.root)[0] ?? this.focus;
@@ -1839,10 +1869,22 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { tile: t.name, open: want, edge: d.edge, ...(d.id ? { container: d.id } : {}) };
   }
 
+  /**
+   * The locks an agent set (the screen's, "screen", or a container's id). An agent may lock, and unlock its own
+   * lock; a lock the person set (or one that came with a saved layout) is theirs to undo.
+   */
+  private agentLocks = new Set<string>();
+  /** Who set or took away lock `key`: refused to an agent undoing a lock it didn't set. */
+  private lockedBy(key: string, lock: boolean, actor: Actor) {
+    if (actor.kind === "agent" && !lock && !this.agentLocks.has(key)) throw new ActionRefused(`${key === "screen" ? "the screen" : key} was locked by the person; an agent doesn't unlock it (block.mark gets their attention)`);
+    if (lock && actor.kind === "agent") this.agentLocks.add(key); else this.agentLocks.delete(key);
+  }
+
   /** `layout.lock`: lock or unlock the whole screen (its own policy); default toggles. */
-  lockScreen(on: boolean | undefined, _actor: Actor): { locked: boolean; changed: boolean } {
+  lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean } {
     const want = on ?? !this.screenLocked();
     if (want === this.screenLocked()) return { locked: want, changed: false };
+    this.lockedBy("screen", want, actor);
     const { locked: _l, ...rest } = this.screenPolicy;
     this.screenPolicy = want ? { ...rest, locked: true } : rest;
     this.stamp(); this.save(); this.redraw();
@@ -1854,7 +1896,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    * innermost container holding tile `sel`, else the screen. `set` fields are written, `clear` ones taken
    * away. While it's locked only `locked` itself changes.
    */
-  setPolicy(sel: string | undefined, nodeSel: string | undefined, set: Policy, clear: string[], _actor: Actor): { node: string; policy: Policy; effective?: Effective } {
+  setPolicy(sel: string | undefined, nodeSel: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy; effective?: Effective } {
     const t = sel ? this.tile(sel) : null;
     const chain = t ? chainOf(this.root, t.id) : [];
     const c: Container | "screen" | null = nodeSel === "screen" ? "screen" : nodeSel ? nodeById(this.root, nodeSel) : chain.at(-1) ?? "screen";
@@ -1872,6 +1914,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (!kindOf(this.panes.get(to))?.accepts?.notes) throw new ActionRefused(`${set.opensInto} is a ${this.panes.get(to)!.kind} tile: opens land in a tile that takes notes`);
     }
     if (set.accepts) { const unknown = set.accepts.filter(k => !isTileKind(k)); if (unknown.length) throw new ActionRefused(`layout.policy: accepts names tile kinds (${tileKindNames().join(", ")}), not ${unknown.join(", ")}`); }
+    const locking = set.locked === true ? true : (set.locked === false || clear.includes("locked")) && before.locked ? false : null;
+    if (locking !== null && locking !== !!before.locked) this.lockedBy(c === "screen" ? "screen" : c.id ?? c.t, locking, actor);
     const next: Policy = { ...before, ...set };
     for (const k of clear) delete (next as Record<string, unknown>)[k];
     const policy = policyOf(next);
@@ -1993,6 +2037,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const found = layoutNamed(name);
     if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")}`);
     if (this.screenLocked()) throw new ActionRefused(`the screen is locked: loading ${name} would change its shape · ${UNLOCK}`);
+    // A layout loaded drops every container's lock with it: an agent doesn't, over a lock the person set.
+    if (actor.kind === "agent") {
+      const locks = (n: LNode): string[] => (n.t === "leaf" ? [] : [...(n.policy?.locked ? [n.id ?? n.t] : []), ...kidsOf(n).flatMap(locks)]);
+      const theirs = locks(this.root).find(k => !this.agentLocks.has(k));
+      if (theirs) throw new ActionRefused(`${theirs} was locked by the person; loading ${name} would undo it, and an agent doesn't (block.mark gets their attention)`);
+    }
     this.mayMoveKeys(actor, "lay the desk out under them");
     if (this.preset) throw new ActionRefused(`the ${this.title} keeps its own layout; load one on the desk (D)`);
     this.entered.clear();
@@ -2225,7 +2275,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const a = this.tile(sel), b = this.tile(to);
     if (a.id === b.id) throw new ActionRefused("a tile can't swap with itself");
     this.guard(a.id, actor, "move"); this.guard(b.id, actor, "move");
-    this.refuse(this.dragRefusal(a.id) ?? this.dragRefusal(b.id) ?? this.intoRefusal(this.panes.get(a.id)!.kind, a.name, { kind: "tabs", target: b.id }) ?? this.intoRefusal(this.panes.get(b.id)!.kind, b.name, { kind: "tabs", target: a.id }));
+    this.refuse(this.floatRefusal(a.id, "a swap") ?? this.floatRefusal(b.id, "a swap") ?? this.dragRefusal(a.id) ?? this.dragRefusal(b.id) ?? this.intoRefusal(this.panes.get(a.id)!.kind, a.name, { kind: "tabs", target: b.id }) ?? this.intoRefusal(this.panes.get(b.id)!.kind, b.name, { kind: "tabs", target: a.id }));
     this.root = swap(this.root, a.id, b.id);
     this.save(); this.redraw();
     return { tile: a.name, with: b.name };
@@ -2322,9 +2372,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.guard(t.id, actor, "float");
     if (this.isFloat(t.id)) {
       this.refuse(this.screenLocked() ? `the screen is locked: docking ${t.name} is refused · ${UNLOCK}` : null);
+      this.root = this.docking(t.id, t.name);
       this.floats = this.floats.filter(f => f.id !== t.id);
-      this.root = normalise(this.dockFloat(t.id));
-      if (!has(this.root, t.id)) this.root = normalise(besideSlot(this.root, leaves(this.root)[0]!, leaf(t.id), "right"));
       this.save(); this.redraw();
       return { pane: t.name, floated: false, now: t.name };
     }
@@ -2344,17 +2393,47 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const W = this.area.cols, H = this.area.rows, n = this.floats.length;
     return { col: Math.round(W * 0.22) + n * 3, row: this.area.row + Math.round(H * 0.12) + n * 2, cols: Math.round(W * 0.5), rows: Math.round(H * 0.6) };
   }
+  /**
+   * The tree with float `id` docked: where `dockFloat` puts it, when the containers there take it (their policy:
+   * locked, droppable, accepts, as any move asks); else beside the first tile whose containers do, else along an
+   * outer edge; refused, with the first place's reason, when nothing takes it.
+   */
+  protected docking(id: number, name: string): LNode {
+    const kind = this.panes.get(id)?.kind ?? "tile";
+    // Where a tile would land in `next`: the containers over it there, each with its policy.
+    const why = (next: LNode): string | null => {
+      if (!has(next, id)) return `there's no place for ${name} in the layout`;
+      const e = effective([{ by: "screen", policy: this.screenPolicy }, ...chainOf(next, id).map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
+      if (e.locked) return this.lockedWhy(e, `docking ${name}`);
+      if (!e.droppable) return `${e.by.droppable === "screen" ? "the screen" : e.by.droppable} takes no drops (droppable off): ${name} doesn't dock there`;
+      if (e.accepts && !e.accepts.includes(kind)) return `${e.by.accepts === "screen" ? "the screen" : e.by.accepts} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`;
+      return null;
+    };
+    const first = normalise(this.dockFloat(id));
+    const refused = why(first);
+    if (!refused) return first;
+    const tries: (() => LNode)[] = [
+      // Beside a docked tile only: one in a drawer would put the float where it isn't shown (a shut drawer).
+      ...dockedTiles(this.root).map(at => () => besideSlot(clone(this.root), at, leaf(id), "right")),
+      ...(["right", "down", "left", "up"] as Dir[]).map(d => () => edge(clone(this.root), id, d)),
+    ];
+    for (const f of tries) { const next = normalise(f()); if (!why(next)) return next; }
+    throw new ActionRefused(refused);
+  }
   /** Where a docked float goes in the tree: beside the tile the person has (a view may say otherwise: the board's readers row). */
   protected dockFloat(id: number): LNode {
-    const at = this.isFloat(this.focus) || this.focus === id || !has(this.root, this.focus) ? leaves(this.root).at(-1)! : this.focus;
-    return besideSlot(this.root, at, leaf(id), "right");
+    const at = this.isFloat(this.focus) || this.focus === id || !has(this.root, this.focus) ? (dockedTiles(this.root).at(-1) ?? leaves(this.root).at(-1)!) : this.focus;
+    return besideSlot(clone(this.root), at, leaf(id), "right");
   }
 
   /** `float.place`: move or size a float, kept on the screen. */
-  placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, _actor: Actor): TileDone {
+  placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone {
     const t = sel ? this.tile(sel) : this.isFloat(this.focus) ? this.tile(undefined) : this.floats.length ? { name: this.nameOf(this.floats.at(-1)!.id), id: this.floats.at(-1)!.id } : null;
     const f = t ? this.floats.find(x => x.id === t.id) : undefined;
     if (!t || !f) throw new ActionRefused(`${t ? t.name : "no tile"} isn't a float; pane.float (o on the board) pops a tile out as one`);
+    this.guard(t.id, actor, "move");
+    // Moving or sizing a float changes the screen's shape: refused while it's locked (as any move is).
+    this.refuse(this.shapeRefusal(t.id, `moving ${t.name}`));
     const r = f.rect;
     if (a.cols !== undefined) r.cols = a.cols;
     if (a.rows !== undefined) r.rows = a.rows;
@@ -2376,8 +2455,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const want = on ?? !was;
     if (want === was) return { tile: t.name, collapsed: was, changed: false };
     if (want) {
+      this.refuse(this.floatRefusal(t.id, "a spine") ?? this.shapeRefusal(t.id, `folding ${t.name}`));
       const p = parentOf(this.root, t.id);
-      if (this.isFloat(t.id) || !p || p.parent.dir !== "row") throw new ActionRefused(`${t.name} isn't side by side with other tiles: only a tile in a row or columns folds to a spine`);
+      if (!p || p.parent.dir !== "row") throw new ActionRefused(`${t.name} isn't side by side with other tiles: only a tile in a row or columns folds to a spine`);
       if (!this.policyAt(t.id).collapsible) throw new ActionRefused(`${t.name} stays open: ${this.policyAt(t.id).by.collapsible} doesn't collapse (collapsible off)`);
       if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't fold it`);
       this.collapsed.set(t.id, actor.kind === "agent" ? { by: actor.id } : {});
@@ -2521,6 +2601,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         const [id, r] = hit;
         if (id !== this.focus || this.floats.at(-1)?.id !== id) this.cmd("tile.focus", {}, this.nameOf(id));
         if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.floatDrag = { id, size: true, dx: 0, dy: 0 }; return this.redraw(); }
+        // The ⧉ before its title docks it (pane.float, as ^W f and the board's o do).
+        if (k.y === r.row && k.x === r.col + 3) return this.cmd("pane.float", {}, this.nameOf(id));
         if (k.y === r.row) { this.floatDrag = { id, size: false, dx: k.x - r.col, dy: k.y - r.row }; return this.redraw(); }
       }
       // A spine: a click opens it (and gives it the keys), as ⏎ on it does.
@@ -2632,6 +2714,11 @@ const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
 /** Two tiles trade places in the tree (^W s). */
+/** Tile `id` put at `place` in `root`: beside a tile, into its tabs, or along an outer edge. */
+function putAt(root: LNode, id: number, place: Place<number>): LNode {
+  return place.kind === "edge" ? edge(root, id, place.dir) : place.kind === "tabs" ? tabInto(root, place.target, id, place.index) : besideSlot(root, place.target, leaf(id), place.dir);
+}
+
 function swap(n: LNode, a: number, b: number): LNode {
   if (n.t === "leaf") return n.id === a ? leaf(b) : n.id === b ? leaf(a) : n;
   if (n.t === "tabs") return { ...n, ids: n.ids.map(x => (x === a ? b : x === b ? a : x)) };

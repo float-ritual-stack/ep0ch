@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import {
-  chainOf, columnsOf, dividerAt, dragTo, drawerOf, drawers, drawerToEdge, effective, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
+  chainOf, columnsOf, dividerAt, dockedTiles, dragTo, drawerOf, drawers, drawerToEdge, effective, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
   type LNode,
 } from "../src/desk/layout";
 
@@ -38,6 +38,9 @@ describe("placing", () => {
     for (const t of trees) for (const [cols, rows] of [[200, 58], [180, 48], [97, 29], [41, 13], [13, 7]] as const) {
       const r = { col: 0, row: 0, cols, rows };
       const want = placeBefore(t, r), got = place(asNew(t), r);
+      // Too small for the minimums (PIE-510): the old place() gave a nested tile one cell or none; now the
+      // minimums shrink together, so every tile keeps room, inside the screen.
+      if (cols === 13 && t === trees[0]) { expect([...got.rects.values()].every(x => x.cols >= 3 && x.col + x.cols <= cols)).toBe(true); continue; }
       expect([...got.rects]).toEqual([...want.rects]);
       expect(got.dividers.map(d => d.at)).toEqual(want.dividers);
     }
@@ -307,5 +310,64 @@ describe("drawer containers and policy (PIE-505)", () => {
     const nested = splitOf("row", [{ t: "drawer", kid: { t: "drawer", kid: leaf("a"), edge: "up", open: false, policy: { overlay: false } }, edge: "left", open: true } as LNode<string>, leaf("b")]);
     const m = normalise(nested) as any;
     expect(m.kids[0]).toMatchObject({ t: "drawer", edge: "left", open: true, policy: { overlay: false }, kid: { t: "leaf", id: "a" } });
+  });
+});
+
+describe("containers keep their rules and every tile its room (PIE-510)", () => {
+  const sizes = (m: Map<number, Rect>) => [...m].map(([id, r]) => [id, r.col, r.cols, r.row, r.rows]);
+  const within = (m: Map<number, Rect>, area: Rect) => [...m.values()].every(r => r.cols > 0 && r.rows > 0 && r.col >= area.col && r.col + r.cols <= area.col + area.cols && r.row >= area.row && r.row + r.rows <= area.row + area.rows);
+
+  test("a terminal too small for the minimums: every tile keeps a cell and nothing lands off the screen", () => {
+    const area = { col: 0, row: 0, cols: 10, rows: 4 };
+    const row = place(splitOf("row", [leaf(1), leaf(2), leaf(3), leaf(4)]), area).rects;
+    expect(within(row, area)).toBe(true);
+    const col = place(splitOf("col", [leaf(1), leaf(2), leaf(3)]), area).rects;
+    expect(within(col, area)).toBe(true);
+  });
+
+  test("a policy's min or fixed larger than the screen is clamped to it: the others keep a cell each", () => {
+    const area = { col: 0, row: 0, cols: 80, rows: 24 };
+    for (const policy of [{ min: 500 }, { fixed: 200 }]) {
+      const t: LNode = splitOf("row", [leaf(1), { ...splitOf("col", [leaf(2), leaf(3)]), policy }, leaf(4)]);
+      const r = place(t, area).rects;
+      expect(within(r, area)).toBe(true);
+      expect(r.get(2)!.cols).toBeGreaterThan(60);                   // the rule still says most of it
+    }
+    // Room for them all: the minimums aren't touched.
+    expect(sizes(place(splitOf("row", [leaf(1), leaf(2)]), area).rects)).toEqual([[1, 0, 40, 0, 24], [2, 40, 40, 0, 24]]);
+  });
+
+  test("a container's policy stays when a move, a close or a float leaves it one tile; a tile moved back is under it again", () => {
+    const rule = { accepts: ["query"], droppable: false };
+    const t: LNode = splitOf("row", [leaf(1), { ...splitOf("col", [leaf(2), leaf(3)]), id: "s2", policy: rule }]);
+    const moved = move(t, 3, { kind: "edge", dir: "left" })!;
+    const s2 = chainOf(moved, 2).find(c => c.id === "s2");
+    expect(s2?.policy).toEqual(rule);
+    expect(chainOf(normalise(remove(t, 3)!), 2).find(c => c.id === "s2")?.policy).toEqual(rule);
+    const back = move(moved, 3, { kind: "split", target: 2, dir: "down" })!;
+    expect(chainOf(back, 3).find(c => c.id === "s2")?.policy).toEqual(rule);
+    // A split with no policy still gives way to its last kid.
+    expect(normalise(remove(splitOf("row", [leaf(1), splitOf("col", [leaf(2), leaf(3)])]), 3)!)).toEqual(splitOf("row", [leaf(1), leaf(2)], [0.5, 0.5]));
+  });
+
+  test("a drawer needs something docked to slide over: the last docked tile or container isn't put in one", () => {
+    const t: LNode = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: false }, leaf(2), splitOf("col", [leaf(3), leaf(4)])]);
+    let r: LNode | null = wrapDrawer(t, 2)!;
+    expect(dockedTiles(r)).toEqual([3, 4]);
+    r = wrapDrawer(r, 3)!;
+    expect(wrapDrawer(r, 4)).toBeNull();
+    expect(wrapDrawer(r, 4, "right")).toBeNull();
+    const c = splitOf("col", [leaf(3), leaf(4)]);
+    const u: LNode = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: true }, c]);
+    expect(wrapNodeDrawer(u, c)).toBeNull();
+    expect(wrapNodeDrawer(u, c, "down")).toBeNull();
+  });
+
+  test("evening out leaves each drawer's size: the docked kids share the rest", () => {
+    const t = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: true } as LNode, leaf(2), leaf(3)], [0.3, 0.5, 0.2]);
+    even(t);
+    expect(t.weights[0]).toBeCloseTo(0.3);
+    expect(t.weights[1]).toBeCloseTo(0.35);
+    expect(t.weights[2]).toBeCloseTo(0.35);
   });
 });

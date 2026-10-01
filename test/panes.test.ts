@@ -209,17 +209,63 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().describe().floats).toHaveLength(0);
   });
 
-  test("the next board builds the same tree from delivery.json; a file from before PIE-511 gives the board as it first opens", async () => {
+  test("a float docks only where the board's containers take it: refused with why, and no detail closed for it", async () => {
+    await withDetails();
+    key({ kind: "tab" }); key({ kind: "tab" });
+    key(char("o"));
+    expect(B().describe().floats).toHaveLength(1);
+    // Both details were open: docking would close one to take its place. A screen that takes only query tiles refuses
+    // first, so nothing closes; the person's o says why.
+    // A second detail docked beside the first: now docking the float would close one.
+    key({ kind: "esc" });
+    expect(focus()).toBe("lanes");
+    key(char("j")); key({ kind: "alt-enter" });
+    await until(() => row().length === 3, "two details docked");
+    key({ kind: "esc" });
+    while (focus() !== "detail1") key({ kind: "tab" });
+    await act("layout.policy", { node: "screen", accepts: "query" });
+    const before = row();
+    key(char("o"));
+    expect(message()).toMatch(/takes only query: not detail1/);
+    expect(row()).toEqual(before);
+    expect(B().describe().floats).toHaveLength(1);
+    await act("layout.policy", { node: "screen", clear: "accepts" });
+    key(char("o"));
+    expect(B().describe().floats).toHaveLength(0);
+  });
+
+  test("the next board builds the same tree from delivery.json; a file from before PIE-511 keeps the board's shape where the preset has a home for it", async () => {
     await fresh();
     key(char("}")); key(char("T")); key(char("S")); key({ kind: "esc" });
     const before = shape(tree()), preview = rect("preview");
     await fresh(true);
     expect(shape(tree())).toEqual(before);
     expect(rect("preview")).toEqual(preview);
-    // A file as an older door wrote it: its sizes aren't the board's layout any more; the hub it remembered is.
-    writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({ laneFrac: 0.3, treePinned: true, hubs: { [B().ctx.workspace]: hub.id } }));
-    await fresh(true);
-    expect(B().describe().tree).toMatchObject({ open: false, pinned: false });
+    // A file as the board wrote it before it was a preset (6d3f0f6): sizes as shares, drawers pinned or not, lanes by name.
+    writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({
+      laneFrac: 0.3, previewFrac: 0.4, treeFrac: 0.25, linksFrac: 0.45, treeSide: "right", laneWeights: { Doing: 2.5 }, readerWeights: [4, 3, 3],
+      treePinned: true, linksPinned: false, lane: 1, collapsed: ["Queued"], collapsedReaders: [], hubs: { [B().ctx.workspace]: hub.id },
+    }));
+    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    b = new DeliveryBoard(hub.id); app.push(b);
+    await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
+    // The outline on the right, pinned (docked), at its width; the lanes at their share of the board.
+    expect(B().describe().tree).toMatchObject({ open: true, pinned: true, side: "right" });
+    const t = tree();
+    expect(panesIn(t.kids.at(-1))).toEqual(["tree", "tree-preview"]);
+    expect(t.kids.at(-1).share).toBeCloseTo(0.25, 2);
+    expect(find(t, "board").kids[0].share / (find(t, "board").kids[0].share + find(t, "board").kids[1].share)).toBeCloseTo(0.3, 2);
+    // The lanes: Doing at its weight, Queued folded to a spine, the cursor on the second lane.
+    const lanes = lanesNode().kids;
+    const doing = lanes.find((k: any) => k.pane === "Doing"), queuedLane = lanes.find((k: any) => k.pane === "Queued");
+    expect(doing.share / queuedLane.share).toBeCloseTo(2.5, 1);
+    expect(B().layoutGet().tiles.find((x: any) => x.name === "Queued").collapsed).toBe(true);
+    expect(B().describe().lanes.find((l: any) => l.focused)?.name).toBe(B().lanes[1].name);
+    // The next save writes the new shape: the old fields are gone.
+    await act("tile.collapse", { on: false }, "Queued");
+    const saved = state();
+    expect(saved.layout).toBeDefined();
+    for (const k of ["laneFrac", "treeFrac", "laneWeights", "treePinned", "collapsed"]) expect(saved[k]).toBeUndefined();
   });
 
   test("agents resize, pin, float, zoom and close tiles by pane.* actions, said on screen", async () => {

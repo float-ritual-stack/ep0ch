@@ -82,7 +82,7 @@ export const PANE_ACTIONS = new ActionSet<{
   },
   "pane.float": {
     summary: "pop tile reader=<pane> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or dock a float back (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
-    keys: "board o; desk ^W f",
+    keys: "board o; desk ^W f; a click on a float's ⧉ docks it",
     args: {},
     run(_, { h, reader }, actor) {
       const r = h.floatPane(reader, actor);
