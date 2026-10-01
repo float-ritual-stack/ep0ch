@@ -727,6 +727,7 @@ export class NoteSurface {
         ...env, width, graphics: false, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
       }).lines,
       row: (block: string, text: string) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
+      hostKeys: host?.ownKeys ?? "",
     };
     const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
       ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
@@ -3603,11 +3604,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line; @name requests only by their line). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
     args: {
       block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
-      line: { type: "number", optional: true, about: "with block: only that line (its index in the note's text, 0 the first)" },
+      line: { type: "number", optional: true, about: "only that line (its index in the note's text, 0 the first), of block= or else the reader's note" },
     },
     async run(a, { surface, host }, actor) {
       const m = surface.msg;
-      const t = typeof a.block === "string" && a.block ? { block: a.block, ...(a.line !== undefined ? { line: a.line } : {}) } : m && isOutlineNote(m) ? surface.refreshTarget() : null;
+      const t = typeof a.block === "string" && a.block ? { block: a.block, ...(a.line !== undefined ? { line: a.line } : {}) }
+        : m && isOutlineNote(m) ? (a.line !== undefined ? { block: m.id, line: a.line } : surface.refreshTarget()) : null;
       if (!t) throw new ActionRefused("no note with tickets here");
       return surface.refreshTickets(host, t.block, actor, t.line);
     },

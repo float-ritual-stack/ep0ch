@@ -290,10 +290,12 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
     if (boundKinds.get(kind) === print) continue;
     // A built-in (or another module's kind) of the same name stays: an extension can't take its place.
     if (!boundKinds.has(kind) && tileKind(kind)) { problems.push(`${t.extension}'s tile kind ${kind} isn't registered: the door has a kind by that name`); continue; }
-    if (boundKinds.has(kind)) unregisterTileKind(kind, `${t.name} is being registered again`);
+    const again = boundKinds.has(kind);
+    if (again) { unregisterTileKind(kind, `${t.name} is being registered again`); boundKinds.delete(kind); changed = true; }
     const { clash } = kindKey(t.name, kind);
-    if (clash && !boundKinds.has(kind)) problems.push(`${kind} has no key under ^W o (${clash}); act tile.open kind=${kind} opens it`);
-    registerTileKind(kindEntry(t));
+    if (clash && !again) problems.push(`${kind} has no key under ^W o (${clash}); act tile.open kind=${kind} opens it`);
+    // One kind the registry refuses (a name it can't take) never stops the others.
+    try { registerTileKind(kindEntry(t)); } catch (e) { problems.push(`${t.extension}'s tile kind ${oneLine(kind)} isn't registered: ${oneLine(e instanceof Error ? e.message : String(e))}`); continue; }
     boundKinds.set(kind, print);
     changed = true;
   }

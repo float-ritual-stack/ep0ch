@@ -310,6 +310,15 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     await until(() => !EXT_ACTIONS.has("ext.noisy.shout"), "noisy gone", 15_000);
   }, 40_000);
 
+  test("a tile kind the registry refuses is said, and never stops the other kinds binding", () => {
+    const list = extensionList()!;
+    const bad = { ...list.tileKinds[0]!, kind: "9 not a kind", name: "Broken" };
+    const r = bindExtensions({ ...list, tileKinds: [bad, ...list.tileKinds] });
+    expect(r.problems.join(" ")).toContain("tile kind 9 not a kind isn't registered");
+    expect(tileKind("tarot.reading")).toBeDefined();
+    bindExtensions(list);
+  });
+
   test("against a service without extensions.list: nothing is bound, and a tile of an extension's kind says why", async () => {
     const older = { listExtensions: async () => null } as any;
     const r = await loadExtensions(older);

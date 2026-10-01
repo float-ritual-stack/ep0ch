@@ -464,6 +464,8 @@ export interface ExtDraw {
   markdown(text: string, width: number): string[];
   /** Tag a block a component names (a card's link, a table row's): `[ ]` stops on it, a click opens it. */
   row?(block: string, text: string): string;
+  /** The keys the reader's host keeps (SurfaceHost.ownKeys): a control never names one as its key. */
+  hostKeys?: string;
 }
 
 /** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
@@ -529,7 +531,7 @@ export function extensionRegion(p: ResourceProjection, w: number, indent: number
   const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
   const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;
   const controls = [
-    ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key) === a ? `${a.key} ${a.id}` : a.id)),
+    ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key, d.hostKeys) === a ? `${a.key} ${a.id}` : a.id)),
     control(RUN_AGAIN, `r ${againWords(p)}`),
   ];
   row(controls.join(" "));
