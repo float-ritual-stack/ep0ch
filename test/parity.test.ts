@@ -104,6 +104,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
     return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: !!top?.holdsKeys?.() || !!top?.rawKeys?.() || app.dockHoldsKeys(), video: app.video };
   };
+  /** The same screen shown the same way, on two builds of it (another instance of the same class). */
+  const alike = (a: Snap, b: Snap) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
   const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
@@ -232,26 +234,24 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     // with a change must run an action (a cancel that puts the screen back as it was is fine).
     for (const k1 of states) {
       dirty = true;
-      let rest: Snap | null = null;
       for (const k2 of PROBE_KEYS) {
-        if (dirty) {
-          if (!rest) { mask = await fresh(label, make, setup); rest = snap(mask); }
-          mask = await fresh(label, make, [...setup, k1]); dirty = false;
-        }
+        if (dirty) { mask = await fresh(label, make, [...setup, k1]); dirty = false; }
         const mid = snap(mask);
         const runs: ActionRun[] = [];
         const stop = traceActions(r => runs.push(r));
         try { push(k2); await settle(); } finally { stop(); }
         const after = snap(mask);
         if (same(mid, after)) continue;
-        if (!(after.holds && after.top === mid.top)) dirty = true;
+        dirty = true;                                         // any change: the next key starts from the state again
         if (runs.length) {
           if (!declares(tokens(runs), k2, k1)) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
           continue;
         }
         if (after.holds && after.top === mid.top) continue;   // still typing, or another input state
-        if (rest && same(rest, after)) continue;             // cancelled: back as it was
-        dirty = true;
+        // Cancelled: the screen as it was before the state (built again now, so rows that age match).
+        const ended = snap(mask);
+        await fresh(label, make, setup);
+        if (alike(snap(mask), ended)) continue;
         if (!(await bare(label, make, [...setup, k1], k2))) continue;
         findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: "ended an input state with a change and no action" });
       }
