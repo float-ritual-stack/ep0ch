@@ -13,10 +13,12 @@ import { App } from "../src/app";
 import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader } from "../src/screens";
 import { DOCK_ACTIONS } from "../src/dock";
-import { SocketBoard, type Msg } from "../src/socket";
+import { SocketBoard } from "../src/socket";
+import type { Msg } from "../src/board";
 import type { Key } from "../src/term";
 import type { Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { external } from "../src/open";
 import { outliner, Scratch } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -28,7 +30,7 @@ export const PROBE_KEYS: Key[] = [
   ..."abdefghijklmnopqrstuvwxyz".split("").map((ch): Key => ({ kind: "char", ch, ctrl: true })),
   { kind: "char", ch: "]", ctrl: true },
   ..."abcdefghijklmnopqrstuvwxyzACDLRX".split("").map((ch): Key => ({ kind: "alt", ch })),
-  ...(["up", "down", "left", "right", "alt-enter", "esc", "backspace", "tab", "backtab", "pgup", "pgdn", "home", "end", "delete", "alt-left", "alt-right"] as const).map((kind): Key => ({ kind })),
+  ...(["up", "down", "left", "right", "alt-enter", "esc", "backspace", "tab", "backtab", "pgup", "pgdn", "home", "end", "delete", "alt-left", "alt-right"] as const).map((kind) => ({ kind }) as Key),
   { kind: "enter" },
 ];
 
@@ -53,6 +55,9 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     process.env.EP0CH_DAILY_AGENT = "sh";
+    // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
+    process.env.VISUAL = process.env.EDITOR = "true";
+    external.run = () => {};
     board = new SocketBoard(await scratch.start());
     await board.info();
     await scratch.seedShowcase();
@@ -63,11 +68,17 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
       inflight++;
       return request(action, params).finally(() => { inflight--; });
     };
+    newApp();
+    board.subscribe(e => app.event(e));
+  }, 60_000);
+
+  /** A door of its own for each screen: nothing one screen's probes left (a drawer, a timer) reaches the next. */
+  function newApp() {
+    if (app) { for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s); try { app.quit(); } catch { /* gone */ } }
     const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
-    board.subscribe(e => app.event(e));
     A().cycleVideo = function () { this.video = this.video === "cells" ? "kitty" : "cells"; };
-  }, 60_000);
+  }
 
   afterAll(async () => {
     for (const s of [...(A().stack ?? []), ...(A().background ?? [])]) end(s);
@@ -104,6 +115,11 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     (Desk as any).kept = null;
+    // The agent drawer is the App's, over every screen: put away, its program ended.
+    const dock = A().dock;
+    dock.open = false; dock.entered = false; dock.openedBy = null;
+    try { dock.p?.dispose?.(); } catch { /* gone */ }
+    dock.p = null;
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
@@ -158,6 +174,7 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
    * keys (an input state), every key again.
    */
   async function audit(label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []) {
+    newApp();
     let mask = await fresh(label, make, setup);
     let dirty = false;
     const states: Key[] = [];
@@ -167,6 +184,7 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
       const base = snap(mask);
       const runs: ActionRun[] = [];
       const stop = traceActions(r => runs.push(r));
+      if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
       try { push(k); await settle(); } finally { stop(); }
       const after = snap(mask);
       if (same(base, after) && !runs.length) continue;
@@ -210,13 +228,34 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     }
   }
 
-  const SCREENS: [string, () => Screen | Promise<Screen>, Key[]?][] = [
+  type Scenario = [string, () => Screen | Promise<Screen>, Key[]?];
+  const k = (ch: string): Key => ({ kind: "char", ch });
+  const TAB: Key = { kind: "tab" };
+
+  // ── every screen the menu opens, as it opens ──
+  const SCREENS: Scenario[] = [
     ["main menu", () => new MainMenu()],
-    ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!").map(([key, make]): [string, () => Screen] => [key, () => make(app) as Screen]),
+    ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!").map(([key, make]): Scenario => [key, () => make(app) as Screen]),
     ["message reader", () => new MessageReader(notes, 0)],
   ];
+
+  // ── the board in its other states (the keys and clicks of each area) ──
+  const BOARD: Scenario[] = [
+    ["board: preview", () => MENU_SCREENS.find(([key]) => key === "K")![1](app) as Screen, [TAB]],
+  ];
+
+  // ── the river in its other states ──
+  const RIVER: Scenario[] = [];
+
+  // ── the desk and the views built on it, in their other states ──
+  const DESK: Scenario[] = [];
+
+  // ── the reader (the note surface), the edit, the comment and the property panel ──
+  const READER: Scenario[] = [];
+
+  const ALL = [...SCREENS, ...BOARD, ...RIVER, ...DESK, ...READER];
   const only = process.env.PARITY_ONLY?.split(",");
-  for (const [label, make, setup] of SCREENS) {
+  for (const [label, make, setup] of ALL) {
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length;

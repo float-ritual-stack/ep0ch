@@ -297,7 +297,7 @@ export class MainMenu implements Screen {
       lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
       lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, extras.slice(1), { centre: true }));
     }
-    lines.push(center(paint(`|08${ctx.events ? `|14${ctx.events} change(s) on the outline since you logged on · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
+    lines.push(center(paint(`|08${ctx.events ? `|14changes on the outline since you logged on: ${ctx.events} · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
     return { lines, placements: frame };
   }
   key(k: Key, ctx: Ctx): void {
@@ -318,9 +318,9 @@ export class MainMenu implements Screen {
     // G (or a click on it). q stays the menu's own letter, the Quay, as it always was: there's nothing to
     // go back to from here, and q → Quay is in the fingers.
     else if (k.kind === "esc") return shellKey("screen.back", {}, this, ctx);
-    else if (k.kind === "char" && k.ch.toUpperCase() === "V") { ctx.cycleVideo(); return; }
-    else if (k.kind === "char" && k.ch === "?") return ctx.push(new Help());
-    else if (k.kind === "char") {
+    else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
+    else if (k.kind === "char" && !k.ctrl && k.ch === "?") return shellKey("screen.help", {}, this, ctx);
+    else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) { this.sel = hit; return this.open(ITEMS[hit]!, ctx); }
     }
@@ -381,7 +381,10 @@ const SCREEN_NAMES: Record<string, string[]> = {
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"],
 };
 
-type ShellArgs = { "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "changes.extensions": { include?: boolean } };
+type ShellArgs = {
+  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>;
+  "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
+};
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
@@ -447,8 +450,27 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       return { exited: code };
     },
   },
+  "screen.help": {
+    summary: "open the help screen over this one: every menu item and what it does (any key goes back); an agent's waits until the person is idle and is said on the status bar", keys: "? on the main menu",
+    args: {},
+    run(_, { ctx, here }, actor) {
+      agentMayMove(here, ctx, actor);
+      ctx.push(new Help());
+      if (actor.kind === "agent") ctx.flash("opened help · any key goes back", 6000);
+      return { opened: "help" };
+    },
+  },
+  "video.cycle": {
+    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's is said on the status bar)", keys: "V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer",
+    args: {},
+    run(_, { ctx }) {
+      ctx.cycleVideo();
+      ctx.redraw();
+      return { video: ctx.video };
+    },
+  },
   "screen.list": {
-    summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first", keys: "?",
+    summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first",
     args: {},
     run(_, { ctx }) {
       return { stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })) };
@@ -456,8 +478,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
 });
 
-/** A person's key or click: the same action, as `you`; a refusal is said on the status bar. */
-function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
+/** A person's key or click: the shell's action, as `you`; a refusal is said on the status bar. Any screen's q, Esc and V run these. */
+export function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
   const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
   try { SHELL_ACTIONS.run(name, args, { ctx, here }, USER).catch(say); } catch (e) { say(e); }
 }
