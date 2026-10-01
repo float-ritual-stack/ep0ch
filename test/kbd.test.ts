@@ -39,6 +39,14 @@ describe("reading key reports", () => {
     expect(key("\x1b[?5u")).toBeNull();                                         // the query's answer isn't a key
   });
 
+  test("super (cmd) with a key is its own kind: cmd+c is never the plain c", () => {
+    expect(key("\x1b[99;9u")).toEqual({ kind: "super", ch: "c" });             // super = 8, so mods 9
+    expect(key("\x1b[99:67;10u")).toEqual({ kind: "super", ch: "C" });         // cmd+shift+c
+    expect(key("\x1b[99;13u")).toEqual({ kind: "super", ch: "c" });            // cmd+ctrl+c: still super, not ctrl+c
+    expect(key("\x1b[27;9;99~")).toEqual({ kind: "super", ch: "c" });          // modifyOtherKeys form
+    expect(key("\x1b[99;1:3u")).toBeNull();                                      // a release
+  });
+
   test("a raw piece: a report or legacy ESC-and-a-letter, whole", () => {
     expect(rawKey("\x1b[97;3u")).toEqual({ kind: "alt", ch: "a" });
     expect(rawKey("\x1ba")).toEqual({ kind: "alt", ch: "a" });
@@ -126,6 +134,10 @@ describe("the door's terminal", () => {
     expect(sent).toEqual(["ab", "\x1b[13;2u", "cd", "ef"]);
     expect(keys).toEqual([{ kind: "char", ch: "]", ctrl: true }]);
     sent.length = 0;
+    feed("\x1b[99;9u");                                                         // cmd+c: the program's, not the door's copy
+    expect(sent).toEqual(["\x1b[99;9u"]);
+    expect(keys.length).toBe(1);
+    sent.length = 0;
     feed("x\x1b[13");                                                           // cut off: the rest is waited for
     expect(sent).toEqual(["x"]);
     feed(";2u");
@@ -178,6 +190,17 @@ describe("a terminal tile's program", () => {
     expect(legacyBytes(parseReport("\x1b[120;7u")!)).toBe("\x1b\x18");        // ctrl+alt+x
     expect(translateReports("\x1b[45:95;6u\x1b[47;5u\x1b[50;5u", 0)).toBe("\x1f\x1f\x00");   // ctrl+_ ctrl+/ ctrl+2
     expect(translateReports("\x1b[57414u\x1b[57419u\x1b[57425u\x1b[57401u", 0)).toBe("\r\x1b[A\x1b[2~2");  // the keypad
+    // cmd+c has no legacy bytes (a legacy terminal sends none): never a typed c.
+    expect(translateReports("a\x1b[99;9ub", 0)).toBe("ab");
+  });
+
+  test("a program with the protocol gets cmd+c as it came", () => {
+    expect(translateReports("\x1b[99;9u", 1)).toBe("\x1b[99;9u");
+    expect(translateReports("\x1b[99;9u", 5)).toBe("\x1b[99;9u");
+    // Read as a key first (a tile fed keys, not raw bytes), it's encoded back the same way.
+    expect(keyBytes({ kind: "super", ch: "c" }, false, 1)).toBe("\x1b[99;9u");
+    expect(keyBytes({ kind: "super", ch: "C" }, false, 5)).toBe("\x1b[99:67;10u");
+    expect(keyBytes({ kind: "super", ch: "c" }, false, 0)).toBeNull();
   });
 
   test("with the protocol, only what the program asked for: no alternate keys unless flag 4", () => {

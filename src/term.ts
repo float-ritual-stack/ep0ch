@@ -9,6 +9,11 @@ export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean; pasted?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
+  /**
+   * Super (cmd on a Mac) with a printable key, as only the Kitty keyboard protocol reports it (src/kbd.ts; Ghostty
+   * passes cmd+c on when it has no selection of its own). Its own kind: cmd+c is never the plain `c`.
+   */
+  | { kind: "super"; ch: string }
   | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
   /**
    * Enter. `shift`, `ctrl`: held with it, as only a terminal speaking the Kitty keyboard protocol can say (src/kbd.ts).

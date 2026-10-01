@@ -125,6 +125,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 - An agent never takes the person's focus, keys, selection or the reader they're typing in; such actions
   are refused with the reason. Your selection, focus marks and backlinks views are your own.
+- Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
+  clipboard. Their mouse selection is copied when they let go (copy on select; `EP0CH_COPY_ON_SELECT=0`
+  turns it off), and their `y` or cmd+c copies too.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
 - Test data belongs in scratch services with fictional notes, never a real outline.

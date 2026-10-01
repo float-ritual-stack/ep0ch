@@ -2,10 +2,10 @@
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
 import { AGENT_ACTOR_ID, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
+import { ActionRefused, agentLabel, asActor, traceActions, type ActionInfo, type ActRequest } from "./surface/actions";
 import { SHELL_ACTIONS } from "./screens";
-import { osc52 } from "./surface/selection";
-import { bg, C, fg, pad, RESET, width } from "./style";
+import { isCopyKey, osc52 } from "./surface/selection";
+import { bg, C, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
 import { toCp437Glyphs } from "./ansi";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
@@ -46,7 +46,7 @@ export interface Ctx {
   quit(): void;
   redraw(): void;
   flash(msg: string, ms?: number): void;
-  /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on). */
+  /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the screen. */
   copy?(text: string): void;
   cycleVideo(): void;
   /**
@@ -245,7 +245,9 @@ export class App implements Ctx {
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
-  flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.redraw(); }
+  flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
+  /** Flashes said so far: a key that said nothing and ran nothing is found by it (cmd+c with nothing to copy). */
+  private flashes = 0;
 
   // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
   private viewers = new Set<(e: ViewEvent) => void>();
@@ -295,7 +297,18 @@ export class App implements Ctx {
     if (was?.marks !== now.marks && v.marks !== undefined) send({ type: "marks.changed", marks: v.marks });
     this.shown = now;
   }
-  copy(text: string) { this.term.write(osc52(text)); }
+  /**
+   * The person's clipboard (OSC 52), and a "copied to clipboard" toast over the bottom of the screen for a
+   * moment, as Herdr's `ui.toast.clipboard` shows: the status bar's "copied N chars" is easy to miss. Every
+   * copy in the door comes here (a reader's selection, a property's value, a step's link). Never an agent's.
+   */
+  copy(text: string) {
+    this.term.write(osc52(text));
+    this.toast = { text: `copied to clipboard · ${[...text].length} chars`, until: Date.now() + TOAST_MS };
+    this.redraw();
+  }
+  /** What the toast says and until when (App.copy); the tick takes it away. */
+  toast: { text: string; until: number } | null = null;
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
     this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
@@ -505,7 +518,18 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
-    this.stack.at(-1)?.key(k, this);
+    // cmd+c (super+c) is the copy wherever a reader or a draft has a selection (its copy action runs); where
+    // nothing took it (no reader has the keys, or nothing ran and nothing was said), it says so. In a terminal
+    // tile it's the program's, as it came (rawKeys).
+    const top = this.stack.at(-1);
+    if (isCopyKey(k) && top && !top.rawKeys?.()) {
+      let ran = false;
+      const said = this.flashes, stop = traceActions(() => { ran = true; });
+      try { top.key(k, this); } finally { stop(); }
+      if (!ran && this.flashes === said) this.flash("nothing selected · drag across the text to copy it, or v and move then y");
+      return;
+    }
+    top?.key(k, this);
   }
 
   /**
@@ -527,8 +551,9 @@ export class App implements Ctx {
 
   private tick() {
     const s = this.stack.at(-1);
-    const expired = this.message && Date.now() > this.messageUntil;
+    let expired = !!this.message && Date.now() > this.messageUntil;
     if (expired) this.message = "";
+    if (this.toast && Date.now() > this.toast.until) { this.toast = null; expired = true; }
     if (s?.tick?.(this) || expired) this.redraw();
     // An idle door still keeps time: once the clock or the uptime turns over, the status bar alone is
     // repainted (no screen render, no Kitty sync), so nothing being edited, selected or dragged moves.
@@ -627,6 +652,7 @@ export class App implements Ctx {
       // Images under the drawer would show through it.
       placements = placements.filter(p => p.row + p.rows <= d.rect.row);
     } else this.dock.rect = null;
+    if (this.toast) lines = withToast(lines, this.toast.text, cols);
     lines.push(this.statusBar(s, cols));
     if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
     // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
@@ -657,6 +683,22 @@ export class App implements Ctx {
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
+}
+
+/** How long the "copied to clipboard" toast stays. */
+export const TOAST_MS = 1500;
+
+/**
+ * The toast laid over the screen's lines (the status bar not among them): one row, bottom centre, two rows above
+ * the status bar, over whatever is drawn there; the rest of that row stays as it was.
+ */
+export function withToast(lines: string[], text: string, cols: number): string[] {
+  const t = ` ✓ ${text} `, w = Math.min(width(t), cols);
+  const row = Math.max(0, lines.length - 2), at = Math.max(0, Math.floor((cols - w) / 2));
+  const out = [...lines];
+  const line = out[row] ?? "";
+  out[row] = headOf(line, at) + RESET + bg(C.cyan) + fg(C.white) + pad(t, w) + RESET + tailFrom(line, at + w);
+  return out;
 }
 
 /**

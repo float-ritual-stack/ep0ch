@@ -1,6 +1,8 @@
 // PIE-419: selecting and copying text in every reader, by mouse and by keys, and by agents through
-// `act`. Selecting never copies; only y, Y or the copy control do, with OSC 52. A drag that starts on a
-// link selects; a click still follows it. Fictional notes, against throwaway services only.
+// `act`. Copy on select (Oct 1): a selection made with the mouse is copied with OSC 52 when the button comes
+// up, as Herdr's ui.copy_on_select does; EP0CH_COPY_ON_SELECT=0 leaves it to y, Y, cmd+c or the copy control.
+// A plain click copies nothing; an agent's selection is never the person's clipboard. A drag that starts on
+// a link selects; a click still follows it. Fictional notes, against throwaway services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -11,12 +13,20 @@ import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
-import { cellsOf, Gesture, lineAt, osc52, paintRange, rowsOf, Selection, SELECT_BG } from "../src/surface/selection";
+import { cellsOf, copyOnSelect, Gesture, lineAt, osc52, paintRange, rowsOf, Selection, SELECT_BG } from "../src/surface/selection";
+import { TOAST_MS, withToast } from "../src/app";
+import { tailFrom } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
+const CMD_C: Key = { kind: "super", ch: "c" };
+/** Copy on select off for `run`, as EP0CH_COPY_ON_SELECT=0 sets it. */
+const withoutCopyOnSelect = async (run: () => unknown) => {
+  process.env.EP0CH_COPY_ON_SELECT = "0";
+  try { await run(); } finally { delete process.env.EP0CH_COPY_ON_SELECT; }
+};
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 const AGENT: Actor = { kind: "agent", id: "claude-419" };
 type Rect = { col: number; row: number; cols: number; rows: number };
@@ -49,17 +59,42 @@ describe("the selection model", () => {
   test("a press and release on one cell is a click; a drag isn't; quick presses on a cell count up to three", () => {
     const g = new Gesture();
     expect(g.press(3, 4, 1000)).toBe(1);
-    expect(g.release(3, 4)).toEqual({ click: true, moved: false, n: 1 });
+    expect(g.release(3, 4)).toEqual({ click: true, moved: false, n: 1, copy: false });
     expect(g.press(3, 4, 1100)).toBe(2);
-    expect(g.release(3, 4).click).toBe(false);
+    expect(g.release(3, 4)).toMatchObject({ click: false, copy: true });     // a double click selected: it copies
     expect(g.press(3, 4, 1200)).toBe(3);
     g.release(3, 4);
     expect(g.press(3, 4, 5000)).toBe(1);                     // too late: a new click
     expect(g.drag(3, 4)).toBe(false);                         // not off the cell yet
     expect(g.drag(5, 4)).toBe(true);
-    expect(g.release(5, 4)).toEqual({ click: false, moved: true, n: 1 });
+    expect(g.release(5, 4)).toEqual({ click: false, moved: true, n: 1, copy: true });
     g.press(3, 4, 6000); g.release(3, 4); g.forget();
     expect(g.press(3, 4, 6050)).toBe(1);                      // the click acted: not a double click
+  });
+
+  test("copy on select is on unless EP0CH_COPY_ON_SELECT turns it off; then a drag's release doesn't copy", () => {
+    expect(copyOnSelect({})).toBe(true);
+    for (const v of ["0", "off", "no", "false", " OFF "]) expect(copyOnSelect({ EP0CH_COPY_ON_SELECT: v })).toBe(false);
+    expect(copyOnSelect({ EP0CH_COPY_ON_SELECT: "1" })).toBe(true);
+    const g = new Gesture();
+    process.env.EP0CH_COPY_ON_SELECT = "0";
+    try { g.press(1, 1); g.drag(4, 1); expect(g.release(4, 1)).toMatchObject({ moved: true, copy: false }); }
+    finally { delete process.env.EP0CH_COPY_ON_SELECT; }
+  });
+
+  test("the toast: one row over the screen, bottom centre, the row's other cells kept", () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `\x1b[33mrow ${i} ${"x".repeat(54)}\x1b[0m`);
+    const out = withToast(lines, "copied to clipboard · 5 chars", 60);
+    expect(out.length).toBe(6);
+    const row = plain(out[4]!);
+    expect(row).toContain(" ✓ copied to clipboard · 5 chars ");
+    expect([...row].length).toBe(lines[4]!.replace(/\x1b\[[\d;]*m/g, "").length);
+    expect(row.indexOf("✓") - 1).toBe(Math.floor((60 - 33) / 2));
+    expect(row).toStartWith("row 4 xxxxxxx ✓");
+    expect(row).toEndWith(" xxxxxxxxxxxxxx");
+    expect(out.filter((l, i) => l !== lines[i])).toHaveLength(1);
+    expect(tailFrom("\x1b[31mab\x1b[32mcd", 3)).toBe("\x1b[31m\x1b[32md");  // the colours at the cut, set again
+    expect(TOAST_MS).toBeGreaterThan(500);
   });
 });
 
@@ -83,15 +118,70 @@ describe("the note surface selects and copies, without a service", () => {
     return { s, h, copies, flashes, draw, at };
   };
 
-  test("a drag selects and copies nothing; y copies what's drawn and says how much", () => {
+  test("a drag copies what it selected when the button comes up, and says how much; y copies it again", () => {
     const { s, h, copies, flashes, at } = setup();
     const a = at("Sow peas"), z = at("fence.");
-    s.press(a.x, a.y, h); s.drag(a.x + 3, a.y, h); s.drag(z.x + 5, z.y, h); s.release(z.x + 5, z.y, h);
-    expect(copies).toEqual([]);                                    // selecting never copies
-    expect(s.describe().selection?.text).toBe("Sow peas early by the fence.");
-    s.key(char("y"), h);
-    expect(copies).toEqual(["Sow peas early by the fence."]);
+    s.press(a.x, a.y, h); s.drag(a.x + 3, a.y, h); s.drag(z.x + 5, z.y, h);
+    expect(copies).toEqual([]);                                    // not while the button is down
+    s.release(z.x + 5, z.y, h);
+    expect(copies).toEqual(["Sow peas early by the fence."]);     // copy on select
     expect(flashes.at(-1)).toBe("copied 28 chars");
+    expect(s.describe().selection?.text).toBe("Sow peas early by the fence.");   // the selection stays
+    s.key(char("y"), h);
+    expect(copies).toEqual(["Sow peas early by the fence.", "Sow peas early by the fence."]);
+  });
+
+  test("a plain click selects nothing and copies nothing; neither does a drag over blanks", () => {
+    const { s, h, copies, flashes, at } = setup();
+    const a = at("Water");
+    s.press(a.x, a.y, h); s.release(a.x, a.y, h);
+    expect(copies).toEqual([]);
+    expect(s.describe().selection).toBeNull();
+    const lines = s.render(60, 20, h).lines, blank = lines.findIndex((l, i) => i > a.y && !plain(l).trim());
+    s.press(20, blank, h); s.drag(25, blank, h); s.release(25, blank, h);
+    expect(copies).toEqual([]);
+    expect(flashes.some(f => f.startsWith("copied"))).toBe(false);
+  });
+
+  test("cmd+c copies the selection as y does; with none it says nothing is selected", () => {
+    const { s, h, copies, flashes, at } = setup();
+    s.render(60, 20, h);
+    s.key(CMD_C, h);
+    expect(copies).toEqual([]);
+    expect(flashes.at(-1)).toContain("nothing is selected");
+    s.key(char("v"), h); s.key(char("l"), h); s.key(char("l"), h);
+    s.key(CMD_C, h);                                                // the keyboard mode copies with cmd+c too
+    expect(copies).toEqual(["Sow"]);
+    s.key({ kind: "esc" }, h);
+    const a = at("Water");
+    s.press(a.x, a.y, h); s.drag(a.x + 4, a.y, h); s.release(a.x + 4, a.y, h);
+    s.key(CMD_C, h);
+    expect(copies).toEqual(["Sow", "Water", "Water"]);
+  });
+
+  test("with copy on select off, the selection stays uncopied until y, cmd+c or the copy control", async () => {
+    await withoutCopyOnSelect(() => {
+      const { s, h, copies, at } = setup();
+      const a = at("seedlings");
+      s.press(a.x, a.y, h); s.drag(a.x + 8, a.y, h); s.release(a.x + 8, a.y, h);
+      s.press(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);       // a click lets go of it
+      s.press(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);       // a double click selects the word
+      expect(s.describe().selection?.text).toBe("seedlings");
+      expect(copies).toEqual([]);
+      s.key(CMD_C, h);
+      expect(copies).toEqual(["seedlings"]);
+    });
+  });
+
+  test("an agent's selection is never copied: not by the person's click, cmd+c or y, which find nothing of theirs", async () => {
+    const { s, h, copies, flashes, at } = setup();
+    const a = at("dig");
+    expect(await s.act("select", { text: "Water the seedlings" }, h, AGENT)).toMatchObject({ chars: 19 });
+    s.press(a.x, a.y, h); s.release(a.x, a.y, h);
+    s.key(CMD_C, h);
+    expect(flashes.at(-1)).toContain("nothing is selected");
+    s.key(char("y"), h);
+    expect(copies).toEqual([]);
   });
 
   test("the selection is painted, stays on its text as the note scrolls, and a copy control appears", () => {
@@ -115,24 +205,27 @@ describe("the note surface selects and copies, without a service", () => {
     const { s, h, copies, draw, at } = setup();
     const a = at("seedlings");
     s.press(a.x, a.y, h); s.drag(a.x + 8, a.y, h); s.release(a.x + 8, a.y, h);
+    expect(copies).toEqual(["seedlings"]);                          // the drag's own copy
     const c = at("[y copy]", draw());
     s.press(c.x + 2, c.y, h); s.release(c.x + 2, c.y, h);
-    expect(copies).toEqual(["seedlings"]);
+    expect(copies).toEqual(["seedlings", "seedlings"]);
     const src = at("[Y source]", draw());
     s.press(src.x + 2, src.y, h); s.release(src.x + 2, src.y, h);
-    expect(copies).toEqual(["seedlings", "seedlings"]);            // plain words: the source reads the same
+    expect(copies).toEqual(["seedlings", "seedlings", "seedlings"]);   // plain words: the source reads the same
   });
 
-  test("double click selects a word, triple the row; neither copies", () => {
+  test("double click selects a word, triple the row; each copies what it selected", () => {
     const { s, h, copies, at } = setup();
     const a = at("seedlings");
     s.press(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);
     expect(s.describe().selection).toBeNull();                     // one click selects nothing
+    expect(copies).toEqual([]);
     s.press(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);
     expect(s.describe().selection?.text).toBe("seedlings");
+    expect(copies).toEqual(["seedlings"]);
     s.press(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);
     expect(s.describe().selection?.text).toBe("Water the seedlings every morning.");
-    expect(copies).toEqual([]);
+    expect(copies).toEqual(["seedlings", "Water the seedlings every morning."]);
   });
 
   test("v starts where the reading is; h j k l and End move it; y copies; esc lets go", () => {
@@ -204,6 +297,8 @@ describe("the note surface selects and copies, without a service", () => {
     const { s, h, copies, flashes, at } = setup();
     const a = at("Sow");
     s.press(a.x, a.y, h); s.drag(a.x + 2, a.y, h); s.release(a.x + 2, a.y, h);
+    expect(copies).toEqual(["Sow"]);                                // the person's drag, copied on release
+    copies.length = 0;
     expect(await s.act("select", { text: "Water the seedlings" }, h, AGENT)).toMatchObject({ chars: 19, text: "Water the seedlings" });
     expect(s.describe().selection?.text).toBe("Sow");               // the person's, as it was
     expect(s.describe().agentSelection).toMatchObject({ id: "claude-419", text: "Water the seedlings" });
@@ -282,17 +377,21 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     return { d, r: BV.rectOf(b, region) as Rect };
   };
 
-  test("a drag selects and writes nothing; y writes the drawn text (the link as its title) with OSC 52", async () => {
+  test("a drag writes the drawn text (the link as its title) with OSC 52 when the button comes up, with a toast; y writes it again", async () => {
     const { d, r } = await openCard();
     const a = where(frame(), "Sow peas", r), z = where(frame(), "first.", r);
     writes.length = 0;
-    drag(a, { x: z.x + 5, y: z.y });
-    expect(copied()).toEqual([]);
-    expect(d.surface.describe().selection.text).toBe(LINE());
-    key(char("y"));
+    (app as any).toast = null;
+    mouse("down", a.x, a.y); mouse("drag", a.x + 1, a.y); mouse("drag", z.x + 5, z.y);
+    expect(copied()).toEqual([]);                                    // nothing while the button is down
+    mouse("up", z.x + 5, z.y);
     expect(copied()).toEqual([LINE()]);
     expect(writes.join("")).toContain(`\x1b]52;c;${Buffer.from(LINE()).toString("base64")}\x07`);
     expect(message()).toBe(`copied ${LINE().length} chars`);
+    expect((app as any).toast.text).toBe(`copied to clipboard · ${LINE().length} chars`);
+    expect(d.surface.describe().selection.text).toBe(LINE());
+    key(char("y"));
+    expect(copied()).toEqual([LINE(), LINE()]);
     key({ kind: "esc" });
     expect(d.surface.describe().selection).toBeNull();
     expect(BV.where(b)).toMatch(/^detail/);                           // the first esc only let go of the selection
@@ -304,7 +403,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     writes.length = 0;
     drag(a, { x: z.x + 5, y: z.y });
     key(char("Y"));
-    expect(copied()).toEqual([`Sow peas, see ((${beans.id})) first.`]);
+    expect(copied()).toEqual([LINE(), `Sow peas, see ((${beans.id})) first.`]);
     expect(message()).toContain("of source · whole line 2");
   });
 
@@ -316,10 +415,80 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     await Bun.sleep(200);
     expect(d.msg.id).toBe(card.id);
     expect(d.surface.describe().selection.text).toBe("ake t");
-    expect(copied()).toEqual([]);
+    expect(copied()).toEqual(["ake t"]);
     click({ x: l.x + 2, y: l.y });
     await until(() => d.msg?.id === beans.id, "the link to open on a click");
     expect(d.surface.describe().selection).toBeNull();
+  });
+
+  test("a plain click with nothing selected writes nothing", async () => {
+    const { d, r } = await openCard();
+    const w = where(frame(), "Water", r);
+    writes.length = 0;
+    click(w);
+    await Bun.sleep(50);
+    expect(d.surface.describe().selection).toBeNull();
+    expect(copied()).toEqual([]);
+    expect(writes.join("")).not.toContain("\x1b]52;");
+  });
+
+  test("cmd+c (a kitty super+c report) copies the selection; without one it says nothing is selected", async () => {
+    const { r } = await openCard();
+    writes.length = 0;
+    key(CMD_C);
+    expect(copied()).toEqual([]);
+    expect(message()).toContain("nothing is selected");
+    const w = where(frame(), "Water", r);
+    await withoutCopyOnSelect(() => drag(w, { x: w.x + 4, y: w.y }));
+    expect(copied()).toEqual([]);                                    // copy on select off: the drag only selects
+    key(CMD_C);
+    expect(copied()).toEqual(["Water"]);
+    expect(message()).toBe("copied 5 chars");
+  });
+
+  test("cmd+c where no reader has the keys says nothing is selected", async () => {
+    const menu = new MainMenu();
+    app.push(menu);
+    try {
+      writes.length = 0;
+      key(CMD_C);
+      expect(copied()).toEqual([]);
+      expect(message()).toStartWith("nothing selected");
+    } finally { app.pop(); }
+  });
+
+  test("an agent's selection never reaches the person's clipboard: not by cmd+c, a click or y", async () => {
+    const { d, r } = await openCard();
+    writes.length = 0;
+    expect(await act("select", { text: "Water the seedlings" }, "detail")).toMatchObject({ chars: 19 });
+    key(CMD_C);
+    click(where(frame(), "Sow peas", r));
+    key(char("y"));
+    expect(copied()).toEqual([]);
+    expect(d.surface.describe().agentSelection.text).toBe("Water the seedlings");
+  });
+
+  test("in an edit, a drag is the draft's selection and isn't copied; cmd+c copies it", async () => {
+    const { d, r } = await openCard();
+    key(char("e"));
+    await until(() => !!d.surface.editing && !!d.surface.writingDraft(), "the edit");
+    const draft = d.surface.writingDraft();
+    writes.length = 0;
+    const w = where(frame(), "Water the", r);
+    drag(w, { x: w.x + 8, y: w.y });
+    expect(draft.selectedText()).toBeTruthy();                       // the mouse selected in the draft
+    expect(copied()).toEqual([]);                                     // and nothing was copied
+    draft.place(1, 0); draft.place(1, 8, true);                     // as a drag in the draft leaves it
+    key(CMD_C);
+    await until(() => copied().length > 0, "the draft's copy");
+    expect(copied()).toEqual(["Sow peas"]);
+    expect(message()).toBe("copied 8 chars");
+    draft.place(1, 0);
+    key(CMD_C);
+    await until(() => message().includes("nothing is selected in the draft"), "the refusal said");
+    expect(copied()).toEqual(["Sow peas"]);
+    key({ kind: "esc" });
+    await until(() => !d.surface.editing, "the edit closed");
   });
 
   test("double and triple clicks select a word and a row", async () => {
@@ -399,10 +568,10 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       const a = where(lines(), "Water", r());
       writes.length = 0;
       drag(a, { x: a.x + 8, y: a.y });
-      expect(copied()).toEqual([]);
+      expect(copied()).toEqual(["Water the"]);                       // copy on select
       expect(reader()[1].surface.describe().selection.text).toBe("Water the");
       key(char("y"));
-      expect(copied()).toEqual(["Water the"]);
+      expect(copied()).toEqual(["Water the", "Water the"]);
     } finally { app.pop(); }
   });
 
@@ -425,9 +594,9 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       drag({ x: l.x, y: l.y }, { x: l.x + 4, y: l.y });
       await Bun.sleep(150);
       expect(R().cols.length).toBe(cols);                            // the link didn't open a column
-      expect(copied()).toEqual([]);
-      key(char("y"));
-      expect(copied()).toEqual(["Stake"]);
+      expect(copied()).toEqual(["Stake"]);                           // copy on select
+      key(CMD_C);
+      expect(copied()).toEqual(["Stake", "Stake"]);
       key({ kind: "esc" });
       expect(R().sel).toBeNull();
     } finally { app.pop(); }

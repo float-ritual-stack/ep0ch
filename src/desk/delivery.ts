@@ -1491,6 +1491,8 @@ export class DeliveryBoard extends Desk {
     const a = d.key(k);
     if (a === "save") void this.submitComposer();
     else if (a === "editor") openInEditor(this.ctx, d);
+    // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
+    else if (a === "copy") void runAsPerson(DRAFT_ACTIONS, "draft.copy", {}, d, m => this.ctx.flash(m)).then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
     else if (a === "close") { this.composer = null; if (d.closedWith) this.ctx.flash(d.closedWith, 8000); }
     this.redraw();
   }

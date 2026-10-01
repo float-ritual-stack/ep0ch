@@ -33,7 +33,7 @@ import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenB
 import { completerFor, completerOf, completionKey, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
-import { AGENT_BG, cellsOf, Gesture, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -1127,6 +1127,7 @@ export class NoteSurface {
     if (a === "save") void this.runKey("edit.save", {}, host, true);
     else if (a === "editor") void this.runKey("edit", { external: true }, host);
     else if (a === "reload") void this.runKey("edit.reload", {}, host);
+    else if (a === "copy") void this.runKey("draft.copy", {}, host);
     else if (a === "close") {
       // Esc, esc never drops typed text: the draft put itself aside (Draft.putAside) and says where.
       void this.runKey("edit.close", {}, host);
@@ -1416,6 +1417,8 @@ export class NoteSurface {
       // The session's commands are actions (PIE-506): ctrl+s sends, x resolves or reopens, and the esc that
       // ends it closes it. Picking a passage, moving through the threads and typing are its own.
       if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
+      // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
+      if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
       // The comment's ctrl+e and ctrl+r are the edit's: $EDITOR (edit external=true), find the quote again.
       if (sessionKey(s, k, "e")) { void this.runKey("edit", { external: true }, host); return true; }
       if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
@@ -1436,8 +1439,8 @@ export class NoteSurface {
     const xe = c ? this.inView()?.link?.ext : undefined;
     const xa = xe ? handlerKeyAction(xe.extension, xe.handler, c, host.ownKeys) : undefined;
     if (xe && xa) { void this.runExt(xa.name, xe, host); return true; }
-    // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
-    if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;
+    // Selecting text (PIE-419): v starts the keyboard mode, y Y and cmd+c copy, esc lets go; the rest read on.
+    if ((c === "v" || c === "y" || c === "Y" || isCopyKey(k) || this.selection) && this.msg && this.selectKey(k, host)) return true;
     // e ctrl+e C m i I start a session: the note's action for that key (SESSION_ACTIONS), as the desk and the river run it.
     const starts = this.msg ? sessionStart(k) : null;
     if (starts) {
@@ -2621,8 +2624,9 @@ export class NoteSurface {
 
   /**
    * The button came up. On the cell it went down on, with no drag, it's a click (`click`: a link, a fold, a
-   * panel row, the copy control; anywhere else it lets go of the selection). A drag keeps what it
-   * selected, and never copies it. True when the release did something.
+   * panel row, the copy control; anywhere else it lets go of the selection). A drag, a double or a triple
+   * click keeps what it selected and copies it (copy on select, selection.ts): `select.copy`, as `y` runs
+   * it. A selection of blanks, or none, copies nothing. True when the release did something.
    */
   release(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
@@ -2633,6 +2637,9 @@ export class NoteSurface {
       if (acted) this.gesture.forget();
       return acted;
     }
+    // Not in a draft: a drag there is the draft's own selection, which typing or a paste replaces (cmd+c copies it).
+    const s = this.selection, rows = s && !this.editing && r.copy ? this.selRows() : null;
+    if (s && rows && s.text(rows).trim()) void this.runKey("select.copy", {}, host);
     host.redraw();
     return r.moved || r.n > 1;
   }
@@ -2684,7 +2691,8 @@ export class NoteSurface {
    * when the key was the selection's; the reader's other keys keep their meaning.
    */
   private selectKey(k: Key, host: SurfaceHost): boolean {
-    const c = ch(k), rows = this.selRows(), s = this.selection;
+    // cmd+c is y: the same copy.
+    const c = isCopyKey(k) ? "y" : ch(k), rows = this.selRows(), s = this.selection;
     if (!rows) return false;
     if (!s) {
       // y on a resource projection (the current element) selects its region and copies it as drawn.
@@ -3148,6 +3156,12 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       if (!d) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
       if (d.busy) throw new ActionRefused("the save is still landing");
       const r = await DRAFT_ACTIONS.run(name, args, d, actor);
+      // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
+      if (name === "draft.copy" && actor.kind === "user") {
+        const c = r as { text: string; chars: number };
+        host.ctx.copy?.(c.text);
+        host.ctx.flash(`copied ${c.chars} chars`);
+      }
       if (actor.kind === "agent") surface.noteAgent(actor, `used ${name} in the draft`);
       host.redraw();
       return r;
@@ -3491,6 +3505,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "draft.scroll": forwardDraft("draft.scroll"),
   "draft.preview": forwardDraft("draft.preview"),
   "draft.undo": forwardDraft("draft.undo"),
+  "draft.copy": forwardDraft("draft.copy"),
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
@@ -4070,7 +4085,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "select.copy": {
-    summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, the [y copy] control",
+    summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, cmd+c, the [y copy] control, the release of a drag (or a double or triple click)",
     args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
     run({ source }, { surface, host }, actor) {
       if (actor.kind === "user") {

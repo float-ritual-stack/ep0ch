@@ -173,15 +173,21 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(top()).toBe(r);
   }, 20_000);
 
-  test("selection: a drag selects without copying, y copies with OSC 52", async () => {
+  test("selection: a drag copies with OSC 52 when the button comes up; y and cmd+c copy again", async () => {
     const r = await open();
     const p = at("The gate code changed.");
     written.length = 0;
-    mouse("down", p.x, p.y); mouse("drag", p.x + 8, p.y); mouse("up", p.x + 8, p.y);
-    expect(r.surface.selection).not.toBeNull();
+    const osc = `\x1b]52;c;${Buffer.from("The gate", "utf8").toString("base64")}`;
+    const count = () => written.join("").split(osc).length - 1;
+    mouse("down", p.x, p.y); mouse("drag", p.x + 8, p.y);
     expect(written.join("")).not.toContain("\x1b]52;");
+    mouse("up", p.x + 8, p.y);
+    expect(r.surface.selection).not.toBeNull();
+    expect(count()).toBe(1);
     key(char("y"));
-    expect(written.join("")).toContain(`\x1b]52;c;${Buffer.from("The gate", "utf8").toString("base64")}`);
+    expect(count()).toBe(2);
+    key({ kind: "super", ch: "c" });
+    expect(count()).toBe(3);
     key({ kind: "esc" });
     expect(r.surface.selection).toBeNull();
     expect(top()).toBe(r);

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Msg } from "./board";
 import { actorIdOf, isExtensionWriter, USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet } from "./surface/actions";
-import { SELECT_BG } from "./surface/selection";
+import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, fg, RESET } from "./style";
 import { scrolled } from "./scroll";
@@ -29,7 +29,8 @@ export interface PatchFlash { start: number; end: number; label: string; until: 
 export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; mark?: string; force?: boolean }
 export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
-export type DraftAction = "keep" | "save" | "editor" | "reload" | "close";
+/** What a key in a draft asks its host to do; `copy` (cmd+c): the host runs its draft.copy, which reaches the clipboard. */
+export type DraftAction = "keep" | "save" | "editor" | "reload" | "close" | "copy";
 
 export class Draft {
   lines: string[];
@@ -223,6 +224,9 @@ export class Draft {
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
     if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
+    // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
+    if (isCopyKey(k)) return "copy";
+    if (k.kind === "super") return "keep";
     const was = this.discardArmed;
     this.discardArmed = false;
     if (k.kind === "char" && k.ctrl) {
@@ -619,6 +623,14 @@ export class Draft {
     return a.row < c.row || (a.row === c.row && a.col < c.col) ? [a, c] : [c, a];
   }
 
+  /** The selected text, as typed (lines joined by newlines), or null with nothing selected. */
+  selectedText(): string | null {
+    const s = this.selection();
+    if (!s) return null;
+    const [a, b] = s, L = this.lines;
+    return a.row === b.row ? L[a.row]!.slice(a.col, b.col) : [L[a.row]!.slice(a.col), ...L.slice(a.row + 1, b.row), L[b.row]!.slice(0, b.col)].join("\n");
+  }
+
   private deleteSelection(): boolean {
     const s = this.selection();
     this.anchor = null;
@@ -889,6 +901,7 @@ export interface DraftActionArgs {
   "draft.scroll": { by: number };
   "draft.preview": { on?: boolean };
   "draft.undo": Record<string, never>;
+  "draft.copy": Record<string, never>;
 }
 
 /**
@@ -942,6 +955,16 @@ export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
     run({ on }, d, actor) { agentMay(d, actor); d.preview = on ?? !d.preview; return { preview: d.preview }; },
+  },
+  "draft.copy": {
+    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (an agent's never). A drag in a draft doesn't copy by itself, unlike a reader's: typing or a paste replaces what's selected there", keys: "cmd+c",
+    args: {},
+    run(_, d, actor) {
+      agentMay(d, actor);
+      const text = d.selectedText();
+      if (!text) throw new ActionRefused("nothing is selected in the draft · drag across the text, then cmd+c");
+      return { text, chars: [...text].length };
+    },
   },
 });
 

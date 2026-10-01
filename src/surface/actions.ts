@@ -168,6 +168,7 @@ export function keyName(k: Key): string | null {
   switch (k.kind) {
     case "char": return k.ctrl ? `ctrl+${k.ch.toLowerCase()}` : k.ch === " " ? "space" : k.ch;
     case "alt": return `alt+${k.ch}`;
+    case "super": return `super+${k.ch}`;
     case "enter": return "shift" in k && k.shift ? "shift+enter" : "ctrl" in k && k.ctrl ? "ctrl+enter" : "enter";
     case "alt-enter": return "alt+enter";
     case "backtab": return "shift+tab";
@@ -187,10 +188,11 @@ function wordKeys(w: string): string[] | null {
   const lower = w.toLowerCase();
   if (NAMED[lower]) return [NAMED[lower]!];
   if (/^\^[A-Za-z\]\[\\]$/.test(w)) return [`ctrl+${w[1]!.toLowerCase()}`];
-  const mod = /^(ctrl|alt|shift)\+(.+)$/i.exec(w);
+  // super+ and cmd+ (the Mac's name for it) are one key: `super+c`.
+  const mod = /^(ctrl|alt|shift|super|cmd)\+(.+)$/i.exec(w);
   if (mod) {
-    const m = mod[1]!.toLowerCase(), rest = mod[2]!;
-    if ([...rest].length === 1) return [m === "ctrl" ? `ctrl+${rest.toLowerCase()}` : m === "shift" ? rest.toUpperCase() : `alt+${rest}`];
+    const m = mod[1]!.toLowerCase().replace("cmd", "super"), rest = mod[2]!;
+    if ([...rest].length === 1) return [m === "ctrl" ? `ctrl+${rest.toLowerCase()}` : m === "shift" ? rest.toUpperCase() : `${m}+${rest}`];
     const named = NAMED[rest.toLowerCase()];
     return named ? [`${m}+${named}`] : null;
   }

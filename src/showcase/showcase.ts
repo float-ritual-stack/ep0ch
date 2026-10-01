@@ -209,7 +209,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "selection", need: "select or copy text a reader draws", part: "the selection model: Selection, Gesture, v, y Y, select* actions", files: "src/surface/selection.ts, src/surface/note.ts",
+    key: "selection", need: "select or copy text a reader draws", part: "the selection model: Selection, Gesture (a mouse selection is copied on release), v, y Y cmd+c, select* actions; App.copy (OSC 52 and the copied-to-clipboard toast)", files: "src/surface/selection.ts, src/surface/note.ts, src/app.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · selection", panes: [r] }, show, [[r, n.recipe]]); },
   },
   {
@@ -259,6 +259,8 @@ export class Showcase implements Screen {
 
   /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
   holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
+  /** Screen.rawKeys: the person is typing in the stage's terminal tile: ctrl+c and cmd+c are its program's, as on the desk. */
+  rawKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.rawKeys?.(); }
 
   /** Show section `i` (by key, click or act); the keys go to its stage only when the person asks. */
   pick(i: number, enter = false) {

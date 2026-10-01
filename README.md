@@ -322,6 +322,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
+| `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
@@ -1083,10 +1084,22 @@ yours only.
 ### Selecting and copying text
 
 The door keeps the terminal's mouse reporting on, so the terminal can't select; every reader does it
-itself (PIE-419): the board's preview, details, floats and drawer previews, the desk's readers, and river
-columns. Selecting never copies: only `y`, `Y` or the `[y copy]` control on the header's rule do, and the
-status bar says `copied N chars`. The clipboard is written with OSC 52, so it works over SSH and
-through a multiplexer that passes OSC 52 on.
+itself (PIE-419): the board's preview, details, floats and drawer previews, the desk's readers, river
+columns, the BBS reader, the brief and the welcome.
+
+**Copy on select.** A selection you make with the mouse (a drag, a double click's word, a triple click's
+row) is copied when the button comes up, as Herdr's `ui.copy_on_select` (on by default) and Claude Code in a
+terminal tile do, so a drag then cmd+v works the same in every tile. A "copied to clipboard" toast shows
+for a moment at the bottom centre (Herdr's `ui.toast.clipboard`), and the status bar says `copied N chars`.
+A plain click selects and copies nothing. `cmd+c` (super+c, which Ghostty passes on when it has no selection
+of its own, through the Kitty keyboard protocol) copies the selection too, as `y` does; with nothing
+selected it says so. `EP0CH_COPY_ON_SELECT=0` turns copy on select off, as Herdr's setting does: the
+selection stays, and `y`, `cmd+c` or the `[y copy]` control on the header's rule copies it. The clipboard
+is written with OSC 52, so it works over SSH and through a multiplexer that passes OSC 52 on.
+
+In a draft (an edit, a comment, a new card) a drag selects the draft's text and isn't copied by itself,
+because typing or a paste replaces it there; `cmd+c` copies it. In a terminal tile `cmd+c` is the
+program's, as it came.
 
 | Keys | Action |
 |---|---|
@@ -1094,14 +1107,15 @@ through a multiplexer that passes OSC 52 on.
 | click | what it always did (follow a link, fold, pick a panel row), decided when the button comes up on the same cell; anywhere else it lets go of the selection |
 | double / triple click | a word / the drawn row, without its indent (a click on a link or a fold marker acts instead) |
 | `v` | the keyboard mode, from the first row in view (or taking over a mouse selection); `h j k l`, arrows, `PgUp PgDn`, `Home End` move its end; `v` or `esc` leaves |
-| `y` | copy what's drawn: links as their titles, rows as they're drawn |
+| release of a drag, double or triple click | copy what it selected (copy on select; `EP0CH_COPY_ON_SELECT=0` turns it off) |
+| `y`, `cmd+c` | copy what's drawn: links as their titles, rows as they're drawn |
 | `Y` | copy the source: exactly the selected words when they read the same in the note's text, else the whole source lines the selection covers (a link's `((…))`, `**bold**`) |
 | `esc` | let go of the selection |
 
 With text selected, `C` starts the comment's passage on it. An agent selects with `select` (`text=`, as
 drawn, or `line=`/`to=`, 1 is the subject) and gets the text from `select.copy` (`source=true` for the
-markup): its selection is its own, drawn in its own tint, and never replaces the person's or touches
-their clipboard. A river column draws a digest of the note, so there `Y` says it can't map the source;
+markup): its selection is its own, drawn in its own tint, is never copied on select, and never replaces
+the person's or touches their clipboard. A river column draws a digest of the note, so there `Y` says it can't map the source;
 `y` copies what's drawn.
 
 ### The property panel
@@ -1315,7 +1329,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
 | `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
 | `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true`. With nothing named, the person's `fold.toggle` acts on the fold at their keys (an agent names one) | `f`, `⏎`, `F`, click |
-| `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
+| `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click (and their release copies), `v`, `y`, `Y`, `cmd+c`, `esc` |
 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
 keeps its name while it lives: close `detail1` and the other is still `detail2`), by tile name, id (`t4`) or
