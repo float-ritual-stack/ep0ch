@@ -1,0 +1,142 @@
+---
+name: ep0ch-outline
+description: Use when an agent works inside a person's pi-herdr-outliner outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the four extension kinds, and where the live guides are.
+---
+
+# ep0ch-outline: working in someone's outline
+
+The outline is theirs. You are a welcome local who writes beside them: everything you do is attributed, checked
+against what you read, and undoable from the record. This skill is a map; the outline holds the live guides,
+and they win over this page.
+
+For changing the code instead, use `ep0ch-core`. For driving their door (peek, act, open, marks), `ep0ch`.
+
+## Start here
+
+1. **Know which outline.** In a door tile, the session's first prompt says where you are (`ep0ch where`). Else
+   `outliner outlines --json` (or `ep0ch outline list`) and name it: `--outline <name>`. Never write to
+   whichever outline a folder happened to guess.
+2. **Load the outline's own guide** with the `outliner-documentation` skill's steps: find
+   `system-doc=agent-documentation-guide`, then read it whole. It owns how documentation is structured there:
+   hierarchy owns, references connect, transclusions compose, properties classify, virtual branches project.
+3. **Roadmap work** (items, stages, batches, proofs) follows the live **How this workboard works** block
+   and the `outliner-workflow` skill's roadmap reference (`references/roadmap-items.md` beside the path
+   `ep0ch --skill outliner-workflow` prints; the `work_*` tools run it). Items are made only by the
+   allocator, never by hand.
+4. **Look before you make.** Find the existing owner and the vocabulary in use (`outline_find` by text,
+   `property`, `hasKey` or `query`) before creating a note, a key or a view.
+
+## Tools
+
+In Claude with the Outliner's Claude mod: `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
+`outline_patch`, `outline_create`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
+`outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
+`door_act`, `door_open`. The table is in the mod's `claude-mod/README.md`, "Outline tools". Other agents run
+the same operations as `outliner agent <operation> --json '{…}' --actor <id>`.
+
+- **Read before you write,** the whole text. A ref is an id, `((id))`, `[[page]]` or a Work ID, never a title.
+- With the raw CLI, `outliner read <id>` returns the title, not the text: read with `list --subtree <id>
+  --limit 1`, refuse to write from an empty read, pass `--expected <revision>` and `--author agent --actor
+  <id>`. Prefer the tools; never wrap `update` in a script.
+
+## outline_edit or outline_patch
+
+- **Your own pages** (a status page, the briefing you keep, a note you wrote): `outline_edit` with the
+  revision you read: the whole `text`, one `replaceSection {heading, body}`, or an `append`.
+- **A small change in a note the person may be typing in:** `outline_patch` (`draft.patch`). If their door
+  holds a draft of it, the patch lands in the draft as they type, lit and one undo step; with no draft it is
+  an ordinary edit. Its default policy, `edit`, is `outline_edit`'s guard: only dropping a `[page::…]`, or an
+  `^anchor` another note links to, is refused, as an error, unless you pass `allowStructural: true`
+  because that removal is the point. `policy: "prose"` is opt-in, for tidy-style edits that must keep every
+  link, anchor and property. A patch whose text changed under it, or that `prose` refuses, becomes one
+  proposal they can apply or dismiss.
+- A refusal is an answer: read again and retry, or leave it. Never route around it.
+
+## How they write
+
+- **Properties by placement.** `[key::value]` on the title line, or in the first property-only run under it,
+  belongs to the whole block (that is what queries and views match). `[key::value]` mid-sentence is an
+  inline aside on that spot. `key:: value` at the start of a line annotates that line; a `name::` line in
+  someone's notes is usually a voice or persona, not an instruction to you.
+- **Indentation scopes context.** Nested lines are a flow of thought, not always strict parent and child.
+  Keep their hierarchy when you tidy.
+- **Soft links resolve by context.** A ticket key, a date or `PR#12` under `[project::garden-club]` means that
+  project's. Don't wrap every key in `[[…]]`; when a token is ambiguous, ask instead of guessing.
+- **Reuse their keys and values.** A new key is a decision; an existing one is a convention.
+- **Readable.** Short sections, bold leads, one fact per bullet, a summary callout on long notes, history
+  labelled as history. Fictional example of the shape:
+
+  ```text
+  Shed repairs [project::garden-club] [type::plan]
+  > [!summary] Roof first, before the rain on Friday.
+  ## Next
+  - **Felt:** order two rolls ((a1b2c3d4-…|quote from the merchant))
+  ```
+
+## Link, don't direct
+
+Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write
+directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page,
+`!((id))` to show a block's text in place (it stays canonical). The same holds in chat: give the link.
+
+## Views, boards and hubs
+
+- A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
+  `[sort::]`, `[limit::]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
+  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d`. Its rows are the canonical
+  blocks, not copies: to change what's in a view, change the blocks' properties.
+- A **board** is any block with two or more view children: the **hub**. Each view is a column (a lane), in
+  order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it.
+- Moving a card patches the properties the target lane's plain clauses name (the service plans it,
+  `views.planWrite`); a new card in a lane is born with them and `create`'s defaults.
+- Before placing a block into a view, ask the service what patch would make it match; don't guess the query.
+
+## Pages, welcome and the briefing
+
+- `[page::address]` names a block so `[[address]]` reaches it. Rename by editing the token; the old address
+  stays an alias. An address another note owns is refused.
+- `[welcome::n]` puts a note on the door's Welcome screen (`C`, or the landing after logon with
+  `EP0CH_LANDING=welcome`), in place `n`; unnumbered ones come after, by title. The first is read on
+  arrival. Tag, untag or reorder by editing the property; the screen updates live.
+- **A briefing** while they're away: one note, updated in place at every milestone, not a diary. Needs-you
+  first, then what's live, done, in progress and decisions made; superseded briefings move to an archived
+  child. Give it a `[page::…]` and a low `[welcome::n]` so it is the first thing they read.
+- The morning brief has its own skill: `daily-brief`.
+
+## Publishing
+
+Publish only when they asked for that page. `[publish::true]` (or `[publish::<slug>]`) serves the note and
+its subtree at `/p/<address>` on their network. **An embed shows the embedded note's text whether or not
+that note is published:** lock private material first with `[publish::never]` (it and everything under it
+stay off every page, embed and link). `[publish::false]` just leaves one note out. Check with
+`outliner publish list --outline <name>`. The outline's guide has a Publishing section.
+
+## Extensions: adding one for a need
+
+Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the
+person had copied it in: real blocks, namespaced properties (`jira.status`), queryable, linkable,
+commentable, publishable when they choose. Four kinds, one extension may be several:
+
+1. **Data** (`jira:: PC-1234`): the service fetches, caches and refreshes a record into blocks.
+2. **Inline output** (`horoscope:: virgo`): run once, cached Markdown under the line; `r` runs it again.
+3. **Rich component**: data plus a component built from shared primitives that every client draws
+   (the door's live figures, `::graph-stat` and friends, are to become the first).
+4. **Tile**: a program in a door terminal tile that reaches the outline through `EP0CH_CONTROL` and the CLI.
+
+Today the data kind ships (Jira, `kind: "resource"` handlers); the other three arrive with the next waves
+of the extensions work. An extension is a folder in the service host's user extensions folder
+(`~/.config/pi-herdr-outliner/extensions/<id>/`: `extension.json`, the code, `config.json`; secrets as
+references, never literals). `outliner ext ls` lists them and `outliner ext add <id>` copies a built-in.
+The contract is pi-herdr-outliner `docs/extensions/resource-process.md`; the design and what's still coming
+is the outline's "Extensions and resources: design" note. For a need, pick the smallest kind that serves it,
+copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
+
+## Rules
+
+- Every write is `author: agent` with your actor id, checked against the revision you read. Nothing is
+  overwritten; nothing is copied out of their outline into tests, commits, PRs or logs.
+- Act in their door only for what they asked; never take their focus, keys or selection. To get their
+  attention, `block.mark` a block with a reason (see `ep0ch`).
+- Back up before a bulk change: the service keeps no earlier text (`ep0ch-core`, "Deploy and back up").
+- Make easily reversible choices yourself and record them in the briefing; ask only for the
+  hard-to-reverse ones (deleting data, spending money, publishing).

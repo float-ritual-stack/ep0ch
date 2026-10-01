@@ -30,7 +30,9 @@ The words used here for screens, panes, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
 [AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
-verification and the review checklist. The [architecture map](docs/architecture/map.json) records every
+verification and the review checklist. Agents load the stack's skills (`ep0ch --skill` lists them):
+`ep0ch` to drive a door, `ep0ch-outline` to work in an outline for someone, `ep0ch-core` to change this
+code or the outliner's, `daily-brief` for the morning brief. The [architecture map](docs/architecture/map.json) records every
 structure in the door and the outliner, its ladder position and its open questions; `bun
 scripts/architecture-map.ts` checks its file:line citations against both checkouts and draws it as one page.
 

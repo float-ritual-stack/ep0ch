@@ -325,9 +325,13 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   forced (placed as well as it can be); an agent's is held to the same compare as a patch (prose only, above
   the mark and the cursor's block, against the text now), so an agent can't force its own proposal. A
   proposal applies only what its text shows.
-- The structural policy (a prose edit keeps every `^anchor`, `[[page]]`, `((ref))` and `[key::value]`, in
-  its span and in the whole note: no edit inside a token, no stray backtick that turns one into code) is
-  the service's; it reads a held draft before patching it, and the door never re-checks the grammar.
+- **The structural policy is the service's,** one of two the agent picks (pi-herdr-outliner #263). The
+  default, `edit`, is `outline_edit`'s guard: only a dropped `[page::…]`, or a dropped `^anchor` another
+  note links to, is refused (unless the patch says `allowStructural`), and that refusal is an error:
+  nothing is written and nothing is proposed. `prose`, opt-in (the `@tidy` proof agent), keeps every
+  `^anchor`, `[[page]]`, `((ref))` and `[key::value]`, in its span and in the whole note: no edit inside a
+  token, no stray backtick that turns one into code; what it refuses becomes a proposal. Either way the
+  service reads a held draft before patching it, and the door never re-checks the grammar.
 
     outliner patch-demo --block <id> --tidy-above "@tidy tidy this"    # the proof agent, not the @-watcher
 
