@@ -147,6 +147,9 @@ export class DeliveryBoard extends Desk {
     if (hubId) { const c = this.lanesNode(); if (c) c.source = `hub:${hubId}`; }
     this.focus = this.idNamed("preview") ?? this.focus;
     this.labelReaders();
+    // Docked when the board was saved, its drawers slide as they should when put back.
+    this.drawerPolicyFor(this.splitId("outline"), { min: 28 });
+    this.drawerPolicyFor(this.splitId("links"), { stays: true });
   }
   /** The board's readers say what they follow: the lanes, the outline, the backlinks. */
   private labelReaders() {
@@ -557,8 +560,12 @@ export class DeliveryBoard extends Desk {
       if (!keep) this.focus = this.idNamed("preview")!;
       shown = this.preview;
     } else if (where === "detail" || where === "new-detail") {
-      if (!this.openDetail(m, where === "new-detail") || this.detailTiles()[this.active]?.pane.msg?.id !== m.id)
-        throw new ActionRefused("both details hold edits, comments or properties, or the person is in one · save or close one first");
+      if (!this.openDetail(m, where === "new-detail") || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
+        // A locked board opens no detail: the note is in the preview, said so.
+        const locked = this.shapeRefusal(this.idNamed("preview")!, "opening a detail");
+        if (locked && this.preview.msg?.id === m.id) return { reader: "preview", id: m.id };
+        throw new ActionRefused(locked ?? "both details hold edits, comments or properties, or the person is in one · save or close one first");
+      }
       shown = this.detailTiles()[this.active]!.pane;
     } else if (where === "float") {
       const pane = shown = this.floatNote(m);

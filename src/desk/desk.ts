@@ -1764,6 +1764,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    */
   private dockedPolicy = new Map<string, Policy | undefined>();
   private drawerKey(d: Drawer<number>): string { return d.kid.t === "leaf" ? this.tileId(d.kid.id) : d.kid.id ?? `t${leaves(d.kid)[0]}`; }
+  /** A view's own drawer's policy, for when it's put back after a restart docked (the board's outline and backlinks). */
+  protected drawerPolicyFor(key: string, policy: Policy) { if (!this.dockedPolicy.has(key)) this.dockedPolicy.set(key, policy); }
   private rememberedPolicy(d: Drawer<number>, key: string) {
     const p = this.dockedPolicy.get(key);
     if (p && !d.policy) d.policy = { ...p };

@@ -321,6 +321,20 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     }
   });
 
+  test("review: a drawer docked when the board was saved slides as before when it's put back (B, a restart, B)", async () => {
+    await fresh();
+    key({ kind: "tab" }); key(char("b"));
+    await until(() => !!B().linksTile.data, "the backlinks");
+    key(char("B"));
+    expect(B().describe().backlinks.pinned).toBe(true);
+    await fresh(true);                                                  // the next board, the backlinks docked
+    expect(B().linksPinned).toBe(true);
+    await act("pane.pin", { on: false }, "backlinks", "you");
+    const down = (n: any): any => (n.drawer === "down" ? n : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].map(down).find(Boolean));
+    expect(down(B().layoutGet().tree)).toMatchObject({ drawer: "down", policy: { stays: true } });
+    await act("pane.close", {}, "backlinks", "you");
+  });
+
   test("review: a click inside a sliding drawer is the drawer's, even over a border hidden under it", async () => {
     await withDetails();
     key(char("t"));                                                    // the outline slides over the lanes' border
