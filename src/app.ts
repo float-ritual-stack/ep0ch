@@ -11,6 +11,7 @@ import { crtUnderlay } from "./crt";
 import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
+import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
@@ -318,9 +319,13 @@ export class App implements Ctx {
   }
 
   event(e: OutlineEvent) {
+    // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
+    // bind it, so what came shows up and what went goes away without a restart (PIE-512).
+    if (e.domain === "extensions") { void this.loadExtensions(); return; }
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
-    // those read it again. It isn't an outline change, so nothing else is asked again.
-    if (e.domain === "resource-catalog") { if (resourceChanged(e.resourceId ?? null)) this.redraw(); return; }
+    // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
+    // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.
+    if (e.domain === "resource-catalog") { if (resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId)) this.redraw(); return; }
     if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") {
       invalidateLive();
@@ -330,8 +335,9 @@ export class App implements Ctx {
       if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId] : null);
       else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
       else outlineChanged(null, e.action === "reset");
-      // Resource events aren't in the change feed, so none were replayed: projections are read again.
-      if (!c && (e.action === "reconnected" || e.action === "reset")) resourceChanged(null);
+      // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
+      // extensions (a restarted service may serve others) are listed again.
+      if (!c && (e.action === "reconnected" || e.action === "reset")) { resourceChanged(null); void this.loadExtensions(); }
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
@@ -362,12 +368,34 @@ export class App implements Ctx {
     return m.id;
   }
 
-  /** The screen's actions, then the shell's (`screen.*`) and the dock's (`agent.*`), which work on every screen. */
+  /**
+   * The screen's actions, then the shell's (`screen.*`), the dock's (`agent.*`) and the extensions' (`ext.*`,
+   * a handler line's or a block's), which work on every screen.
+   */
   actions() {
     const s = this.stack.at(-1);
     const own = s?.actions?.() ?? { actions: [], readers: [] };
-    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()] };
+    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()] };
   }
+
+  /**
+   * Read the service's extensions and bind them (src/extensions.ts): handler lines the readers ask about, the
+   * `ext.*` actions, the tile kinds. What came or went is said; the readers read their lines again.
+   */
+  async loadExtensions(reload = false): Promise<void> {
+    const r = await loadExtensions(this.board, reload);
+    if (!r) return;
+    // A read that failed keeps what was bound, and says so; a service without extensions says nothing here
+    // (an extension's tile and lines say why where they'd be).
+    if ("error" in r) { this.flash(`couldn't read the outline's extensions: ${r.error}`); return; }
+    resourceChanged(null);
+    const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
+    if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
+    if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000);
+    this.extensionsSeen = true;
+    this.redraw();
+  }
+  private extensionsSeen = false;
 
   /**
    * An agent acts (`ep0ch-door act`). Never silent: the status bar names the agent and the action before
@@ -378,15 +406,18 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     const shell = SHELL_ACTIONS.has(req.action);
     const dock = DOCK_ACTIONS.has(req.action);
+    // An extension's line or block action (`ext.<id>.<action>`, PIE-512); a tile's is its tile kind's, on the desk.
+    const ext = !shell && !dock && EXT_ACTIONS.has(req.action);
     // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.
     const herdr = req.action === "tile.herdr" && req.reader === DOCK_TILE_ID;
-    if (!shell && !dock && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()].map(a => a.name).join(", ")}`);
+    if (!shell && !dock && !ext && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {
       // The shell's actions (screen.open, screen.back, screen.list) come first, on every screen.
       const r = shell ? await SHELL_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: asActor(this, actor), here: s }, actor)
         : dock ? await DOCK_ACTIONS.runUntyped(req.action, req.args ?? {}, { dock: this.dock, ctx: asActor(this, actor), here: s }, actor)
+        : ext ? await EXT_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: this }, actor)
         : herdr ? this.dockHerdr(req.args ?? {})
         : await s!.act!(req, actor);
       this.redraw();

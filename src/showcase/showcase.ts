@@ -29,6 +29,7 @@ import { FramedScreen, ScreenPane } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
 import { serviceKind, tileKinds } from "../desk/tile-kinds";
+import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
@@ -178,6 +179,29 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane(), th = new ThreadPane();
       return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
+    },
+  },
+  {
+    key: "extensions", need: "bind an extension the service runs, and draw a rich component's view", part: "the extension binding: extensions.list read at start and on every extensions event; handler lines and @name requests drawn by extensionRegion (a component through primitiveLines), their actions ext.* in EXT_ACTIONS (the line's key, a click on its control, act), tile kinds through serviceKind (^W o T for tarot)", files: "src/extensions.ts, src/components.ts, src/projection.ts, src/desk/tile-kinds.ts",
+    aside: "the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
+    stage(n, show) {
+      // What the service's list bound, drawn the way a service tile is: each extension, what it answers, its actions' keys.
+      const list = serviceKind({
+        kind: "showcase.extensions", about: "the extensions bound, listed",
+        render: async req => {
+          const l = extensionList();
+          const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
+            : l.extensions.flatMap(e => [
+              `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}${e.id} · ${e.state}${RESET}`,
+              ...e.handlers.map(h => `  ${fg(C.grey)}${h.key}:: ${fg(C.dark)}${h.kind}${RESET}`),
+              ...(e.agents ?? []).map(a => `  ${fg(C.grey)}@${a.name} ${fg(C.dark)}agent${RESET}`),
+              ...e.actions.map(a => `  ${fg(C.white)}${a.name}${RESET}${a.key ? ` ${fg(C.dark)}${a.key}${RESET}` : ""}`),
+            ]).concat(l.tileKinds.map(t => `${fg(C.lcyan)}${t.kind}${RESET} ${fg(C.dark)}tile kind${RESET}`));
+          return { title: "extensions", lines: rows.map(x => x.slice(0, req.cols + 40)) };
+        },
+      }).make({ kind: "showcase.extensions" });
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · extensions", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.omens]], d => { if (n.omens) d.setCurrent(n.omens); });
     },
   },
   {
@@ -368,7 +392,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-15> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-16> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
     run({ name }, s, actor) {
@@ -379,7 +403,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
     },
   },
   "section": {
-    summary: "show a section (name=<1-15> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-16> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);

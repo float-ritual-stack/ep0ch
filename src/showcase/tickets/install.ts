@@ -2,7 +2,7 @@
 // (tickets.ts, a contract 2 folder like the outliner's Jira extension) into a scratch service's config, register
 // a Source for it, and fetch tickets through the service, so readers have tickets to show. Only for a scratch or showcase service: the
 // door's readers never do any of this; they only read projections (src/projection.ts).
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SocketBoard } from "../../socket";
 
@@ -58,4 +58,23 @@ export async function registerTicket(b: SocketBoard, key: string): Promise<strin
 /** Fetch a ticket's details into the service (`SocketBoard.refreshResource`). The service runs the extension. */
 export async function refreshTicket(b: SocketBoard, resourceId: string): Promise<void> {
   await b.refreshResource(resourceId);
+}
+
+/** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */
+export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy"] as const;
+
+/**
+ * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user
+ * extensions folder, as `outliner ext add` would. Only ever a scratch or showcase config dir. The examples'
+ * content is made up. Returns the ids copied (none when the checkout has no examples).
+ */
+export function installExamples(configDir: string, outlinerCheckout: string): string[] {
+  const done: string[] = [];
+  for (const id of EXAMPLE_EXTENSIONS) {
+    const from = join(outlinerCheckout, "extensions", id);
+    if (!existsSync(join(from, "extension.json"))) continue;
+    cpSync(from, join(configDir, "pi-herdr-outliner", "extensions", id), { recursive: true });
+    done.push(id);
+  }
+  return done;
 }

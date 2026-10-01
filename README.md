@@ -126,11 +126,11 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in fifteen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in sixteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row and its elements and reading-ruler row (PIE-441) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -143,7 +143,10 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   a saved view, one of every `::graph-*` kind, live ones included, and a call naming made-up tickets under
   `jira::` lines with a ticket page under it (PIE-445: a made-up ticket extension, `src/showcase/tickets`, a
   contract 2 folder like the outliner's Jira one, is installed in the showcase's own config dir; opening the
-  notes fetches the tickets, which the service keeps as blocks; nothing real is contacted).
+  notes fetches the tickets, which the service keeps as blocks; nothing real is contacted), and a week of
+  omens with one line of each extension kind (`moon::`, `horoscope::`, `fancy-horror::`, `@tidy`, PIE-512:
+  the outliner's example extensions, copied from the checkout `--outliner` names into the showcase's own
+  config dir; the `extensions` section shows it).
 - **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
   deletes that state and reseeds. Its service is the process `service.pid` names only when that process
   is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
@@ -157,7 +160,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-15|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-16|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -398,7 +401,16 @@ carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `dra
 `accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a drawer's `collapsible`, `overlay` and edge, and
 `opensInto` (where its tiles' opens land when they have no link). A locked screen comes back locked after a restart.
 Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an
-extension's kind registers the same way.
+extension's kind registers the same way. The outline service lists its extensions' tile kinds
+(`extensions.list`, `tileKinds`; the example is `tarot.reading`): each registers through `serviceKind` as a
+program in a terminal tile, under `^W o` with the capital of its name's first letter (`^W o T` for Tarot;
+none when another kind holds that letter, which is said) and through
+`act tile.open kind=tarot.reading note=<id>`. Opened from a reader, its block is the note shown there. Its
+actions are its kind's own (`ext.tarot.draw`, `ext.tarot.keep`), run by the service and written as `ext:tarot`;
+in the tile, the program's own keys run the same actions. A layout saves its kind and its args, nothing else,
+and it comes back after a restart. When its extension goes away while the door runs, the tile ends its
+program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
+on another host than this door says so instead of running.
 `EP0CH_DAILY_AGENT` (default `claude`), `EP0CH_DAILY_CWD` (the folder it starts in; default the door's own) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 The agent tile is marked in the saved layout (`agent`), so a restored desk or a loaded layout runs what
@@ -984,6 +996,38 @@ draws the note's body through the surface's renderer inside its own column (its 
 the river's; no folds or comment marks there), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
 opens a link or an embed beside or in a new column, and a step's box opens its status choice.
 
+### Extensions in a note
+
+An extension the outline service runs (pi-herdr-outliner `docs/extensions/README.md`, PIE-507) answers a
+line by its key (`moon:: 2026-10-26`, `horoscope:: virgo`, `fancy-horror:: virgo`) or an `@name` request
+(`@tidy`). The reader draws what the service kept for each line in a shaded region after it, the way it
+draws a ticket (PIE-512):
+
+- **A record** (`moon::`, data) is a real block the extension owns: its title, the fields its handler lists,
+  how old it is (`r refresh`, or a click on it), its body. ⏎ on its title opens the block.
+- **An inline output** (`horoscope::`) is its Markdown, drawn as the reader draws a note's body, inert.
+- **A rich component** (`fancy-horror::`) is drawn from the service's shared primitives (card, box, row,
+  stack, text, badge, stat, bar, table, checklist, sparkline) with their tone as colour
+  (`src/components.ts`). A primitive this door doesn't know falls back to the line's Markdown, then its data.
+- **An `@name` request** shows its state (`queued`, `running`, `applied`, `proposed`, `replied`, `failed`…),
+  what the agent said, its reply, and who asked. Its edit lands in the note attributed to the extension
+  (`ext:tidy`); one that would overwrite what you're typing becomes a proposal under the line.
+
+Under each line a row of controls: one per action the extension declares on that line (`[w ward]`), the
+built-in `[keep]` (the result written under the note as blocks), and `[r run again]` (`[r ask again]` for an
+agent). `[ ]` stops on the line's title and on each control; ⏎ or a click runs it (the title runs the line's
+first action, else runs it again). While the line is the current element its actions' keys work (`w`): one
+printable character each, never one the reader keeps for itself (`[ ] ( ) f u r y v i c m e j k h l q g` and
+the like) or its host does (the BBS reader's `n p t`, a following reader's `p`); such an action is still a
+click or `act` away. The footer names the keys that work there (`w ward · r again`). `r`
+runs the line again; `r` with no element current runs every line of the note (an `@name` request only by its
+line). Whatever an action writes is the extension's (`ext:<id>`), whoever asked; the status bar says who ran
+it. Agents run the same actions with `act ext.<id>.<action> block=<id>`.
+
+The door asks the service which extensions it runs (`extensions.list`) when it starts and again whenever the
+service says they changed: an extension added or removed while the door runs shows up or goes away without a
+restart (`extensions: horoscope added` on the status bar).
+
 ### Checklist steps
 
 Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem), in the note or
@@ -1203,7 +1247,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `agent.enter`, `agent.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
 | `tree.links`, `tree.pick` | `reader=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
-| `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note). Fetches its tickets now; the service writes them as `ext:jira` | `r`, a click on a ticket's age |
+| `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`) | `r`, a click on a ticket's age or a line's `[r run again]` |
+| `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `reader=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
 | `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `reader=<reader>` or `reader=lanes`. An agent's is refused while you're typing | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |

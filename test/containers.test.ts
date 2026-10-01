@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { migrateDrawers } from "../src/desk/tiles";
-import { registerTileKind, serviceKind, unregisterTileKind, kindForKey } from "../src/desk/tile-kinds";
+import { registerTileKind, serviceKind, unregisterTileKind, kindForKey, kindsChanged } from "../src/desk/tile-kinds";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -249,14 +249,25 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
       await mine("tile.close", {}, "plot.beds").catch(() => {});
       unregisterTileKind("plot.beds");
     }
-    // Unregistered, a saved tile of that kind comes back as a reader, not an error.
+    // Unregistered, a saved tile of that kind comes back saying its kind isn't here (PIE-512), not as something else.
     const spec = JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot;
     writeFileSync(join(state(), "layouts.json"), JSON.stringify({ plot: spec }));
     await mine("layout.load", { name: "plot" });
-    expect(tile("plot.beds")).toMatchObject({ kind: "reader", unregistered: "plot.beds" });
+    expect(tile("plot.beds")).toMatchObject({ kind: "plot.beds", unregistered: "plot.beds", title: "plot.beds · unavailable" });
+    const says = () => (D() as any).panes.get(idOf("plot.beds")).render(200, 10, false, D()).lines.join("\n");
+    expect(says()).toContain("plot.beds isn't available here: it was taken out");
     // Saved again, its spec is as it was: it comes back as itself once its kind registers.
     await mine("layout.save", { name: "plot" });
     expect(JSON.stringify(JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot)).toContain(`"kind":"plot.beds"`);
+    registerTileKind(serviceKind({ kind: "plot.beds", about: "the beds again", render: async () => ({ lines: ["beds are back"], title: "beds" }) }));
+    try {
+      kindsChanged();
+      expect(tile("plot.beds").unregistered).toBeUndefined();
+      expect(tile("plot.beds").title).not.toContain("unavailable");
+    } finally { unregisterTileKind("plot.beds", "the test took it out"); kindsChanged(); }
+    // Gone while shown: the tile says why, in its place.
+    expect(tile("plot.beds")).toMatchObject({ kind: "plot.beds", unregistered: "plot.beds" });
+    expect(says()).toContain("the test took it out");
   });
 
   test("review: a drawer's border sizes only it; an agent's drawer or move never hides the person's tile; a drawer's own resizable", async () => {

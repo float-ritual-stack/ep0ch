@@ -13,7 +13,8 @@ import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, embedsLoading, embedStepChanged, isOpenProposal, proposalControls, SHADE, type EmbedBody } from "../embeds";
-import { projectionRegion, projectionsOf, projectionsServed, resourceChanged, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { extensionRegion, projectionRegion, projectionsOf, projectionsServed, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
@@ -70,6 +71,11 @@ export interface SurfaceHost {
   focused?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.act sets it), else the person's. */
   actor?: Actor;
+  /**
+   * The keys the host binds itself, before or after the surface (the BBS reader's `n p t`, a following
+   * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
+   */
+  ownKeys?: string;
 }
 
 /** Back and forward where a view keeps them (SurfaceHost.history). */
@@ -183,11 +189,23 @@ interface Element {
 }
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
-  e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
+  e.link?.ext ? extVerb(e.link.ext)
+  : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
+/** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
+function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
+  if (x.action === RUN_AGAIN) return "run it again";
+  const a = extensionNamed(x.extension)?.actions.find(y => y.name === x.action);
+  return a ? a.label.toLowerCase() : x.action;
+}
+/** The keys an extension's line answers to while it's the current element: its actions' (the reader's own stay its own), and r. */
+function extKeys(x: NonNullable<LinkTarget["ext"]>, hostKeys: string): string {
+  const own = (extensionNamed(x.extension)?.actions ?? []).filter(a => a.on === `handler:${x.handler}` && a.key && handlerKeyAction(x.extension, x.handler, a.key, hostKeys) === a);
+  return [...own.map(a => `${a.key} ${a.id}`), "r again"].join(" · ");
+}
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
 
@@ -254,6 +272,8 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)), literal, unterminated: lit.unterminated };
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
+/** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
+const printableBlock = (s: string) => s.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
@@ -373,8 +393,10 @@ export class NoteSurface {
   readonly stepHistory = new StepHistory();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
+  /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
+  private hostKeys = "";
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; }
+    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.hostKeys = host.ownKeys ?? ""; }
     return this.src;
   }
 
@@ -436,6 +458,8 @@ export class NoteSurface {
     if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
+    // An extension's line or control: its keys go first, as a proposal's do.
+    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? "A apply anyway · X dismiss · " : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
@@ -695,6 +719,16 @@ export class NoteSurface {
     const now = Date.now(), bodyText = source.split("\n");
     // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
     const tokens = resourceTokensOf(m, src);
+    // An extension's output (PIE-512) is drawn as this reader draws a note's body: its Markdown, inert (no
+    // links to follow, no properties), each row then shaded into the line's region.
+    const extDraw = {
+      note: m.id,
+      markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
+        ...env, width, graphics: false, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
+      }).lines,
+      row: (block: string, text: string) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
+      hostKeys: host?.ownKeys ?? "",
+    };
     const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
       ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
       // A component's labels and values: links in them are links like the body's.
@@ -709,10 +743,13 @@ export class NoteSurface {
           if (!ps) return [];
           const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
           const tag = (to: LinkTarget, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
-          // A ticket kept as a block (PIE-445) is drawn from that block: on a page, all of it under its line;
-          // on the ticket block itself, its header on top and its comments after the body.
+          // A ticket kept as a block (PIE-445), and an extension's record (PIE-507), is drawn from that block:
+          // on a page, all of it under its line; on the ticket block itself, its header on top and its
+          // comments after the body. An extension's other lines (an output, a component, an @name request)
+          // draw their result with their actions (PIE-512).
           return ps.flatMap(({ p, part }) => p.record
             ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
+            : p.kind ? extensionRegion(p, width, indent, now, tag, extDraw)
             : projectionRegion([p], width, indent, now, tag));
         },
       } : {}),
@@ -1343,6 +1380,11 @@ export class NoteSurface {
     const dir = historyKey(k);
     if (dir) { void this.runKey(dir < 0 ? "back" : "forward", {}, host); return true; }
     const c = ch(k);
+    // An extension's line that is the current element (PIE-512): a key its actions answer to runs that
+    // action (`w` wards); the reader's own keys stay the reader's (READER_OWN_KEYS).
+    const xe = c ? this.inView()?.link?.ext : undefined;
+    const xa = xe ? handlerKeyAction(xe.extension, xe.handler, c, host.ownKeys) : undefined;
+    if (xe && xa) { void this.runExt(xa.name, xe, host); return true; }
     // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
     if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;
     if ((c === "i" || c === "I") && this.msg) { void this.runKey("props", c === "I" ? { full: true } : {}, host); return true; }
@@ -1397,8 +1439,23 @@ export class NoteSurface {
     return runAsPerson(NOTE_ACTIONS, name, args, { surface: this, host }, msg => { if (!quiet) host.ctx.flash(msg); host.redraw(); });
   }
 
+  /**
+   * Run an extension line's action as the person (a key, a click, ⏎ on its head or a control): the line's own
+   * action through EXT_ACTIONS, or `r` (run it again, ask the agent again) through projection.refresh.
+   */
+  runExt(action: string, x: NonNullable<Link["ext"]>, host: SurfaceHost, actor: Actor = USER): Promise<unknown> {
+    if (action === RUN_AGAIN) return actor.kind === "user" ? this.runKey("projection.refresh", { block: x.block, line: x.line }, host, true) : NOTE_ACTIONS.run("projection.refresh", { block: x.block, line: x.line }, { surface: this, host }, actor);
+    if (!EXT_ACTIONS.has(action)) { host.ctx.flash(`${action} isn't here any more: its extension was removed or reloaded`); return Promise.resolve(null); }
+    const on = { ctx: host.ctx as Ctx };
+    return actor.kind === "user"
+      ? runAsPerson(EXT_ACTIONS, action, { block: x.block, line: x.line }, on, msg => { host.ctx.flash(msg); host.redraw(); })
+      : EXT_ACTIONS.run(action, { block: x.block, line: x.line }, on, actor);
+  }
+
   /** The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note. */
   refreshTarget(): { block: string; line?: number } {
+    const x = this.inView()?.link?.ext;
+    if (x) return { block: x.block, line: x.line };
     const l = this.inView()?.link;
     if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
     return { block: l?.role === "resource" && l.block ? l.block : this.msg!.id };
@@ -1415,8 +1472,10 @@ export class NoteSurface {
       resourceChanged(null);
       const keys = read.projections.flatMap(p => p.key ? [p.key] : []);
       const failed = read.projections.filter(p => p.fetchError);
-      const fetched = read.projections.filter(p => p.key && !p.fetchError).map(p => p.key!);
-      const said = [fetched.length ? `${fetched.join(", ")} fetched` : "",
+      // A ticket or a record is fetched; an output or a component is run; an @name request is asked.
+      const shown = (p: ResourceProjection) => (p.kind === "agent" ? `${p.key} asked` : p.kind && p.kind !== "data" ? `${p.propertyKey}:: ${p.key ?? ""}`.trim() + " ran" : `${p.key} fetched`);
+      const fetched = read.projections.filter(p => p.key && !p.fetchError).map(shown);
+      const said = [fetched.length ? fetched.join(", ") : "",
         ...failed.map(p => `${p.key}: can't fetch (${p.fetchError!.replace(/^Resource extension: /, "")})`)].filter(Boolean).join(" · ");
       host.ctx.flash(said || "nothing to fetch here");
       if (actor.kind === "agent") this.noteAgent(actor, `refreshed ${keys.join(", ") || "nothing"}`);
@@ -1843,6 +1902,8 @@ export class NoteSurface {
       else if (kind === "resource") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE) && !heads.has(b)) b++; ruler = [top + r.line, top + b]; }
       // A step's is its item in the note, or its row in an embed (the whole region is one note line).
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
+      // An extension's control is its own row.
+      else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
       const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label, link: l, ...(l.task ? { task: l.task } : {}) });
     }
@@ -3104,7 +3165,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "block.untint": Record<string, never>;
   "link.follow": { n?: number; fresh?: boolean };
   "up": Record<string, never>;
-  "projection.refresh": { block?: string };
+  "projection.refresh": { block?: string; line?: number };
   "back": Record<string, never>;
   "forward": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
@@ -3502,6 +3563,13 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // A step's box opens the person's status choice; an agent sets the status itself.
       if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
+      // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
+      // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
+      if (e.link?.ext && (e.kind === "control" || e.kind === "resource")) {
+        const r = await surface.runExt(e.link.ext.action, e.link.ext, host, actor);
+        if (actor.kind === "agent") surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label.slice(0, 40)}`);
+        return { element: i, kind: e.kind, action: e.link.ext.action, ...(r && typeof r === "object" ? r : {}) };
+      }
       // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
       if (e.kind === "control" && e.link?.proposal?.op) {
         const r = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
@@ -3533,11 +3601,15 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "focus.set": { ...TINT, summary: `the older name of block.tint. ${TINT.summary}` },
   "focus.clear": { ...UNTINT, summary: `the older name of block.untint. ${UNTINT.summary}` },
   "projection.refresh": {
-    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own): block=<id>, else the one the [ ] position is on, else the note's. The service writes them as the Jira extension; the region repaints", keys: "r, a click on a ticket's age",
-    args: { block: { type: "string", optional: true, about: "the block whose tickets to fetch (a page or a ticket block); default: the reader's" } },
+    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line; @name requests only by their line). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
+    args: {
+      block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
+      line: { type: "number", optional: true, about: "only that line (its index in the note's text, 0 the first), of block= or else the reader's note" },
+    },
     async run(a, { surface, host }, actor) {
       const m = surface.msg;
-      const t = typeof a.block === "string" && a.block ? { block: a.block } : m && isOutlineNote(m) ? surface.refreshTarget() : null;
+      const t = typeof a.block === "string" && a.block ? { block: a.block, ...(a.line !== undefined ? { line: a.line } : {}) }
+        : m && isOutlineNote(m) ? (a.line !== undefined ? { block: m.id, line: a.line } : surface.refreshTarget()) : null;
       if (!t) throw new ActionRefused("no note with tickets here");
       return surface.refreshTickets(host, t.block, actor, t.line);
     },

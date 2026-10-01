@@ -8,7 +8,7 @@
 // everything that reads the seed finds it by title under the root, never by id.
 import type { Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
-import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
@@ -29,6 +29,7 @@ export const SEED = {
   figures: "Allotment figures",
   recipe: "Lentil soup",
   tickets: "Depot supplier call about ACME-12",
+  omens: "Omens for the allotment week",
   brief: "Daily brief — 2026-03-11",
   briefBefore: "Daily brief — 2026-03-10",
 } as const;
@@ -276,6 +277,21 @@ async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   await refreshTicket(board, ready);
 }
 
+/**
+ * The four extension kinds (PIE-507, drawn by the door since PIE-512): a record (`moon::`), an inline output
+ * (`horoscope::`), a rich component (`fancy-horror::`, its `w` wards an omen) and an `@tidy` request that
+ * tidies the line above it. With the outliner's examples installed they run; without, they are properties.
+ */
+const OMENS = [
+  SEED.omens,
+  "moon:: 2026-10-26",
+  "horoscope:: virgo",
+  "fancy-horror:: virgo",
+  "",
+  "water   the  leeks  before   noon",
+  "@tidy",
+].join("\n");
+
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
@@ -289,7 +305,7 @@ export interface Seeded {
  * Write the showcase outline into an empty workspace. Refuses when one is already there (`findShowcase`),
  * so a half-finished run is never seeded on top of: reset the workspace instead.
  */
-export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string } = {}): Promise<Seeded> {
+export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
   const notes = {} as Record<SeedName, Msg>;
@@ -336,6 +352,21 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
+  // The outliner's example extensions, in the scratch service's own user folder, read before the note is
+  // written so its @tidy line is a new request.
+  const examples = !!opts.ticketsConfig && !!opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length > 0;
+  if (examples) await board.listExtensions(true);
+  notes.omens = await make(notes.root.id, OMENS);
+  // @tidy answers once the note is quiet: wait for it (10 s at most), so the door opens on the tidied note.
+  if (examples) {
+    const end = Date.now() + 10_000;
+    const settled = (s?: string) => !!s && !["queued", "running", "not-asked"].includes(s);
+    while (Date.now() < end) {
+      const read = await board.readResourceProjections(notes.omens.id).catch(() => null);
+      if (settled(read?.projections.find(p => p.kind === "agent")?.agent?.status)) break;
+      await Bun.sleep(200);
+    }
+  }
   notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
 

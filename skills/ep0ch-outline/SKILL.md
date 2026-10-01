@@ -117,19 +117,35 @@ Extensions are trusted user code, like editor plugins, run by the service. Their
 person had copied it in: real blocks, namespaced properties (`jira.status`), queryable, linkable,
 commentable, publishable when they choose. Four kinds, one extension may be several:
 
-1. **Data** (`jira:: PC-1234`): the service fetches, caches and refreshes a record into blocks.
-2. **Inline output** (`horoscope:: virgo`): run once, cached Markdown under the line; `r` runs it again.
-3. **Rich component**: data plus a component built from shared primitives that every client draws
-   (the door's live figures, `::graph-stat` and friends, are to become the first).
-4. **Tile**: a program in a door terminal tile that reaches the outline through `EP0CH_CONTROL` and the CLI.
+1. **Data** (`moon:: 2026-10-26`, `jira:: PC-1234`): the service fetches a record into a real block the
+   extension owns, with namespaced properties (`[moon.phase::Full Moon]`), and refreshes it. The door and
+   Detail show it under the line; `r` fetches it again.
+2. **Inline output** (`horoscope:: virgo`): Markdown the service runs and keeps per line, shown under it and
+   never written into the note unless someone **keeps** it (`[keep]`, `ext.<id>.keep`). `r` runs it again.
+3. **Rich component** (`fancy-horror:: virgo`): data plus a view built from the shared primitives (card, box,
+   row, stack, text, badge, stat, bar, table, checklist, sparkline) that every client draws, with actions
+   (`[w ward]` in the door: its key, a click, or `act ext.fancy-horror.ward block=<id>`). Its state lives in
+   the outline as blocks its actions write.
+4. **Tile** (`tarot.reading`): a program in a door terminal tile of its own kind (`^W o T`, or
+   `act tile.open kind=tarot.reading note=<id>`). It reaches the outline only through the service's
+   actions, so what it writes is the extension's.
 
-Today the data kind ships (Jira, `kind: "resource"` handlers); the other three arrive with the next waves
-of the extensions work. An extension is a folder in the service host's user extensions folder
-(`~/.config/pi-herdr-outliner/extensions/<id>/`: `extension.json`, the code, `config.json`; secrets as
-references, never literals). `outliner ext ls` lists them and `outliner ext add <id>` copies a built-in.
-The contract is pi-herdr-outliner `docs/extensions/resource-process.md`; the design and what's still coming
-is the outline's "Extensions and resources: design" note. For a need, pick the smallest kind that serves it,
-copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
+An extension can also declare **agents** a person addresses while they write: a line `@tidy` (after an
+optional bullet) runs once the note is quiet, and its edit lands attributed to the extension (`ext:tidy`),
+or as a proposal if the person was typing there. The door shows the request's state under the line;
+`r` on it asks again.
+
+All four kinds work end to end in the door and the service (PIE-507, PIE-512): the door binds whatever
+`extensions.list` says, and an extension added or removed shows up or goes away without a restart.
+Everything an extension writes is attributed `author: agent`, `actorId: ext:<id>`, whoever asked.
+
+An extension is a folder: in the outline's own `extensions/<id>/` (it travels with that outline), or the
+service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
+the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
+<id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira), `outliner ext act <id>
+<action> --block <id>` runs an action. The contract and worked examples are pi-herdr-outliner
+`docs/extensions/README.md`. Test one against a scratch service, never their live folder. For a need, pick the
+smallest kind that serves it, copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
 
 ## Rules
 

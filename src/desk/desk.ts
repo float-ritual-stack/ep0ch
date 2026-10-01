@@ -29,7 +29,7 @@ import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
 import { builtin, dailyAgent, sharedAgent, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withDailyAgent, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { kindForKey, kindOf, tileKinds, type TileEnv } from "./tile-kinds";
+import { kindForKey, kindOf, tileKinds, unwatchTileKinds, watchTileKinds, wasTileKind, type TileEnv } from "./tile-kinds";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -89,7 +89,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private names = new Map<number, string>();
   /** Where a tile's opens land (PIE-473): tile → tile. */
   private links = new Map<number, number>();
-  /** Tiles saved with a kind nobody has registered: a reader stands in, and saves write their spec back as it was. */
+  /**
+   * Tiles saved with a kind nobody has registered: a tile that says so stands in, saves write their spec back
+   * as it was, and the tile is made again when the kind comes (`kindsChanged`).
+   */
   private unregistered = new Map<number, TileSpec>();
   /** The screen's own policy (PIE-505): the outermost container's, `locked` there locking the whole screen. */
   private screenPolicy: Policy = {};
@@ -130,6 +133,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    */
   constructor(private readonly preset?: DeskPreset, opts: { layout?: string } = {}) {
     this.marksStore = new LocalMarks(!preset);
+    // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
+    watchTileKinds(this);
     if (preset) {
       this.resume(null);
       const ids = preset.panes.map((p, i) => this.put(p, preset.names?.[i]));
@@ -224,7 +229,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (!reuse) this.panes.clear();
     this.names = names;
     const root = revive(spec.root, (l: TileSpec) => {
-      const kind = isTileKind(l.kind) ? l.kind : "reader";
+      // A kind nobody registers here is made as a tile that says so (src/desk/tiles.ts makeTile).
+      const kind = l.kind;
       const o = reuse && l.name ? byName.get(l.name) : undefined;
       const p = o !== undefined ? old.get(o) : undefined;
       let id: number;
@@ -252,7 +258,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         }
       }
       used.add(id);
-      // A kind nobody has registered (an extension not loaded yet) stands in as a reader; its spec is kept as saved.
+      // A kind nobody has registered (an extension not loaded yet) says so in its place; its spec is kept as saved.
       if (!isTileKind(l.kind)) this.unregistered.set(id, l); else this.unregistered.delete(id);
       if (l.link) wantLinks.push([id, l.link]);
       return id;
@@ -290,6 +296,46 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.zoom = null;
     if (this.ctx) for (const id of fresh) this.startTile(id);
   }
+
+  /**
+   * The tile-kind registry changed (an extension added, removed or reloaded while the door runs, PIE-512). A tile
+   * saved with a kind that has come is made as that kind now, in its place, with its args; a tile whose kind
+   * went ends its program and says why in its place, its spec kept so it comes back with its kind.
+   */
+  kindsChanged() {
+    if (this.disposed) return;
+    let changed = false;
+    for (const [id, p] of [...this.panes]) {
+      const saved = this.unregistered.get(id);
+      if (saved && isTileKind(saved.kind)) {
+        p.dispose?.();
+        this.panes.set(id, makeTile(saved));
+        this.unregistered.delete(id);
+        if (this.ctx) this.startTile(id);
+        changed = true;
+      } else if (!saved && !isTileKind(p.kind) && wasTileKind(p.kind)) {
+        // A program still running keeps its tile until it exits (closing it would lose what it holds); it
+        // goes then, and its tile says why.
+        if (p instanceof PtyPane && p.running) { this.whenExits(p, id); continue; }
+        const spec = this.specOf(id);
+        p.dispose?.();
+        if (this.ptyIn === p) this.ptyIn = null;
+        this.panes.set(id, makeTile(spec));
+        this.unregistered.set(id, spec);
+        changed = true;
+      }
+    }
+    if (changed && this.ctx) this.redraw();
+  }
+
+  /** When a tile's program exits after its kind went away: its tile says why, in its place. */
+  private whenExits(p: PtyPane, id: number) {
+    if (this.exitWatch.has(p)) return;
+    this.exitWatch.add(p);
+    const was = p.onExit;
+    p.onExit = code => { was?.(code); this.exitWatch.delete(p); if (this.panes.get(id) === p) this.kindsChanged(); };
+  }
+  private readonly exitWatch = new WeakSet<PtyPane>();
 
   /** A running program, an unsaved edit, a screen with a draft: closing it would lose something (its kind says). */
   private holdsWork(p: Pane): boolean { return !!kindOf(p)?.holdsWork?.(p); }
@@ -366,8 +412,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.onScreen = false;
     if (!this.preset && this.running().length) { Desk.kept = this; return "keep"; }
     sharedAgent()?.unwatch(this);
+    // Gone for good: kinds that come later never make tiles (nor start programs) here.
+    this.disposed = true;
+    unwatchTileKinds(this);
     for (const p of this.panes.values()) if (!this.isShared(p)) p.dispose?.();
   }
+  private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
   private static kept: Desk | null = null;
   /** The desk to open: the one kept running in the background, else a new one. */
