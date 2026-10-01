@@ -461,8 +461,9 @@ export class Draft {
    * An agent's patch, if its compare holds against the text as typed now: every span's observed text still
    * there, at or near where it was seen; the draft still on the revision the agent read; none around the
    * cursor; and, when the patch names a mark (the `@request` line), every span above it, or above the block
-   * the cursor is in when the person went back up above the mark to write. Without a mark there is no limit
-   * but the cursor's passage: an agent's ordinary edit of a note the person has open lands where it is. Then the text changes, the cursor, selection and view move with it so nothing on screen
+   * the cursor is in when the person went back up above the mark to write. Without a mark the only limit is
+   * the block being typed in (the cursor's paragraph, list item or heading): an agent's ordinary edit of a
+   * note the person has open lands anywhere else, above or below. Then the text changes, the cursor, selection and view move with it so nothing on screen
    * jumps, and the change is one undo unit, lit for a moment with who made it. `force`: "apply anyway",
    * the person's own choice, placed as well as it can be and not held to the mark.
    */
@@ -483,6 +484,11 @@ export class Draft {
         const at = Math.min(c, a);
         const limit = at > mark ? mark : blockStartAt(text, at);
         if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
+      } else {
+        const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
+        if (located.spans.some(sp => typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
+          return no("it changes the block being typed in");
+        }
       }
     }
     this.commitPatch(located.spans, by, p.patchId);
