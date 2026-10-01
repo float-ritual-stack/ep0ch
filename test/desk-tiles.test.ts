@@ -330,4 +330,28 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key({ kind: "esc" }); key({ kind: "esc" });
     process.env.EDITOR = "tail -f";
   }, 20_000);
+  test("a header's title moves the tile; the bare line after it is the border above, so pressing it resizes the tile", async () => {
+    if (!(app as any).stack.includes(desk)) app.push(desk);
+    await mine("layout.load", { name: "daily" });
+    const before = shape(), n = rect("now"), c = rect("claude");
+    // Past the title, on the line: the border between claude and now follows the pointer up. Nothing moves.
+    render();
+    const end = D().gripEnd(n);
+    expect(end).toBeLessThan(n.col + n.cols - 2);
+    drag(n.col + n.cols - 3, n.row, n.col + n.cols - 3, n.row - 4);
+    expect(shape()).toBe(before);
+    expect(D().describe().dragging).toBeNull();
+    expect(rect("now").rows).toBe(n.rows + 4);
+    expect(rect("claude").rows).toBe(c.rows - 4);
+    // The title itself still carries the tile.
+    const m = rect("middle");
+    drag(n.col + 4, rect("now").row, m.col + 1, m.row + Math.floor(m.rows / 2));
+    expect(shape()).not.toBe(before);
+    // A header with no border above (the top row) is grip all the way along.
+    await mine("layout.load", { name: "daily" });
+    const t = rect("claude");
+    mouse("down", t.col + t.cols - 3, t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
+    expect(D().describe().dragging).toMatchObject({ tile: "claude" });
+    key({ kind: "esc" }); mouse("up", t.col + t.cols - 1, t.row);
+  });
 });

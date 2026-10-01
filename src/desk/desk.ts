@@ -882,7 +882,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: |07t |08outline · |07r |08reader · |07d |08detail · |07p |08preview · |07e |08editor · |07s |08shell · |07k |08board · |07v |08river · |07f |08brief · |07h |08thread · |07a |08activity · |07w |08who · |07b |08art · |07l |08backlinks`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a header · |15alt+l|08 link · |15alt+d|08 daily · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
+          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves · a border resizes · |15alt+l|08 link · |15alt+d|08 daily · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -1684,6 +1684,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       && (k.action === "drag" ? (pane.drag(k.x - hit.col - 1, k.y - hit.row - 1, this), true) : pane.click(k.x - hit.col - 1, k.y - hit.row - 1, this));
   }
 
+  /** Where a header's grip ends: just past its last label (its number and title, or its tabs, and marks). */
+  private gripEnd(r: Rect): number {
+    const inRow = (h: { row: number; from: number; to: number }) => h.row === r.row && h.from >= r.col && h.to <= r.col + r.cols;
+    const ends = [...this.heads.filter(inRow), ...this.markHits.filter(inRow)].map(h => h.to);
+    return Math.min(r.col + r.cols - 1, (ends.length ? Math.max(...ends) : r.col + 3) + 1);
+  }
+
   /** The tiles as the drag sees them: each shown tile's frame, and a tab set's tab labels. */
   private dropTiles(): DropTile<number>[] {
     return this.hits.map(([id, rect]) => {
@@ -1734,11 +1741,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         if (!hit) { this.ctx.flash("not linked"); return this.redraw(); }
         return this.cmd("tile.link", hit[0] === from ? {} : { to: this.nameOf(hit[0]) }, this.nameOf(from));
       }
-      // A border: a drawer's own over it, else the layout's (not one hidden under a drawer). The header row is the header's.
+      // A border: a drawer's own over it, else the layout's (not one hidden under a drawer). On a header row
+      // only the title or tabs (the grip) move the tile; the bare line after them is the border above, so
+      // pressing a tile's top edge resizes it. A header with no border above is all grip.
       const inDrawer = !!hit && this.over.has(hit[0]);
       const borders = inDrawer ? this.dividers.filter(x => x.node.kids.some(kk => kk.t === "leaf" && kk.id === hit![0])) : this.dividers;
-      const onHeader = !!hit && k.y === hit[1].row && k.x > hit[1].col && k.x < hit[1].col + hit[1].cols - 1;
-      const d = this.zoom === null && !onHeader ? dividerAt(borders, k.x, k.y) : null;
+      const onGrip = !!hit && k.y === hit[1].row && k.x > hit[1].col && k.x < this.gripEnd(hit[1]);
+      const d = this.zoom === null && !onGrip ? dividerAt(borders, k.x, k.y) : null;
       if (d) { this.drag = d; return; }
       if (!hit) return;
       const [id, r] = hit;
