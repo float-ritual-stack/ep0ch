@@ -31,7 +31,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -278,6 +278,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     presence: ["who's online", "parallel version, to consolidate · WhoOnline", "parallel version, to consolidate · LastCallers"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
+    // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
+    extensions: ["Omens for the allotment week", "extensions"],
     selection: ["Lentil soup", "Drag across these lines"],
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
   };
@@ -341,9 +343,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 14, key: "selection" });
+    expect(r).toEqual({ section: 15, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 14");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 15");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");

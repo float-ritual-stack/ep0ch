@@ -126,11 +126,11 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in fifteen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in sixteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row and its elements and reading-ruler row (PIE-441) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -146,7 +146,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   notes fetches the tickets, which the service keeps as blocks; nothing real is contacted), and a week of
   omens with one line of each extension kind (`moon::`, `horoscope::`, `fancy-horror::`, `@tidy`, PIE-512:
   the outliner's example extensions, copied from the checkout `--outliner` names into the showcase's own
-  config dir; the `projection` section shows it beside the tickets).
+  config dir; the `extensions` section shows it).
 - **It's writable.** Edit, move and comment freely; it stays until `--reset`, which stops its service,
   deletes that state and reseeds. Its service is the process `service.pid` names only when that process
   is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
@@ -160,7 +160,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-15|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-16|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 

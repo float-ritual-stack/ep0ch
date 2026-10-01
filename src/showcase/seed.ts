@@ -354,8 +354,19 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await make(notes.tickets.id, TICKET_PAGE);
   // The outliner's example extensions, in the scratch service's own user folder, read before the note is
   // written so its @tidy line is a new request.
-  if (opts.ticketsConfig && opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length) await board.listExtensions(true);
+  const examples = !!opts.ticketsConfig && !!opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length > 0;
+  if (examples) await board.listExtensions(true);
   notes.omens = await make(notes.root.id, OMENS);
+  // @tidy answers once the note is quiet: wait for it (10 s at most), so the door opens on the tidied note.
+  if (examples) {
+    const end = Date.now() + 10_000;
+    const settled = (s?: string) => !!s && !["queued", "running", "not-asked"].includes(s);
+    while (Date.now() < end) {
+      const read = await board.readResourceProjections(notes.omens.id).catch(() => null);
+      if (settled(read?.projections.find(p => p.kind === "agent")?.agent?.status)) break;
+      await Bun.sleep(200);
+    }
+  }
   notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
 
