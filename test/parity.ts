@@ -47,7 +47,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; dock: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /** The screens each part probes: the menu's screens and the readers; the board and the river; the desk and its views. */
@@ -164,11 +164,16 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     } catch (e) { lines = [`render threw ${e}`]; }
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: !!top?.holdsKeys?.() || !!top?.rawKeys?.() || app.dockHoldsKeys(), video: app.video };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: !!top?.holdsKeys?.() || !!top?.rawKeys?.() || app.dockHoldsKeys(), video: app.video, dock: drawer() };
   };
+  /**
+   * The agent drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
+   * agent's terminal (they change by themselves), so the drawer is compared by these, not by what it draws.
+   */
+  const drawer = () => { const d = A().dock; return `${d.shown}|${d.entered}|${d.share}`; };
   /** The same screen shown the same way (`about`: and described the same; two builds differ in ids and revisions). */
-  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
-  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.dock === b.dock && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.dock === b.dock && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
   /** A screen gone for good: what it started ends too (a desk keeps its programs running otherwise). */

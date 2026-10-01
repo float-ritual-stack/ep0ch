@@ -1,7 +1,7 @@
 // A throwaway outliner service for tests: its own state, workspace and config dirs, background agents
 // off, Herdr unset. Never a real outline. `restart()` stops it and starts it again on the same state,
 // the way a deploy would. `seedShowcase()` writes the showcase outline (src/showcase/seed.ts) into it.
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
@@ -21,24 +21,32 @@ const alive = (pid: number) => {
 };
 
 /**
- * A temp dir for a scratch service, named `prefix…`, with the id of the test process that owns it in its `pid`
- * file. The dirs a killed run left (their `pid` names a process that's gone) are removed first: only this
- * prefix's, only this user's, never one whose process runs or that has no `pid` file.
+ * The pid namespace this process sees its ids in (Linux; "" elsewhere). A run in a container or sandbox that
+ * shares /tmp has ids this one can't see: its live run must not look gone.
+ */
+const pidSpace = () => { try { return readlinkSync("/proc/self/ns/pid"); } catch { return ""; } };
+
+/**
+ * A temp dir for a scratch service, named `prefix…`, with the id of the test process that owns it (and the pid
+ * namespace that id is in) in its `pid` file. The dirs a killed run left (their `pid` names a process that's
+ * gone) are removed first: only this prefix's, only this user's, only ones written from this pid namespace,
+ * never one whose process runs or that has no `pid` file.
  */
 export function scratchDir(prefix: string): string {
-  const uid = process.getuid?.();
+  const uid = process.getuid?.(), space = pidSpace();
   for (const name of readdirSync(tmpdir())) {
     if (!name.startsWith(prefix)) continue;
     const dir = join(tmpdir(), name);
     try {
       const st = lstatSync(dir);
       if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue;
-      const pid = Number(readFileSync(join(dir, "pid"), "utf8").trim());
-      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(dir, { recursive: true, force: true });
+      const [id, ns = ""] = readFileSync(join(dir, "pid"), "utf8").trim().split("\n");
+      const pid = Number(id);
+      if (ns === space && Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(dir, { recursive: true, force: true });
     } catch { /* no pid file, or gone already: left alone */ }
   }
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  writeFileSync(join(dir, "pid"), String(process.pid));
+  writeFileSync(join(dir, "pid"), `${process.pid}\n${space}`);
   return dir;
 }
 
