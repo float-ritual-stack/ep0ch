@@ -313,7 +313,7 @@ at, and what it does while they're typing:
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
-| `proposal.dismiss` | no | its own proposals only (the actor its patch names), recorded as it; the person dismisses any |
+| `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
 ## Editing above the person while they type: `draft.patch` (PIE-501)
@@ -342,8 +342,11 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 - **A failed compare changes nothing.** The service keeps the proposal as a reply block under the note,
   attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
   `proposal.apply` (`A`, `[apply]`) applies it anyway, as an ordinary edit by whoever runs it;
-  `proposal.dismiss` (`X`, `[dismiss]`) takes its embed line out of the note and puts it in Trash. The person's apply is
-  forced (placed as well as it can be); an agent's is held to the same compare as a patch, under the policy its
+  `proposal.dismiss` (`X`, `[dismiss]`) asks the service (`draft.proposal.dismiss`) to take its embed line out of
+  the note (or the draft of it being written), mark it dismissed and put it in Trash. A proposal whose passage was
+  already gone, or reached the mark, when it was proposed carries `[proposal-applies::no]`: it offers only
+  `[dismiss]`, and `A` says why. The person's apply is forced (placed by its passage wherever it is now, still
+  above the mark; a changed passage is refused, never guessed); an agent's is held to the same compare as a patch, under the policy its
   patch named (`edit`, or `prose` for a `prose` patch and any proposal from before policies), above the mark
   and the cursor's block, against the text now (`applyProposal` in pi-herdr-outliner's
   `src/draft-patch-router.ts`), so an agent can't force its own proposal. A

@@ -22,7 +22,7 @@ import type { CommentSession } from "../comment";
 import { shellKeyOf } from "../shell-keys";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
-import { historyKey, historyRow, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
+import { historyKey, historyRow, IN_TRASH, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
@@ -760,10 +760,13 @@ export class River implements Screen {
 
   // ── the note surface in each pane ────────────────────────────────────────
 
-  /** A block column's note: the newer of what the column read and what its surface has (after a save). */
+  /**
+   * A block column's note: the newer of what the column read and what its surface has (after a save, or a
+   * trash or restore, which moves no revision: the surface reads it again on any, NoteSurface.staleOn).
+   */
   private rootOf(p: PaneS): Msg | null {
     const s = p.surface.msg, r = p.root;
-    if (s && r && s.id === r.id && !s.partial && (s.revision ?? 0) > (r.revision ?? 0)) return s;
+    if (s && r && s.id === r.id && !s.partial && ((s.revision ?? 0) > (r.revision ?? 0) || (s.revision === r.revision && !!s.deleted !== !!r.deleted))) return s;
     return r;
   }
 
@@ -864,13 +867,15 @@ export class River implements Screen {
     return !!p.surface.msg && p.surface.msg.id === this.noteOf(p)?.id && p.surface.describe().links.some(l => l.selected);
   }
 
-  /** In read mode, what the surface has to say under the note: a save that changed properties, what an agent did. */
+  /** In read mode, what the surface has to say under the note: that it's in the Trash, a save that changed properties, what an agent did. */
   private banner(p: PaneS, m: Msg, w: number): string[] {
     const s = p.surface;
     if (s.msg?.id !== m.id) return [];
     const key = `${s.notice}|${s.agent?.at ?? ""}`;
     if (key !== "|" && p.shown?.key !== key) p.shown = { key, at: Date.now() };
     return [
+      // A note trashed while it's shown (with an ancestor, too: the surface reads it again) says so, as the reader does.
+      ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
       ...(s.notice ? [fg(C.yellow) + pad(s.notice, w) + RESET] : []),
       ...(s.agent ? [fg(C.lmagenta) + pad(`an agent (${s.agent.id}) ${s.agent.did}`, w) + RESET] : []),
     ];
@@ -1192,20 +1197,18 @@ export class River implements Screen {
   }
 
   /**
-   * Each surface that shows a note re-reads it when the change is to that note (unless it already has
-   * that revision: its own save), and re-reads its comment threads (debounced; a comment's event names
-   * the comment, not the note). A draft is never replaced, only marked "changed elsewhere".
+   * Each surface that shows a note re-reads it when the change makes it stale (NoteSurface.staleOn: a change
+   * to that note it hasn't seen, a reset, a trash or restore), and re-reads its comment threads (debounced; a
+   * comment's event names the comment, not the note). A draft is never replaced, only marked "changed elsewhere".
    */
   private refreshSurfaces(e: OutlineEvent) {
-    const id = e.blockId;
     for (const p of this.panes()) {
       const s = p.surface, m = s.msg;
       if (!m) continue;
       const host = this.hostFor(p);
       if (e.action === "reconnected") s.retry(host);
       s.onEvent(host);
-      const own = e.change?.revision !== undefined && m.revision === e.change.revision && !m.partial;
-      if (e.action === "reset" || (id === m.id && !own)) this.ctx.board.get(m.id).then(n => { if (n) { s.refresh(n); this.ctx.redraw(); } }, () => {});
+      if (s.staleOn(e)) this.ctx.board.get(m.id).then(n => { if (n) { s.refresh(n); this.ctx.redraw(); } }, () => {});
     }
   }
 

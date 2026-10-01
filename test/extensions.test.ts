@@ -18,7 +18,7 @@ import { bindExtensions, EXT_ACTIONS, extensionList, loadExtensions, mentionsExt
 import { missingKind } from "../src/desk/tile-kinds";
 import { declaredKeys, hintKeys, traceActions } from "../src/surface/actions";
 import { writeFileSync } from "node:fs";
-import { forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";
+import { extensionRegion, forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -86,9 +86,14 @@ describe.skipIf(!outliner)("parity with Detail's layout for an extension's line"
       { ...base, provider: "fancy-horror", label: "Fancy Horror", propertyKey: "fancy-horror", kind: "component", key: "virgo", status: "stale", reason: "the last run failed: timeout", summary: "Virgo", fetchedAt: "2026-10-01T09:00:00.000Z",
         output: { markdown: "**Virgo**\n\n- [ ] a door", ranAt: "2026-10-01T09:00:00.000Z", component: { data: {}, view: { type: "text", text: "x" } } } },
       { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "ready", summary: "tidied 1 line above", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "applied" } },
+      // A request whose proposal was dismissed (PIE-510) reads like the other statuses.
+      { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "ready", summary: "proposed 1 edit", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "dismissed", proposalId: "prop-1" } },
       { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "not-run", reason: "r asks @tidy", agent: { name: "tidy", status: "not-asked" } },
       { ...base, provider: "moon", label: "Moon", propertyKey: "moon", kind: "data", key: "2026-10-26", status: "not-fetched", reason: "not fetched yet" },
     ];
+    // The reader's head says it as the service words it.
+    const dismissed = extensionRegion(cases[3]!, 80, 0, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).map(plain);
+    expect(dismissed[0]).toContain("Tidy @tidy · dismissed · proposed 1 edit");
     for (const p of cases) {
       const want = theirs.resourceProjectionLayout(p);
       expect({ kind: p.kind, lines: projectionLayout(p).lines }).toEqual({ kind: p.kind, lines: want.lines });

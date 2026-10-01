@@ -903,8 +903,7 @@ export class MessageReader implements Screen {
     this.surface.onEvent(host);
     if (e.action === "reconnected") this.surface.retry(host);
     if (!m) return;
-    const stale = e.action === "reset" || (e.blockId === m.id && !(e.change?.revision !== undefined && m.revision === e.change.revision && !m.partial));
-    if (stale) ctx.board.get(m.id).then(x => { if (x) { this.surface.refresh(x); ctx.redraw(); } }, () => {});
+    if (this.surface.staleOn(e)) ctx.board.get(m.id).then(x => { if (x) { this.surface.refresh(x); ctx.redraw(); } }, () => {});
     // A reply written or removed under this message changes its count.
     if (this.replies?.for === m.id && (e.action === "reset" || (e.change && ["create", "move", "delete", "restore", "purge"].includes(e.change.kind)))) this.countReplies(m.id, ctx);
   }

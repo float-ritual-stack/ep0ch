@@ -35,9 +35,10 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
   "views.planWrite", "query.matches", "ping.propertyGrammar",
   /**
    * draft.patch (pi-herdr-outliner PIE-501): the door holds each live draft on a lease (`drafts.hold`), so an
-   * agent's compare-and-swap on a span lands in the draft being typed; `draft.proposal.apply` is "apply anyway".
+   * agent's compare-and-swap on a span lands in the draft being typed; `draft.proposal.apply` is "apply anyway",
+   * `draft.proposal.dismiss` (PIE-510) dismisses one in the service: its embed line out, marked, to the Trash.
    */
-  "drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "ping.draftPatchCompare",
+  "drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "draft.proposal.dismiss", "ping.draftPatchCompare",
   /**
    * Wave A of the extension design (pi-herdr-outliner PIE-445): a ticket kept as a block the Jira extension
    * owns (`extensions.records`), fetched on save and on open (`resources.projection.materialize`), refreshed
@@ -346,6 +347,8 @@ export const recordedActorId = (actor: Actor): string => [actorIdOf(actor), ...(
 /** The `mutation` a write carries for `actor`. */
 export const mutationFor = (actor: Actor = USER) =>
   actor.kind === "agent" || actor.with?.length ? { author: actor.kind, actorId: recordedActorId(actor) } : EDIT_MUTATION;
+/** Who applies or dismisses a proposal: the agent by its own id (the service checks an agent's ownership by it), or the person. */
+const proposalMutation = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
 /**
  * How a comment or reply is authored. A person's alone carries no actor id: the service takes one only on
  * agent comments. So one a person and an agent both wrote is recorded as `author: agent`, with an actor
@@ -1212,9 +1215,6 @@ export class SocketBoard implements Board {
 
   // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
 
-  /** Whether this door holds a live draft of `blockId` (an edit open on it in some reader). */
-  holdsDraft(blockId: string): boolean { return this.drafts.has(blockId); }
-
   private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; gone: boolean }>();
 
   /**
@@ -1276,10 +1276,23 @@ export class SocketBoard implements Board {
     return this.request("drafts.read", { blockId });
   }
 
-  /** "Apply anyway": a proposal's patch as an ordinary edit by `actor` (`draft.proposal.apply`). */
-  async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[] }> {
+  /**
+   * "Apply anyway": a proposal's patch as an ordinary edit by `actor` (`draft.proposal.apply`). `warning`: the
+   * edit landed, but something after it didn't (the proposal couldn't be marked applied).
+   */
+  async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[]; warning?: string }> {
     if (this.supports("draft.proposal.apply") === false) throw new Refused("this outline service can't apply proposals (it has no draft.proposal.apply)");
-    return this.request("draft.proposal.apply", { proposalId, mutation: actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" } });
+    return this.request("draft.proposal.apply", { proposalId, mutation: proposalMutation(actor) });
+  }
+
+  /**
+   * Dismiss a proposal without applying it (`draft.proposal.dismiss`, PIE-510): the service takes its embed line
+   * out of the note it was proposed under (or the live draft of it), marks it dismissed and puts it in the Trash,
+   * all as `actor`, and refuses an agent's dismissal of another's proposal. `embedRemoved`: where the line was.
+   */
+  async dismissProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "dismissed"; proposalId: string; embedRemoved: "saved" | "draft" | null; warning?: string }> {
+    if (this.supports("draft.proposal.dismiss") === false) throw new Refused("this outline service can't dismiss proposals (it has no draft.proposal.dismiss)");
+    return this.request("draft.proposal.dismiss", { proposalId, mutation: proposalMutation(actor) });
   }
 
   close(): void {

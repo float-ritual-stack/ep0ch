@@ -24,7 +24,7 @@ const span = (text: string, observed: string, replacement: string) => {
 describe("the vendored compare", () => {
   const VENDORED = join(import.meta.dir, "../src/vendor/draft-patch-compare.ts");
   /** When pi-herdr-outliner changes src/draft-patch-compare.ts: copy it over the vendored file, and put its checksum here. */
-  const PINNED_SHA256 = "4aaa4649bf63cd1a8a2d3ee2e6579e27aa8f053ac89d65f316bf09e1b5a3ba23";
+  const PINNED_SHA256 = "e38e425afaa818c610d66f52b31fd09f9292b96dac60f4a2511b78ad5132a159";
   test("is the outliner's file, byte for byte", () => {
     expect(createHash("sha256").update(readFileSync(VENDORED)).digest("hex")).toBe(PINNED_SHA256);
     const theirs = outliner && join(outliner, "src/draft-patch-compare.ts");
@@ -94,6 +94,18 @@ describe("a patch in a draft being typed in", () => {
     expect(d.applyPatch({ patchId: "x", patches: [stale], revision: 3, mark: "@tidy tidy this" }, TIDY)).toMatchObject({ applied: false, reason: "the observed text isn't there any more" });
     d.place(1, 12);
     expect(d.applyPatch({ patchId: "x", patches: [span(d.text, "runner beans", "beans")], revision: 3, mark: "@tidy tidy this" }, TIDY)).toMatchObject({ applied: false, reason: "the cursor is in that passage" });
+  });
+
+  test("apply anyway (forced) skips the revision and cursor checks, but never reaches the mark", () => {
+    const d = typing();
+    d.place(1, 6);                                                        // the cursor in the passage
+    const above = span(d.text, "The beans   go along  the fence.", "The beans go along the fence.");
+    expect(d.applyPatch({ patchId: "f1", patches: [above], revision: 1, mark: "@tidy tidy this", force: true }, { kind: "user" })).toEqual({ applied: true });
+    const below = span(d.text, "@tidy tidy this", "@tidy tidied");
+    expect(d.applyPatch({ patchId: "f2", patches: [below], revision: 1, mark: "@tidy tidy this", force: true }, { kind: "user" })).toEqual({ applied: false, reason: "it reaches the mark or below it; a patch changes only text above the mark" });
+    // A mark line the person took out holds nothing back.
+    const gone = new Draft("note-2", 3, "Morning plan\nwater  them");
+    expect(gone.applyPatch({ patchId: "f3", patches: [span(gone.text, "water  them", "water them")], revision: 1, mark: "@tidy tidy this", force: true }, { kind: "user" })).toEqual({ applied: true });
   });
 
   test("ctrl+z takes the patch back as one unit, after more typing; an agent may only undo its own", async () => {
@@ -233,23 +245,30 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(a))!.text).toContain(`((${e.id}^deep-link))`);
   }, 30_000);
 
-  test("an overlapping edit fails cleanly into an embed in the draft, and A applies it anyway", async () => {
-    const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
+  /** tidy's patch of the sentence in a draft Evan has open, sent while his cursor is in it: it becomes a proposal embedded in the draft. */
+  async function proposedInDraft(e: Awaited<ReturnType<typeof editing>>, typeInIt = false) {
     const read = await agent.readDraft(e.id);
     expect(read.route).toBe("draft");
     const start = read.text.indexOf("The peas");
     const observed = "The peas   climb  the net.";
-    // Evan edits that very sentence after the agent read it.
-    e.d.place(1, 9); e.type("sugar ");
-    e.d.place(e.d.lines.length - 1, 0);
+    // Evan is in that very sentence when it comes (with `typeInIt`, he rewords it after the agent read it).
+    e.d.place(1, 9);
+    if (typeInIt) e.type("sugar ");
     const r = await agent.request("draft.patch", {
       blockId: e.id, revision: read.revision, mark: { text: tidyMark }, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
-    expect(r).toMatchObject({ outcome: "proposed", reason: "the observed text isn't there any more", embedded: "draft" });
+    expect(r).toMatchObject({ outcome: "proposed", embedded: "draft" });
     expect(e.d.text).toContain(`${tidyMark}\n!((${r.proposalId}))`);
-    expect(e.d.text).toContain("The peas sugar   climb  the net.");
-    const proposal = (await board.get(r.proposalId))!;
+    e.d.place(e.d.lines.length - 1, 0);
+    return r.proposalId as string;
+  }
+
+  test("an edit at the cursor fails cleanly into an embed in the draft, and A applies it anyway", async () => {
+    const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
+    const id = await proposedInDraft(e);
+    expect(e.d.text).toContain("The peas   climb  the net.");
+    const proposal = (await board.get(id))!;
     expect(proposal).toMatchObject({ parentId: e.id, props: { type: "draft-proposal", "proposal-status": "open" } });
 
     // Apply anyway: A on the proposal, in another reader. It lands in the draft being typed, as the person's.
@@ -258,8 +277,59 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(reader.hint()).toContain("A apply anyway");
     reader.key(char("A"), h);
     await until(() => e.d.text.includes("The peas climb the net."), "the proposal applied in the draft");
-    expect(e.d.text).not.toContain("sugar");
-    expect((await board.get(r.proposalId))!.props["proposal-status"]).toBe("applied");
+    expect((await board.get(id))!.props["proposal-status"]).toBe("applied");
+  }, 30_000);
+
+  test("one whose passage was reworded before it came offers only dismiss: A says why, X takes its line out of the draft", async () => {
+    const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
+    const id = await proposedInDraft(e, true);
+    const proposal = (await board.get(id))!;
+    expect(proposal.props["proposal-applies"]).toBe("no");
+    const reader = new NoteSurface(), h = host();
+    reader.show(proposal, h);
+    const header = reader.render(90, 30, h).lines.map(visible).slice(0, 8).join("\n");
+    expect(header).toContain("proposal · [dismiss]");
+    expect(header).not.toContain("[apply]");
+    expect(reader.hint()).toContain("X dismiss");
+    expect(reader.hint()).not.toContain("A apply");
+    flashes.length = 0;
+    expect(reader.key(char("A"), h)).toBe(true);
+    await until(() => flashes.length > 0, "A's refusal");
+    expect(flashes.at(-1)).toContain("can't be applied");
+    expect(e.d.text).toContain("The peas sugar   climb  the net.");
+    reader.key(char("X"), h);
+    await until(() => !e.d.text.includes(`!((${id}))`), "its embed line out of the draft");
+    expect(flashes.at(-1)).toContain("its embed line is out of the draft being written");
+    expect(e.d.text).toBe(`Allotment\nThe peas sugar   climb  the net.\n\n${tidyMark}\n`);
+    expect((await board.get(id))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
+  }, 30_000);
+
+  test("what an agent did to a draft is noted while it's open, gone once saved, and in the past once put aside", async () => {
+    // Saved: the words go with the draft.
+    const a = await editing(`Seeds\nsow   them\n\n${tidyMark}\n`);
+    await patchDemo(a.id);
+    const said = (s: NoteSurface, h: SurfaceHost) => s.render(80, 20, h).lines.map(visible).join("\n");
+    expect(a.s.agent?.did).toBe("edited text above your cursor");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: a.s, host: a.h }, { kind: "user" });
+    expect(a.s.draft).toBeNull();
+    expect(said(a.s, a.h)).not.toContain("an agent (tidy)");
+    // Put aside (closed with its changes kept as unsent): said in the past, with no cursor in it.
+    const b = await editing(`Bulbs\nplant   deep\n\n${tidyMark}\n`);
+    await patchDemo(b.id);
+    expect(b.s.agent?.did).toBe("edited text above your cursor");
+    NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: b.s, host: b.h }, { kind: "user" });
+    const now = said(b.s, b.h);
+    expect(now).toContain("an agent (tidy) edited the draft you put aside");
+    expect(now).not.toContain("your cursor");
+  }, 30_000);
+
+  test("an agent dismissing its own proposal from a draft is said as that, not as applying it", async () => {
+    const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
+    const id = await proposedInDraft(e, true);
+    const r = await agent.request("draft.proposal.dismiss", { proposalId: id, mutation: { author: "agent", actorId: "tidy" } });
+    expect(r).toMatchObject({ outcome: "dismissed", embedRemoved: "draft" });
+    expect(e.d.text).not.toContain(`!((${id}))`);
+    expect(e.s.agent?.did).toBe("took a dismissed proposal's line out of your draft");
   }, 30_000);
 
   test("a closed draft lets go of its hold: the next patch goes to the saved note", async () => {
