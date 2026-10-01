@@ -294,6 +294,12 @@ at, and what it does while they're typing:
 | `projection.refresh` | no | allowed |
 | `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
 | `tile.herdr` | no | allowed |
+| `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
+| the river's `select` by row, `column.scroll`, `filter` | no | refused on the column the person has the keys in, with the agent's way named (`select id=`, `jump`, `open`, `tag`); said on the status bar elsewhere |
+| the board's `card.select` | no: an agent's selection is its own | allowed |
+| `board.hub id=` | yes: the board shown | refused while the person holds the keys; said on the status bar |
+| `search`, `jump query=`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
+| `tile.enter`, `tile.leave`, `agent.enter`, `agent.leave`, `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |

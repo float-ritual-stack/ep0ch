@@ -1200,24 +1200,24 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tree.fold` | `n=` or `id=`, `open=true\|false`: a tree row's children. An agent can't fold away the rows your selection is in | `l → space h ←`, a click on a row's mark |
 | `backlinks.fold` | `kind=`: a group in a backlinks tile (`backlinks.view` takes `step=` for its status-line controls) | `.`, `space`; `s K w h n` |
 | `section.try` | `name=`: the showcase's part, given the keys. The person's only (`section` is the agent's) | `⏎ → l Tab`, a click into the stage |
-| `agent.enter`, `agent.leave` | `send=`; `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]` |
+| `agent.enter`, `agent.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
 | `tree.links`, `tree.pick` | `reader=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
 | `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note). Fetches its tickets now; the service writes them as `ext:jira` | `r`, a click on a ticket's age |
 | `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
 | `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `reader=<reader>` or `reader=lanes`. An agent's is refused while you're typing | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |
-| `card.select`, `card.move` | `id`, or `lane` and `by` (steps; `lanes=` steps lanes); `lane`, `card` (default the selected card; an agent's own `card.select` first, which never moves your cursor) | `h l j k ↑↓ ← → PgUp PgDn`, a click, the wheel; `H L`, `m` then `⏎`, drag |
+| `card.select`, `card.move` | `id`, or `lane` and `by` (steps; `lanes=` steps lanes; `focus=false` leaves the current lane, as the wheel over another lane does); `lane`, `card` (default the selected card; an agent's own `card.select` first, which never moves your cursor) | `h l j k ↑↓ ← → PgUp PgDn`, a click, the wheel; `H L`, `m` then `⏎`, drag |
 | `board.hub` | `id` (a board's block id): show that board; none: the boards there are (yours opens the picker, an agent's only lists them); `close=true` puts the picker away (yours) | `g`, then `j k ⏎` or a click; `esc` `q` |
 | `lane.collapse` | `lane` (default the lit one), `on=true\|false` (default toggles) | `c` on the lanes, `⏎`/`space` on a collapsed lane, a click on its spine |
 | `outline` | `open=true\|false`, `side=left\|right`: the board's outline drawer. An agent's open leaves your keys where they are, and it can't shut the drawer you're in | `t`, `S`, `esc` `q` in it |
 | `float.place` | `dx dy` (steps) or `col row cols rows`: move or size a float, kept on screen | `H J K L` on a float, dragging its title or `◢` |
-| `backlinks.pick` | `n`, `id` or `by`; `open=true`, `fresh=true`, `fold=<kind>` (the board's backlinks drawer, as the desk's backlinks tile). An agent's leaves your selection and preview | `j k Home End`, `⏎`, `alt+⏎`, `.` `space`, clicks, the wheel |
+| `backlinks.pick`, `backlinks.fold` | `n`, `id` or `by`; `open=true`, `fresh=true`; `kind` (fold: a group). One grammar on the board's backlinks drawer and the desk's backlinks tile. An agent's pick leaves your selection and preview; folding is your view, an agent's is refused | `j k Home End`, `⏎`, `alt+⏎`, clicks, the wheel; `.` `space` |
 | `board.reload` | none: read the lanes again | `r` |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
-| `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`), `card`; `id` (default the card trashed last) | `d d`, `u` |
+| `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
 | `pane.resize` | `reader=<pane>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
 | `pane.close`, `pane.float`, `pane.pin` | `reader=<pane>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer, `float` pops a reader out or docks a float, `pin` is for `tree` and `backlinks`. An agent can't close or float the pane that has your keys | board `x`, `esc`, `o`, `T`, `B`; desk `^W x` |
@@ -1231,7 +1231,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `proposal.apply` | `id` (default: the embed that is the current element, else the note shown): apply anyway, as an edit by whoever runs it | `A`, a click on `[apply]` |
 | `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): its embed line out of the note (revision-checked), then the proposal to Trash, both recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
-| `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
+| `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body`; reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
 | `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
