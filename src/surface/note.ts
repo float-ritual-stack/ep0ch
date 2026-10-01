@@ -3866,9 +3866,9 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
         if (!m || m.deleted || m.revision === undefined) continue;
         const text = withoutEmbed(m.text, p.id);
         if (text === m.text) continue;
-        if (b.holdsDraft?.(hostId)) throw new ActionRefused(`${subject(m)} is being edited here, and its embed line is in that draft: save or close the edit first (or delete the line in it); nothing was dismissed`);
+        if (b.holdsDraft?.(hostId)) throw new ActionRefused(`${subject(m)} is being edited here, and its embed line is in that draft: save or close the edit first (or delete the line in it); the proposal wasn't dismissed`);
         try { await b.update(hostId, text, m.revision, actor); } catch (err) {
-          throw new ActionRefused(`couldn't take its embed line out of ${subject(m)}: ${err instanceof Error ? err.message : String(err)}; nothing was dismissed`);
+          throw new ActionRefused(`couldn't take its embed line out of ${subject(m)}: ${err instanceof Error ? err.message : String(err)}; the proposal wasn't dismissed${removedFrom.length ? " (its line is already out of the other note)" : ""}`);
         }
         removedFrom.push(hostId);
       }
