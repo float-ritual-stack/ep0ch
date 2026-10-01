@@ -115,6 +115,10 @@ describe("the surface without a service", () => {
       expect(await parseActArgs(["tile.close", "tile=detail2"])).toEqual({ action: "tile.close", reader: "detail2", args: {} });
       expect(await parseActArgs(["tile.close", "--tile", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
       expect(await parseActArgs(["tile.close", "--reader", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
+      // Both, naming one tile, is that tile; naming two is refused, never one picked silently.
+      expect(await parseActArgs(["tile.close", "tile=3", "reader=3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
+      await expect(parseActArgs(["tile.close", "tile=3", "reader=detail1"])).rejects.toThrow("tile= and reader= name two tiles (3, detail1)");
+      await expect(parseActArgs(["tile.close", "--reader", "2", "--tile", "3"])).rejects.toThrow("name two tiles");
       await expect(parseActArgs(["edit.text", "oops"])).rejects.toThrow("key=value");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -137,6 +141,13 @@ describe("the surface without a service", () => {
       expect(() => set.runUntyped("reader.shut", { on: "false" }, h, { kind: "user" })).toThrow("reader.shut takes no on");
       expect(runs.map(r => [r.name, r.keys])).toEqual([["tile.fold", "^W c; c on a reader"], ["tile.fold", "^W c; c on a reader"]]);
       expect([set.has("pane.fold"), set.canonical("pane.fold"), set.canonical("tile.fold")]).toEqual([true, "tile.fold", "tile.fold"]);
+      // An alias that answered differently gives its older answer; the action's own name gives the action's.
+      const answered = new ActionSet<{ "tile.pin": Record<string, never> }, null>("t", { "tile.pin": { summary: "", args: {}, aliases: [{ name: "pane.pin", answer: (r: { tile: string }) => ({ ...r, pane: r.tile }) }], run: () => ({ tile: "tree" }) } });
+      expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree", pane: "tree" });
+      expect(await answered.runUntyped("tile.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree" });
+      // An action defined later under an alias's name (an extension's) is that action.
+      answered.define("pane.pin", { summary: "", args: {}, run: () => "its own" });
+      expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toBe("its own");
       expect(() => new ActionSet<{ a: object; b: object }, null>("t", { a: { summary: "", aliases: ["b"], args: {}, run: () => 0 }, b: { summary: "", args: {}, run: () => 0 } })).toThrow("b is already an action");
       // An action defined again (an extension reloaded) takes its aliases with it.
       set.forget("tile.fold");
@@ -542,6 +553,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       const r2 = await ask({ cmd: "act", action: "edit.text", reader: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
       expect(r2).toMatchObject({ ok: true, result: { reader: "preview", dirty: true } });
       // tile= on the wire names the tile, as reader= (its older name) does (A5).
+      expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", reader: "detail1", as: "socket-agent" })).toMatchObject({ ok: false, error: expect.stringContaining("name two tiles") });
       expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "socket-agent" })).toMatchObject({ ok: true, result: { saved: true } });
       expect(await lastBy(cards.gate.id)).toEqual(["agent", "socket-agent"]);
       expect(await ask({ cmd: "act", action: "edit.save", reader: "preview", as: "bad id!" })).toMatchObject({ ok: false, error: expect.stringContaining("an actor id") });

@@ -507,7 +507,8 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(D().zoom).toBe(D().focus);
     await act("pane.zoom", { on: false }, focusedN);
     expect(D().zoom).toBeNull();
-    await act("pane.close", {}, r.pane);
+    // The older names answer as they did: pane.close its number, pane.pin and focus their own fields.
+    expect(await act("pane.close", {}, r.pane)).toMatchObject({ pane: r.pane });
     expect(D().describe().panes.length).toBe(n);
     // A float (PIE-511): the tile out of the tree with its own rectangle, then docked back beside the person's tile.
     const fl = await act("pane.float", {}, "1") as any;
@@ -519,8 +520,11 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(await act("pane.float", {}, fl.now)).toMatchObject({ floated: false });
     expect(D().layoutGet().floats).toEqual([]);
     // Any tile slides over as a drawer now (PIE-413): pane.pin is tile.pin.
-    expect(await act("pane.pin", { on: false }, "1")).toMatchObject({ pinned: false });
+    const pinned = await act("pane.pin", { on: false }, "1") as any;
+    expect(pinned).toMatchObject({ pinned: false, pane: pinned.tile });
     await act("pane.pin", { on: true }, "1");
+    const f = await act("focus", {}, focusedN) as any;
+    expect(f).toMatchObject({ focus: f.tile });
   });
 
   test("a query tile on the desk (PIE-511): a saved view's cards with its own cursor, followed by a preview, refreshed as the outline changes", async () => {

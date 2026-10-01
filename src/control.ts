@@ -13,7 +13,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, w
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
-import { parseActArgs } from "./surface/actions";
+import { oneTile, parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { privateDir, stateDir } from "./state";
@@ -76,8 +76,8 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
   if (req.cmd === "act") {
     if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
     const args = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
-    // The tile it names: `tile`, or `reader`, its older name (agents' scripts send it).
-    const tile = typeof req.tile === "string" ? req.tile : typeof req.reader === "string" ? req.reader : undefined;
+    // The tile it names: `tile`, or `reader`, its older name (agents' scripts send it); two different ones are refused.
+    const tile = oneTile(typeof req.tile === "string" ? req.tile : undefined, typeof req.reader === "string" ? req.reader : undefined);
     return d.app.act({ action: req.action, reader: tile, args, as: typeof req.as === "string" ? req.as : undefined });
   }
   throw new Error(`unknown command ${req.cmd}; try peek, snap, open, actions or act`);

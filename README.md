@@ -1233,7 +1233,7 @@ the door runs without a socket and says why.
                                       # the focused tile's opens land; river: a column; elsewhere a message reader). --as names you
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
-    bun src/main.ts act <action> [tile=<tile>] [key=value…] [--as <actor-id>]   # reader= is tile='s older name
+    bun src/main.ts act <action> [tile=<tile>] [key=value…] [--as <actor-id>]   # reader= is tile='s older name (both, naming two tiles, is refused)
 
 `snap` comes from a mirror that receives every byte written to the terminal (`src/mirror.ts`, the same
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.

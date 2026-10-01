@@ -33,6 +33,8 @@ export interface ActionAlias {
   keys?: string;
   args?: Record<string, ArgSpec>;
   map?(args: Record<string, unknown>): Record<string, unknown>;
+  /** The answer as the older name gave it (a field it named differently, `pane` or `focus`), from the action's. */
+  answer?(result: any): unknown;
 }
 
 /** An action as `ep0ch-door actions` lists it: `aliases` are its other names, each the same action. */
@@ -105,17 +107,20 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
   /** Run an action (or an alias of one) with arguments already typed (keys, code). */
   run<K extends keyof M & string>(name: K, args: M[K], host: H, actor: Actor): Promise<unknown> {
-    const a = this.aliasOf.get(name);
+    // An action of its own by that name (an extension's, defined later) is that action, not an alias.
+    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
     const of = (a?.of ?? name) as K;
     const mapped = (a?.alias.map ? a.alias.map(args as Record<string, unknown>) : args) as M[K];
     for (const t of tracers) t({ scope: this.scope, name: of, keys: this.keysOf(of), actor });
-    return Promise.resolve(this.defs[of].run(mapped, host, actor));
+    const r = Promise.resolve(this.defs[of].run(mapped, host, actor));
+    const answer = a?.alias.answer;
+    return answer ? r.then(x => answer(x)) : r;
   }
 
   /** Run an action named on the wire: unknown names and wrong arguments are refused before it starts. */
   runUntyped(name: string, raw: Record<string, unknown>, host: H, actor: Actor): Promise<unknown> {
     if (!this.has(name)) throw new ActionRefused(`no action ${name} here; try: ${Object.keys(this.defs).join(", ")}`);
-    const a = this.aliasOf.get(name);
+    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
     const spec = (a?.alias.args ?? this.defs[(a?.of ?? name) as keyof M & string].args) as Record<string, ArgSpec>;
     return this.run(name, coerce(name, spec, raw) as any, host, actor);
   }
@@ -290,20 +295,29 @@ export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: A
  * the rest are the action's arguments. A value `@path` is read from that file and `@-` from stdin, so long text needn't
  * be quoted.
  */
+/**
+ * The tile a request names, from `tile` and `reader` (its older name): either, or both naming the same tile.
+ * Two different tiles are refused, never one picked over the other.
+ */
+export function oneTile(a: string | undefined, b: string | undefined): string | undefined {
+  if (a !== undefined && b !== undefined && a !== b) throw new ActionRefused(`tile= and reader= name two tiles (${a}, ${b}); reader= is tile='s older name, so give one`);
+  return a ?? b;
+}
+
 export async function parseActArgs(words: string[], stdin: () => Promise<string> = () => Bun.stdin.text()): Promise<ActRequest> {
   const [action, ...rest] = words;
   if (!action) throw new ActionRefused("act needs an action name; `actions` lists them");
   const req: ActRequest = { action, args: {} };
   for (let i = 0; i < rest.length; i++) {
     const w = rest[i]!;
-    if (w === "--as" || w === "--tile" || w === "--reader") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.reader = v; continue; }
+    if (w === "--as" || w === "--tile" || w === "--reader") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.reader = oneTile(req.reader, v); continue; }
     const eq = w.indexOf("=");
     if (eq <= 0) throw new ActionRefused(`arguments are key=value, not ${JSON.stringify(w)}`);
     const k = w.slice(0, eq);
     let v = w.slice(eq + 1);
     if (v === "@-") v = (await stdin()).replace(/\n$/, "");
     else if (v.startsWith("@") && v.length > 1) v = (await Bun.file(v.slice(1)).text()).replace(/\n$/, "");
-    if (k === "tile" || k === "reader") req.reader = v;
+    if (k === "tile" || k === "reader") req.reader = oneTile(req.reader, v);
     else if (k === "as") req.as = v;
     else req.args![k] = v;
   }

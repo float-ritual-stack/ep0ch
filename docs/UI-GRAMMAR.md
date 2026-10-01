@@ -682,7 +682,8 @@ desk's.
 ### Tiles and their actions
 
 `tile=` names the tile an action is for (`reader=`, its older name, still works: `act` resolves both in one
-place). A name in brackets is an alias: the same action, listed once with it in `actions` (PIE-510).
+place, `oneTile`, and refuses the two naming different tiles). A name in brackets is an alias: the same action,
+listed once with it in `actions`, answering as it did (`pane.close` its `pane` number, `focus` its `focus`) (PIE-510).
 
 | Action | Args | Keys, mouse |
 |---|---|---|
@@ -742,7 +743,7 @@ checked against the desk's, the surface's and the other screens':
 
 | Key | Welcome | Clash found | Decision |
 |---|---|---|---|
-| `1`–`9`, `0` | pick the welcome note on that tab (`0` the tenth) | the desk's `1`–`9` focus a tile | the tabs take them here (`DeskPreset.digits: false`): the headers don't number the tiles, and focus is `Tab`, a click or `^W h j k l`; `act reader=` names them (welcome, detail, backlinks, preview). After `alt+l` a digit is still the desk's (the tile to link) |
+| `1`–`9`, `0` | pick the welcome note on that tab (`0` the tenth) | the desk's `1`–`9` focus a tile | the tabs take them here (`DeskPreset.digits: false`): the headers don't number the tiles, and focus is `Tab`, a click or `^W h j k l`; `act tile=` names them (welcome, detail, backlinks, preview). After `alt+l` a digit is still the desk's (the tile to link) |
 | `Tab` | list → detail → backlinks → preview | none: the desk's reading order | the backlinks sit under the detail they belong to and the preview runs the full height, so reading order is the useful order; giving a tile the keys never moves a tile |
 | `L` | the next logo (`welcome.logo`) | the board's `L` moves a card right, not on this screen; the surface binds no `L` | new, this screen only |
 | `⏎` on a link | opens it in the preview (the detail's link) | none: the desk's link rule | kept; with nothing picked yet, `⏎` takes the first element (`]` then `⏎`) |

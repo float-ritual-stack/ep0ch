@@ -1128,7 +1128,9 @@ export class DeliveryBoard extends Desk {
    */
   override collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone {
     if (sel === "all") return { tile: "every spine", ...this.collapseReader(sel, on ?? false, actor) };
-    const named = !sel || sel === "focused" ? { id: this.focus } : this.tileNamed(this.alias(sel), false);
+    // No tile named: the focused one; with the lanes focused, the preview following them (the board's reader for
+    // the keys, PIE-453), as reader.collapse and reader.expand took it. A lane is named (or lane.collapse).
+    const named = !sel || sel === "focused" ? { id: this.onLanes ? this.idNamed("preview")! : this.focus } : this.tileNamed(this.alias(sel), false);
     if (named && (this.isLane(named.id) || !(this.panes.get(named.id) instanceof ReaderPane))) return super.collapseTile(sel && this.alias(sel), on, actor);
     const r = this.collapseReader(sel, on ?? !(named && this.collapsed.has(named.id)), actor);
     return { tile: "reader" in r ? r.reader : "all", ...r };

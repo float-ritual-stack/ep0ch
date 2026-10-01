@@ -1775,9 +1775,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       this.closeArm = null;
     }
     const kind = this.panes.get(t.id)!.kind;
+    // `pane`: its number on screen as it closed (pane.close's older answer, as tile.resize and tile.zoom give it).
+    const n = String(this.numberOf(t.id));
     this.closeId(t.id);
     this.save(); this.redraw();
-    return { tile: t.name, kind };
+    return { tile: t.name, pane: n, kind };
   }
 
   linkTile(sel: string | undefined, to: string | undefined, _actor: Actor): TileDone {

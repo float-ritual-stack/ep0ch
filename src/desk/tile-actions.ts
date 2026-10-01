@@ -235,7 +235,8 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.focus": {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →)",
-    aliases: ["focus"],
+    // The desk's older `focus` answered { focus }.
+    aliases: [{ name: "focus", answer: (r: TileDone) => ({ ...r, focus: r.tile }) }],
     args: {},
     run(_, { d, reader }, actor) {
       const r = d.focusTile(reader, actor);
@@ -246,7 +247,8 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.pin": {
     summary: "put tile=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is docked where it was (on=true); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
     keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ drawer docks it",
-    aliases: ["pane.pin"],
+    // pane.pin answered { pane } too (the board's own pin still does).
+    aliases: [{ name: "pane.pin", answer: (r: TileDone) => ({ ...r, pane: r.pane ?? r.tile }) }],
     args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge)) throw new ActionRefused(`tile.pin: edge is left, right, up or down, not ${edge}`);

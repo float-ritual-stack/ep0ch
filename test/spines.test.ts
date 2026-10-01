@@ -310,6 +310,10 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*tile.collapse on=false tile=detail1/);
     expect(await act("reader.expand", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
+    // No tile named, the person on the lanes: the preview following them, as reader.collapse always took it (not a lane).
+    expect(await act("reader.collapse", {})).toMatchObject({ reader: "preview", collapsed: true });
+    expect(await act("reader.expand", {})).toMatchObject({ reader: "preview", collapsed: false });
+    expect(BV.where(b)).toBe("lanes");
     // The reader the person has (here, in its property panel) isn't the agent's to collapse.
     key({ kind: "tab" });
     key(char("i"));
