@@ -32,6 +32,11 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSync } from "./extension-sync";
+import { ExtensionCalls } from "./extension-calls";
+import { ExtensionRegistry, extensionRoots } from "./extension-registry";
+import { ResourceExtensionRuntime } from "./resource-extensions";
+import { InstalledResourceProviderClient } from "./installed-resource-provider";
+import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { isExtensionActor } from "./extension-records";
 import { normalizeAnnotationReferenceContext } from "./annotations";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
@@ -225,6 +230,12 @@ export class OutlinerServer {
   readonly stateDirectory: string;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
   readonly extensionSync: ExtensionSync;
+  /** The extension folders this outline reads, watched (src/extension-registry.ts). */
+  readonly extensionRegistry: ExtensionRegistry;
+  /** Handler lines, their results, and actions (src/extension-calls.ts). */
+  readonly extensionCalls: ExtensionCalls;
+  /** The extension ids the registry had at its last change. */
+  private knownExtensions = new Set<string>();
 
   constructor(
     readonly store: OutlinerStore,
@@ -262,6 +273,29 @@ export class OutlinerServer {
         sequence: this.store.sequence, resourceId,
       }),
     });
+    const roots = extensionRoots(store.workspaceRoot);
+    this.extensionRegistry = new ExtensionRegistry({
+      roots,
+      outlineName: () => this.outline?.name,
+      socketPath: () => this.socketPath,
+      onChange: () => {
+        // A folder that is gone takes its kept line results with it (its records stay: they are data).
+        const present = new Set(this.extensionRegistry.list().extensions.map((entry) => entry.id));
+        for (const id of [...this.knownExtensions]) {
+          if (!present.has(id)) this.store.forgetExtensionOutputs(id);
+        }
+        this.knownExtensions = present;
+        this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+      },
+    });
+    // Jira's Resource path reads the same folders, so a jira folder in the outline works like the user's.
+    const catalogClient = store.resources.remoteEntityProviderClient;
+    if (catalogClient instanceof InstalledResourceProviderClient) catalogClient.runtime.useFolders(roots.map((root) => root.path));
+    this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, new ResourceExtensionRuntime(undefined, 15_000, roots.map((root) => root.path)), {
+      changed: (blockId) => this.broadcast({
+        id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
+      }),
+    });
   }
 
   /** The named outline this service runs, reported by `ping`. */
@@ -296,6 +330,7 @@ export class OutlinerServer {
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
     this.extensionSync.start();
+    void this.extensionRegistry.watch().catch(() => {});
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */
@@ -326,6 +361,7 @@ export class OutlinerServer {
       throw error;
     }
     this.extensionSync.start();
+    await this.extensionRegistry.watch().catch(() => {});
   }
 
   async close(): Promise<void> {
@@ -333,6 +369,8 @@ export class OutlinerServer {
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.extensionSync.stop();
+    this.extensionRegistry.stop();
+    this.extensionCalls.stop();
     await this.inbox?.stop();
     const server = this.server;
     if (!server && !this.hosted) return;
@@ -782,6 +820,16 @@ export class OutlinerServer {
         };
       }),
     };
+  }
+
+  /** Jira's projections and the extension handler lines' (`extensions.outputs`), in line order. */
+  private withExtensionProjections(read: ResourceProjectionReadResult, line?: number): ResourceProjectionReadResult {
+    const handlers = this.extensionCalls.projections(read.blockId, line);
+    if (!handlers.length) return read;
+    // A requested line that is a handler line shows that handler, not a ticket resolved from its context.
+    const handlerLines = new Set(handlers.map((projection) => projection.anchor.line));
+    const tickets = read.projections.filter((projection) => !(projection.anchor.kind === "line" && handlerLines.has(projection.anchor.line)));
+    return { ...read, projections: [...tickets, ...handlers].sort((left, right) => left.anchor.line - right.anchor.line) };
   }
 
   private presentResource(
@@ -1480,6 +1528,31 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "extensions.list" || request.action === "extensions.act") {
+      try {
+        let result: unknown;
+        if (request.action === "extensions.list") {
+          if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
+          if (request.reload) await this.extensionRegistry.reload();
+          result = this.extensionRegistry.list();
+        } else {
+          if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.act needs extension and extensionAction");
+          if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
+          if (request.line !== undefined && (!Number.isSafeInteger(request.line) || request.line < 0)) throw new Error("line must be a line index");
+          if (request.args !== undefined && (!request.args || typeof request.args !== "object" || Array.isArray(request.args) ||
+            Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
+          result = await this.extensionCalls.act({
+            extension: request.extension, action: request.extensionAction,
+            ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
+            ...(request.line !== undefined ? { line: request.line } : {}),
+            ...(request.args !== undefined ? { args: request.args } : {}),
+          });
+        }
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
+      }
+    }
     if (
       request.action !== "resources.open" &&
       request.action !== "resources.refresh" &&
@@ -1495,11 +1568,25 @@ export class OutlinerServer {
         const normalized = normalizeResourceProjectionRequest(request);
         const owner = this.store.extensionOwner(normalized.blockId);
         const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
+        // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
+        // on `line`) run now.
+        const dataRecord = record !== null && !record.resourceId && record.extensionId !== "jira";
+        if (dataRecord && !(await this.extensionCalls.refreshRecord(record.extensionId, record.itemKey))) {
+          throw new Error(`Nothing asks for ${record.itemKey} with a ${record.extensionId}:: line that parses, or ${record.extensionId} isn't installed here: nothing to refresh`);
+        }
+        const handlerLines = dataRecord || record ? [] : (this.extensionCalls.calls(normalized.blockId)?.calls ?? [])
+          .filter((call) => normalized.line === undefined || call.line === normalized.line);
+        if (handlerLines.length) {
+          await this.extensionCalls.materialize(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
+        }
+        const onlyHandlers = dataRecord || (handlerLines.length > 0 && normalized.line !== undefined);
         // One line's ticket (a click on its age), the ticket block's own, or every ticket the block shows.
-        const one = normalized.line !== undefined && !record
+        const one = !onlyHandlers && normalized.line !== undefined && !record
           ? readResourceProjections(this.store, normalized).projections.find((projection) => projection.resourceId)
           : undefined;
-        if (record?.resourceId) {
+        if (onlyHandlers) {
+          // Nothing of Jira's on that line.
+        } else if (record?.resourceId) {
           await this.store.resources.refreshRemoteEntity(record.resourceId, false);
         } else if (one?.resourceId) {
           await this.store.resources.refreshRemoteEntity(one.resourceId, false);
@@ -1507,7 +1594,7 @@ export class OutlinerServer {
           // A line whose ticket isn't registered yet: register and fetch what the block asks for, not a forced refetch of the rest.
           await this.extensionSync.materialize(normalized.blockId, normalized.line === undefined);
         }
-        const result = this.decorateProjections(readResourceProjections(this.store, normalized), false);
+        const result = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), false), normalized.line);
         const refreshedId = record?.resourceId ?? one?.resourceId;
         this.broadcast({ id: crypto.randomUUID(), domain: "resource-catalog", action: request.action, sequence: this.store.sequence,
           ...(refreshedId ? { resourceId: refreshedId } : {}) });
@@ -1678,6 +1765,15 @@ export class OutlinerServer {
         case "views.planWrite":
           result = this.store.planViewWrites({ viewIds: request.viewIds, blockId: request.blockId, text: request.text });
           break;
+        case "extensions.render": {
+          if (typeof request.blockId !== "string") throw new Error("extensions.render needs blockId");
+          if (request.line !== undefined && (!Number.isSafeInteger(request.line) || request.line < 0)) throw new Error("line must be a line index");
+          const targets: readonly string[] = RENDER_TARGETS;
+          if (!targets.includes(request.target)) throw new Error(`target must be one of ${RENDER_TARGETS.join(", ")}`);
+          if (request.fallback !== undefined && !targets.includes(request.fallback)) throw new Error(`fallback must be one of ${RENDER_TARGETS.join(", ")}`);
+          result = { results: this.extensionCalls.render(request.blockId, request.line, request.target as RenderTarget, request.fallback as RenderTarget | undefined) };
+          break;
+        }
         case "query.matches":
           result = this.store.matchQuery(request.expression, request.blockIds);
           break;
@@ -1691,7 +1787,8 @@ export class OutlinerServer {
             const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
             void this.extensionSync.materialize(record?.parentBlockId ?? normalized.blockId).catch(() => {});
           }
-          result = this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true);
+          if (request.materialize === true) void this.extensionCalls.materialize(normalized.blockId, "open").catch(() => {});
+          result = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
           break;
         }
         case "children":
@@ -1858,6 +1955,8 @@ export class OutlinerServer {
           );
           break;
         }
+        case "extensions.list":
+        case "extensions.act":
         case "computed.execute":
         case "resources.open":
         case "resources.refresh":
@@ -2842,7 +2941,10 @@ export class OutlinerServer {
       if (event.domain === "content" && event.blockId) this.refreshAttentionForBlock(event.blockId);
       // A saved provider line fetches its ticket in the background; the extension's own writes don't loop.
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit") &&
-        !isExtensionActor(event.change.actor?.actorId)) this.extensionSync.blockChanged(event.blockId);
+        !isExtensionActor(event.change.actor?.actorId)) {
+        this.extensionSync.blockChanged(event.blockId);
+        this.extensionCalls.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");
+      }
     }
     if (events.some(event => event.domain === "content")) this.inbox?.wake();
     return events;
