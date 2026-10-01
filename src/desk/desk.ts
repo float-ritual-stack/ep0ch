@@ -23,7 +23,7 @@ import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
 import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
-import { activate, besideSlot, chainOf, clone, EDGE_GLYPH, isLine, parentNode as parentNodeOf, parentOf, cycle, describeTree, dividerAt, drawerOf, drawers, drawerToEdge, dragShare, edge, effective, even, forgetIds, has, kidsOf, leaf, leaves, move, neighbour, nodeById, normalise, pair, placeScreen, policyOf, remove, resize, revive, serialize, shown, splitOf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer, POLICY_KEYS, type Axis, type Columns, type Container, type Dir, type Divider, type Drawer, type Effective, type Float, type Grab, type Line, type LNode, type Place, type Placed, type PlacedDrawer, type PlaceOpts, type Policy } from "./layout";
+import { activate, besideSlot, chainOf, clone, EDGE_GLYPH, isLine, parentNode as parentNodeOf, parentOf, cycle, describeTree, dividerAt, dockedTiles, drawerOf, drawers, drawerToEdge, dragShare, edge, effective, even, forgetIds, has, kidsOf, leaf, leaves, move, neighbour, nodeById, normalise, pair, placeScreen, policyOf, remove, resize, revive, serialize, shown, splitOf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer, POLICY_KEYS, type Axis, type Columns, type Container, type Dir, type Divider, type Drawer, type Effective, type Float, type Grab, type Line, type LNode, type Place, type Placed, type PlacedDrawer, type PlaceOpts, type Policy } from "./layout";
 import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
@@ -2037,6 +2037,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const found = layoutNamed(name);
     if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")}`);
     if (this.screenLocked()) throw new ActionRefused(`the screen is locked: loading ${name} would change its shape · ${UNLOCK}`);
+    // A layout loaded drops every container's lock with it: an agent doesn't, over a lock the person set.
+    if (actor.kind === "agent") {
+      const locks = (n: LNode): string[] => (n.t === "leaf" ? [] : [...(n.policy?.locked ? [n.id ?? n.t] : []), ...kidsOf(n).flatMap(locks)]);
+      const theirs = locks(this.root).find(k => !this.agentLocks.has(k));
+      if (theirs) throw new ActionRefused(`${theirs} was locked by the person; loading ${name} would undo it, and an agent doesn't (block.mark gets their attention)`);
+    }
     this.mayMoveKeys(actor, "lay the desk out under them");
     if (this.preset) throw new ActionRefused(`the ${this.title} keeps its own layout; load one on the desk (D)`);
     this.entered.clear();
@@ -2407,7 +2413,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const refused = why(first);
     if (!refused) return first;
     const tries: (() => LNode)[] = [
-      ...leaves(this.root).map(at => () => besideSlot(clone(this.root), at, leaf(id), "right")),
+      // Beside a docked tile only: one in a drawer would put the float where it isn't shown (a shut drawer).
+      ...dockedTiles(this.root).map(at => () => besideSlot(clone(this.root), at, leaf(id), "right")),
       ...(["right", "down", "left", "up"] as Dir[]).map(d => () => edge(clone(this.root), id, d)),
     ];
     for (const f of tries) { const next = normalise(f()); if (!why(next)) return next; }
@@ -2415,7 +2422,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
   /** Where a docked float goes in the tree: beside the tile the person has (a view may say otherwise: the board's readers row). */
   protected dockFloat(id: number): LNode {
-    const at = this.isFloat(this.focus) || this.focus === id || !has(this.root, this.focus) ? leaves(this.root).at(-1)! : this.focus;
+    const at = this.isFloat(this.focus) || this.focus === id || !has(this.root, this.focus) ? (dockedTiles(this.root).at(-1) ?? leaves(this.root).at(-1)!) : this.focus;
     return besideSlot(clone(this.root), at, leaf(id), "right");
   }
 

@@ -188,7 +188,7 @@ export class DeliveryBoard extends Desk {
     const pv = this.idNamed("preview");
     if (Array.isArray(o.collapsedReaders) && o.collapsedReaders.includes("preview") && pv !== undefined) { this.collapsed.set(pv, {}); this.panes.get(pv)?.folded?.(true); }
     const weights: Record<string, number> = {};
-    if (o.laneWeights && typeof o.laneWeights === "object") for (const [k, v] of Object.entries(o.laneWeights)) { const w = share(v, 0.2, 5); if (w !== undefined) weights[laneTileName(k)] = w; }
+    if (o.laneWeights && typeof o.laneWeights === "object" && !Array.isArray(o.laneWeights)) for (const [k, v] of Object.entries(o.laneWeights)) { const w = typeof v === "number" && v > 0 ? share(v, 0.2, 5) : undefined; if (k.trim() && w !== undefined) weights[laneTileName(k)] = w; }
     const folded = Array.isArray(o.collapsed) ? o.collapsed.filter((x): x is string => typeof x === "string").map(laneTileName) : [];
     this.oldLanes = { weights, folded, ...(typeof o.lane === "number" && Number.isInteger(o.lane) && o.lane >= 0 ? { lane: o.lane } : {}) };
   }
@@ -1108,7 +1108,7 @@ export class DeliveryBoard extends Desk {
       return { reopened };
     }
     const r = this.pickReaderAny(sel);
-    if (this.isFloat(r.id)) throw new ActionRefused("only the preview and details collapse; a float docks with o");
+    this.refuse(this.floatRefusal(r.id, "a spine"));
     if (r.pane === this.treePreview || r.pane === this.linksPreview) throw new ActionRefused("only the preview and details collapse; a drawer shuts");
     if (on && this.pending?.pane === r.pane) this.pending = null;              // an edit still opening there doesn't open behind a spine
     if (on && actor.kind === "agent" && r.id === this.focus) throw new ActionRefused(`the person is in ${r.name} (it has their keys); an agent doesn't collapse it`);
@@ -1899,8 +1899,8 @@ export class DeliveryBoard extends Desk {
     if (k.kind === "alt" && k.ch === "c") { void this.runBoard("reader.expand", {}, "all"); return true; }
     // c collapses the preview or a detail (the lanes' own c collapses a lane).
     const reader = rd && (rd === this.preview || this.detailTiles().some(d => d.pane === rd));
-    if (c === "c" && reader) { void this.runBoard("reader.collapse", {}, me); return true; }
-    if (c === "c" && this.isFloat(this.focus)) { this.ctx.flash("a float doesn't collapse · o docks it"); return true; }
+    // On a float too: the action says why it doesn't fold (floatRefusal).
+    if (c === "c" && (reader || this.isFloat(this.focus))) { void this.runBoard("reader.collapse", {}, me); return true; }
     if (c === "x" && rd?.editing) { this.ctx.flash(`not closed: it holds ${sessionName(rd)} · ${shut ? "c opens it" : "e or ⏎ enters it"}`); return true; }
     if (c === "x" && (this.detailTiles().some(d => d.id === this.focus) || this.isFloat(this.focus))) { this.paneAct("pane.close", {}, me); return true; }
     // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.

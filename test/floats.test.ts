@@ -103,6 +103,16 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
     await refused(act("pane.float", {}, "thread"), /takes only query: not thread \(thread\)/);
     expect(floats()).toEqual(["thread"]);
     await mine("layout.policy", { node: "screen", clear: "accepts" });
+    // The other places are beside a docked tile, never in a shut drawer where the float wouldn't be shown.
+    fresh();
+    await mine("tile.pin", { on: false, edge: "left" }, "tree");
+    await mine("tile.drawer", { open: false }, "tree");
+    await mine("pane.float", {}, "reader");
+    await mine("layout.policy", { accepts: "query" }, "activity");
+    await mine("pane.float", {}, "reader");
+    expect(floats()).toEqual([]);
+    expect((visible(D().root) as number[]).map((id: number) => D().nameOf(id))).toContain("reader");
+    expect(get().focus).toBe("reader");
   });
 
   test("the last docked tile isn't put in a drawer; the last drawer showing anything doesn't shut; a blank screen opens one", async () => {
@@ -192,6 +202,8 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
     expect(get().locked).toBe(false);
     await mine("layout.policy", { locked: true }, "thread");
     await refused(act("layout.policy", { clear: "locked" }, "thread"), /was locked by the person/);
+    // Nor by loading a layout, which would drop the container's lock with the tree.
+    await refused(act("layout.load", { name: "desk" }), /was locked by the person; loading desk would undo it/);
     await mine("layout.policy", { clear: "locked" }, "thread");
   });
 });
