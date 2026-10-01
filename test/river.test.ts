@@ -411,13 +411,20 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("an agent's filter, jump and tag (PIE-506) work through act, are said on the status bar, and leave the person's keys where they are", async () => {
     focusOnReader("r1");                                         // the person's keys on the Library
     const focus = R().focus, uid = focusedUid();
-    const out = (await act("filter", { query: "squash" }, "1")) as { filter: string; listed: number };
-    expect(out.filter).toBe("squash");
+    // The column the person has the keys in is theirs: its filter, scroll and cursor aren't an agent's to move.
+    await expect(act("filter", { query: "squash" }, "1")).rejects.toThrow("the person has the keys in column 1");
+    await expect(act("column.scroll", { by: 3 }, "1")).rejects.toThrow("the person has the keys in column 1");
+    await expect(act("select", { by: 1 }, "1")).rejects.toThrow("the person has the keys in column 1");
+    // A column of its own beside (peas lists its two replies): filtered, said on the status bar.
+    const own = (await act("open", { id: notes.peas.id, duplicate: true }, "1")) as { reader: string };
+    await until(() => (paneOf(own.reader).items?.length ?? 0) === 2, "the peas' replies");
+    const out = (await act("filter", { query: "Thin" }, own.reader)) as { filter: string; listed: number };
+    expect(out.filter).toBe("Thin");
     expect(out.listed).toBe(1);
-    expect((app as any).message).toContain(`an agent (${AS}) filtered column 1 by squash`);
+    expect((app as any).message).toContain(`an agent (${AS}) filtered column`);
     expect(focusedUid()).toBe(uid);
     expect(R().holdsKeys()).toBe(false);                         // the person's filter input was never opened
-    await act("filter", { query: "" }, "1");
+    await act("close", {}, own.reader);
     // jump: query alone lists; n opens the match beside the column, the person's focus stays.
     const listed = (await act("jump", { query: "Plant the squash" })) as { matches: { id: string }[] };
     expect(listed.matches[0]!.id).toBe(notes.squash.id);
