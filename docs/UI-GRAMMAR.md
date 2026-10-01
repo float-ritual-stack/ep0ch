@@ -119,7 +119,7 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | layout tree | Splits over pane ids, each kid by weight, and tab sets; drawers slide over it, floats above it | `LNode` `lay` (desk and board; the river as a layout with its open rule) | none |
 | tile | A pane on the desk: a view (outline, reader, detail, preview, terminal, board, river, brief, …) with a name, dragged by its header | `Pane` in the desk's tree, `makeTile` `src/desk/tiles.ts` | Herdr pane |
 | tab set | Tiles stacked in one place, one shown; the header shows the tabs | `Tabs` `lay` | none |
-| header | A tile's top border: its number and name (or its tabs), what it shows, `→ link`, `⇤ drawer`; drag it to move the tile | `header` `dsk` | pane title |
+| header | A tile's top border: its number and name (or its tabs), what it shows, `→ link`, `⇤ drawer`. Its title or tabs are the grip: drag them to move the tile. The bare line after them is the border above, so dragging it resizes the tile (a header with no border above is all grip) | `header` `dsk` | pane title |
 | drop | Where a dragged tile lands: tabs (a header or a centre), a split (a triangle), an outer edge; outlined while dragging (the ghost) | `dropAt` `src/desk/drop.ts` | none |
 | link (a tile's) | The tile a tile's opens land in (PIE-473): a followed link, the outline's `⏎`; set by `alt+l` then a click | `links` `dsk`, `tile.link` | linked pane (Herdr alt-l) |
 | layout (named) | The tile tree with each tile's spec, links, drawers and open rule, saved by name | `LayoutSpec` `src/desk/tiles.ts` | none |
@@ -592,7 +592,8 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 
 | Key | Tiles (the desk and screens on it) | Clash found | Decision |
 |---|---|---|---|
-| drag a header | move the tile (tab under the pointer) | none: headers took no drag before | new |
+| drag a header's title or tabs | move the tile (tab under the pointer) | none: headers took no drag before | new |
+| drag a header's bare line | resize: the border above follows the pointer (`layout.resize`) | the whole header moved the tile | changed |
 | `alt+l` | link this tile's opens: then a click, `h j k l` or a number | none (alt keys in use: `alt+b alt+f` history, `alt+c` the board's lanes) | new |
 | `alt+d` | load `daily` | none | new |
 | `alt+n` `alt+p` | next, previous tab | none | new |
