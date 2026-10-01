@@ -111,7 +111,7 @@ if [ "$showcase" = 1 ]; then
   trap stop EXIT INT TERM
   # Seeded once: the marker is written only when the whole seed landed (a half seed says to --reset).
   if [ ! -f "$base/seeded" ]; then
-    (cd "$here" && bun scripts/showcase.ts seed "$sock" "$base/config") || { echo "not seeded; scripts/try-it.sh --showcase --reset starts over" >&2; exit 1; }
+    (cd "$here" && bun scripts/showcase.ts seed "$sock" "$base/config" "$outliner") || { echo "not seeded; scripts/try-it.sh --showcase --reset starts over" >&2; exit 1; }
     touch "$base/seeded"
   fi
   # The outliner's status renderer, installed for this door the way a reader host installs it, so the

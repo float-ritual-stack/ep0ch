@@ -15,11 +15,27 @@ import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
 import { LIST_FIELDS, type SocketBoard } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
+import { handlerActions, mentionsExtension, READER_OWN_KEYS, type ExtensionAction } from "./extensions";
+import { primitiveLines } from "./components";
 import { C, fg, LINK_END, linkTag, RESET } from "./style";
+const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 import { wrap } from "./text";
 
 /** The statuses the service sends today; a newer one is drawn generically, with its reason. */
-export type ResourceProjectionStatus = "ready" | "stale" | "not-fetched" | "not-registered" | "ambiguous" | "no-key" | "unavailable";
+export type ResourceProjectionStatus = "ready" | "stale" | "not-fetched" | "not-registered" | "ambiguous" | "no-key" | "not-run" | "unavailable";
+
+/**
+ * What an extension's handler line ran to (pi-herdr-outliner PIE-507): inline output's markdown (inert), a
+ * rich component's `{ data, view }` too (its markdown is the view's markdown rendering), and whether the block
+ * or the extension changed since it ran.
+ */
+export interface ExtensionOutput {
+  markdown: string; ranAt: string; title?: string;
+  component?: { data: unknown; view: unknown };
+  inputsChanged?: true; versionChanged?: true;
+}
+/** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed… */
+export interface AgentRequestState { name: string; status: string; message?: string; proposalId?: string; requestedBy?: string }
 
 /** One projection, as `resources.projection.read` sends it (pi-herdr-outliner src/resource-projection.ts). */
 export interface ResourceProjection {
@@ -52,6 +68,15 @@ export interface ResourceProjection {
    * its comment blocks, and when the service last wrote or confirmed it.
    */
   record?: { blockId: string; pageBlockId: string; syncedAt: string; commentBlockIds: readonly string[] };
+  /**
+   * An extension's line (PIE-507): `data` (a record kept as a block: `record`), `output`, `component`, or
+   * `agent` (an `@name` request line). Absent on Jira's.
+   */
+  kind?: "data" | "output" | "component" | "agent" | (string & {});
+  /** The extension and handler that answer the line. */
+  extension?: { id: string; handler: string; effects: string; version?: number };
+  output?: ExtensionOutput;
+  agent?: AgentRequestState;
 }
 export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[] }
 
@@ -62,7 +87,8 @@ export interface ResourceProjectionRead { blockId: string; revision: number; pro
 export const PROJECTION_KEYS = ["jira"] as const;
 // A provider line (`jira::`) or a ticket block's own `[jira.key::…]`, which shows its ticket's header.
 const MENTIONS = new RegExp(`(?:${PROJECTION_KEYS.join("|")})(?:\\.key)?::`, "i");
-export const mayHaveProjections = (text: string) => text.includes("::") && MENTIONS.test(text);
+/** A provider line, or a line an extension the service lists answers (a handler's `key::`, an `@name` request). */
+export const mayHaveProjections = (text: string) => (text.includes("::") && MENTIONS.test(text)) || mentionsExtension(text);
 
 // ── Detail's layout (src/detail-embeds.ts), as it reads once drawn ──────────────────────────────────
 
@@ -99,6 +125,7 @@ const STATUS_LABELS: Readonly<Record<string, string>> = {
   "not-fetched": "not fetched yet",
   "not-registered": "not registered",
   "no-key": "no key found",
+  "not-run": "not run yet",
   unavailable: "unavailable",
 };
 
@@ -106,7 +133,7 @@ const STATUS_LABELS: Readonly<Record<string, string>> = {
  * Where the parts of one line came from, so the reader can colour them: `head` is the first line (its
  * `key` is the link), `fields`, `fetched`, `reason` and `note` (comments, unknown options) the rest.
  */
-export type LineKind = "head" | "fields" | "fetched" | "reason" | "note";
+export type LineKind = "head" | "fields" | "fetched" | "reason" | "note" | "output";
 export interface ProjectionLayout {
   /** The text Detail draws, line for line (`- ` is its list item; the rest are its continuation lines). */
   lines: string[];
@@ -127,8 +154,15 @@ export function projectionLayout(p: ResourceProjection): ProjectionLayout {
   const lines: string[] = [], kinds: LineKind[] = [];
   const add = (kind: LineKind, line: string) => { kinds.push(kind); lines.push(line); };
   let fetchedLine: number | undefined;
-  if ((p.status === "ready" || p.status === "stale") && p.summary !== undefined) {
-    const fetched = p.fetchedAt ? `fetched ${localTime(p.fetchedAt)}` : "";
+  if ((p.status === "ready" || p.status === "stale") && p.output) {
+    // An extension's output or component (PIE-507): its markdown under the line, with when it ran.
+    add("head", `- ${title} · ran ${localTime(p.output.ranAt)}${p.fetching ? " · running" : ""}`);
+    fetchedLine = 0;
+    for (const line of p.output.markdown.split("\n")) add("output", line.trim() ? `  ${line}` : "");
+    while (lines.length > 1 && lines[lines.length - 1] === "") { lines.pop(); kinds.pop(); }
+    if (p.status === "stale" && reason) add("reason", `  ${reason}`);
+  } else if ((p.status === "ready" || p.status === "stale") && p.summary !== undefined) {
+    const fetched = p.fetchedAt ? `${p.kind === "agent" ? "answered" : "fetched"} ${localTime(p.fetchedAt)}` : "";
     add("head", `- ${title} · ${drawnInline(p.summary)}${p.options.compact && fetched ? ` · ${fetched}` : ""}`);
     if (p.options.compact && fetched) fetchedLine = 0;
     if (!p.options.compact) {
@@ -147,8 +181,10 @@ export function projectionLayout(p: ResourceProjection): ProjectionLayout {
     const fetchSays = !!p.fetchError && (p.status === "not-registered" || p.status === "not-fetched");
     if (reason && !fetchSays) add("reason", `  ${reason}`);
   }
-  if (p.fetching) add("note", "  fetching…");
-  else if (p.fetchError) add("reason", `  can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}`);
+  // Detail's layout ends with the status; the door adds what's running, and why a fetch failed (not for an
+  // extension's line, whose reason already says it).
+  if (p.fetching && !p.output) add("note", "  fetching…");
+  else if (p.fetchError && !p.kind) add("reason", `  can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}`);
   // Detail's words: a ticket kept as a block draws its comments from its blocks instead (ticketRegion).
   if (p.options.comments !== undefined && !p.record) add("note", "  Comments are not stored yet; --comments shows them once the provider returns them.");
   for (const option of p.options.unknown) add("note", `  unknown option ${drawnInline(option)}`);
@@ -175,6 +211,8 @@ export function ticketFields(record: Msg | null, p: ResourceProjection): string 
   const props = record?.properties ?? [];
   const all = (key: string) => props.filter(x => x.key === `jira.${key}`).map(x => x.value);
   const one = (key: string) => all(key)[0];
+  // An extension's record (PIE-507): the fields its handler lists, as the service read them from the block.
+  if (p.kind === "data") return p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · ");
   if (!record) return p.fields.map(f => drawnInline(f.value)).join(" · ");
   const labels = all("label");
   return [one("status"), one("assignee"), one("sprint"), one("priority"), one("type"), labels.length ? labels.join(", ") : undefined]
@@ -296,7 +334,7 @@ function nothingToOpen(p: ResourceProjection): string {
 
 // ── drawing ──────────────────────────────────────────────────────────────────────────────────────
 
-const COLOUR: Record<LineKind, number> = { head: C.white, fields: C.brown, fetched: C.dark, reason: C.yellow, note: C.yellow };
+const COLOUR: Record<LineKind, number> = { head: C.white, fields: C.brown, fetched: C.dark, reason: C.yellow, note: C.yellow, output: C.grey };
 
 /**
  * The shaded, read-only region for the projections that follow one line, `w` wide, indented like that
@@ -337,6 +375,8 @@ const caches = new Set<WeakRef<Map<string, Entry>>>();
 // Resource changes (`resource-catalog` events) have their own clock: they aren't outline changes.
 let rtick = 0, rAllAt = 0, rAnyAt = 0;
 const rChangedAt = new Map<string, number>();
+/** Notes whose extension lines changed without a content change (a line ran, an agent answered), by note id. */
+const noteRanAt = new Map<string, number>();
 
 /** The blocks a note's projections depend on: the note and each block a key was found in. */
 const blocksOf = (id: string, e: Entry) => [id, ...(e.read?.projections ?? []).flatMap(p => (p.resolvedFrom ? [p.resolvedFrom.blockId] : []))];
@@ -350,14 +390,23 @@ function resourceStale(e: Entry): boolean {
   if (unresolved(e) && rAnyAt > e.rat) return true;
   return (e.read?.projections ?? []).some(p => !!p.resourceId && (rChangedAt.get(p.resourceId) ?? 0) > e.rat);
 }
-const stale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || resourceStale(e);
+const stale = (id: string, e: Entry) => changedSince(e.at, blocksOf(id, e)) || ((e.failed || contextual(e)) && anyChangeSince(e.at)) || resourceStale(e) || (noteRanAt.get(id) ?? 0) > e.rat;
 
 /**
  * A `resource-catalog` event: the Resource it names changed (null: any may have, e.g. a new Source, or a
  * reconnect, which doesn't replay them). True when a projection the door has read could show it, so the
  * reader should redraw (and read those again); other events cost nothing.
  */
-export function resourceChanged(resourceId: string | null): boolean {
+export function resourceChanged(resourceId: string | null, blockId?: string): boolean {
+  // An extension's line in one note ran, or its agent answered (PIE-507's `extensions.output`, `extensions.agent`):
+  // only that note's answer is read again.
+  if (resourceId === null && blockId) {
+    rtick++;
+    noteRanAt.set(blockId, rtick);
+    if (noteRanAt.size > 5000) noteRanAt.delete(noteRanAt.keys().next().value!);
+    for (const ref of caches) if (ref.deref()?.has(blockId)) return true;
+    return false;
+  }
   // The answers this event makes stale (ones already stale are read again on their next render anyway).
   const shown: Entry[] = [];
   for (const ref of caches) {
@@ -404,4 +453,85 @@ export function projectionsOf(m: Msg, src: Source | null | undefined): readonly 
   // An answer for another revision waits for the read the change brings: its lines may have moved.
   if (!read || (m.revision !== undefined && read.revision !== m.revision)) return [];
   return read.projections;
+}
+
+// ── an extension's line (PIE-507: output, component, an @name request, a record not fetched yet) ──
+
+/** How the reader draws inside an extension's region: its markdown as the note's body is drawn, `width` wide. */
+export interface ExtDraw {
+  /** The note the line is in: its actions and `r` act on that block and line. */
+  note: string;
+  markdown(text: string, width: number): string[];
+  /** Tag a block a component names (a card's link, a table row's): `[ ]` stops on it, a click opens it. */
+  row?(block: string, text: string): string;
+}
+
+/** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
+export const RUN_AGAIN = "projection.refresh";
+
+/** The words `r` says on a line of this kind: an agent is asked again, a record fetched, the rest run again. */
+export const againWords = (p: ResourceProjection) => (p.kind === "agent" ? "ask again" : p.kind === "data" ? "fetch" : "run again");
+
+/** The primary action of an extension's line: its own first action (a component's `ward`), else run it again. */
+export function primaryAction(p: ResourceProjection): { name: string; label: string; action?: ExtensionAction } {
+  const own = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler).find(a => !a.builtIn) : undefined;
+  return own ? { name: own.name, label: own.id, action: own } : { name: RUN_AGAIN, label: againWords(p) };
+}
+
+/** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
+function componentBody(p: ResourceProjection, width: number, d: ExtDraw): { lines: string[]; via: "primitives" | "markdown" | "json" } {
+  const c = p.output?.component;
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, d.row), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
+  return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
+}
+
+/**
+ * The shaded region for an extension's line, `w` wide, indented like the line: a head (its title the line's
+ * primary action), the result (an output's markdown, a component's view, an agent's reply), why it's stale
+ * or not run, and a row of controls, one per action on the line and `r`, each a place `[ ]` stops and a
+ * click runs. Without `link` (a draft's preview) it is text.
+ */
+export function extensionRegion(p: ResourceProjection, w: number, indent: number, now: number, link: ((to: LinkTarget, text: string) => string) | undefined, d: ExtDraw): string[] {
+  const out: string[] = [];
+  const lead = " ".repeat(Math.max(0, Math.min(indent, Math.floor(w / 3))));
+  const inner = Math.max(8, w - 1 - lead.length);
+  const row = (line: string) => out.push(shade(lead + "  " + line, w));
+  const said = (text: string, colour: number) => { for (const r of wrap(text, inner - 2)) row(fg(colour) + r + RESET); };
+  const l = projectionLayout(p);
+  const extension = p.extension?.id ?? p.provider, handler = p.extension?.handler ?? p.propertyKey ?? p.provider;
+  const at = (action: string) => ({ ext: { block: d.note, line: p.anchor.line, action, extension, handler }, refresh: d.note, refreshLine: p.anchor.line });
+  const primary = primaryAction(p);
+  const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
+  const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
+  // The head: the title (the primary action), then what it is now.
+  const title = link ? link({ role: "resource", label: l.title, ...at(primary.name) }, l.title) : l.title;
+  const when = p.output?.ranAt ?? p.fetchedAt;
+  const age = when ? relativeAge(when, now) : "";
+  const status = p.kind === "agent"
+    ? [p.agent?.status, p.summary && p.summary !== p.agent?.status ? drawnInline(p.summary) : ""].filter(Boolean).join(" · ")
+    : ready ? (p.output ? `ran ${age || localTime(p.output.ranAt)}` : drawnInline(p.summary ?? "")) : (STATUS_LABELS[p.status] ?? drawnInline(String(p.status)));
+  const running = p.fetching ? (p.kind === "agent" ? "working…" : "running…") : "";
+  const head = [title, status, running].filter(Boolean).join(" · ");
+  wrap(head, inner - 2).forEach((r, k) => {
+    const body = k ? r : r.replace(title, fg(C.lcyan) + BOLD + title + UNBOLD + fg(bad ? C.yellow : C.white));
+    out.push(shade(lead + (k ? "  " : fg(C.lcyan) + "∙ ") + fg(bad ? C.yellow : C.white) + body + RESET, w));
+  });
+  // The result.
+  if (ready && p.kind === "component") for (const line of componentBody(p, inner - 2, d).lines) row(line);
+  else if (ready && p.output?.markdown.trim()) for (const line of d.markdown(p.output.markdown, inner - 2)) row(line);
+  else if (ready && p.kind === "data" && p.fields.length) said(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), C.brown);
+  if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${p.agent.requestedBy === "user" ? "you" : drawnInline(p.agent.requestedBy)}` : ""}`, C.dark);
+  if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
+  if (p.output?.versionChanged && !p.fetching) said(`${p.label ?? extension} changed since this ran · r runs it again`, C.dark);
+  for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
+  // The controls: the line's actions (their key, if the reader leaves it to them), then r.
+  const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
+  const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;
+  const controls = [
+    ...acts.map(a => control(a.name, a.key && !READER_OWN_KEYS.has(a.key) ? `${a.key} ${a.id}` : a.id)),
+    control(RUN_AGAIN, `r ${againWords(p)}`),
+  ];
+  row(controls.join(" "));
+  return out;
 }

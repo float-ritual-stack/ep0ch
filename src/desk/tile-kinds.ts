@@ -6,8 +6,10 @@
 import type { Msg } from "../board";
 import type { Actor } from "../socket";
 import type { ActionSet } from "../surface/actions";
+import { wrap } from "../text";
 import type { Policy } from "./layout";
 import type { DeskApi, Pane, PaneView } from "./panes";
+import { PtyPane, type PtySpec } from "./pty";
 import type { TileSpec } from "./tiles";
 
 /** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). */
@@ -73,15 +75,38 @@ export interface TileKind {
 }
 
 const registry = new Map<TileKindName, TileKind>();
+/** Kinds that were registered and went away, with why: their tiles say so instead of running something else. */
+const gone = new Map<TileKindName, string>();
 
 /** Register a kind. A second entry under the same name is refused: an extension can't take a built-in's place. */
 export function registerTileKind(k: TileKind): void {
   if (!/^[A-Za-z][\w.-]{0,39}$/.test(k.kind)) throw new Error(`a tile kind's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(k.kind)})`);
   if (registry.has(k.kind)) throw new Error(`tile kind ${k.kind} is registered already`);
   registry.set(k.kind, k);
+  gone.delete(k.kind);
 }
-/** Take a kind out (an extension unloaded; tests). */
-export function unregisterTileKind(kind: TileKindName): boolean { return registry.delete(kind); }
+/** Take a kind out (an extension unloaded; tests). `why` is what its tiles say until it comes back. */
+export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
+  const had = registry.delete(kind);
+  if (had) gone.set(kind, why ?? "it was taken out of the door's tile kinds");
+  return had;
+}
+/** Why there's no kind by that name: it went (and why), or nothing here ever registered it. */
+export function missingKind(kind: TileKindName): string {
+  return gone.get(kind) ?? "nothing here registers it (an extension's kind: the extension isn't loaded, or isn't installed for this outline)";
+}
+/** Whether `kind` was registered once and went away (an extension removed while the door runs). */
+export const wasTileKind = (kind: TileKindName): boolean => gone.has(kind);
+
+// Who hears that kinds came or went (a desk: its tiles of those kinds are made again). Held weakly: a desk
+// that's gone isn't kept alive by it.
+const watchers = new Set<WeakRef<{ kindsChanged(): void }>>();
+/** `owner.kindsChanged()` runs after kinds come or go, while `owner` lives. */
+export function watchTileKinds(owner: { kindsChanged(): void }): void { watchers.add(new WeakRef(owner)); }
+/** Say that kinds came or went (once, after a batch of register and unregister calls). */
+export function kindsChanged(): void {
+  for (const w of [...watchers]) { const o = w.deref(); if (!o) { watchers.delete(w); continue; } try { o.kindsChanged(); } catch { /* one desk's problem */ } }
+}
 export const tileKind = (kind: string): TileKind | undefined => registry.get(kind);
 export const isTileKind = (kind: string): boolean => registry.has(kind);
 /** Every kind, in the order registered (the built-ins first). */
@@ -126,10 +151,76 @@ export class ServiceTile implements Pane {
   spec() { return Object.keys(this.state).length ? { state: this.state } : {}; }
 }
 
-/** The registry entry for a kind the service draws: `make` builds a ServiceTile with the spec's saved state. */
-export function serviceKind(o: { kind: TileKindName; about: string; render: ServiceRender; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[] }): TileKind {
+/**
+ * A program the service names for a kind (an extension's whole tile, pi-herdr-outliner PIE-507): run in a
+ * terminal tile with the service's command, folder and environment, and the tile's args (`state`) appended as
+ * `--name=value`. `unavailable`: why it can't run here (the command is a path on another host).
+ */
+export interface ServiceProgram {
+  command: string[]; cwd: string; env: Record<string, string>;
+  /** The args a tile of it takes (`block`: a block id, by default the note shown where it's opened). */
+  args: Record<string, { type: string; description?: string }>;
+  unavailable?: string | null;
+  /** Its title, and the keys its program answers (`d draw`), for the hint row. */
+  label: string;
+  keys?: readonly string[];
+}
+
+/** A tile running a service-named program: a terminal tile of its own kind, its args saved with it. */
+export class ProgramTile extends PtyPane {
+  constructor(override readonly kind: TileKindName, spec: PtySpec, readonly state: Record<string, unknown>, private readonly keyHint: readonly string[] = [], private readonly label = kind) { super(spec); }
+  override title() { return this.exited !== null ? `${this.label} · exited ${this.exited}` : this.label; }
+  override hint() { return this.exited !== null ? "⏎ runs it again" : `${this.keyHint.length ? `${this.keyHint.join(" · ")} · ` : ""}${super.hint()}`; }
+  override spec() { return Object.keys(this.state).length ? { state: this.state } : {}; }
+}
+
+/** A tile whose kind isn't here (its extension went, or runs on another host): it says why and runs nothing. */
+export class UnavailableTile implements Pane {
+  constructor(readonly kind: TileKindName, private readonly why: string, readonly state: Record<string, unknown> = {}) {}
+  title() { return `${this.kind} · unavailable`; }
+  hint() { return "^W x closes it"; }
+  render(w: number): PaneView {
+    return { lines: ["", ...wrap(`${this.kind} isn't available here: ${this.why}.`, Math.max(10, w - 4)).map(l => `  ${l}`), "", "  It comes back by itself when its kind does; its place and args are kept."] };
+  }
+  key(): boolean { return false; }
+  spec() { return Object.keys(this.state).length ? { state: this.state } : {}; }
+}
+
+const stateOf = (s: Partial<TileSpec>) => (s as { state?: Record<string, unknown> }).state ?? {};
+
+/**
+ * The registry entry for a kind the service provides: rows the service draws (`render`, a ServiceTile) or a
+ * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks).
+ */
+export function serviceKind(o: { kind: TileKindName; about: string; render?: ServiceRender; program?: ServiceProgram; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
+  const base = { kind: o.kind, about: o.about, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
+  const prog = o.program;
+  if (!prog) {
+    const render = o.render ?? (async () => ({ lines: ["", `  ${o.kind} has nothing to draw with`] }));
+    return { ...base, make: s => new ServiceTile(o.kind, render, stateOf(s), s.name ?? o.kind) };
+  }
+  // A terminal tile's hooks are the built-in terminal kind's: how it starts, what it shows, that it holds work.
+  const pty = registry.get("pty");
+  const blockArg = Object.entries(prog.args).find(([, a]) => a.type === "block")?.[0];
   return {
-    kind: o.kind, about: o.about, keys: o.keys, policy: o.policy, accepts: o.accepts,
-    make: s => new ServiceTile(o.kind, o.render, (s as { state?: Record<string, unknown> }).state ?? {}, s.name ?? o.kind),
+    ...base,
+    make: s => {
+      const state = { ...stateOf(s), ...(blockArg && s.note && !stateOf(s)[blockArg] ? { [blockArg]: s.note } : {}) };
+      if (prog.unavailable) return new UnavailableTile(o.kind, prog.unavailable, state);
+      // Only the args it declares reach the program, each as --name=value.
+      const argv = Object.keys(prog.args).flatMap(k => (typeof state[k] === "string" && state[k] ? [`--${k}=${state[k]}`] : []));
+      return new ProgramTile(o.kind, { cmd: [...prog.command, ...argv], cwd: prog.cwd, env: prog.env, label: s.name ?? prog.label }, state, prog.keys, prog.label);
+    },
+    save: p => (p instanceof ProgramTile || p instanceof UnavailableTile ? (Object.keys(p.state).length ? { state: p.state } : {}) : {}),
+    // A block arg is the note shown where it's opened (^W o from a reader), unless tile.open named one (note=).
+    defaults: (s, at) => {
+      if (!blockArg || s.note || stateOf(s)[blockArg]) return {};
+      const m = registry.get(at.pane.kind)?.shows?.(at.pane);
+      return m ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
+    },
+    holdsWork: p => p instanceof PtyPane && p.running,
+    ...(pty?.start ? { start: (p: Pane, env: TileEnv) => { if (p instanceof PtyPane) pty.start!(p, env); } } : {}),
+    ...(pty?.view ? { view: (p: Pane, mine: boolean) => (p instanceof PtyPane ? pty.view!(p, mine) : { viewport: {} }) } : {}),
+    describe: (p, full) => ({ ...(p instanceof PtyPane && pty?.describe ? pty.describe(p, full) : {}), ...(p instanceof ProgramTile || p instanceof UnavailableTile ? { args: p.state } : {}), ...(p instanceof UnavailableTile ? { unavailable: true } : {}) }),
   };
 }

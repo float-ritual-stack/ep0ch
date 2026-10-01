@@ -16,7 +16,7 @@ import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
 import { SCREEN_KINDS, type ScreenKind } from "./screen-tile";
-import { isTileKind, tileKind, tileKinds, type TileKindName } from "./tile-kinds";
+import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
@@ -225,9 +225,14 @@ export const sharedAgent = (): SharedAgent | null => shared;
 /** The kinds a tile can be: every kind in the registry, built-ins first. */
 export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
 
-/** Build a tile from its spec, by its kind's registry entry. A kind nobody registered is a reader, and the spec says so. */
+/**
+ * Build a tile from its spec, by its kind's registry entry. A kind nobody registers here (an extension's, not
+ * loaded yet or gone) is a tile that says so and runs nothing; the desk keeps its spec and makes it again when
+ * the kind comes.
+ */
 export function makeTile(s: Partial<TileSpec> & { kind: TileKindName }): Pane {
-  const k = tileKind(s.kind) ?? tileKind("reader")!;
+  const k = tileKind(s.kind);
+  if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   return k.make(k.revive ? (k.revive({ t: "leaf", ...s } as TileSpec) as typeof s) : s);
 }
 export { isTileKind };

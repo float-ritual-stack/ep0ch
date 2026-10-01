@@ -173,11 +173,11 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
-    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
-    aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
+    key: "projection", need: "show a Resource's stored details, or an extension's line, in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket or an extension's record drawn by ticketRegion under its line ([ ] ⏎ opens the block, r or a click on its age refreshes, y copies); an extension's output, component (primitiveLines) or @name request by extensionRegion, its actions (ext.*, EXT_ACTIONS) as keys, controls and act", files: "src/projection.ts, src/extensions.ts, src/components.ts, src/surface/note.ts, src/doc.ts",
+    aside: "made-up tickets from a made-up extension (src/showcase/tickets); beside them the outliner's example extensions (moon, horoscope, fancy-horror, @tidy) when try-it is given the checkout; the service runs them, the door only draws and asks",
     stage(n, show) {
-      const r = new ReaderPane(), th = new ThreadPane();
-      return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
+      const r = new ReaderPane(), omens = new ReaderPane(), th = new ThreadPane();
+      return deskOf({ title: "showcase · projection", panes: [r, omens, th], layout: ([a, b, c]) => pair("row", 0.38, leaf(a!), row(0.62, b!, c!)) }, show, [[r, n.tickets], [omens, n.omens]], d => { if (n.tickets) d.setCurrent(n.tickets); });
     },
   },
   {

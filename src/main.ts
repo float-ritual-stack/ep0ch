@@ -169,6 +169,8 @@ app.host = info.host;
 app.workspace = info.workspace;
 app.outline = info.outline;
 board.subscribe(e => app!.event(e));
+// The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
+void app.loadExtensions();
 // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
 let refused = "";
 control = await startControl({ app, mirror, info: () => term.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });

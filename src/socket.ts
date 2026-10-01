@@ -9,6 +9,7 @@ import { hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
+import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 
@@ -45,7 +46,14 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * `activity.recent`'s extension filter (`activity.extensions`); `blocks.authored-links` by name.
    */
   "extensions.records", "resources.projection.materialize", "resources.projection.refresh", "resources.observer-reads",
-  "resources.follow-authored.provenance", "activity.extensions", "blocks.authored-links"] as const;
+  "resources.follow-authored.provenance", "activity.extensions", "blocks.authored-links",
+  /**
+   * Extensions wave B (pi-herdr-outliner PIE-507): the extension folders (`extensions.list`: handlers, actions,
+   * tile kinds), their handler lines' results in the projection slot (`extensions.outputs`), actions run and
+   * attributed by the service (`extensions.act`), and `@name` agents a person addresses while they write
+   * (`extensions.agents`, PIE-501).
+   */
+  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents"] as const;
 /** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
 export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
@@ -449,6 +457,24 @@ export class SocketBoard implements Board {
   async refreshProjections(blockId: string, line?: number): Promise<ResourceProjectionRead> {
     if (this.supports("resources.projection.refresh") !== true) throw new Refused("this outline service can't refresh a ticket from the door (it lacks resources.projection.refresh); restart it from a current checkout");
     return this.request<ResourceProjectionRead>("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}) });
+  }
+
+  /**
+   * The extensions the service runs (`extensions.list`, PIE-507): each folder's handlers, actions and tile
+   * kinds. Null from a service without them (said once, then remembered for the session).
+   */
+  listExtensions(reload = false): Promise<ExtensionList | null> {
+    return this.optional<ExtensionList>("extensions.list", "extensions.list", reload ? { reload: true } : {});
+  }
+
+  /**
+   * Run an extension's action (`extensions.act`): the service runs it and applies what it writes, attributed to
+   * the extension (`author: agent`, `actorId: ext:<id>`), whoever asked. `blockId` (and `line`, for a handler
+   * line's action) is what it acts on; `args` a tile's own.
+   */
+  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}): Promise<ExtensionActResult> {
+    if (this.supports("extensions.act") === false) throw new Refused("this outline service runs no extension actions (it lacks extensions.act); restart it from a current checkout");
+    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target });
   }
 
   /**

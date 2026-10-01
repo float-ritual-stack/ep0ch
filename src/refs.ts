@@ -162,6 +162,12 @@ export type LinkTarget = {
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
    */
   proposal?: { id: string; op?: "apply" | "dismiss" };
+  /**
+   * An extension's line (PIE-512): its head and its controls (role "control") run `action` on it, an
+   * `ext.<id>.<action>` or `projection.refresh` (r: run it again, ask the agent again). `extension` and
+   * `handler` say whose line it is, so the reader finds the keys its actions answer to.
+   */
+  ext?: { block: string; line: number; action: string; extension: string; handler: string };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */

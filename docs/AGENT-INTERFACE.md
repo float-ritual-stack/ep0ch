@@ -239,7 +239,8 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `pane.*` | `split`, `close`, `resize`, `zoom`, `float`, `pin` | as before (PIE-412) |
 | `tree.links` | `reader` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
 | `tree.pick` | `reader`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys |
-| `projection.refresh` | `reader`, `block` (a page or a ticket block; default the reader's) | fetches the tickets it shows now (`resources.projection.refresh`); the service writes them as `ext:jira`, never as the agent or the person; said on the status bar |
+| `projection.refresh` | `reader`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); the service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person; said on the status bar |
+| `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `reader=<the tile>`; `block` defaults to the tile's own. Bound and unbound as the service's extensions change |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark; `focus.set` is its older name), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
 Example: bring the person's attention to a decision, from an agent running in a tile.
@@ -292,6 +293,7 @@ at, and what it does while they're typing:
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `projection.refresh` | no | allowed |
+| `ext.*` | no | allowed: the service runs it, attributed to the extension |
 | `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
 | `tile.herdr` | no | allowed |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
@@ -345,6 +347,25 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   service reads a held draft before patching it, and the door never re-checks the grammar.
 
     outliner patch-demo --block <id> --tidy-above "@tidy tidy this"    # the proof agent, not the @-watcher
+
+## Extensions (PIE-512)
+
+The outline service runs extensions (pi-herdr-outliner `docs/extensions/README.md`); the door binds what
+`extensions.list` names, and binds it again when the service says they changed. An agent uses the same paths
+the person does:
+
+- **Lines.** `view.get`, `peek` and `elements` show an extension's line as the reader draws it: a record, an
+  output, a component, an `@name` request with its state. `elements` lists its title (kind `resource`) and its
+  controls (kind `control`); `element.open n=…` runs what ⏎ on it would (the line's first action, or run it
+  again), as the agent.
+- **Actions.** `act ext.<id>.<action> block=<note> [line=<i>]` on any screen (`actions` lists them with their
+  keys). The service runs it; what it writes is attributed `ext:<id>`, and the status bar says the agent ran
+  it. `projection.refresh block=<note> line=<i>` runs a line again or asks an `@name` agent again.
+- **Tiles.** `act tile.open kind=<extension kind> note=<block>` opens one (its block is `note`, or the note
+  shown where it's opened); its actions are its kind's (`act ext.tarot.keep reader=<tile>`). The program in
+  it gets the service's `OUTLINER_SOCKET_PATH`, `OUTLINER_OUTLINE` and `OUTLINER_EXTENSION`, plus the door's
+  own `EP0CH_CONTROL`, and its args as `--name=value`. `layout.get` shows its `args`; a tile whose kind went
+  away is `unregistered` and says why.
 
 ## Names
 

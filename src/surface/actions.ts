@@ -40,6 +40,18 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
   has(name: string): name is Extract<keyof M, string> { return Object.hasOwn(this.defs, name); }
 
+  /**
+   * Add an action while the door runs: an extension's (PIE-512), bound from what the service lists. One
+   * already there under that name is replaced (the extension was reloaded).
+   */
+  define(name: string, def: ActionDef<any, H>): void { (this.defs as Record<string, ActionDef<any, H>>)[name] = def; }
+  /** Take an action out (its extension went away). */
+  forget(name: string): boolean {
+    if (!this.has(name)) return false;
+    delete (this.defs as Record<string, unknown>)[name];
+    return true;
+  }
+
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
