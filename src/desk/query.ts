@@ -67,6 +67,7 @@ export function laneTileName(lane: string): string {
 export const HUB_SOURCE: TileSource = {
   name: "hub",
   about: "a hub's views (its virtual-branch children), one query tile each, in lane order",
+  drop: "take its view out of the hub in the outline (move it elsewhere or trash it)",
   async tiles(arg, desk) {
     if (!arg) return { tiles: [] };
     const [hub, kids] = await Promise.all([desk.ctx.board.get(arg), desk.ctx.board.children(arg)]);

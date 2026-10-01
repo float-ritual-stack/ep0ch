@@ -9,6 +9,7 @@ import { ART_ACTIONS } from "../art-actions";
 import { WHO_ACTIONS } from "../who-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
+import { PTY_ACTIONS } from "./pty-actions";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
 import { HUB_SOURCE, laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
@@ -36,6 +37,10 @@ const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take
 const screen = (kind: ScreenKind, key: string, about: string): TileKind => ({
   kind, about, keys: [{ key, label: kind }],
   make: s => new ScreenTile(kind, { preview: s.preview }),
+  // A whole screen keeps its own keys while it's in an edit, answers its own actions (the board's card.*) and animates.
+  takesKeys: p => (p as ScreenTile).holdsKeys(),
+  act: (p, req, actor) => (p as ScreenTile).act(req, actor),
+  tick: p => (p as ScreenTile).tick(),
   holdsWork: p => (p as ScreenTile).unsaved(),
   shows: p => (p as ScreenTile).current(),
   view: p => { const t = p as ScreenTile, m = t.current(); return { viewport: { screen: t.screen?.title ?? null, selected: m?.id ?? null } }; },
@@ -100,7 +105,14 @@ const builtins = (): TileKind[] => [
       const shared = s.agent ? sharedAgent()?.paneFor(s) : null;
       return shared ?? new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
     },
+    actions: PTY_ACTIONS,
+    // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
+    press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || (k.kind === "char" && !k.ctrl && k.ch === "e") ? { action: "tile.enter" } : null),
     holdsWork: p => (p as PtyPane).running,
+    whenFree: (p, then) => {
+      const t = p as PtyPane, was = t.onExit;
+      t.onExit = code => { was?.(code); then(); };
+    },
     view: (p, mine) => {
       const t = p as PtyPane, nv = t.nvim?.view;
       return {

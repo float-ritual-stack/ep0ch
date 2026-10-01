@@ -5,7 +5,8 @@
 // tile whose content the service draws (`serviceKind`, below).
 import type { Msg } from "../board";
 import type { Actor, Change } from "../socket";
-import type { ActionSet } from "../surface/actions";
+import type { ActionSet, ActRequest } from "../surface/actions";
+import type { Key } from "../term";
 import { wrap } from "../text";
 import type { Policy } from "./layout";
 import type { DeskApi, Pane, PaneView } from "./panes";
@@ -14,6 +15,9 @@ import type { TileSpec } from "./tiles";
 
 /** A kind's name: `tree`, `reader`, or an extension's dotted one (`jira.board`). */
 export type TileKindName = string;
+
+/** What a kind's actions run on: the tile (its pane and its name) and the desk it's on. */
+export interface KindHost { pane: any; desk: DeskApi; tile: string }
 
 /** What a kind's hooks get from the desk a tile of it is on. */
 export interface TileEnv {
@@ -39,8 +43,10 @@ export interface TileKind {
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */
   make(spec: Partial<TileSpec> & { kind: TileKindName }): Pane;
-  /** Its own actions (the tree's `tree.*`): `act` routes them to a tile of this kind, reader=<tile> or the first. */
-  readonly actions?: ActionSet<any, { pane: any; desk: DeskApi }>;
+  /** Its own actions (the tree's `tree.*`): `act` routes them to a tile of this kind, reader=<tile>, the focused one, or the first. */
+  readonly actions?: ActionSet<any, KindHost>;
+  /** Action sets it shares with the kind it's built on (a program an extension names runs in a terminal: tile.type, tile.enter…). */
+  readonly inherits?: readonly ActionSet<any, KindHost>[];
   /** The policy a tile of this kind starts with, under its containers' (a terminal's least width, say). */
   readonly policy?: Policy;
   /** What it takes: notes opened into it (a link's target), and the tile kinds that may join it as tabs (any when left out). */
@@ -74,6 +80,21 @@ export interface TileKind {
   view?(p: Pane, mine: boolean): { viewport: Record<string, unknown>; cursor?: unknown };
   /** What a preview of it follows (`tile.preview`): its file, or the tile; it may change itself to make room. */
   previewSource?(p: Pane, name: string, actor: Actor): Promise<string> | string;
+  // What the desk asks instead of which class a tile is (PIE-510, A2): a kind says how its tiles take keys, draw,
+  // tick and answer actions, and the desk switches on none of them.
+  /**
+   * A key, or a click inside it, on a focused tile of this kind the person isn't typing in: the action of the
+   * kind's it runs (a terminal's ⏎, e and a click: tile.enter), or null for the desk's usual keys.
+   */
+  press?(p: Pane, k: Key): { action: string; args?: Record<string, unknown> } | null;
+  /** Every key is the tile's own now, the desk's included (a whole screen in a tile, in its own edit). */
+  takesKeys?(p: Pane): boolean;
+  /** Answer an action the desk doesn't know, on this tile (a whole screen's: the board's `card.*`). */
+  act?(p: Pane, req: ActRequest, actor: Actor): Promise<unknown>;
+  /** A frame of its own animation: true when it changed (a screen in a tile, revealing its art). */
+  tick?(p: Pane): boolean;
+  /** Call `then` once it no longer holds work (`holdsWork`): a terminal's program exited. */
+  whenFree?(p: Pane, then: () => void): void;
 }
 
 const registry = new Map<TileKindName, TileKind>();
@@ -86,13 +107,17 @@ export function registerTileKind(k: TileKind): void {
   if (registry.has(k.kind)) throw new Error(`tile kind ${k.kind} is registered already`);
   registry.set(k.kind, k);
   gone.delete(k.kind);
+  wentAway.delete(k.kind);
 }
 /** Take a kind out (an extension unloaded; tests). `why` is what its tiles say until it comes back. */
 export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
+  const k = registry.get(kind);
   const had = registry.delete(kind);
-  if (had) gone.set(kind, why ?? "it was taken out of the door's tile kinds");
+  if (had) { gone.set(kind, why ?? "it was taken out of the door's tile kinds"); wentAway.set(kind, k!); }
   return had;
 }
+/** The entries of kinds that went away: a tile of one still running asks its kind's hooks (holds work, when it's free). */
+const wentAway = new Map<TileKindName, TileKind>();
 let missingReason: string | null = null;
 /** Why no extension's kind can come here at all (an outline service without extensions), or null. */
 export function setMissingKindReason(why: string | null): void { missingReason = why; }
@@ -129,6 +154,12 @@ export const tileNoun = (kind: string, tile: string): string => `${kindNoun(kind
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */
 export const kindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) : undefined);
+/** A pane's entry, or the one its kind had before it went away (its tile still runs what that kind made). */
+export const lastKindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) ?? wentAway.get(p.kind) : undefined);
+/** A kind's action sets: its own, then the ones it shares. */
+export const kindActions = (k: TileKind | undefined): ActionSet<any, KindHost>[] => (k ? [...(k.actions ? [k.actions] : []), ...(k.inherits ?? [])] : []);
+/** Every kind's action sets, each once (a shared one is listed once). */
+export const allKindActions = (): ActionSet<any, KindHost>[] => [...new Set(tileKinds().flatMap(kindActions))];
 /** The kind under `^W o <key>`, and that key's own start. */
 export function kindForKey(key: string): { kind: TileKind; key: KindKey } | null {
   for (const k of registry.values()) for (const x of k.keys ?? []) if (x.key === key) return { kind: k, key: x };
@@ -154,6 +185,8 @@ export interface TileSource {
   tiles(arg: string, desk: DeskApi): Promise<{ tiles: { spec: TileSpec; prime?(p: Pane): void }[]; title?: string }>;
   /** A change that may change what `tiles` answers (a view added under the hub, renamed, taken away). */
   affects?(c: Change, arg: string): boolean;
+  /** How the person takes one of its tiles away (its tiles don't close: said when tile.close is refused). */
+  readonly drop?: string;
   /** Which tile is which across a refill: a tile with the same key is kept. */
   key(spec: Partial<TileSpec>): string | null;
 }
@@ -277,6 +310,10 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
       return m ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
     },
     holdsWork: p => p instanceof PtyPane && p.running,
+    // The terminal's own actions, keys and wait for its program, as a built-in terminal tile has them.
+    ...(pty?.actions ? { inherits: [pty.actions] } : {}),
+    ...(pty?.press ? { press: (p: Pane, k: Key) => (p instanceof PtyPane ? pty.press!(p, k) : null) } : {}),
+    ...(pty?.whenFree ? { whenFree: (p: Pane, then: () => void) => { if (p instanceof PtyPane) pty.whenFree!(p, then); } } : {}),
     ...(pty?.start ? { start: (p: Pane, env: TileEnv) => { if (p instanceof PtyPane) pty.start!(p, env); } } : {}),
     ...(pty?.view ? { view: (p: Pane, mine: boolean) => (p instanceof PtyPane ? pty.view!(p, mine) : { viewport: {} }) } : {}),
     describe: (p, full) => ({ ...(p instanceof PtyPane && pty?.describe ? pty.describe(p, full) : {}), ...(p instanceof ProgramTile || p instanceof UnavailableTile ? { args: p.state } : {}), ...(p instanceof UnavailableTile ? { unavailable: true } : {}) }),

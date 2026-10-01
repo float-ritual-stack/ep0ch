@@ -329,8 +329,14 @@ export class PtyPane implements Pane {
     return Array.from({ length: this.rows }, (_, y) => b.getLine(b.baseY + y)?.translateToString(true) ?? "");
   }
 
-  /** Door keys that aren't the program's: none while the person is in it but the escape chord (the desk checks that). */
-  key(k: Key, _desk: DeskApi): boolean {
+  /**
+   * A door key on the tile while the person isn't typing in it: none is its own (⏎, e and a click are its kind's
+   * `press`: tile.enter). What they type once in it goes to `typed`.
+   */
+  key(_k: Key, _desk: DeskApi): boolean { return false; }
+
+  /** A key the person typed in it (the desk's or the dock's typing mode): to the program, or ⏎ runs one that exited again. */
+  typed(k: Key): boolean {
     if (this.exited !== null && k.kind === "enter") { this.restart(); return true; }
     const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false, this.kbd.flags) : null;
     if (s === null) return false;
