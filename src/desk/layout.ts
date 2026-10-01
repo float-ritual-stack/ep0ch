@@ -68,6 +68,7 @@ export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: strin
  * its size when open); `overlay: false` in its policy makes it take that room while open instead.
  */
 export type Drawer<I = number> = { t: "drawer"; kid: LNode<I>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+const hasPolicy = (n: { policy?: Policy }) => !!n.policy && Object.keys(n.policy).length > 0;
 const idOf = (n: { id?: string; policy?: Policy }) => ({ ...(n.id ? { id: n.id } : {}), ...(n.policy && Object.keys(n.policy).length ? { policy: { ...n.policy } } : {}) });
 export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I> | Drawer<I> | Columns<I>;
 /** What holds tiles: a split, a tab set, a drawer, columns. */
@@ -191,6 +192,11 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   const mins = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.min : undefined) ?? opts.min?.(k, n.dir, n) ?? (row ? MIN_COLS : MIN_ROWS));
   const maxs = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.max : undefined));
   const open = n.kids.map((_, i) => i).filter(i => fixed[i] === undefined);
+  // Within the room there is (a small terminal, a policy's min or fixed larger than the screen): the fixed sizes
+  // leave each other kid a cell, and the minimums shrink together to what's left, so no tile gets nothing or lands
+  // off the screen while there's a cell for it.
+  fit(fixed, Math.max(0, S - Math.min(open.length, S)));
+  fit(mins, Math.max(0, S - fixed.reduce<number>((a, f) => a + (f ?? 0), 0)), open);
   const flex = [...open].reverse().find(i => { const k = n.kids[i]!; return !(k.t === "leaf" && opts.sized?.(k.id)); }) ?? open.at(-1);
   const room = S - fixed.reduce<number>((a, f) => a + (f ?? 0), 0);
   const wsum = open.reduce((a, i) => a + n.weights[i]!, 0) || 1;
@@ -214,6 +220,21 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   });
   n.kids.forEach((k, i) => place(k, row ? { ...r, col: starts[i]!, cols: size[i]! } : { ...r, row: starts[i]!, rows: size[i]! }, opts, out));
   return out;
+}
+
+/**
+ * Shrink the sizes at `which` (every one given, by default) together so they add up to at most `room`: each in
+ * proportion, at least one cell while the room has one for each. Changes `xs` in place.
+ */
+function fit(xs: (number | undefined)[], room: number, which: number[] = xs.map((_, i) => i)): void {
+  const at = which.filter(i => xs[i] !== undefined && xs[i]! > 0);
+  const sum = at.reduce((a, i) => a + xs[i]!, 0);
+  if (sum <= room) return;
+  const floor = room >= at.length ? 1 : 0;
+  for (const i of at) xs[i] = Math.max(floor, Math.floor((xs[i]! * room) / sum));
+  // Still over (each kept its one cell): the largest give way first.
+  let over = at.reduce((a, i) => a + xs[i]!, 0) - room;
+  for (const i of [...at].sort((a, b) => xs[b]! - xs[a]!)) { if (over <= 0) break; const give = Math.min(over, xs[i]! - floor); xs[i] = xs[i]! - give; over -= give; }
 }
 
 // ── changing the tree ─────────────────────────────────────────────────────────
@@ -274,7 +295,8 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   // Columns stay with one tile or none: their tiles come and go with the data.
   if (n.t === "columns") return { ...n, kids, weights };
   if (!kids.length) return null;
-  if (kids.length === 1 && !n.key) return kids[0]!;
+  // A split that carries a policy stays with one kid, as a named one does: its rule outlives the move.
+  if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
   return { ...n, kids, weights };
 }
 
@@ -324,7 +346,11 @@ export function even<I>(n: LNode<I>, skip?: (n: Line<I>) => boolean): void {
   if (!isLine(n)) return;
   n.kids.forEach(k => even(k, skip));
   if (skip?.(n)) return;
-  n.weights = n.kids.map(() => 1);
+  // A drawer's weight is its size when it slides out: it keeps its share, and the docked kids share the rest.
+  const total = n.weights.reduce((a, w) => a + w, 0) || 1;
+  const kept = n.kids.reduce((a, k, i) => a + (k.t === "drawer" ? n.weights[i]! / total : 0), 0);
+  const docked = n.kids.filter(k => k.t !== "drawer").length;
+  n.weights = n.kids.map((k, i) => (k.t === "drawer" ? n.weights[i]! / total : (1 - kept) / docked));
 }
 
 /** The pane whose rect lies in `dir` from `from`, nearest by edge gap then by centre offset. */
@@ -603,12 +629,16 @@ export function wrapDrawer<I>(root: LNode<I>, id: I, to?: Dir, open = true, weig
     const kid: LNode<I> = set ? { t: "tabs", ids: [...set.ids], active: set.active, ...idOf(set) } : leaf(id);
     if (set) for (const x of set.ids) if (x !== id) r = r && remove(r, x);
     if (!r) return null;
-    return toEdge(r, { t: "drawer", kid, edge: to, open }, weight);
+    return keepsDocked(toEdge(r, { t: "drawer", kid, edge: to, open }, weight));
   }
   const p = parentOf(root, id);
   const edge = p ? edgeAt(p.parent.dir, p.i, p.parent.kids.length) : "left";
-  return mapSlot(root, id, slot => ({ t: "drawer", kid: slot, edge, open }));
+  return keepsDocked(mapSlot(root, id, slot => ({ t: "drawer", kid: slot, edge, open })));
 }
+/** The tiles docked: in no drawer. A screen keeps at least one, or a drawer has nothing to slide over. */
+export function dockedTiles<I>(n: LNode<I>): I[] { return n.t === "drawer" ? [] : n.t === "leaf" || n.t === "tabs" ? leaves(n) : kidsOf(n).flatMap(k => dockedTiles(k)); }
+/** The tree, when a tile is still docked in it; else null (every tile would be in a drawer: a blank screen). */
+const keepsDocked = <I>(n: LNode<I> | null): LNode<I> | null => (n && dockedTiles(n).length ? n : null);
 /** The drawer goes along outer edge `to` of `rest` (the whole layout), taking `weight` of it when it slides out. */
 function toEdge<I>(rest: LNode<I>, d: Drawer<I>, weight: number): LNode<I> {
   const dr = { ...d, edge: d.edge } as Drawer<I>;
@@ -644,10 +674,12 @@ export function wrapNodeDrawer<I>(root: LNode<I>, c: Container<I>, to?: Dir, ope
   if (to) {
     const rest = without(root, c);
     if (!rest) return null;
-    return toEdge(rest, { t: "drawer", kid: c, edge: to, open }, weight);
+    return keepsDocked(toEdge(rest, { t: "drawer", kid: c, edge: to, open }, weight));
   }
   const p = parentNode(root, c);
   if (!p) return null;
+  // Every other tile in a drawer already: this one is what's left docked.
+  if (!dockedTiles(root).some(id => !leaves(c).includes(id))) return null;
   const edge = edgeAt(p.parent.dir, p.i, p.parent.kids.length);
   p.parent.kids[p.i] = { t: "drawer", kid: c, edge, open };
   return root;
@@ -669,7 +701,7 @@ function without<I>(n: LNode<I>, c: LNode<I>): LNode<I> | null {
   n.kids.forEach((k, i) => { const r = without(k, c); if (r) { kids.push(r); weights.push(n.weights[i]!); } });
   if (n.t === "columns") return { ...n, kids, weights };
   if (!kids.length) return null;
-  if (kids.length === 1 && !n.key) return kids[0]!;
+  if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
   return { ...n, kids, weights };
 }
 /** Drawer `d` gives way to what it holds, docked where it was. */
@@ -755,12 +787,13 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
       k.kids.forEach((kk, j) => { kids.push(kk); weights.push((w * k.weights[j]!) / sum); });
     } else { kids.push(k); weights.push(w); }
   });
-  // A split left with one kid gives way to it; its policy goes with it when the kid is a container without one.
-  if (kids.length === 1 && !n.key) {
+  // A split left with one kid gives way to it, unless it's named or carries a policy (its rule stays with the
+  // place: a tile moved back in is under it again).
+  if (kids.length === 1 && !n.key && !hasPolicy(n)) {
     let only = kids[0]!;
-    // At the top a lone drawer has nothing to slide over: it's what it holds (which keeps a policy given it).
+    // At the top a lone drawer has nothing to slide over: it's what it holds.
     if (top && only.t === "drawer") only = only.kid;
-    return n.policy && only.t !== "leaf" && !only.policy ? { ...only, policy: n.policy } : only;
+    return only;
   }
   if (!kids.length) return { ...n, kids, weights };
   const sum = weights.reduce((a, x) => a + x, 0) || 1;
