@@ -580,6 +580,9 @@ export class NoteSurface {
         fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ]),
       ...(proposalHead ? proposalHead.lines : []),
+      // A note trashed while it's shown (a proposal dismissed, a card trashed elsewhere) says so: it's still readable.
+      // (One trashed with an ancestor says so when it's next read: the service's event names the root only.)
+      ...(m.deleted ? [fg(C.lred) + pad("■ in the Trash · still readable here", w) + RESET] : []),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
       ...unsentLines(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),

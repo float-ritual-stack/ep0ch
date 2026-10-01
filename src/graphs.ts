@@ -2,7 +2,7 @@
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { C, fg, pad, RESET, width as vwidth } from "./style";
+import { C, fg, pad, RESET, SPARK_STEPS, width as vwidth } from "./style";
 import { wrap } from "./text";
 import { resolveLive } from "./live";
 
@@ -98,8 +98,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> =
   },
 
   spark: (p) => {
-    const d: number[] = (p.data ?? []).map(num), max = Math.max(...d, 1), ticks = "▁▂▃▄▅▆▇█";
-    const s = d.map((v, i) => fg(i === d.length - 1 ? ACCENT : C.lblue) + ticks[Math.min(7, Math.round((v / max) * 7))]).join("") + RESET;
+    const d: number[] = (p.data ?? []).map(num), max = Math.max(...d, 1), top = SPARK_STEPS.length - 1;
+    const s = d.map((v, i) => fg(i === d.length - 1 ? ACCENT : C.lblue) + SPARK_STEPS[Math.min(top, Math.max(0, Math.round((v / max) * top)))]).join("") + RESET;
     return p.caption ? [s, fg(DIM) + p.caption + RESET] : [s];
   },
 

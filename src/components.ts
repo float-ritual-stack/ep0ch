@@ -12,7 +12,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { C, fg, pad, RESET, width as vwidth } from "./style";
+import { C, fg, pad, RESET, SPARK_STEPS, width as vwidth } from "./style";
 import { wrap } from "./text";
 
 const IDENTIFIER = /^[a-z0-9][a-z0-9.-]{0,99}$/;
@@ -126,7 +126,6 @@ const toned = (tone: unknown) => TONE[String(tone ?? "default")] ?? C.white;
 /** One line of extension text: no control characters (no escape reaches the terminal). */
 const one = (v: unknown) => String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ");
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
-const SPARKS = "▁▂▃▄▅▆▇█";
 const MAX_DEPTH = 8;
 
 function meter(value: number, max: number, n: number, tone: unknown): string {
@@ -136,7 +135,7 @@ function meter(value: number, max: number, n: number, tone: unknown): string {
 
 function spark(values: readonly number[]): string {
   const lo = Math.min(...values), hi = Math.max(...values);
-  return values.map(v => SPARKS[hi === lo ? 3 : Math.round(((v - lo) / (hi - lo)) * (SPARKS.length - 1))]).join("");
+  return values.map(v => SPARK_STEPS[hi === lo ? 2 : Math.round(((v - lo) / (hi - lo)) * (SPARK_STEPS.length - 1))]).join("");
 }
 
 /** Lines `w` wide side by side, `gap` apart. */

@@ -75,6 +75,11 @@ export interface Pane {
   dispose?(): void;
   /** What its header says after its name, already coloured (a lane: its count), instead of its title. */
   headLabel?(): string;
+  /**
+   * The name its header shows, when that isn't its tile name: a lane is named for its view ("Reading now"),
+   * while the tile is `Reading-now` for `reader=`.
+   */
+  headName?(): string | undefined;
   /** How its frame looks now, when it's its own to say (a lane a card is dragged over): its colour, its hint. */
   frameLook?(focused: boolean): { colour?: number; hint?: string } | null;
   /** Folded to a spine: the title it shows, and marks above it (a draft, new comments). */

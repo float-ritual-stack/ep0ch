@@ -5,6 +5,13 @@ const rgb = (i: number) => VGA_RGB[i]!.join(";");
 export const fg = (i: number) => `\x1b[38;2;${rgb(i)}m`;
 export const bg = (i: number) => `\x1b[48;2;${rgb(i)}m`;
 export const RESET = "\x1b[0m";
+/**
+ * A sparkline's steps, lowest to highest, in glyphs the kitty+crt font has: it is CP437, which has no ▁▂▃▅▆▇
+ * (they drew as ?, as ↳ and ⌕ did before #81). A shade ramp, the BBS way, over an underscore for the lowest.
+ */
+export const SPARK_STEPS = "_░▒▓█";
+/** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁, and _ reads as typed. */
+export const INPUT_CURSOR = "▌";
 
 // Palette names, BBS style: the numbers artists typed as |07 or \x1b[1;36m.
 export const C = {

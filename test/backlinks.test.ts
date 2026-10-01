@@ -290,7 +290,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
           const lines = drawer(), r = rect("backlinks"), head = B().linksTile.head as number;
           const raw = frame().slice(r.row + 1, r.row + 1 + head).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trim());
           expect(raw.every(l => l.length > 0)).toBe(true);
-          expect(lines[0]).toBe(typing ? peek().status.replace("Filter: poster", "Filter: poster▏") : peek().status);
+          expect(lines[0]).toBe(typing ? peek().status.replace("Filter: poster", "Filter: poster▌") : peek().status);
           for (const c of ["kind", "stage", "sort", "resolved", "related"]) {
             const seg = B().linksTile.controls.find((x: any) => x.control === c);
             const at = seg && { col: r.col + 1 + seg.x, row: r.row + 1 + seg.y, cols: seg.cols, rows: 1 };
@@ -335,7 +335,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(B().treeOpen).toBe(false);
     expect(peek().typing).toBe("rota");
     expect(peek().rows.map((r: any) => r.id).filter(Boolean)).toEqual([ids.rota]);
-    expect(drawer()[0]).toStartWith("Filter: rota▏ · 1 of 9 match · 6 filtered");
+    expect(drawer()[0]).toStartWith("Filter: rota▌ · 1 of 9 match · 6 filtered");
     key({ kind: "esc" });
     expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the drawer
     expect(peek().options.filter).toBe("");

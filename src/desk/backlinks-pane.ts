@@ -15,7 +15,7 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import { bg, C, fg, pad, RESET, width } from "../style";
+import { bg, C, fg, INPUT_CURSOR, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
@@ -192,7 +192,7 @@ export class BacklinksPane implements Pane {
     const o = this.opts(), view = backlinkView(this.data, o), rows = this.rows();
     const typing = this.draft;
     const parts = backlinkStatusParts(view, o).filter(p => typing === null || p.control !== "filter");
-    if (typing !== null) parts.unshift({ text: `Filter: ${typing}▏`, control: "filter" });
+    if (typing !== null) parts.unshift({ text: `Filter: ${typing}${INPUT_CURSOR}`, control: "filter" });
     if (this.data.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
     const st = layoutBacklinkStatus(parts, w, Math.max(1, Math.floor(h / 2)), p => (typing !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey)));
     const lines: string[] = Array.from({ length: st.rows }, () => "");

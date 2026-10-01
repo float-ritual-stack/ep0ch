@@ -14,6 +14,7 @@ import type { Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
+import { summarySegments, viewSummaryKeys } from "../props";
 import { wheelRows } from "../scroll";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import type { TileSource } from "./tile-kinds";
@@ -123,6 +124,8 @@ export class QueryPane implements Pane {
     return `${fg(C.dark)}${this.items ? this.items.length : "…"}${r?.truncated ? fg(C.yellow) + ` of ${r.limit}+` : ""}${r && r.status !== "ready" ? fg(C.lred) + " " + r.status : ""}`;
   }
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
+  /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
+  headName() { return this.def ? subject(this.def) : undefined; }
   hint() { return this.boardHint ?? "j k pick · ⏎ open · r reload"; }
   /** While a card is dragged over it: yellow (it would move, and what changes), red (refused, why). */
   frameLook(focused: boolean): { colour?: number; hint?: string } | null {
@@ -185,13 +188,15 @@ export class QueryPane implements Pane {
     if (this.sel < this.top) this.top = this.sel;
     if (this.sel >= this.top + fit) this.top = this.sel - fit + 1;
     const lines: string[] = [];
+    // The view's [summary-properties::…] say what a card shows after its Work ID and priority (a reading list's
+    // author); without them, whatever its cards carry: stage fields, or outbox fields (to · channel · waiting on).
+    const keys = viewSummaryKeys(this.def)?.filter(k => k !== "work-id" && k !== "priority") ?? null;
     items.slice(this.top, this.top + fit).forEach((m, j) => {
       const sel = this.top + j === this.sel;
       const wid = m.props["work-id"] ?? m.props.ticket ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
       const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
-      // Whatever this lane's cards carry: stage fields, or outbox fields (to · channel · waiting on).
-      const extra = [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`].filter(Boolean).join(" · ");
+      const extra = (keys ? summarySegments(m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value })), keys).map(x => x.value) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
       if (sel) {
         const style = focused ? SEL : bg(C.dark) + fg(C.white);
         lines.push(style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
