@@ -34,7 +34,7 @@ import {
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { TREE_ACTIONS } from "./tree";
-import { shellKey } from "../screens";
+import { shellKeyOf } from "../shell-keys";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
 import { Draft, DRAFT_ACTIONS, tidy } from "../edit";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
@@ -764,7 +764,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     try { PANE_ACTIONS.run(name, args, { h: this, reader }, USER).catch(say); } catch (e) { say(e); }
   }
   /** The shell's action (screen.back, video.cycle), as on every screen. */
-  private shell(name: "screen.back" | "video.cycle") { shellKey(name, {}, this, this.ctx); }
+  private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   /** `card.select`: by id, or a step from the selection (the person's cursor, or an agent's own selection). */
   selectBy(a: { id?: string; lane?: string; by?: number; lanes?: number }, actor: Actor): unknown {

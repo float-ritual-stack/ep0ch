@@ -19,7 +19,7 @@ import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import type { Draft } from "../edit";
 import type { CommentSession } from "../comment";
-import { shellKey } from "../screens";
+import { shellKeyOf } from "../shell-keys";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import { historyKey, historyRow, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
@@ -1275,8 +1275,8 @@ export class River implements Screen {
     if (c === "c") return ctx.flash("the river squeezes columns itself (w widens one, p docks one) · C comments on a passage");
     // " is quote-to-be (q is back, as on every screen: PIE-489).
     if (c === "\"") return ctx.flash("quote (a new note quoting this one) isn't in the door yet; C comments on a passage");
-    if (c === "V") return shellKey("video.cycle", {}, this, ctx);
-    if (k.kind === "esc" || c === "q") return shellKey("screen.back", {}, this, ctx);
+    if (c === "V") return shellKeyOf("video.cycle", this, ctx);
+    if (k.kind === "esc" || c === "q") return shellKeyOf("screen.back", this, ctx);
   }
 
   private modal(k: Key) {
