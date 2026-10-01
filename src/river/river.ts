@@ -1208,7 +1208,7 @@ export class River implements Screen {
       const host = this.hostFor(p);
       if (e.action === "reconnected") s.retry(host);
       s.onEvent(host);
-      if (s.staleOn(e)) this.ctx.board.get(m.id).then(n => { if (n) { s.refresh(n); this.ctx.redraw(); } }, () => {});
+      if (s.staleOn(e)) s.reread(host);
     }
   }
 

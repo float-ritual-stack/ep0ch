@@ -5,13 +5,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { DeliveryBoard } from "../src/desk/delivery";
 import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
 import { MessageReader } from "../src/screens";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { NoteSurface } from "../src/surface/note";
+import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { outliner, Scratch, until } from "./scratch";
 
 const SWEEP: Actor = { kind: "agent", id: "sweep" };
@@ -28,6 +29,23 @@ test("staleOn: a change to the note it hasn't seen, a reset, and any trash, rest
   expect(s.staleOn(change("purge", "parent-1"))).toBe(true);
   expect(s.staleOn({ domain: "outline", action: "reset", sequence: 1 } as any)).toBe(true);
   expect(new NoteSurface().staleOn(change("delete", "parent-1"))).toBe(false);   // nothing shown
+});
+
+test("reread: a burst of changes while a read is out makes one more read, not one each", async () => {
+  const s = new NoteSurface();
+  (s as any).msg = { id: "child-1", text: "Jars", props: {}, revision: 4, childIds: [] };
+  let reads = 0, redraws = 0;
+  const waiting: (() => void)[] = [];
+  const board = { get: (id: string) => { reads++; return new Promise(ok => waiting.push(() => ok({ id, text: "Jars", props: {}, revision: 4, deleted: true, childIds: [] }))); } };
+  const host = { ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false }, redraw() { redraws++; }, navigate() {} } as unknown as SurfaceHost;
+  for (let i = 0; i < 20; i++) s.reread(host);
+  expect(reads).toBe(1);
+  waiting.shift()!();
+  await until(() => reads === 2, "one more read for the burst", 1_000);
+  waiting.shift()!();
+  await until(() => redraws === 2, "both taken in", 1_000);
+  expect(reads).toBe(2);
+  expect(s.msg?.deleted).toBe(true);
 });
 
 describe.skipIf(!outliner)("a child shown while its parent goes to the Trash, on a scratch outline", () => {
@@ -88,6 +106,23 @@ describe.skipIf(!outliner)("a child shown while its parent goes to the Trash, on
       expect(lines()).not.toContain("in the Trash");
       await agent.trash(parent.id, SWEEP);
       await until(() => lines().includes("in the Trash"), "the column saying the child is in the Trash", 10_000);
+    } finally { app.pop(); }
+  }, 30_000);
+
+  test("a board's reader says a note is in the Trash when its parent goes there (the board asks staleOn too)", async () => {
+    const hub = await make(null, "Pantry board");
+    await make(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+    const { parent, child } = await family("medlars");
+    const b = new DeliveryBoard(hub.id), B = b as any;
+    app.push(b);
+    try {
+      await until(() => !!B.preview, "the board", 10_000);
+      B.preview.show((await board.get(child.id))!, b);
+      await until(() => lines().includes("Jars of medlars") && !B.preview.msg?.partial, "the child in the board's reader", 10_000);
+      expect(lines()).not.toContain("in the Trash");
+      await agent.trash(parent.id, SWEEP);
+      await until(() => !!B.preview.msg?.deleted, "the board's reader reading it again", 10_000);
+      expect(lines()).toContain("in the Trash");
     } finally { app.pop(); }
   }, 30_000);
 

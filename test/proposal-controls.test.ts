@@ -201,6 +201,24 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect((await board.get(id))!.text).toContain("The peas climb the net.");
   }, 30_000);
 
+  test("against a service without draft.proposal.dismiss, X says which capability is missing and changes nothing", async () => {
+    const { id, proposal } = await proposed();
+    const old = new SocketBoard(board.path);
+    await old.info();
+    old.capabilities = new Set([...(old.capabilities ?? [])].filter(c => c !== "draft.proposal.dismiss"));
+    const s = new NoteSurface(), oh: SurfaceHost = { ...host(), ctx: { ...host().ctx, board: old } as any };
+    try {
+      s.show((await old.get(proposal))!, oh);
+      flashes.length = 0;
+      expect(s.key(char("X"), oh)).toBe(true);
+      await until(() => flashes.length > 0, "X's refusal");
+      expect(flashes.at(-1)).toContain("it has no draft.proposal.dismiss");
+      expect((await board.get(proposal))!).toMatchObject({ props: { "proposal-status": "open" } });
+      expect((await board.get(proposal))!.deleted).toBeFalsy();
+      expect((await board.get(id))!.text).toContain(`!((${proposal}))`);
+    } finally { old.close(); }
+  }, 30_000);
+
   test("A on an ordinary embed isn't taken: it's apply anyway only on a proposal (PIE-510)", async () => {
     const { id } = await proposed();
     const { s, h, frame } = await reading(id);

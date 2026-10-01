@@ -24,7 +24,7 @@ import { destinationOf, external, externalOpenCommand } from "../open";
 import { agentMay, Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, tidy, unsent, whenPut, type DraftActionArgs } from "../edit";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
-import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftPatchSpan, type DraftRequest, type OutlineEvent, type PropertyRecord } from "../socket";
+import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type OutlineEvent, type PropertyRecord } from "../socket";
 import { C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -478,10 +478,11 @@ export class NoteSurface {
 
   /**
    * Whether outline event `e` means the note shown should be read again (every reader asks this: the desk's,
-   * the river's and the BBS message reader): a change that names it with a revision other than the one shown
-   * (not its own save coming back), a reset after a reconnect that couldn't catch up, or any trash, restore
-   * or purge. Those are rare, and the service's event names only the root of what was trashed and moves no
-   * revision, so a note trashed with an ancestor is told only by reading it again ("in the Trash").
+   * the board's, the river's and the BBS message reader; each then calls `reread`): a change that names it
+   * with a revision other than the one shown (not its own save coming back), a reset after a reconnect that
+   * couldn't catch up, or any trash, restore or purge. The service's event names only the root of what was
+   * trashed and moves no revision, so a note trashed with an ancestor is told only by reading it again ("in
+   * the Trash"); `reread` keeps a burst of them to one more read per reader.
    */
   staleOn(e: OutlineEvent): boolean {
     const m = this.msg;
@@ -490,6 +491,25 @@ export class NoteSurface {
     const c = e.change;
     if (c && (c.kind === "delete" || c.kind === "restore" || c.kind === "purge")) return true;
     return e.blockId === m.id && !(c?.revision !== undefined && m.revision === c.revision && !m.partial);
+  }
+
+  private rereading = false;
+  private rereadAgain = false;
+
+  /**
+   * Read the note shown again and take it in (`refresh`: the scroll, the selection and an open draft stay;
+   * a draft is only marked). One read at a time: changes that come while one is out (a burst of trashes, a
+   * catch-up after a reconnect) make one more read when it's back, never one each.
+   */
+  reread(host: SurfaceHost) {
+    const m = this.msg;
+    if (!m || !isOutlineNote(m)) return;
+    if (this.rereading) { this.rereadAgain = true; return; }
+    this.rereading = true;
+    host.ctx.board.get(m.id).then(n => { if (n) { this.refresh(n); host.redraw(); } }, () => {}).finally(() => {
+      this.rereading = false;
+      if (this.rereadAgain) { this.rereadAgain = false; this.reread(host); }
+    });
   }
 
   /**
@@ -1169,7 +1189,7 @@ export class NoteSurface {
     const by = patchActor(r.mutation);
     const a = r.kind === "patch" ? d.applyPatch(r, by) : d.insertLine(r.line, r.mark, by);
     if (a.applied) {
-      this.noteAgent(by, r.kind === "patch" ? (r.force ? (dismissal(r.patches) ? "took a dismissed proposal's line out of your draft" : "applied a proposal in your draft") : "edited text above your cursor") : "put a proposal under the mark", d);
+      this.noteAgent(by, r.kind === "patch" ? (r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor") : "put a proposal under the mark", d);
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }
@@ -3150,9 +3170,6 @@ function proposalTarget(id: string | undefined, surface: NoteSurface): string {
   if (!target) throw new ActionRefused("say which proposal: id=, or put [ ] on a proposal's embed");
   return target;
 }
-
-/** A forced patch that only takes proposal embed lines out: the service dismissing a proposal whose line is in the draft (PIE-510). */
-const dismissal = (patches: DraftPatchSpan[]) => patches.length > 0 && patches.every(sp => sp.replacement === "" && /^\n?!\(\([^()\s]+\)\)\n?$/.test(sp.observed ?? ""));
 
 /** What a reader showing a trashed note says under its header (the river's column says it too). */
 export const IN_TRASH = "■ in the Trash · still readable here";

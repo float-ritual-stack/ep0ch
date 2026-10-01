@@ -141,10 +141,13 @@ export interface Change {
 export type { DraftPatchSpan } from "./vendor/draft-patch-compare";
 import type { DraftPatchSpan } from "./vendor/draft-patch-compare";
 
-/** What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. */
+/**
+ * What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. A patch
+ * that applies or dismisses a proposal names it (`proposal`, PIE-510), so the door says which without guessing.
+ */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean }
+  | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string }
   | { kind: "embed"; requestId: string; holdId: string; blockId: string; line: string; mark?: string; mutation: { author: string; actorId?: string } };
 export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };

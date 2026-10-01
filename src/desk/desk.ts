@@ -665,9 +665,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   onEvent(e: OutlineEvent) {
     this.hear(e);
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !p.msg?.id.startsWith("file:"));
-    // Each reader the change makes stale re-reads its note (NoteSurface.staleOn; a draft is only marked).
-    const stale = readers.filter(r => r.surface.staleOn(e)).map(r => r.msg!.id);
-    for (const x of new Set(stale)) this.ctx.board.get(x).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+    // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
+    for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
   }
 
