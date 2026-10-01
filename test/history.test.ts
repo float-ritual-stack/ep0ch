@@ -162,6 +162,53 @@ describe("a reader's history, without a service", () => {
   });
 });
 
+describe("an agent's scroll and back, where the view doesn't say the reader isn't focused (PIE-506)", () => {
+  const id = (n: number) => `${n}2222222-2222-4333-8444-555555555555`;
+  const filler = Array.from({ length: 40 }, (_, i) => `Bed ${i + 1} of the plot.`).join("\n");
+  const notes = [
+    { id: id(1), text: `Seed tray log\nSee ((${id(2)})) first.\n${filler}`, parentId: id(2), childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} },
+    { id: id(2), text: "Greenhouse", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} },
+  ];
+  const agent = { kind: "agent" as const, id: "test-agent-506" };
+  const host = (s: NoteSurface, more: Partial<SurfaceHost> = {}): SurfaceHost => {
+    const h: SurfaceHost = {
+      ctx: { board: { ancestors: async () => [], comments: async () => [], get: async (x: string) => notes.find(m => m.id === x) ?? null }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
+      redraw() {}, navigate: m => { s.show(m, h); }, ...more,
+    };
+    return h;
+  };
+
+  test("a reader whose host doesn't set focused (the message reader, the board's, the river's) is the person's: scroll and back are refused", async () => {
+    const s = new NoteSurface(), h = host(s);
+    s.show(notes[0] as any, h);
+    s.render(60, 12, h);
+    s.key(char("]"), h);
+    s.render(60, 12, h);
+    const at = s.describe().elements?.current;
+    expect(at).toMatchObject({ kind: "link" });
+    const asAgent = (name: string, args: Record<string, unknown>) => Promise.resolve().then(() => s.act(name, args, h, agent));
+    await expect(asAgent("scroll", { by: 5 })).rejects.toThrow("the reader the person has focused");
+    await expect(asAgent("back", {})).rejects.toThrow("the reader the person has focused");
+    expect(s.scroll).toBe(0);
+    expect(s.describe().elements?.current).toEqual(at);
+  });
+
+  test("on a reader the person isn't in, an agent's scroll moves the view and never lets go of their [ ] position", async () => {
+    const s = new NoteSurface(), h = host(s, { focused: false });
+    s.show(notes[0] as any, h);
+    s.render(60, 12, h);
+    s.key(char("]"), h);
+    s.render(60, 12, h);
+    const at = s.describe().elements?.current;
+    await s.act("scroll", { by: 5 }, h, agent);
+    expect(s.scroll).toBe(5);
+    expect(s.describe().elements?.current).toEqual(at);
+    // The person's own scroll lets go of it, as it always did.
+    s.key(char("j"), h);
+    expect(s.describe().elements?.current ?? null).toBeNull();
+  });
+});
+
 describe.skipIf(!outliner)("back and forward in the board's and the desk's readers, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, b: DeliveryBoard, hub: any;

@@ -257,7 +257,8 @@ const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
-const sessionSend = (s: CommentSession, k: Key) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === "s" && !completerOf(s.composer)?.shown;
+const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === c && !completerOf(s.composer)?.shown;
+const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 /** `-stage=queued +stage=doing`, or "" when the property set is the same. */
@@ -1327,6 +1328,9 @@ export class NoteSurface {
       // The session's commands are actions (PIE-506): ctrl+s sends, x resolves or reopens, and the esc that
       // ends it closes it. Picking a passage, moving through the threads and typing are its own.
       if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
+      // The comment's ctrl+e and ctrl+r are the edit's: $EDITOR (edit external=true), find the quote again.
+      if (sessionKey(s, k, "e")) { void this.runKey("edit", { external: true }, host); return true; }
+      if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
       const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
       if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
       if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
@@ -1445,7 +1449,7 @@ export class NoteSurface {
   }
 
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
-  scrollBy(by: number) { this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
+  scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
 
   /** The draft or comment being written here, if any (for the draft's actions). */
   writingDraft(): Draft | null { return this.writing(); }
@@ -3107,6 +3111,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "passage.select": { quote?: string; near?: number };
   "comment.write": { body: string };
   "comment.send": Record<string, never>;
+  "comment.reload": Record<string, never>;
   "comment": { quote: string; body: string; near?: number };
   "comment.close": { discard?: boolean };
   "threads": Record<string, never>;
@@ -3276,7 +3281,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
 async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   const word = dir < 0 ? "back" : "forward";
   if (actor.kind === "agent") {
-    if (host.focused) throw new ActionRefused(`this is the reader the person has focused; ${word} would move what they're reading · an agent goes ${word} only in another reader (name it with reader=)`);
+    // Only a reader its host says isn't focused (a desk tile the keys aren't on) is the agent's to move.
+    if (host.focused !== false) throw new ActionRefused(`this is the reader the person has focused (or its view doesn't say it isn't); ${word} would move what they're reading · an agent goes ${word} only in another reader (name it with reader=)`);
     if (host.history) throw new ActionRefused(host.history.agentRefusal);
   }
   const why = await surface.travel(dir, host);
@@ -3374,12 +3380,15 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "edit": {
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit)", keys: "e, ctrl+e",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written)", keys: "e, ctrl+e",
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
     async run({ external }, { surface, host }, actor) {
       if (external && actor.kind === "agent") throw new ActionRefused("the $EDITOR handoff takes over the person's terminal; send the text with edit.text");
       // ctrl+e in an open edit hands that draft to $EDITOR (it comes back when the editor exits).
       if (surface.draft && external) { surface.external(host); return { id: surface.draft.blockId, baseRevision: surface.draft.base, external: true }; }
+      // ctrl+e while writing a comment or reply hands that text to $EDITOR the same way.
+      const writing = surface.session?.mode === "compose" ? surface.session.composer : null;
+      if (writing && external) { surface.external(host, writing); return { comment: surface.session!.blockId, external: true }; }
       if (surface.draft) return { already: true, id: surface.draft.blockId, baseRevision: surface.draft.base };
       const d = await surface.ensureDraft(host);
       if (external) openInEditor(host.ctx, d);
@@ -3590,6 +3599,18 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       return { dirty: s.composer.dirty, keptYourDraftAt: kept ?? undefined };
     },
   },
+  "comment.reload": {
+    summary: "after a send refused because the note moved on: find the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: "ctrl+r",
+    args: {},
+    async run(_, { surface, host }, actor) {
+      const s = surface.session;
+      if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here");
+      await s.relocate(surface.env(host, actor));
+      if (s.error) throw new ActionRefused(s.error);
+      host.redraw();
+      return { mode: s.mode, note: s.note || s.composer?.note || null };
+    },
+  },
   "comment.send": {
     summary: "send the comment or reply; a retry of the same text can't land twice", keys: "ctrl+s",
     args: {},
@@ -3792,11 +3813,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       to: { type: "string", optional: true, about: "top or end" },
     },
     run({ by, to }, { surface, host }, actor) {
-      if (actor.kind === "agent" && host.focused) throw new ActionRefused("this is the reader the person has focused, and its scroll is theirs; an agent scrolls a reader with view.scrollTo (desk), which leaves their [ ] position alone");
+      if (actor.kind === "agent" && host.focused !== false) throw new ActionRefused("this is the reader the person has focused (or its view doesn't say it isn't), and its scroll is theirs; an agent scrolls a reader with view.scrollTo (desk), which leaves their [ ] position alone");
       if (to !== undefined && to !== "top" && to !== "end") throw new ActionRefused(`to is top or end, not ${to}`);
       if ((by === undefined) === (to === undefined)) throw new ActionRefused("say by= (rows) or to=top|end");
       surface.requireNote();
-      surface.scrollBy(to === "top" ? -1e9 : to === "end" ? 1e9 : by!);
+      // The person's own scrolling lets go of their [ ] position; an agent's never touches it.
+      surface.scrollBy(to === "top" ? -1e9 : to === "end" ? 1e9 : by!, actor.kind === "user");
       surface.noteAgent(actor, "scrolled this reader");
       host.redraw();
       return surface.viewport();
