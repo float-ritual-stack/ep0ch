@@ -113,6 +113,13 @@ that note is published:** lock private material first with `[publish::never]` (i
 stay off every page, embed and link). `[publish::false]` just leaves one note out. Check with
 `outliner publish list --outline <name>`. The outline's guide has a Publishing section.
 
+**Anyone with the link.** `[publish::public]` (or `[publish::public:<slug>]`) also opens the note to anyone
+who has its link, on the internet (claude.ai, ChatGPT and phones can fetch it). Use it only when they ask to
+share that note outside their network, and only for a note with nothing private in it or under it: its whole
+subtree is shown. The public listener has no index, and an embed there of a note that isn't public shows
+"not shared", but the note's own text and children are public. `publish list` shows the public URL in its
+PUBLIC column. Removing `public` takes the note off at once.
+
 ## Extensions: adding one for a need
 
 Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the
