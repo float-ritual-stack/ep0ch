@@ -226,9 +226,11 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key(char("t"));
     expect(d.draft!.text.length).toBe(text.length + 1);
     expect(B().treeOpen).toBe(false);
-    // Focusing somewhere else and back does leave it: e enters it again.
-    await act("focus", {}, "lanes");
-    await act("focus", {}, "detail1");
+    // An agent doesn't move the keys of a person in an edit (PIE-506, as the desk's tile.focus).
+    await expect(act("focus", {}, "lanes")).rejects.toThrow("typing");
+    // The person focusing somewhere else and back does leave it: e enters it again.
+    await b.act({ action: "focus", reader: "lanes" }, { kind: "user" });
+    await b.act({ action: "focus", reader: "detail1" }, { kind: "user" });
     key(char("x"));
     expect(d.draft!.text.length).toBe(text.length + 1);
     key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });

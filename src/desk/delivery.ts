@@ -571,7 +571,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   /**
    * Screen.holdsKeys: the person's keys are the board's own business right now: an edit, a comment or the
    * property panel they're in (or one of theirs still opening), a step's status choice, a new card or note
-   * being written, a backlinks filter being typed, the mover or steps overlay, the hub picker, or a first d (d d trashes). A tile around the board
+   * being written, a backlinks filter being typed, the mover or steps overlay, or the hub picker. A tile around the board
    * gives it every key then, and an agent doesn't move the person's screen (agentMayMove, PIE-489).
    */
   holdsKeys(): boolean {
@@ -579,9 +579,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return !!this.pending || (!!rd && !this.shut.has(rd) && !!this.personIn())
       || this.readers().some(r => r.surface.choosing && !this.shut.has(r))
       || !!this.composer || (this.linkView.draft !== null && this.focus === "backlinks" && !!this.links)
-      || !!this.steps || !!this.mover || !!this.picker
-      // The first d of d d: the next key either trashes the card or keeps it.
-      || (!!this.trashArm && Date.now() - this.trashArm.at < 5000);
+      || !!this.steps || !!this.mover || !!this.picker;
   }
   keepDrafts() {
     const c = this.composer;
@@ -720,6 +718,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { reader: r?.name ?? where, id: m.id };
   }
 
+  /** Whether `sel` names the area that has the keys now. */
+  focusedIs(sel: string): boolean {
+    if (sel === "lanes") return this.focus === "lanes";
+    try { return this.findReader(sel).region === this.focus; } catch { return false; }
+  }
+
   /** `focus`: which area keys go to — "lanes" or a reader. */
   focusOn(sel: string): { focus: string } {
     const was = this.focus;
@@ -755,7 +759,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** A board action as the person; a refusal is said on the status bar. */
   private run<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
-    const say = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); return undefined; };
+    // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
+    const said = name === "card.move";
+    const say = (e: unknown) => { if (!said) this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); return undefined; };
     try { return BOARD_ACTIONS.run(name, args, { b: this, reader, ...extra }, USER).catch(say); } catch (e) { return Promise.resolve(say(e)); }
   }
   /** A pane operation (PANE_ACTIONS) as the person, on the pane named as `peek` names it. */
@@ -767,7 +773,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   /** `card.select`: by id, or a step from the selection (the person's cursor, or an agent's own selection). */
-  selectBy(a: { id?: string; lane?: string; by?: number; lanes?: number }, actor: Actor): unknown {
+  selectBy(a: { id?: string; lane?: string; by?: number; lanes?: number; focus?: boolean }, actor: Actor): unknown {
     const steps = a.by !== undefined || a.lanes !== undefined;
     if (a.id === undefined && !steps && a.lane === undefined) throw new ActionRefused("card.select takes id, or a step from the selection (by, lanes, lane)");
     if (a.id !== undefined && steps) throw new ActionRefused("card.select takes id, or a step (by, lanes), not both");
@@ -792,18 +798,22 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const at = own ? this.lanes.findIndex(l => l.items?.some(m => m.id === own)) : -1;
       if (at >= 0) { lane = at; sel = this.lanes[at]!.items!.findIndex(m => m.id === own); }
     }
-    if (a.lane !== undefined) { const at = named(a.lane); if (at !== lane) { lane = at; sel = this.lanes[at]!.sel; } }
-    lane = clamp(lane + (a.lanes ?? 0), 0, this.lanes.length - 1);
+    // Moved to another lane (lane=, lanes=): the person's step starts at that lane's cursor, an agent's at its top.
+    const moveTo = (to: number) => { if (to !== lane) { lane = to; sel = actor.kind === "agent" ? 0 : this.lanes[to]!.sel; } };
+    if (a.lane !== undefined) moveTo(named(a.lane));
+    moveTo(clamp(lane + (a.lanes ?? 0), 0, this.lanes.length - 1));
     const l = this.lanes[lane]!, n = l.items?.length ?? 0;
-    if (lane !== this.lane || a.lane !== undefined) sel = actor.kind === "agent" && lane !== this.lane ? 0 : l.sel;
     sel = clamp(sel + (a.by ?? 0), 0, Math.max(0, n - 1));
     if (actor.kind === "agent") {
       const card = l.items?.[sel];
       if (!card) throw new ActionRefused(`${l.name} has no cards to select`);
       return this.selectForAgent(card.id, actor);
     }
-    this.lane = lane; l.sel = sel; this.focus = "lanes";
-    this.follow(); this.save(); this.redraw();
+    l.sel = sel;
+    // focus=false (the wheel over a lane): that lane's cursor moves; the current lane and the keys stay.
+    if (a.focus !== false) { this.lane = lane; this.focus = "lanes"; }
+    if (lane === this.lane) this.follow();
+    this.save(); this.redraw();
     return { lane: l.name, selected: l.items?.[sel]?.id ?? null };
   }
 
@@ -900,8 +910,20 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { reader: r.name, rect: { ...f } };
   }
 
+  /** `backlinks.fold`: a kind group opens or folds (the person's view). */
+  foldLinks(kind: string | undefined, actor: Actor) {
+    if (actor.kind === "agent") throw new ActionRefused("a group's folding is the person's view; an agent reads every row with backlinks");
+    if (!this.links) throw new ActionRefused("no backlinks drawer is open; b opens it on a reader's note");
+    const row = this.linkRow();
+    const k = kind === undefined ? (row?.kind === "group" ? row.group.kind : row?.source.facets?.kind)
+      : this.linkViewNow().kinds.find(x => x.kind === kind || x.label.toLowerCase() === kind.toLowerCase())?.kind;
+    if (!k) throw new ActionRefused(kind === undefined ? "the selected row has no kind group" : `no backlink kind ${kind}`);
+    this.toggleLinkGroup(k);
+    return { kind: k, open: this.linkView.expanded.has(k) };
+  }
+
   /** `backlinks.pick`: a row of the drawer; open does what ⏎ does. */
-  async pickLink(a: { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean; fold?: boolean }, actor: Actor) {
+  async pickLink(a: { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean }, actor: Actor) {
     const L = this.links;
     if (!L) throw new ActionRefused("no backlinks drawer is open; b opens it on a reader's note");
     const rows = this.linkRows();
@@ -913,18 +935,16 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (!row) throw new ActionRefused(a.id !== undefined ? `no backlink from ${a.id} here` : `the drawer has ${rows.length} row${rows.length === 1 ? "" : "s"}; n is 1-${rows.length}`);
     const open = a.open || a.fresh;
     const what = row.kind === "group" ? { row: i + 1, group: row.group.kind } : { row: i + 1, source: row.source.blockId };
-    const kind = row.kind === "group" ? row.group.kind : row.source.facets?.kind;
     if (actor.kind === "agent") {
       // The person's selection and the preview under it stay; an agent opens only what it names.
-      if ((open && row.kind === "group") || a.fold) throw new ActionRefused("a group's folding is the person's view; an agent reads every row with backlinks");
+      if (open && row.kind === "group") throw new ActionRefused("a group's folding is the person's view; an agent reads every row with backlinks");
       if (open && row.kind === "source") return { ...what, ...(await this.openIn(row.source.blockId, a.fresh ? "new-detail" : "detail")) };
       return what;
     }
     L.sel = i;
-    if (a.fold) { if (kind) this.toggleLinkGroup(kind); }
-    else if (open) {
+    if (open) {
       if (row.kind === "group") this.toggleLinkGroup(row.group.kind);
-      else this.enterLinkRow(!!a.fresh);
+      else { this.previewLink(); this.enterLinkRow(!!a.fresh); }
     } else this.previewLink();
     this.redraw();
     return what;
@@ -944,6 +964,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
+    // Refused before the move starts: said to the person as a move's refusal is (moveTo says its own).
+    const refuse = (m: string) => { if (actor.kind !== "agent") this.ctx.flash(`not moved: ${m}`); return new ActionRefused(m); };
     if (!card && actor.kind === "agent") card = this.cardFor(undefined, actor).id;   // its own selection, else the person's
     // An agent's move names its card without selecting it: the person's lane, selection, preview and
     // keys stay where they are. (The person's own card.move, through the socket as `you`, selects it.)
@@ -952,15 +974,15 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (actor.kind === "agent") {
         from = this.lanes.findIndex(l => l.items?.some(m => m.id === card || (card.length >= 8 && m.id.startsWith(card))));
         c = from >= 0 ? this.lanes[from]!.items!.find(m => m.id === card || m.id.startsWith(card)) : undefined;
-        if (!c) throw new ActionRefused(`no lane on the board lists ${card}`);
-      } else if (!this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+        if (!c) throw refuse(`no lane on the board lists ${card}`);
+      } else if (!this.selectCard(card)) throw refuse(`no lane on the board lists ${card}`);
       else { from = this.lane; c = this.card(); }
     }
-    if (!c) throw new ActionRefused("no card is selected");
+    if (!c) throw refuse("no card is selected");
     const want = lane.toLowerCase();
     const to = this.lanes.findIndex(l => l.name.toLowerCase() === want);
-    if (to < 0) throw new ActionRefused(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
-    if (to === from) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
+    if (to < 0) throw refuse(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
+    if (to === from) throw refuse(`the card is already in ${this.lanes[to]!.name}`);
     this.lastMove = null;
     await this.moveTo(to, actor, { card: c, from });
     const r = this.lastMove as DeliveryBoard["lastMove"];
@@ -1871,20 +1893,18 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   // ── trash ──
 
-  /** `d`: the first press arms, a second within five seconds trashes. */
-  private async armTrash() {
+  /** `card.trash` with no confirm (the person's first `d`): the selected card is armed; a second d within five seconds trashes it. */
+  async armTrash(): Promise<{ armed: string; title: string; notesUnder: number; say: string }> {
     const card = this.card();
-    if (!card) return this.ctx.flash("select a card to trash");
-    if (this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000) {
-      this.trashArm = null;
-      return void BOARD_ACTIONS.run("card.trash", { confirm: card.id, card: card.id }, { b: this }, USER).catch(e => this.ctx.flash(`not trashed: ${(e as Error).message}`));
-    }
+    if (!card) throw new ActionRefused("select a card to trash");
     const blocked = this.moveBlocked(card);
-    if (blocked) return this.ctx.flash(`not trashed: ${blocked}`);
+    if (blocked) throw new ActionRefused(`not trashed: ${blocked}`);
     this.trashArm = { id: card.id, at: Date.now() };
     const fresh = await this.ctx.board.get(card.id).catch(() => null);
     const kids = fresh?.childIds.length ?? 0;
-    if (this.trashArm?.id === card.id) this.ctx.flash(`d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`);
+    const say = `d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`;
+    if (this.trashArm?.id === card.id) this.ctx.flash(say);
+    return { armed: card.id, title: titleOf(card), notesUnder: kids, say: "press d again" };
   }
 
   /**
@@ -2605,7 +2625,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (c === "n") return this.openCardComposer();
     if (c === "N") return this.openChildComposer();
     if (c === "s") return void this.openSteps();
-    if (c === "d") return void this.armTrash();
+    if (c === "d") {
+      // The second d within 5 s trashes the card the first one armed; the first arms it.
+      const card = this.card(), armed = card && this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000;
+      if (armed) this.trashArm = null;
+      return void this.run("card.trash", armed ? { confirm: card!.id, card: card!.id } : {});
+    }
     if (c === "u" && this.trashed) return this.run("card.restore", {});
     if (c === "c" && l) return this.run("lane.collapse", { lane: l.name });
     if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) return this.run("lane.collapse", { lane: l.name, on: false });
@@ -2628,7 +2653,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (k.kind === "end" && n) return this.run("backlinks.pick", { n });
     if (k.kind === "pgdn" || k.kind === "pgup") { this.linksPreview.key(k, this); return this.redraw(); }
     if (k.kind === "enter" || k.kind === "alt-enter") return this.run("backlinks.pick", k.kind === "alt-enter" ? { fresh: true } : { open: true });
-    if (c === "." || c === " ") return this.run("backlinks.pick", { fold: true });
+    if (c === "." || c === " ") return this.run("backlinks.fold", {});
     if (c === "/") return this.linkControl("filter");
     const control: Record<string, BacklinkControl> = { s: "sort", K: "kind", w: "stage", h: "resolved", n: "related" };
     if (control[c]) return this.linkStep(control[c]!);
@@ -2813,7 +2838,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (this.links && inside(this.rects.get("links-preview"))) return this.linksPreview.wheel(dir, this);
       for (const r of ["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]) if (inside(this.rects.get(r))) return this.readerFor(r)!.pane.wheel(dir, this);
       const hit = this.laneRects.find(l => inside(l.rect));
-      if (hit && !hit.spine) this.run("card.select", { lane: this.lanes[hit.lane]!.name, by: dir });
+      if (hit && !hit.spine) this.run("card.select", { lane: this.lanes[hit.lane]!.name, by: dir, focus: false });
     }
   }
 
@@ -2903,17 +2928,18 @@ export const BOARD_ACTIONS = new ActionSet<{
   "focus": Record<string, never>;
   "board.hub": { id?: string; close?: boolean };
   "board.reload": Record<string, never>;
-  "card.select": { id?: string; lane?: string; by?: number; lanes?: number };
+  "card.select": { id?: string; lane?: string; by?: number; lanes?: number; focus?: boolean };
   "lane.collapse": { lane?: string; on?: boolean };
   "outline": { open?: boolean; side?: string };
   "float.place": { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number };
-  "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean; fold?: boolean };
+  "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean };
+  "backlinks.fold": { kind?: string };
   "card.move": { lane: string; card?: string };
   "card.create": { lane: string; text: string; parent?: string };
   "note.create": { text: string; parent?: string };
   "steps": { card?: string };
   "step.set": { step: string; status?: string; card?: string };
-  "card.trash": { confirm: string; card?: string };
+  "card.trash": { confirm?: string; card?: string };
   "card.restore": { id?: string };
   "reader.collapse": Record<string, never>;
   "reader.expand": Record<string, never>;
@@ -2934,9 +2960,10 @@ export const BOARD_ACTIONS = new ActionSet<{
     args: {},
     run(_, { b, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)");
-      if (actor.kind === "agent" && b.holdsKeys()) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
+      // Refused only when it would move the keys of a person who is typing; focusing where they already are leaves them in it.
+      if (actor.kind === "agent" && b.holdsKeys() && !b.focusedIs(reader)) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
       const r = b.focusOn(reader);
-      b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
+      if (actor.kind === "agent") b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
       return r;
     },
   },
@@ -2948,6 +2975,7 @@ export const BOARD_ACTIONS = new ActionSet<{
       lane: { type: "string", optional: true, about: "the lane, by name: where id is, or whose cursor by moves" },
       by: { type: "number", optional: true, about: "cards to move down the lane (negative: up)" },
       lanes: { type: "number", optional: true, about: "lanes to move right (negative: left)" },
+      focus: { type: "boolean", optional: true, about: "false: move that lane's cursor only, the current lane and the keys staying (the wheel over a lane); default true" },
     },
     // An agent's selection is its own (what its card actions default to): the person's lane cursor,
     // preview and keys stay where they are. The person's own card.select, through the socket as `you`, moves them.
@@ -2988,16 +3016,21 @@ export const BOARD_ACTIONS = new ActionSet<{
   },
   "backlinks.pick": {
     summary: "pick a row of the backlinks drawer: n (as peek's rows, from 1), id (a source), or by=<rows> from the selected one; open=true does what ⏎ does (a source opens in the detail, a group opens or folds), fresh=true opens it in a new detail. The person's moves their selection and the preview under it; an agent's leaves both and opens only what it asks for",
-    keys: "j k ↑↓ Home End, ⏎ alt+⏎ . space, click on a row or a group's header, wheel",
+    keys: "j k ↑↓ Home End, ⏎ alt+⏎, click on a row or a group's header, wheel",
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a source's block id (or its start)" },
       by: { type: "number", optional: true, about: "rows from the selected one (the person's)" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
       fresh: { type: "boolean", optional: true, about: "open it in a new detail, as alt+⏎ does" },
-      fold: { type: "boolean", optional: true, about: "open or fold its group (a source's own kind), as . does" },
     },
     run: (args, { b }, actor) => b.pickLink(args, actor),
+  },
+  "backlinks.fold": {
+    summary: "open or fold a kind group in the backlinks drawer (kind=<its key or label>; default the selected row's). The person's view: an agent's is refused (it reads every row with backlinks)",
+    keys: ". space",
+    args: { kind: { type: "string", optional: true, about: "the group's kind, its key or label; default the selected row's" } },
+    run: ({ kind }, { b }, actor) => b.foldLinks(kind, actor),
   },
   "card.move": {
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
@@ -3047,12 +3080,18 @@ export const BOARD_ACTIONS = new ActionSet<{
     },
   },
   "card.trash": {
-    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. The service records no author for this", keys: "d d",
+    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d arms it (a second d within 5 s trashes it, any other key keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
     args: {
-      confirm: { type: "string", about: "the card's id (or its first 8+ characters): the same card, said twice" },
+      confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
-    run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(actor), confirm, actor),
+    run({ confirm, card }, { b }, actor) {
+      if (confirm === undefined) {
+        if (actor.kind === "agent") throw new ActionRefused("card.trash needs confirm=<the card's id>: the same card, said twice");
+        return b.armTrash();
+      }
+      return b.trashCard(card ?? b.selectedCardId(actor), confirm, actor);
+    },
   },
   "reader.collapse": {
     summary: "collapse reader=<name> (the preview or a detail) to a spine showing its note's title; a draft, comment or property panel in it is kept exactly. Refused for the reader the person has focused", keys: "c on a reader",

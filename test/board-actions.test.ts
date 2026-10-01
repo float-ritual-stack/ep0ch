@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     board = new SocketBoard(await scratch.start());
     await board.info();
     const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-    for (const [t, s] of [["Sow the beans", "todo"], ["Turn the compost", "todo"], ["Mend the gate", "done"]]) await make(null, `${t} [type::job] [area::garden] [stage::${s}]`);
+    for (const [t, s] of [["Sow the beans", "todo"], ["Turn the compost", "todo"], ["Mend the gate", "done"], ["Oil the shears", "done"]]) await make(null, `${t} [type::job] [area::garden] [stage::${s}]`);
     await make(null, "Descale the kettle [type::job] [area::kitchen] [stage::todo]");
     garden = await make(null, "Garden jobs");
     await make(garden.id, "To do [type::virtual-branch] [query::type=job area=garden stage=todo]");
@@ -95,6 +95,41 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(r.selected).toBeTruthy();
     expect({ lane: B().lane, sel: B().lanes[0].sel, preview: B().preview.msg?.id }).toEqual(before);
     expect(message()).toContain("your cursor stays");
+    // An agent's own card in the other lane: its next step goes on from there, not from that lane's top.
+    const other = B().lanes[1].items;
+    expect(other.length).toBeGreaterThan(1);
+    {
+      await act("card.select", { id: other[0].id });
+      const step: any = await act("card.select", { by: 1 });
+      expect(step.selected).toBe(other[1].id);
+    }
+    // The person's tab moves the keys without saying so (only an agent's focus is said).
+    (app as any).message = "";
+    key({ kind: "tab" });
+    expect(message()).not.toContain("gave the keys");
+    key({ kind: "esc" });
+  });
+
+  test("the wheel over another lane moves that lane's cursor only: the current lane and the keys stay", () => {
+    B().lane = 0; B().focus = "lanes"; B().lanes[1].sel = 0;
+    b.render(B().ctx);
+    const r = B().laneRects.find((x: any) => x.lane === 1 && !x.spine).rect;
+    expect(ran(() => key({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 2, y: r.row + 2 }))).toEqual(["card.select"]);
+    expect(B().lanes[1].sel).toBe(Math.min(1, B().lanes[1].items.length - 1));
+    expect(B().lane).toBe(0);
+  });
+
+  test("d d is card.trash: the first d arms it (no confirm), the second trashes; an agent always says confirm", async () => {
+    await expect(act("card.trash", {})).rejects.toThrow("confirm");
+    B().lane = 0; B().lanes[0].sel = 0; B().focus = "lanes";
+    const id = B().lanes[0].items[0].id;
+    expect(ran(() => key(char("d")))).toEqual(["card.trash"]);
+    await until(() => B().trashArm?.id === id, "armed");
+    expect(b.holdsKeys()).toBe(false);
+    expect(ran(() => key(char("d")))).toEqual(["card.trash"]);
+    await until(() => B().trashed?.id === id, "trashed");
+    expect(ran(() => key(char("u")))).toEqual(["card.restore"]);
+    await until(() => !B().trashed, "restored");
   });
 
   test("lanes collapse, the outline drawer opens and floats move by actions; an agent's leaves the person's keys", async () => {
