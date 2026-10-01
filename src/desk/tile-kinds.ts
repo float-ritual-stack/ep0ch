@@ -91,9 +91,12 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
   if (had) gone.set(kind, why ?? "it was taken out of the door's tile kinds");
   return had;
 }
-/** Why there's no kind by that name: it went (and why), or nothing here ever registered it. */
+let missingReason: string | null = null;
+/** Why no extension's kind can come here at all (an outline service without extensions), or null. */
+export function setMissingKindReason(why: string | null): void { missingReason = why; }
+/** Why there's no kind by that name: it went (and why), or nothing here registers it (and why not). */
 export function missingKind(kind: TileKindName): string {
-  return gone.get(kind) ?? "nothing here registers it (an extension's kind: the extension isn't loaded, or isn't installed for this outline)";
+  return gone.get(kind) ?? missingReason ?? "nothing here registers it (an extension's kind: the extension isn't loaded yet, or isn't installed for this outline)";
 }
 /** Whether `kind` was registered once and went away (an extension removed while the door runs). */
 export const wasTileKind = (kind: TileKindName): boolean => gone.has(kind);
@@ -103,6 +106,8 @@ export const wasTileKind = (kind: TileKindName): boolean => gone.has(kind);
 const watchers = new Set<WeakRef<{ kindsChanged(): void }>>();
 /** `owner.kindsChanged()` runs after kinds come or go, while `owner` lives. */
 export function watchTileKinds(owner: { kindsChanged(): void }): void { watchers.add(new WeakRef(owner)); }
+/** Stop telling `owner` (a desk that's gone for good). */
+export function unwatchTileKinds(owner: object): void { for (const w of [...watchers]) if (w.deref() === owner || !w.deref()) watchers.delete(w); }
 /** Say that kinds came or went (once, after a batch of register and unregister calls). */
 export function kindsChanged(): void {
   for (const w of [...watchers]) { const o = w.deref(); if (!o) { watchers.delete(w); continue; } try { o.kindsChanged(); } catch { /* one desk's problem */ } }
@@ -169,7 +174,11 @@ export interface ServiceProgram {
 /** A tile running a service-named program: a terminal tile of its own kind, its args saved with it. */
 export class ProgramTile extends PtyPane {
   constructor(override readonly kind: TileKindName, spec: PtySpec, readonly state: Record<string, unknown>, private readonly keyHint: readonly string[] = [], private readonly label = kind) { super(spec); }
-  override title() { return this.exited !== null ? `${this.label} · exited ${this.exited}` : this.label; }
+  override title() {
+    // Its kind went away while it ran: it keeps running until it exits, then its tile says why.
+    const gone = registry.has(this.kind) ? "" : " · its kind is gone: ends with its program";
+    return (this.exited !== null ? `${this.label} · exited ${this.exited}` : this.label) + gone;
+  }
   override hint() { return this.exited !== null ? "⏎ runs it again" : `${this.keyHint.length ? `${this.keyHint.join(" · ")} · ` : ""}${super.hint()}`; }
   override spec() { return Object.keys(this.state).length ? { state: this.state } : {}; }
 }

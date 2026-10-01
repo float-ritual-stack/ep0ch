@@ -29,7 +29,7 @@ import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
 import { builtin, dailyAgent, sharedAgent, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withDailyAgent, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { kindForKey, kindOf, tileKinds, watchTileKinds, wasTileKind, type TileEnv } from "./tile-kinds";
+import { kindForKey, kindOf, tileKinds, unwatchTileKinds, watchTileKinds, wasTileKind, type TileEnv } from "./tile-kinds";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -303,6 +303,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    * went ends its program and says why in its place, its spec kept so it comes back with its kind.
    */
   kindsChanged() {
+    if (this.disposed) return;
     let changed = false;
     for (const [id, p] of [...this.panes]) {
       const saved = this.unregistered.get(id);
@@ -313,6 +314,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         if (this.ctx) this.startTile(id);
         changed = true;
       } else if (!saved && !isTileKind(p.kind) && wasTileKind(p.kind)) {
+        // A program still running keeps its tile until it exits (closing it would lose what it holds); it
+        // goes then, and its tile says why.
+        if (p instanceof PtyPane && p.running) { this.whenExits(p, id); continue; }
         const spec = this.specOf(id);
         p.dispose?.();
         if (this.ptyIn === p) this.ptyIn = null;
@@ -323,6 +327,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
     if (changed && this.ctx) this.redraw();
   }
+
+  /** When a tile's program exits after its kind went away: its tile says why, in its place. */
+  private whenExits(p: PtyPane, id: number) {
+    if (this.exitWatch.has(p)) return;
+    this.exitWatch.add(p);
+    const was = p.onExit;
+    p.onExit = code => { was?.(code); this.exitWatch.delete(p); if (this.panes.get(id) === p) this.kindsChanged(); };
+  }
+  private readonly exitWatch = new WeakSet<PtyPane>();
 
   /** A running program, an unsaved edit, a screen with a draft: closing it would lose something (its kind says). */
   private holdsWork(p: Pane): boolean { return !!kindOf(p)?.holdsWork?.(p); }
@@ -399,8 +412,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.onScreen = false;
     if (!this.preset && this.running().length) { Desk.kept = this; return "keep"; }
     sharedAgent()?.unwatch(this);
+    // Gone for good: kinds that come later never make tiles (nor start programs) here.
+    this.disposed = true;
+    unwatchTileKinds(this);
     for (const p of this.panes.values()) if (!this.isShared(p)) p.dispose?.();
   }
+  private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
   private static kept: Desk | null = null;
   /** The desk to open: the one kept running in the background, else a new one. */

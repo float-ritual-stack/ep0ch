@@ -71,6 +71,11 @@ export interface SurfaceHost {
   focused?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.act sets it), else the person's. */
   actor?: Actor;
+  /**
+   * The keys the host binds itself, before or after the surface (the BBS reader's `n p t`, a following
+   * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
+   */
+  ownKeys?: string;
 }
 
 /** Back and forward where a view keeps them (SurfaceHost.history). */
@@ -197,8 +202,8 @@ function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
   return a ? a.label.toLowerCase() : x.action;
 }
 /** The keys an extension's line answers to while it's the current element: its actions' (the reader's own stay its own), and r. */
-function extKeys(x: NonNullable<LinkTarget["ext"]>): string {
-  const own = (extensionNamed(x.extension)?.actions ?? []).filter(a => a.on === `handler:${x.handler}` && a.key && handlerKeyAction(x.extension, x.handler, a.key) === a);
+function extKeys(x: NonNullable<LinkTarget["ext"]>, hostKeys: string): string {
+  const own = (extensionNamed(x.extension)?.actions ?? []).filter(a => a.on === `handler:${x.handler}` && a.key && handlerKeyAction(x.extension, x.handler, a.key, hostKeys) === a);
   return [...own.map(a => `${a.key} ${a.id}`), "r again"].join(" · ");
 }
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
@@ -388,8 +393,10 @@ export class NoteSurface {
   readonly stepHistory = new StepHistory();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
+  /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
+  private hostKeys = "";
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; }
+    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.hostKeys = host.ownKeys ?? ""; }
     return this.src;
   }
 
@@ -452,7 +459,7 @@ export class NoteSurface {
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
-    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
+    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? "A apply anyway · X dismiss · " : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
@@ -1375,7 +1382,7 @@ export class NoteSurface {
     // An extension's line that is the current element (PIE-512): a key its actions answer to runs that
     // action (`w` wards); the reader's own keys stay the reader's (READER_OWN_KEYS).
     const xe = c ? this.inView()?.link?.ext : undefined;
-    const xa = xe ? handlerKeyAction(xe.extension, xe.handler, c) : undefined;
+    const xa = xe ? handlerKeyAction(xe.extension, xe.handler, c, host.ownKeys) : undefined;
     if (xe && xa) { void this.runExt(xa.name, xe, host); return true; }
     // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
     if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;

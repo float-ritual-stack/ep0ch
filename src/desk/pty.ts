@@ -217,7 +217,8 @@ export class PtyPane implements Pane {
     const keep = this.continueNext;
     this.continueNext = false;
     if (keep) env.EP0CH_AGENT_CONTINUE = "1";
-    if (this.run.env) Object.assign(env, this.run.env);
+    // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
+    for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
     try {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and

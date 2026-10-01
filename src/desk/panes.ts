@@ -167,6 +167,8 @@ export class ReaderPane implements Pane {
       summaryKeys: m => desk.summaryKeys?.(m),
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       focused: desk.holdsFocus?.(this) ?? false,
+      // A reader that follows another tile takes `p` (hold) before the surface does.
+      ...(this.follows ? { ownKeys: "p" } : {}),
     };
     return h;
   }

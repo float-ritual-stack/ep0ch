@@ -162,7 +162,8 @@ export function primitiveLines(view: unknown, w: number, link?: (block: string, 
   const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
   switch (n.type) {
     case "text":
-      return wrap(one(n.text), w).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + l + UNBOLD : l) + RESET);
+      // Its lines are its own, as the service's terminal target keeps them; each wraps to the width.
+      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + l + UNBOLD : l) + RESET);
     case "badge":
       return [fg(toned(n.tone ?? "accent")) + `[${one(n.label)}]` + RESET];
     case "stat": {

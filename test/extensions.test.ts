@@ -14,7 +14,10 @@ import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
 import { Desk } from "../src/desk/desk";
 import { kindForKey, tileKind } from "../src/desk/tile-kinds";
-import { EXT_ACTIONS, extensionList, mentionsExtension } from "../src/extensions";
+import { bindExtensions, EXT_ACTIONS, extensionList, loadExtensions, mentionsExtension } from "../src/extensions";
+import { missingKind } from "../src/desk/tile-kinds";
+import { declaredKeys, hintKeys, traceActions } from "../src/surface/actions";
+import { writeFileSync } from "node:fs";
 import { forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -52,6 +55,24 @@ describe("a component's view in the terminal", () => {
     expect(() => primitiveLines({ type: "hologram" }, 40)).toThrow(/no primitive hologram/);
     // Text from an extension never reaches the terminal as an escape.
     expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["a [2Jb"]);
+  });
+});
+
+describe.skipIf(!outliner)("the door draws what the service's terminal target draws", () => {
+  test("every word of the service's terminal rendering of a view is in the door's, whatever the layout", async () => {
+    const { renderComponent } = await import(join(outliner!, "src/component-primitives.ts"));
+    const view = { type: "box", title: "Shed", children: [
+      { type: "card", title: "Bikes", subtitle: "two need air", badge: { label: "soon", tone: "warn" }, children: [{ type: "text", text: "pump by the door\nspare tube on the hook" }] },
+      { type: "row", children: [{ type: "stat", label: "Tubes", value: 3 }, { type: "badge", label: "ok" }] },
+      { type: "bar", label: "Oil", value: 2, max: 5 },
+      { type: "sparkline", label: "Rides", values: [1, 4, 2] },
+      { type: "checklist", items: [{ label: "oil the chain", done: false }] },
+      { type: "table", columns: ["Bike", "Tyre"], rows: [["red", "flat"], ["blue", 32]] },
+    ] };
+    const words = (t: string) => new Set(t.split(/[\s│┌┐└┘─▌\[\]]+/).filter(w => w && !/^[█░▁▂▃▄▅▆▇]+$/.test(w)));
+    const theirs = words(renderComponent({ data: {}, view }, "terminal").body);
+    const mine = words(primitiveLines(view, 100).map(plain).join("\n"));
+    expect([...theirs].filter(w => !mine.has(w))).toEqual([]);
   });
 });
 
@@ -158,7 +179,17 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(surface.describe().elements!.current).toMatchObject({ kind: "resource", label: "Fancy Horror virgo" });
     expect(surface.hint()).toStartWith(`[ ] `);
     expect(surface.hint()).toContain("w ward · r again · line Fancy Horror virgo · ⏎ ward off the next omen");
+    // Every key the hint names is declared by an action the screen takes (the parity rule, PIE-506), and the
+    // key runs the action that declares it.
+    const declared = new Set(app.actions().actions.flatMap(a => [...declaredKeys(a.keys)]));
+    const { NOTE_ACTIONS } = await import("../src/surface/note");
+    for (const a of NOTE_ACTIONS.list()) for (const k of declaredKeys(a.keys)) declared.add(k);
+    expect(hintKeys(surface.hint()).filter(k => !declared.has(k))).toEqual([]);
+    const ran: string[] = [];
+    const stop = traceActions(r => { if (r.keys && declaredKeys(r.keys).has("w")) ran.push(r.name); });
     surface.key(char("w"), host);
+    stop();
+    expect(ran).toEqual(["ext.fancy-horror.ward"]);
     await until(() => flashes.some(f => f.startsWith("Fancy Horror: Warded off")), "the ward", 15_000);
     expect(flashes.find(f => f.startsWith("Fancy Horror: Warded off"))).toContain("written as ext:fancy-horror");
     const kids = await board.children(note.id);
@@ -227,9 +258,19 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(saved).toContain(`"state":{"block":"${note.id}"}`);
     expect(saved).not.toContain("tile.ts");
     // A new door (a restart): the layout comes back before the list is read, its tiles say so, then run.
-    const again = new Desk(undefined, { layout: "cards" });
-    expect((again as any).layoutGet().tiles.find((t: any) => t.name === "cards")).toMatchObject({ kind: "tarot.reading" });
-    (again as any).dispose?.();
+    bindExtensions(null);
+    expect(tileKind("tarot.reading")).toBeUndefined();
+    const again = new Desk(undefined, { layout: "cards" }) as any;
+    const cards = () => again.layoutGet().tiles.find((t: any) => t.name === "cards");
+    expect(cards()).toMatchObject({ kind: "tarot.reading", unregistered: "tarot.reading", title: "tarot.reading · unavailable" });
+    // The running tile on the first desk keeps its program while the kind is away.
+    expect(tiles().find(t => t.name === tarot.name).title).toContain("its kind is gone");
+    await app.loadExtensions();
+    expect(cards().unregistered).toBeUndefined();
+    expect(cards()).toMatchObject({ kind: "tarot.reading", title: "Tarot", args: { block: note.id } });
+    again.dispose();
+    // Gone for good: a kind that comes later makes nothing there.
+    expect(again.disposed).toBe(true);
   }, 40_000);
 
   test("hot reload: an extension removed while the door runs goes away (its tile says why), and comes back when added", async () => {
@@ -244,4 +285,43 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => !!tileKind("tarot.reading"), "tarot back", 15_000);
     expect(tiles().find(t => t.name === "cards").unregistered).toBeUndefined();
   }, 40_000);
+
+  test("an extension's words never reach the terminal as escapes: its action's message, its name, its output", async () => {
+    const dir = join(extDir, "noisy");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "noisy", version: 1, name: "Noisy\u001b[31m", run: ["bun", "noisy.ts"],
+      handlers: [{ key: "noisy", kind: "output", effects: "read", argument: { name: "word" } }],
+      actions: [{ id: "shout", label: "Shout\u001b[2J", on: "handler:noisy", key: "s", effects: "read" }],
+    }));
+    writeFileSync(join(dir, "noisy.ts"), `const r = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? { message: "loud\\u001b[2Jer" } : { markdown: "a \\u001b[2J b" } }));`);
+    await until(() => EXT_ACTIONS.has("ext.noisy.shout"), "the noisy extension", 15_000);
+    const loud = await board.createBlock(null, "A loud note\nnoisy:: hello");
+    const r = await app.act({ action: "ext.noisy.shout", args: { block: loud.id }, as: AS }) as any;
+    expect(r.message).toBe("loud [2Jer");
+    expect(flashes.at(-1)).not.toContain("\x1b");
+    expect(extensionList()!.extensions.find(e => e.id === "noisy")!.name).toBe("Noisy [31m");
+    const s2 = new NoteSurface();
+    s2.show((await board.get(loud.id))!, host);
+    await until(() => s2.render(100, 30, host).lines.join("\n").includes("a [2J b") || s2.render(100, 30, host).lines.join("\n").includes("a  b"), "the output", 15_000);
+    expect(s2.render(100, 30, host).lines.join("\n")).not.toContain("\x1b[2J");
+    rmSync(dir, { recursive: true, force: true });
+    await until(() => !EXT_ACTIONS.has("ext.noisy.shout"), "noisy gone", 15_000);
+  }, 40_000);
+
+  test("against a service without extensions.list: nothing is bound, and a tile of an extension's kind says why", async () => {
+    const older = { listExtensions: async () => null } as any;
+    const r = await loadExtensions(older);
+    expect(r).toMatchObject({ unsupported: true, added: [], problems: [] });
+    expect(EXT_ACTIONS.list()).toEqual([]);
+    expect(mentionsExtension("x\nmoon:: 2026-10-26")).toBe(false);
+    expect(missingKind("compost.heap")).toContain("lacks extensions.list");
+    // A failed read keeps what was bound, and says so.
+    await app.loadExtensions();
+    expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
+    const broken = { listExtensions: async () => { throw new Error("the service went away"); } } as any;
+    expect(await loadExtensions(broken)).toEqual({ error: "the service went away" });
+    expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
+  }, 30_000);
 });

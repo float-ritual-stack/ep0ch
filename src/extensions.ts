@@ -17,7 +17,7 @@
 import { hostname } from "node:os";
 import type { Actor, SocketBoard } from "./socket";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
-import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
+import { kindsChanged, registerTileKind, serviceKind, setMissingKindReason, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
@@ -39,7 +39,8 @@ export interface ExtensionAction {
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string }
 export interface ExtensionEntry {
-  id: string; name: string; version: number; description?: string; origin?: string;
+  /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
+  id: string; name?: string; version?: number; description?: string; origin?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
   state: string;
   error?: string;
@@ -79,8 +80,27 @@ const boundActions = new Set<string>();
 /** The tile kinds this module registered, with what they were made from (a changed entry is registered again). */
 const boundKinds = new Map<string, string>();
 
-/** An extension the service serves something from: active, or failed but still on its last good version. */
-const serving = (e: ExtensionEntry) => e.state === "active" || (e.state === "failed" && (e.handlers.length > 0 || e.actions.length > 0));
+/**
+ * An extension the service serves from: active, or failed but still on its last good version (it has a name).
+ * What it serves is the service's call: a folder it doesn't serve lists no handlers, actions or tiles.
+ */
+const serving = (e: ExtensionEntry) => e.state === "active" || (e.state === "failed" && !!e.name);
+
+/** One line of extension text (a name, a label, a message): no control characters reach the terminal. */
+export const oneLine = (v: unknown) => String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+const clean = (v: string | undefined) => (v === undefined ? undefined : oneLine(v));
+/** A key an extension binds in the door: one printable character, else none (it's still a click and `act`). */
+const keyOf = (k: string | undefined) => (k && [...k].length === 1 && /^[\x21-\x7e]$/.test(k) ? k : undefined);
+
+/** The list with every text it carries made safe to draw: an extension's words are its own, never escapes. */
+function cleaned(l: ExtensionList): ExtensionList {
+  const action = (a: ExtensionAction): ExtensionAction => ({ ...a, id: oneLine(a.id), name: oneLine(a.name), label: oneLine(a.label) || oneLine(a.id), description: clean(a.description), ...(a.key !== undefined ? { key: oneLine(a.key) } : {}) });
+  return {
+    ...l,
+    extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [] })),
+    tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
+  };
+}
 
 /** The last list read (null before it's read, or from a service without extensions). */
 export const extensionList = (): ExtensionList | null => current;
@@ -111,10 +131,14 @@ export function handlerActions(extension: string, handler: string): ExtensionAct
  */
 export const READER_OWN_KEYS = new Set("[]()fFuUryYvViICcmAXezjkhlqgG/?nN0123456789 ".split(""));
 
-/** The action a key runs on a handler line, when it has one there that the reader doesn't keep for itself. */
-export function handlerKeyAction(extension: string, handler: string, key: string): ExtensionAction | undefined {
-  if (READER_OWN_KEYS.has(key)) return undefined;
-  return handlerActions(extension, handler).find(a => a.key === key);
+/**
+ * The action a key runs on a handler line: one the line has, bound to a single printable character that
+ * neither the reader (READER_OWN_KEYS) nor its host (`hostKeys`: the BBS reader's `n p t`, a following
+ * reader's `p`) keeps for itself.
+ */
+export function handlerKeyAction(extension: string, handler: string, key: string, hostKeys = ""): ExtensionAction | undefined {
+  if (READER_OWN_KEYS.has(key) || hostKeys.includes(key)) return undefined;
+  return handlerActions(extension, handler).find(a => keyOf(a.key) === key);
 }
 
 // ── running one ──────────────────────────────────────────────────────────────
@@ -125,16 +149,18 @@ export function handlerKeyAction(extension: string, handler: string, key: string
  */
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string> }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   const say = asActor(ctx, actor);
-  const name = extensionNamed(extension)?.name ?? extension;
+  const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);
   try {
     const r = await ctx.board.actExtension(extension, a.id, target);
-    const said = `${name}: ${r.message ?? a.label}${r.written.length ? ` · written as ext:${extension}` : ""}`;
+    // The extension's own words (its message) are drawn as text, never as escapes.
+    const message = r.message !== undefined ? oneLine(r.message) : undefined;
+    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ext:${oneLine(extension)}` : ""}`;
     say.flash(said);
     ctx.redraw();
-    return { ...r, said };
+    return { ...r, ...(message !== undefined ? { message } : {}), said };
   } catch (e) {
-    say.flash(`${name}: ${a.label.toLowerCase()} refused: ${e instanceof Error ? e.message : String(e)}`);
+    say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`);
     ctx.redraw();
     throw e;
   }
@@ -143,9 +169,11 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
   const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null;
-  const key = a.key && handler && !READER_OWN_KEYS.has(a.key) ? a.key : undefined;
+  const k = keyOf(a.key);
+  const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
+  const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
-    summary: `${e.name}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}`,
+    summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
     args: {
       block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : "the block it acts on" },
@@ -160,11 +188,16 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
 
 // ── a tile kind from the service ─────────────────────────────────────────────
 
-/** Uppercase letters under ^W o for the extensions' kinds: the name's own letters first, never a built-in's key. */
-function kindKey(name: string, kind: string): string | undefined {
-  const used = new Set(tileKinds().filter(k => k.kind !== kind).flatMap(k => (k.keys ?? []).map(x => x.key)));
-  for (const ch of `${name}${kind}`.toUpperCase()) if (/[A-Z]/.test(ch) && ch !== "O" && !used.has(ch)) return ch;
-  return undefined;
+/**
+ * The key under ^W o for an extension's kind: the capital of its name's first letter (`T` for Tarot), so it
+ * never moves when other extensions come or go. None when another kind holds it (or it would be `O`); the
+ * kind still opens through `tile.open`, and the clash is said.
+ */
+function kindKey(name: string, kind: string): { key?: string; clash?: string } {
+  const ch = /[A-Za-z]/.exec(name)?.[0]?.toUpperCase();
+  if (!ch || ch === "O") return {};
+  const holder = tileKinds().find(k => k.kind !== kind && (k.keys ?? []).some(x => x.key === ch));
+  return holder ? { clash: `^W o ${ch} is ${holder.kind}'s` } : { key: ch };
 }
 
 interface TileHost { pane: unknown; desk: DeskApi }
@@ -175,7 +208,7 @@ function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs
   return {
     summary: `${t.name}: ${a.description ?? a.label}${onBlock ? " (on the tile's block, or block=<id>)" : ""}. The service runs it; what it writes is attributed ext:${t.extension}`,
     // In the tile its program has the keys: the key is the program's own, which runs this same action.
-    ...(a.key ? { keys: a.key } : {}),
+    ...(keyOf(a.key) ? { keys: keyOf(a.key)! } : {}),
     // On a block: which one (the tile's own by default). On the tile: nothing to say.
     args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, TileHost>["args"],
     run({ block }, { pane, desk }, actor) {
@@ -195,12 +228,12 @@ function unavailableHere(t: ExtensionTileKind): string | null {
 
 /** The registry entry for one of the service's tile kinds: a program in a terminal tile (serviceKind). */
 function kindEntry(t: ExtensionTileKind): TileKind {
-  const key = kindKey(t.name, t.kind);
+  const { key } = kindKey(t.name, t.kind);
   const actions = new ActionSet<Record<string, ExtArgs>, TileHost>(t.kind, Object.fromEntries(t.actions.map(a => [a.name, tileAction(t, a)])));
   return serviceKind({
     kind: t.kind,
     about: `${t.description ?? t.name} (extension ${t.extension}; its program runs in a terminal tile${t.args?.block ? "; note=<id> is its block, default the note shown where it's opened" : ""})`,
-    program: { command: t.command, cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: t.actions.flatMap(a => (a.key ? [`${a.key} ${a.id}`] : [])) },
+    program: { command: t.command, cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : [])) },
     ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}),
     ...(t.policy ? { policy: t.policy } : {}),
     accepts: { notes: false, tiles: t.accepts ?? [] },
@@ -212,32 +245,43 @@ function kindEntry(t: ExtensionTileKind): TileKind {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** What a bind changed, for the status bar: extensions that came or went, and what it couldn't bind (and why). */
+export interface Bound { added: string[]; removed: string[]; problems: string[] }
+
 /**
  * Bind what the service lists now: the handler keys and agent names the projection filter asks about, the
- * actions, and the tile kinds. What a previous list bound and this one doesn't is taken out. Returns what
- * came and went, by extension id, for the status bar.
+ * actions, and the tile kinds (as the service lists them: it lists only what it serves). What a previous list
+ * bound and this one doesn't is taken out.
  */
-export function bindExtensions(next: ExtensionList | null): { added: string[]; removed: string[] } {
+export function bindExtensions(raw: ExtensionList | null): Bound {
+  const next = raw ? cleaned(raw) : null;
+  const was = new Map((current?.extensions ?? []).map(e => [e.id, e] as const));
   const before = new Set((current?.extensions ?? []).filter(serving).map(e => e.id));
   current = next;
   const served = (next?.extensions ?? []).filter(serving);
+  const problems: string[] = [];
+  // An extension that started failing (it may still serve its last good version): said once, with why.
+  for (const e of next?.extensions ?? []) {
+    if (e.state === "failed" && was.get(e.id)?.state !== "failed") problems.push(`${e.name ?? e.id} failed${e.error ? `: ${e.error}` : ""}${e.name ? " (still serving its last good version)" : ""}`);
+  }
   // The filter: a handler line (`key::`, a bullet before it is fine) or a request line (`@name`).
   const keys = served.flatMap(e => e.handlers.map(h => escape(h.key)));
   const agents = served.flatMap(e => (e.agents ?? []).map(a => escape(a.name)));
   const alts = [...(keys.length ? [`(?:${keys.join("|")})::`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
   mentions = alts.length ? new RegExp(`(?:^|\\n)[ \\t]*(?:[-*+][ \\t]+)?(?:${alts.join("|")})`, "i") : null;
   // Actions: a tile's are its kind's own; the rest (a handler line's, a block's) are EXT_ACTIONS.
-  const ofTiles = new Set((next?.tileKinds ?? []).flatMap(t => t.actions.map(a => a.name)));
+  const tiles = next?.tileKinds ?? [];
+  const ofTiles = new Set(tiles.flatMap(t => t.actions.map(a => a.name)));
   const want = new Map<string, ActionDef<ExtArgs, ExtOn>>();
   for (const e of served) for (const a of e.actions) if (!ofTiles.has(a.name) && !(a.on ?? "block").startsWith("tile:")) want.set(a.name, lineAction(e, a));
   for (const name of boundActions) if (!want.has(name)) { EXT_ACTIONS.forget(name); boundActions.delete(name); }
   for (const [name, def] of want) { EXT_ACTIONS.define(name, def); boundActions.add(name); }
   // Tile kinds: registered through serviceKind; one whose entry changed is registered again, one gone is taken out.
-  const kinds = new Map((next?.tileKinds ?? []).filter(t => served.some(e => e.id === t.extension)).map(t => [t.kind, t] as const));
+  const kinds = new Map(tiles.map(t => [t.kind, t] as const));
   let changed = false;
   for (const [kind] of boundKinds) {
     if (kinds.has(kind)) continue;
-    unregisterTileKind(kind, `its extension (${kind.split(".")[0]}) was removed or stopped serving`);
+    unregisterTileKind(kind, `its extension (${kind.split(".")[0]}) was removed or stopped serving it`);
     boundKinds.delete(kind);
     changed = true;
   }
@@ -245,23 +289,34 @@ export function bindExtensions(next: ExtensionList | null): { added: string[]; r
     const print = JSON.stringify(t);
     if (boundKinds.get(kind) === print) continue;
     // A built-in (or another module's kind) of the same name stays: an extension can't take its place.
-    if (!boundKinds.has(kind) && tileKind(kind)) continue;
-    if (boundKinds.has(kind)) unregisterTileKind(kind);
+    if (!boundKinds.has(kind) && tileKind(kind)) { problems.push(`${t.extension}'s tile kind ${kind} isn't registered: the door has a kind by that name`); continue; }
+    if (boundKinds.has(kind)) unregisterTileKind(kind, `${t.name} is being registered again`);
+    const { clash } = kindKey(t.name, kind);
+    if (clash && !boundKinds.has(kind)) problems.push(`${kind} has no key under ^W o (${clash}); act tile.open kind=${kind} opens it`);
     registerTileKind(kindEntry(t));
     boundKinds.set(kind, print);
     changed = true;
   }
   if (changed) kindsChanged();
   const after = new Set(served.map(e => e.id));
-  return { added: [...after].filter(id => !before.has(id)), removed: [...before].filter(id => !after.has(id)) };
+  return { added: [...after].filter(id => !before.has(id)), removed: [...before].filter(id => !after.has(id)), problems };
 }
 
+let asking = 0;
 /**
  * Read the service's list and bind it (`reload`: the service reads its folders now, not waiting for its
- * watcher). A service without extensions binds nothing; a failed read keeps what was bound.
+ * watcher). Only the newest read binds: one that answers after a later one (an event, then a reconnect) is
+ * dropped. A service without `extensions.list` binds nothing, and a tile of an extension's kind says why; a
+ * failed read keeps what was bound and says so.
  */
-export async function loadExtensions(board: SocketBoard, reload = false): Promise<{ added: string[]; removed: string[] } | null> {
+export async function loadExtensions(board: SocketBoard, reload = false): Promise<(Bound & { unsupported?: true }) | { error: string } | null> {
+  const mine = ++asking;
   let list: ExtensionList | null;
-  try { list = await board.listExtensions(reload); } catch { return null; }
-  return bindExtensions(list);
+  try { list = await board.listExtensions(reload); } catch (e) {
+    if (mine !== asking) return null;
+    return { error: oneLine(e instanceof Error ? e.message : String(e)) };
+  }
+  if (mine !== asking) return null;
+  setMissingKindReason(list ? null : "this outline service lists no extensions (it lacks extensions.list); restart it from a current checkout");
+  return { ...bindExtensions(list), ...(list ? {} : { unsupported: true as const }) };
 }

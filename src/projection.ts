@@ -15,7 +15,7 @@ import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
 import { LIST_FIELDS, type SocketBoard } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
-import { handlerActions, mentionsExtension, READER_OWN_KEYS, type ExtensionAction } from "./extensions";
+import { handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
 import { C, fg, LINK_END, linkTag, RESET } from "./style";
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
@@ -509,7 +509,7 @@ export function extensionRegion(p: ResourceProjection, w: number, indent: number
   const when = p.output?.ranAt ?? p.fetchedAt;
   const age = when ? relativeAge(when, now) : "";
   const status = p.kind === "agent"
-    ? [p.agent?.status, p.summary && p.summary !== p.agent?.status ? drawnInline(p.summary) : ""].filter(Boolean).join(" · ")
+    ? [p.agent?.status ? drawnInline(p.agent.status) : "", p.summary && p.summary !== p.agent?.status ? drawnInline(p.summary) : ""].filter(Boolean).join(" · ")
     : ready ? (p.output ? `ran ${age || localTime(p.output.ranAt)}` : drawnInline(p.summary ?? "")) : (STATUS_LABELS[p.status] ?? drawnInline(String(p.status)));
   const running = p.fetching ? (p.kind === "agent" ? "working…" : "running…") : "";
   const head = [title, status, running].filter(Boolean).join(" · ");
@@ -523,13 +523,13 @@ export function extensionRegion(p: ResourceProjection, w: number, indent: number
   else if (ready && p.kind === "data" && p.fields.length) said(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), C.brown);
   if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${p.agent.requestedBy === "user" ? "you" : drawnInline(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
-  if (p.output?.versionChanged && !p.fetching) said(`${p.label ?? extension} changed since this ran · r runs it again`, C.dark);
+  if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · r runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
   // The controls: the line's actions (their key, if the reader leaves it to them), then r.
   const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
   const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;
   const controls = [
-    ...acts.map(a => control(a.name, a.key && !READER_OWN_KEYS.has(a.key) ? `${a.key} ${a.id}` : a.id)),
+    ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key) === a ? `${a.key} ${a.id}` : a.id)),
     control(RUN_AGAIN, `r ${againWords(p)}`),
   ];
   row(controls.join(" "));

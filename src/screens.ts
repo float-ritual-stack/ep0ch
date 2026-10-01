@@ -778,6 +778,8 @@ export class MessageReader implements Screen {
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
+      // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
+      ownKeys: "nNpPtTqQU",
     };
   }
 

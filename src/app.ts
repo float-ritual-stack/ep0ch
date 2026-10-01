@@ -385,9 +385,13 @@ export class App implements Ctx {
   async loadExtensions(reload = false): Promise<void> {
     const r = await loadExtensions(this.board, reload);
     if (!r) return;
+    // A read that failed keeps what was bound, and says so; a service without extensions says nothing here
+    // (an extension's tile and lines say why where they'd be).
+    if ("error" in r) { this.flash(`couldn't read the outline's extensions: ${r.error}`); return; }
     resourceChanged(null);
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
     if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
+    if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000);
     this.extensionsSeen = true;
     this.redraw();
   }
@@ -406,7 +410,7 @@ export class App implements Ctx {
     const ext = !shell && !dock && EXT_ACTIONS.has(req.action);
     // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.
     const herdr = req.action === "tile.herdr" && req.reader === DOCK_TILE_ID;
-    if (!shell && !dock && !ext && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()].map(a => a.name).join(", ")}`);
+    if (!shell && !dock && !ext && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {

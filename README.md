@@ -403,7 +403,8 @@ carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `dra
 Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an
 extension's kind registers the same way. The outline service lists its extensions' tile kinds
 (`extensions.list`, `tileKinds`; the example is `tarot.reading`): each registers through `serviceKind` as a
-program in a terminal tile, under `^W o` with a capital letter (`^W o T` for Tarot) and through
+program in a terminal tile, under `^W o` with the capital of its name's first letter (`^W o T` for Tarot;
+none when another kind holds that letter, which is said) and through
 `act tile.open kind=tarot.reading note=<id>`. Opened from a reader, its block is the note shown there. Its
 actions are its kind's own (`ext.tarot.draw`, `ext.tarot.keep`), run by the service and written as `ext:tarot`;
 in the tile, the program's own keys run the same actions. A layout saves its kind and its args, nothing else,
@@ -1015,9 +1016,10 @@ draws a ticket (PIE-512):
 Under each line a row of controls: one per action the extension declares on that line (`[w ward]`), the
 built-in `[keep]` (the result written under the note as blocks), and `[r run again]` (`[r ask again]` for an
 agent). `[ ]` stops on the line's title and on each control; ⏎ or a click runs it (the title runs the line's
-first action, else runs it again). While the line is the current element its actions' keys work (`w`), unless
-the key is one the reader keeps for itself (`[ ] ( ) f u r y v i c m e j k h l q g` and the like: those stay
-the reader's, and the action is still a click or `act` away); the footer names them (`w ward · r again`). `r`
+first action, else runs it again). While the line is the current element its actions' keys work (`w`): one
+printable character each, never one the reader keeps for itself (`[ ] ( ) f u r y v i c m e j k h l q g` and
+the like) or its host does (the BBS reader's `n p t`, a following reader's `p`); such an action is still a
+click or `act` away. The footer names the keys that work there (`w ward · r again`). `r`
 runs the line again; `r` with no element current runs every line of the note (an `@name` request only by its
 line). Whatever an action writes is the extension's (`ext:<id>`), whoever asked; the status bar says who ran
 it. Agents run the same actions with `act ext.<id>.<action> block=<id>`.
