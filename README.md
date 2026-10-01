@@ -712,7 +712,8 @@ The board's new-card composer is the same control too.
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
 | `Ctrl+Z` | take back the last edit an agent patched into the draft (below), as one unit |
-| `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element |
+| `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same |
+| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]` |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -1192,7 +1193,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (otherwise `edit.text` or `comment.write`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
 | `draft.undo` | none: the last agent patch in the reader's draft (an agent: only its own) | `Ctrl+Z` in a draft |
-| `proposal.apply` | `id` (default: the embed that is the current element, else the note shown): apply anyway, as an edit by whoever runs it | `A` |
+| `proposal.apply` | `id` (default: the embed that is the current element, else the note shown): apply anyway, as an edit by whoever runs it | `A`, a click on `[apply]` |
+| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): its embed line out of the note (revision-checked), then the proposal to Trash, both recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close` | `quote` (exact words), `near`; `body` | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

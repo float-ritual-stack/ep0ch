@@ -240,10 +240,28 @@ const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.sl
 /** Tag `text` as link `to` in `sink` (or leave it as text without one). */
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
 
-/** The embed's source line: a dim, clickable "» note" (a view's "≡ view"). Problems keep their loud colour. */
-function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.dark) {
+/** An agent's proposal that hasn't been applied (PIE-501): `A`, `X` and its `[apply]` `[dismiss]` controls act on it. */
+export const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open";
+
+/** A proposal's controls, as its embed's source line and an opened proposal's header draw them. */
+export const PROPOSAL_OPS = ["apply", "dismiss"] as const;
+
+/** ` [apply] [dismiss]` for proposal `id`, each tagged as its control in `sink` (text without one). */
+export function proposalControls(id: string, sink: LinkTarget[] | undefined): string {
+  return PROPOSAL_OPS.map(op => " " + fg(C.lcyan) + tagged(sink, { block: id, role: "control", proposal: { id, op } }, `[${op}]`)).join("");
+}
+const CONTROLS_WIDTH = PROPOSAL_OPS.reduce((n, op) => n + op.length + 3, 0);
+
+/**
+ * The embed's source line: a dim, clickable "» note" (a view's "≡ view"). Problems keep their loud colour.
+ * An open proposal's line ends in its `[apply] [dismiss]` controls, the title cut to leave them room.
+ */
+function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.dark, proposal = false) {
   const loud = colour !== C.dark;
-  return shade(fg(colour) + (loud ? "\x1b[1m" : "") + tagged(sink, { block: id, ...(fragment ? { fragment } : {}), role: "embed" }, text) + (loud ? "\x1b[22m" : "") + RESET, w);
+  const room = Math.max(1, w - 1 - CONTROLS_WIDTH);
+  const shown = proposal && [...text].length > room ? [...text].slice(0, Math.max(0, room - 1)).join("") + "…" : text;
+  const to: LinkTarget = { block: id, ...(fragment ? { fragment } : {}), role: "embed", ...(proposal ? { proposal: { id } } : {}) };
+  return shade(fg(colour) + (loud ? "\x1b[1m" : "") + tagged(sink, to, shown) + (loud ? "\x1b[22m" : "") + (proposal ? proposalControls(id, sink) : "") + RESET, w);
 }
 
 /** A virtual branch's results, as Detail lists them. */
@@ -280,7 +298,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     return v ? viewRegion(target, v, w, sink) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
   }
   const title = printable(node.title ?? subject(target));
-  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink)];
+  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target))];
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();
   for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
@@ -315,7 +333,7 @@ function legacyRegion(st: Exclude<State, { kind: "node" }>, id: string, fragment
     case "view": return viewRegion(st.target, st.view, w, sink);
     case "note": {
       const title = printable(subject(st.target));
-      const out = [heading(id, fragment, fragment ? `» ${title} ^${fragment}` : `» ${title}`, w, sink)];
+      const out = [heading(id, fragment, fragment ? `» ${title} ^${fragment}` : `» ${title}`, w, sink, C.dark, !fragment && isOpenProposal(st.target))];
       if (fragment) out.push(S(fg(C.dark) + "the whole note: this service can't slice fragments" + RESET));
       const none = (cid: string, cfrag: string | undefined, _n: number, width: number) => [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not nested with this service` + RESET, width)];
       for (const l of body(st.target, null, Math.max(4, w - 2), { embed: none, task: () => null })) out.push(S(" " + l));

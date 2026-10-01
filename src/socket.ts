@@ -1024,10 +1024,10 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Move a block and its subtree to Trash. The service's `delete` takes no revision and records no
-   * author, so the caller checks the revision it showed just before, and says who did it on screen.
+   * Move a block and its subtree to Trash. The service's `delete` takes no revision, so the caller checks
+   * the revision it showed just before, and says who did it on screen. With `actor`, the service records it.
    */
-  async trash(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId })); }
+  async trash(blockId: string, actor?: Actor): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId, ...(actor ? { mutation: mutationFor(actor) } : {}) })); }
 
   /**
    * Whether `blockId` is in Trash now (its own delete or an ancestor's): true, false, or null when the
@@ -1171,6 +1171,9 @@ export class SocketBoard implements Board {
   }
 
   // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
+
+  /** Whether this door holds a live draft of `blockId` (an edit open on it in some reader). */
+  holdsDraft(blockId: string): boolean { return this.drafts.has(blockId); }
 
   private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; gone: boolean }>();
 

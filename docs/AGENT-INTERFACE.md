@@ -292,6 +292,7 @@ at, and what it does while they're typing:
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
+| `proposal.dismiss` | no | its own proposals only (the actor its patch names), recorded as it; the person dismisses any |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
 ## Editing above the person while they type: `draft.patch` (PIE-501)
@@ -319,7 +320,8 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   `editing.patches`, `editing.lit`.
 - **A failed compare changes nothing.** The service keeps the proposal as a reply block under the note,
   attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
-  `proposal.apply` (`A`) applies it anyway, as an ordinary edit by whoever runs it. The person's apply is
+  `proposal.apply` (`A`, `[apply]`) applies it anyway, as an ordinary edit by whoever runs it;
+  `proposal.dismiss` (`X`, `[dismiss]`) takes its embed line out of the note and puts it in Trash. The person's apply is
   forced (placed as well as it can be); an agent's is held to the same compare as a patch (prose only, above
   the mark and the cursor's block, against the text now), so an agent can't force its own proposal. A
   proposal applies only what its text shows.
