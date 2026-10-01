@@ -7,6 +7,10 @@ verification steps and the review checklist.
 
 - Read [Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature) first. Name the
   shared parts the change uses, and use the glossary's words for screens, panes and actions.
+- Use the layout vocabulary: block, tile, container, screen
+  ([Layout](docs/UI-GRAMMAR.md#layout-block-tile-container-screen)). "Pane" means Herdr's or tmux's box.
+  A brief handed to another agent carries this vocabulary and the shared parts it must use, and its
+  review asks whether it really used them.
 - If no shared part fits, extend one or say in the PR why not. Don't add a parallel reader, pane
   model, search, editor or presence view.
 

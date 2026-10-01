@@ -108,6 +108,21 @@ calls it. **Tree/Detail** is the pi-herdr-outliner equivalent (or "none").
 | workspace | The outline connected to (one per run) | `ctx.workspace`, `--ws` | workspace |
 | video mode | Kitty+CRT, Kitty, cells (`V`) | `cycleVideo` `app:118` | none |
 
+### Layout: block, tile, container, screen
+
+The layout vocabulary, settled on Oct 1. The design is the outline note "Screens are layouts: one tile system"
+(linked from PIE-493 and PIE-498). New code and docs use these four words. Where the code still says
+pane, region or column, the table below says what it is today.
+
+| Word | Meaning |
+|---|---|
+| block | Content in the outline. It is data, never UI. |
+| tile | A UI leaf that shows one thing: a block, a query, a terminal, a component or a tree. Its kind comes from the tile-kind registry, where built-ins and extensions register the same way. |
+| container | Holds tiles or other containers and decides how they're arranged: `split` (side by side or stacked, resizable), `tabs` (stacked, one visible), `columns` (equal and ordered), `drawer` (slides out over the others from an edge and takes drops), `flow` (columns where opens go into the next one; the river). |
+| policy | What a container allows, saved with the screen: draggable, droppable, `accepts: [tile kinds]`, resizable, collapsible, overlay (and its edge), `locked`, `opens-into`. |
+| screen | A saved tree of containers and tiles: a preset, stored in the outline. Board, desk, river, welcome, waiting and brief are all screens. |
+| pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still uses `Pane` for a tile's class until the layout work renames it. |
+
 ### View and pane
 
 | Canonical | Meaning | Code | Tree/Detail |
