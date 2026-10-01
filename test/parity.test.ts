@@ -158,15 +158,17 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   };
 
   const tokens = (runs: ActionRun[]) => new Set(runs.flatMap(r => [...declaredKeys(r.keys)]));
-  const named = (k: Key) => (k.kind === "mouse" ? `click@${k.x},${k.y}` : keyName(k) ?? "?");
+  const named = (k: Key) => (k.kind === "mouse" ? `${k.action === "down" ? "click" : k.action}@${k.x},${k.y}` : keyName(k) ?? "?");
   /** What the declared keys must name for this probe: the key's name, or for the mouse its gesture. */
   const declares = (t: Set<string>, k: Key, prefix?: Key) =>
-    k.kind === "mouse" ? t.has("click") : t.has(keyName(k)!) || (!!prefix && t.has(`${keyName(prefix)} ${keyName(k)}`));
+    k.kind === "mouse" ? t.has(k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : "click") : t.has(keyName(k)!) || (!!prefix && t.has(`${keyName(prefix)} ${keyName(k)}`));
 
-  /** Clicks over the screen: every few columns of every other row. */
+  /** Clicks over the screen: every row, every 26th column from a start that shifts row by row; and the wheel. */
   const clicks = (): Key[] => {
     const out: Key[] = [];
-    for (let y = 0; y < 47; y += 2) for (let x = 1; x < 160; x += 9) out.push({ kind: "mouse", action: "down", button: 0, x, y });
+    for (let y = 0; y < 47; y++) for (let x = 1 + ((y * 7) % 26); x < 160; x += 26) out.push({ kind: "mouse", action: "down", button: 0, x, y });
+    // The wheel, both ways, over a coarser grid.
+    for (let y = 4; y < 47; y += 12) for (let x = 10; x < 160; x += 40) for (const action of ["wheel-down", "wheel-up"] as const) out.push({ kind: "mouse", action, button: 0, x, y });
     return out;
   };
   const push = (k: Key) => {
@@ -244,11 +246,11 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     if (process.env.PARITY_DEPTH === "1") return;
     // The second key, from each input state: typing that keeps the state is the state's; a key that ends it
     // with a change must run an action (a cancel that puts the screen back as it was is fine).
-    // Second keys: every key that types text or is named, and every ctrl and alt key an action here declares
-    // (PARITY_FULL=1: every key, as the first key is).
+    // Second keys: every key, as the first key is (PARITY_QUICK=1: only the keys that type text or are named,
+    // and the ctrl and alt keys an action here declares).
     const top = A().stack.at(-1) as Screen | undefined;
     const declared = new Set([...(top?.actions?.().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
-    const seconds = process.env.PARITY_FULL ? PROBE_KEYS : PROBE_KEYS.filter(k => (k.kind !== "alt" && !(k.kind === "char" && k.ctrl)) || declared.has(keyName(k)!));
+    const seconds = process.env.PARITY_QUICK !== "1" ? PROBE_KEYS : PROBE_KEYS.filter(k => (k.kind !== "alt" && !(k.kind === "char" && k.ctrl)) || declared.has(keyName(k)!));
     for (const k1 of states) {
       dirty = true;
       let rest: Snap | null = null, entered: Snap | null = null;

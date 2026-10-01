@@ -322,7 +322,7 @@ export class MainMenu implements Screen {
     else if (k.kind === "char" && !k.ctrl && k.ch === "?") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
-      if (hit >= 0) { this.sel = hit; return this.open(ITEMS[hit]!, ctx); }
+      if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
     }
     ctx.redraw();
   }
@@ -452,6 +452,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       if (item.action) return SHELL_ACTIONS.run(item.action, {}, { ctx, here }, actor);
       agentMayMove(here, ctx, actor);
+      // The menu lights what it opens, so coming back it's where the person left it.
+      if (here instanceof MainMenu) here.selected = ITEMS.indexOf(item);
       // Exact class: the brief, Waiting and the welcome are desks too, and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.constructor === item.one);
       if (open) throw new ActionRefused(`the ${open.title} is already open${open === here ? "" : " under this screen; screen.back gets back to it"}`);
