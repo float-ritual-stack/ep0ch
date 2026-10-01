@@ -20,6 +20,7 @@ import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
+import { KbdModes, keyBytes, translateReports } from "../kbd";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -140,6 +141,8 @@ export class PtyPane implements Pane {
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
+  /** The Kitty keyboard protocol as the program asked for it (src/kbd.ts): how the person's keys reach it. */
+  readonly kbd = new KbdModes();
   /** Lines scrolled back into what went by (0: the live screen). */
   private back = 0;
   private redrawSoon: Timer | null = null;
@@ -176,6 +179,7 @@ export class PtyPane implements Pane {
   private start(cols: number, rows: number) {
     this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdr = null;
     this.term?.dispose();
+    this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
     this.term = term;
     term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
@@ -195,6 +199,10 @@ export class PtyPane implements Pane {
         // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
         // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
         for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.pty?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
+        // The Kitty keyboard protocol: xterm ignores it, so the door follows the program's push and pop and
+        // answers its query here (before xterm's DA reply, as a terminal with the protocol does).
+        const kbdReply = this.kbd.observe(s);
+        if (kbdReply) this.pty?.write(kbdReply);
         term.write(d, () => this.soon());
       },
     });
@@ -277,8 +285,11 @@ export class PtyPane implements Pane {
 
   /** Keys or text straight to the program (an agent's `tile.type`). */
   input(s: string) { if (this.running) { this.back = 0; this.pty?.write(s); } }
-  /** Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for them. */
-  inputRaw(s: string) { this.personKeyAt = Date.now(); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  /**
+   * Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for
+   * them; a Kitty keyboard report reaches it as it asked (the protocol, or legacy bytes: Shift+Enter as ESC CR).
+   */
+  inputRaw(s: string) { this.personKeyAt = Date.now(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
   paste(text: string) { this.personKeyAt = Date.now(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
@@ -314,7 +325,7 @@ export class PtyPane implements Pane {
   /** Door keys that aren't the program's: none while the person is in it but the escape chord (the desk checks that). */
   key(k: Key, _desk: DeskApi): boolean {
     if (this.exited !== null && k.kind === "enter") { this.restart(); return true; }
-    const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false) : null;
+    const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false, this.kbd.flags) : null;
     if (s === null) return false;
     this.personKeyAt = Date.now();
     this.input(s);
@@ -396,37 +407,8 @@ function rowOf(line: XLine, cell: XCell, w: number, cursor: number): string {
 
 // ── keys and the mouse, as a terminal sends them ─────────────────────────────
 
-/** The bytes a terminal sends for `k` (null: none). Application cursor mode sends arrows as SS3. */
-export function keyBytes(k: Key, appCursor = false): string | null {
-  const arrow = (c: string) => (appCursor ? `\x1bO${c}` : `\x1b[${c}`);
-  switch (k.kind) {
-    case "char": {
-      if (!k.ctrl) return k.ch;
-      const c = k.ch.toLowerCase();
-      if (c >= "a" && c <= "z") return String.fromCharCode(c.charCodeAt(0) - 96);
-      return ({ "@": "\x00", " ": "\x00", "[": "\x1b", "\\": "\x1c", "]": "\x1d", "^": "\x1e", "_": "\x1f" } as Record<string, string>)[k.ch] ?? null;
-    }
-    case "alt": return `\x1b${k.ch}`;
-    case "enter": return "\r";
-    case "alt-enter": return "\x1b\r";
-    case "esc": return "\x1b";
-    case "backspace": return "\x7f";
-    case "tab": return "\t";
-    case "backtab": return "\x1b[Z";
-    case "up": return arrow("A");
-    case "down": return arrow("B");
-    case "right": return arrow("C");
-    case "left": return arrow("D");
-    case "home": return appCursor ? "\x1bOH" : "\x1b[H";
-    case "end": return appCursor ? "\x1bOF" : "\x1b[F";
-    case "pgup": return "\x1b[5~";
-    case "pgdn": return "\x1b[6~";
-    case "delete": return "\x1b[3~";
-    case "alt-left": return "\x1b[1;3D";
-    case "alt-right": return "\x1b[1;3C";
-    default: return null;
-  }
-}
+/** The bytes a terminal sends for a key (src/kbd.ts: the one encoder, Kitty keyboard protocol or legacy). */
+export { keyBytes };
 
 /** A mouse event at x, y (0-based, in the tile) as the program asked: SGR (1006) or the old X10 bytes. */
 export function mouseBytes(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, sgr: boolean): string | null {

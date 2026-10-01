@@ -1,5 +1,6 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
+import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 
 export type Key =
@@ -7,7 +8,12 @@ export type Key =
   | { kind: "char"; ch: string; ctrl?: boolean; pasted?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
-  | { kind: "up" | "down" | "left" | "right" | "enter" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
+  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
+  /**
+   * Enter. `shift`, `ctrl`: held with it, as only a terminal speaking the Kitty keyboard protocol can say (src/kbd.ts).
+   * It's Enter wherever nothing reads them; in a draft Shift+Enter is a plain line break, as alt+enter.
+   */
+  | { kind: "enter"; shift?: true; ctrl?: true }
   /**
    * alt+← and alt+→ (CSI 1;3 D/C, CSI 1;9 D/C, or ESC before the arrow); `back` and `forward` are the mouse's
    * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
@@ -56,8 +62,11 @@ export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
 }
 
-/** Everything `start` turns on, turned off: paste, mouse, colours, wrap, the cursor, then the normal screen. */
-export const TERM_RESET = "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+/**
+ * Everything `start` turns on, turned off: the Kitty keyboard protocol (popped on the alternate screen, where it
+ * was pushed), paste, mouse, colours, wrap, the cursor, then the normal screen.
+ */
+export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
 
 /**
  * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
@@ -106,6 +115,11 @@ export class Term {
   private pending = "";
   private decoder = new TextDecoder("utf-8");
   private probing: { kitty: boolean | null; done: () => void } | null = null;
+  /**
+   * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
+   * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
+   */
+  kbd = false;
 
   /** What a frame in progress has written so far (null outside `frame`); sent as one chunk when it ends. */
   private frameOut: string | null = null;
@@ -142,9 +156,10 @@ export class Term {
     await new Promise<void>(resolve => {
       const timer = setTimeout(() => { this.probing = null; resolve(); }, 400);
       this.probing = { kitty: null, done: () => { clearTimeout(timer); this.probing = null; resolve(); } };
-      this.write(`\x1b[16t${hint === null ? KITTY_QUERY : "\x1b[c"}`);
+      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
     });
     if (hint !== null) this.info.kitty = hint;
+    if (this.kbd) this.write(KBD_PUSH);
   }
 
   /**
@@ -164,7 +179,7 @@ export class Term {
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.pending = "";
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
+    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}`);
     this.measure();
     this.invalidate();
   }
@@ -229,15 +244,26 @@ export class Term {
     finally { wheelRows = 3; }              // a wheel that didn't come from the terminal (an agent's, a test's) scrolls 3
   }
 
-  /** Raw bytes to `sink` up to the next mouse report or escape chord; false when it must wait for more. */
+  /**
+   * Raw bytes to `sink` up to the next mouse report, Kitty key report or escape chord; false when it must wait
+   * for more. A key report goes on its own (the tile re-encodes it for its program), but ctrl+] as a report
+   * (`CSI 93;5u`) is the escape chord. A report cut off at the end of a read waits for the rest; a moment
+   * later, it goes as it was.
+   */
   private feedRaw(sink: (bytes: string) => void): boolean {
     const p = this.pending;
     let i = 0;
     while (i < p.length) {
       if (p[i] === "\x1d") break;
-      if (p.startsWith("\x1b[<", i)) {
-        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(p.slice(i))) break;
-        if (/^\x1b\[<[\d;]*$/.test(p.slice(i))) { if (i) sink(p.slice(0, i)); this.pending = p.slice(i); return false; }
+      if (p.startsWith("\x1b[", i)) {
+        const rest = p.slice(i);
+        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(rest) || REPORT_AT.test(rest)) break;
+        if (/^\x1b\[[<\d;:]*$/.test(rest)) {
+          if (i) sink(p.slice(0, i));
+          this.pending = rest;
+          setTimeout(() => { if (this.pending === rest) { this.pending = ""; this.rawSink?.()?.(rest); } }, 30);
+          return false;
+        }
       }
       i++;
     }
@@ -245,6 +271,14 @@ export class Term {
     this.pending = p.slice(i);
     if (!this.pending) return true;
     if (this.pending[0] === "\x1d") { this.pending = this.pending.slice(1); this.keyHandler({ kind: "char", ch: "]", ctrl: true }); return true; }
+    const r = parseReport(this.pending);
+    if (r) {
+      const seq = this.pending.slice(0, r.length);
+      this.pending = this.pending.slice(r.length);
+      const k = reportKey(r);
+      if (k?.kind === "char" && k.ctrl && k.ch === "]") this.keyHandler(k); else sink(seq);
+      return true;
+    }
     const m = this.pending.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/)!;
     this.pending = this.pending.slice(m[0].length);
     this.mouseKey(m);
@@ -279,7 +313,13 @@ export class Term {
       if (m) { this.pending = p.slice(m[0].length); this.mouseKey(m); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
-      if (/^\x1b(\[[<\d;?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
+      // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
+      m = p.match(/^\x1b\[\?\d*u/);
+      if (m) { if (this.probing) this.kbd = true; this.pending = p.slice(m[0].length); continue; }
+      // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
+      const report = parseReport(p);
+      if (report) { this.pending = p.slice(report.length); const k = reportKey(report); if (k) this.keyHandler(k); continue; }
+      if (/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
         setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
         return;

@@ -263,8 +263,8 @@ export class Draft {
       case "pgdn": this.moveVisual(Math.max(1, this.shown.h - 1)); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
-      // Enter keeps the list going (draft.newline); alt+enter and a pasted line break are plain line breaks.
-      case "enter": void DRAFT_ACTIONS.run("draft.newline", { plain: "pasted" in k }, this, USER); break;
+      // Enter keeps the list going (draft.newline); alt+enter, shift+enter and a pasted line break are plain line breaks.
+      case "enter": void DRAFT_ACTIONS.run("draft.newline", { plain: "pasted" in k || ("shift" in k && !!k.shift) }, this, USER); break;
       case "alt-enter": void DRAFT_ACTIONS.run("draft.newline", { plain: true }, this, USER); break;
       case "backspace":
         if (this.col > 0) {
@@ -876,7 +876,7 @@ export function agentMay(d: Draft, actor: Actor) {
  */
 export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
   "draft.newline": {
-    summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter plain)",
+    summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
     args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
     run({ plain }, d, actor) { agentMay(d, actor); const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   },
