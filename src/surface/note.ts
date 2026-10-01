@@ -3750,7 +3750,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "props.close": {
-    summary: "close the property panel (a value being typed must be saved or cancelled first)", keys: "esc, i",
+    summary: "close the property panel (a value being typed must be saved or cancelled first)", keys: "esc, i, q",
     args: {},
     run(_, { surface, host }) {
       if (!surface.panel) return { closed: false };
