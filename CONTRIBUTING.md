@@ -189,10 +189,22 @@ source evidence or distinguish authored glyphs from controls.
   changes it holds, embedded under the mark, its
   hidden `[draft-patch::…]` payload capped; `draft.proposal.apply` applies it
   anyway: forced for the person, the same compare as a patch for an agent,
-  and only what the proposal's text shows).
+  and only what the proposal's text shows. Forced means no revision or policy
+  check. It never places a passage that changed since, and never reaches below
+  the mark. `draft.proposal.dismiss` takes its embed line out of the note or
+  the live draft, marks it dismissed and trashes it; an agent dismisses only its
+  own. Each settles a proposal once (the router holds it while it runs).
+  The proposal contract clients read:
+  `[proposal-status::open|applied|dismissed]`, and `[proposal-applies::no]` when
+  its passage was already gone when proposed, or is at or below the mark (offer only dismiss). The header
+  is written from the payload and the status (`withProposalStatus`), never
+  matched as a sentence. It names no client's keys.
+  An `@name` request's row follows its proposal to `applied` or `dismissed`).
   `src/draft-patch-router.ts` routes: a held note's patch goes to the holding
   door as a `draft` event (answered with `drafts.answer`, never queued behind
-  the request waiting for it), any other is written under a revision check;
+  the request waiting for it; a patch that applies or dismisses a proposal says
+  so in `proposal: { id, op }`, so the door words it without reading the
+  patch's shape), any other is written under a revision check;
   several notes apply together or not at all. `src/draft-patch-compare.ts` is
   the compare itself (where the observed text is, what a position becomes). It
   imports nothing, because ep0ch-door runs it against its live draft from a
