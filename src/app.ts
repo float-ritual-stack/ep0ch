@@ -415,7 +415,7 @@ export class App implements Ctx {
     const shell = SHELL_ACTIONS.has(req.action) && !screenHas;
     const dock = DOCK_ACTIONS.has(req.action);
     // An extension's line or block action (`ext.<id>.<action>`, PIE-512), on every screen. One a tile kind also
-    // lists (tarot's keep) is the tile's when the request names the tile (reader=) or no block: its block is the
+    // lists (tarot's keep) is the tile's when the request names the tile (tile=) or no block: its block is the
     // tile's own. With block= it runs on that block, tile or none.
     const ext = !shell && !dock && EXT_ACTIONS.has(req.action) && !(screenHas && (req.reader !== undefined || req.args?.block === undefined));
     // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.

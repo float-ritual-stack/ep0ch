@@ -599,7 +599,7 @@ export class River implements Screen {
     if (!this.mode && s) return pad(` ${fg(C.grey)}${selectionHint(s.s, [...s.s.text(rowsOf(s.p.drawn?.lines ?? []))].length).replace(" · Y source", "")}${RESET}`, W);
     if (!this.mode && sp && sp.surface.editing && !sp.surface.panel && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
-    if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07${INPUT_CURSOR} |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
+    if (this.mode === "filter") return pad(paint(`|14filter this tile: |15${this.input}|07${INPUT_CURSOR} |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
     return pad(paint(`|08 h l columns · |15w|08 widen · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15q|08 menu${meter}`), W);
   }
@@ -636,11 +636,11 @@ export class River implements Screen {
       "⏎              reveal if open, else insert beside the source",
       "alt ⏎          force a duplicate column",
       "space          expand replies in place",
-      "s              split this note down as its own pane",
-      "tab            next stacked pane in the column",
+      "s              split this note down as its own tile",
+      "tab            next stacked tile in the column",
       "p              dock / undock the column (resists compression)",
-      "x              close pane, or the column when it has one",
-      "f              filter this pane (type:hub -status:done author:x word)",
+      "x              close the tile, or the column when it has one",
+      "f              filter this tile (type:hub -status:done author:x word)",
       "#              open a virtual branch from this note's properties",
       "/              jump: instant search over the whole index",
       "e / ctrl+e     edit the column's note here / in $EDITOR",
@@ -962,7 +962,7 @@ export class River implements Screen {
       const mine = this.panes().filter(q => q.surface.editing && this.agentsIn(q).has(actor.id));
       if (mine.length && !mine.includes(t.p)) {
         const q = mine[0]!, n = this.named(q), note = q.surface.msg ? subject(q.surface.msg) : "its note";
-        throw new ActionRefused(`${t.by === "focused" ? "the focused pane" : `column ${t.at}`} isn't where your ${q.surface.draft ? "edit" : "comment"} is: that's reader ${n.reader} (column ${n.at} now, ${note}); columns move as others open and close, so name it reader=${n.reader}`);
+        throw new ActionRefused(`${t.by === "focused" ? "the focused tile" : `column ${t.at}`} isn't where your ${q.surface.draft ? "edit" : "comment"} is: that's reader ${n.reader} (column ${n.at} now, ${note}); columns move as others open and close, so name it reader=${n.reader}`);
       }
     }
     // Peek and spine columns are read-only views; an edit or a comment already open in one still takes
@@ -997,7 +997,7 @@ export class River implements Screen {
         const col = this.cols[ci];
         if (!col) throw new ActionRefused(`there is no column ${n[1]}; the river has ${this.cols.length}`);
         pi = n[2] ? Number(n[2]) - 1 : col.pane;
-        if (!col.panes[pi]) throw new ActionRefused(`column ${n[1]} has ${col.panes.length} pane${col.panes.length === 1 ? "" : "s"}`);
+        if (!col.panes[pi]) throw new ActionRefused(`column ${n[1]} has ${col.panes.length} tile${col.panes.length === 1 ? "" : "s"}`);
       } else if (/^[0-9a-f-]{8,}$/.test(sel)) {
         by = "block";
         const covers = this.covers();
@@ -1014,7 +1014,7 @@ export class River implements Screen {
         const hit = showing[0];
         if (!hit) throw new ActionRefused(`no column's note is ${sel}; open it first (open id=${sel})`);
         ({ ci, pi } = hit);
-      } else throw new ActionRefused(`no reader ${sel} in the river; readers are pane ids (r7, from open or peek), column numbers (2, or 2.1 for a stacked pane), focused, or a block id`);
+      } else throw new ActionRefused(`no reader ${sel} in the river; readers are tile ids (r7, from open or peek), column numbers (2, or 2.1 for a stacked tile), focused, or a block id`);
     }
     const col = this.cols[ci];
     if (!col) throw new ActionRefused("the river has no columns");
@@ -1464,7 +1464,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     },
   },
   "focus": {
-    summary: "give the person's keys to reader= (r7, a column, or <column>.<pane>); only the keys move, the layout stays (widen shifts it). Only when the person asked: it moves their focus", keys: "h l ← →, tab, shift+tab, click in a column",
+    summary: "give the person's keys to reader= (r7, a column, or <column>.<tile>); only the keys move, the layout stays (widen shifts it). Only when the person asked: it moves their focus", keys: "h l ← →, tab, shift+tab, click in a column",
     args: {},
     run(_, { r, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs reader=<r7 or a column number>");
@@ -1489,7 +1489,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     run: ({ id, open }, { r, reader }) => r.repliesIn(reader, id, open),
   },
   "split": {
-    summary: "stack the selected note as its own pane in the same column; returns its reader id (an agent's leaves the column's active pane as it was; the person's s moves to it)", keys: "s",
+    summary: "stack the selected note as its own tile in the same column; returns its reader id (an agent's leaves the column's active tile as it was; the person's s moves to it)", keys: "s",
     args: {},
     run: (_, { r, reader }, actor) => r.splitIn(reader, actor.kind !== "agent"),
   },
@@ -1508,7 +1508,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     },
   },
   "close": {
-    summary: "close the pane, or the column when it has one; refused while it holds an edit or a comment", keys: "x",
+    summary: "close the tile, or the column when it has one; refused while it holds an edit or a comment", keys: "x",
     args: {},
     run: (_, { r, reader }) => r.closeIn(reader),
   },
@@ -1518,7 +1518,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     run: ({ by }, { r, reader }, actor) => r.scrollIn(reader, by, actor),
   },
   "filter": {
-    summary: "filter what reader='s pane lists: type:hub -status:done author:codex word (query= empty clears it). The person's f, typing, ⏎; an agent's is refused on the column the person has the keys in, and said on the status bar elsewhere", keys: "f then typing, ⏎ (or alt+⏎)",
+    summary: "filter what reader='s tile lists: type:hub -status:done author:codex word (query= empty clears it). The person's f, typing, ⏎; an agent's is refused on the column the person has the keys in, and said on the status bar elsewhere", keys: "f then typing, ⏎ (or alt+⏎)",
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     run({ query }, { r, reader }, actor) {
       const out = r.filterIn(reader, query, actor);

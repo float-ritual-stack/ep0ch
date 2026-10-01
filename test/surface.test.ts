@@ -17,7 +17,7 @@ import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
 import { width } from "../src/style";
-import { ActionRefused, ActionSet, asActor, parseActArgs } from "../src/surface/actions";
+import { ActionRefused, ActionSet, asActor, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -111,8 +111,37 @@ describe("the surface without a service", () => {
       expect(await parseActArgs(["comment", "reader=detail1", "quote=a = b", `body=@${join(dir, "body.md")}`, "--as", "claude-7"]))
         .toEqual({ action: "comment", reader: "detail1", as: "claude-7", args: { quote: "a = b", body: "line one\nline = two" } });
       expect(await parseActArgs(["edit.text", "text=@-"], async () => "from stdin\n")).toEqual({ action: "edit.text", args: { text: "from stdin" } });
+      // tile= names the tile; reader= and --reader, its older names, still do (A5).
+      expect(await parseActArgs(["tile.close", "tile=detail2"])).toEqual({ action: "tile.close", reader: "detail2", args: {} });
+      expect(await parseActArgs(["tile.close", "--tile", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
+      expect(await parseActArgs(["tile.close", "--reader", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
       await expect(parseActArgs(["edit.text", "oops"])).rejects.toThrow("key=value");
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("an alias runs its action's one def: listed once with its aliases, traced by the action's name and keys (A4)", async () => {
+    const runs: ActionRun[] = [], stop = traceActions(r => runs.push(r));
+    try {
+      const set = new ActionSet<{ "tile.fold": { on?: boolean } }, { said: string[] }>("t", {
+        "tile.fold": {
+          summary: "fold", keys: "^W c",
+          aliases: ["pane.fold", { name: "reader.shut", keys: "c on a reader", args: {}, map: () => ({ on: true }) }],
+          args: { on: { type: "boolean", optional: true, about: "on" } },
+          run: ({ on }, h) => { h.said.push(String(on)); return { on }; },
+        },
+      });
+      const h = { said: [] as string[] };
+      expect(set.list()).toEqual([{ name: "tile.fold", summary: "fold", keys: "^W c; c on a reader", args: { on: { type: "boolean", optional: true, about: "on" } }, scope: "t", aliases: ["pane.fold", "reader.shut"] }]);
+      expect(await set.runUntyped("pane.fold", { on: "false" }, h, { kind: "user" })).toEqual({ on: false });
+      expect(await set.runUntyped("reader.shut", {}, h, { kind: "user" })).toEqual({ on: true });
+      expect(() => set.runUntyped("reader.shut", { on: "false" }, h, { kind: "user" })).toThrow("reader.shut takes no on");
+      expect(runs.map(r => [r.name, r.keys])).toEqual([["tile.fold", "^W c; c on a reader"], ["tile.fold", "^W c; c on a reader"]]);
+      expect([set.has("pane.fold"), set.canonical("pane.fold"), set.canonical("tile.fold")]).toEqual([true, "tile.fold", "tile.fold"]);
+      expect(() => new ActionSet<{ a: object; b: object }, null>("t", { a: { summary: "", aliases: ["b"], args: {}, run: () => 0 }, b: { summary: "", args: {}, run: () => 0 } })).toThrow("b is already an action");
+      // An action defined again (an extension reloaded) takes its aliases with it.
+      set.forget("tile.fold");
+      expect(set.has("pane.fold")).toBe(false);
+    } finally { stop(); }
   });
 
   test("an agent is named in everything it makes the door say, and names itself plainly", () => {
@@ -512,7 +541,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       await act("open", { id: cards.gate.id }, "preview");
       const r2 = await ask({ cmd: "act", action: "edit.text", reader: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
       expect(r2).toMatchObject({ ok: true, result: { reader: "preview", dirty: true } });
-      expect(await ask({ cmd: "act", action: "edit.save", reader: "preview", as: "socket-agent" })).toMatchObject({ ok: true, result: { saved: true } });
+      // tile= on the wire names the tile, as reader= (its older name) does (A5).
+      expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "socket-agent" })).toMatchObject({ ok: true, result: { saved: true } });
       expect(await lastBy(cards.gate.id)).toEqual(["agent", "socket-agent"]);
       expect(await ask({ cmd: "act", action: "edit.save", reader: "preview", as: "bad id!" })).toMatchObject({ ok: false, error: expect.stringContaining("an actor id") });
     } finally { ctl.close(); }

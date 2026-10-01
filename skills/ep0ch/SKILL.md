@@ -137,11 +137,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The agent drawer** (every screen): `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`,
   `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put it away, resize it or
   restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
-- **The outline tree's links:** `tree.links reader=<tree tile> n=<row>` shows a row's outlinks, resources and
+- **The outline tree's links:** `tree.links tile=<tree tile> n=<row>` shows a row's outlinks, resources and
   backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
-- **The board** is a preset on the desk: the same `layout.get`, `tile.*` and `pane.*` work there. Its lanes are
+- **The board** is a preset on the desk: the same `layout.get` and `tile.*` work there (`pane.*` are their older names). Its lanes are
   query tiles named by their lane, in a `columns` container filled from the hub; its readers are `preview`,
   `detail1`…; the outline drawer is `tree` over `tree-preview`, the backlinks drawer `backlinks` beside
   `backlinks-preview`. Cards: `card.select` (yours is your own), `card.move lane=…`, `card.create`, `steps`,

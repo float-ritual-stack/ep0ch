@@ -9,20 +9,20 @@ READMEs and roadmap items, and to judge whether a new screen reuses the grammar 
 ## Before adding a feature
 
 Check here for the part that already does it. Skipping this step is how the door got two readers,
-three pane models and four searches (§4).
+three layout models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
 | render or read a note | `NoteSurface`, hosted through `SurfaceHost` (a view with its own header gives its rows through `SurfaceHost.header`, as the BBS message reader does, PIE-426); the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts`; transclusions (`!((id))`, `!((id^fragment))`) by `src/embeds.ts` from the service's projection (`transclusions.read`, PIE-424: fragment slices, nesting depth, cycles and their wording are the service's), each embedded body drawn by the surface's own renderer; a followed `((id^fragment))` revealed from `fragments.read` (PIE-425). Whether an outline event means the note shown must be read again is `NoteSurface.staleOn` (every host asks it: the desk's and the board's readers, the river's columns, the BBS message reader) and reads it again by `NoteSurface.reread` (one read at a time: a burst of changes makes one more, not one each), so a note trashed or restored with an ancestor says so | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts`, `src/embeds.ts` |
 | scroll a view (the wheel, `j k`, PgUp PgDn) | `src/scroll.ts`: `scrolled(top, by, max)` moves a position by rows within its content and nothing else; `wheelRows(dir)` is what one wheel report scrolls (`EP0CH_SCROLL_ROWS`, default 1, no timing: the terminal already paces a trackpad's reports); `RowView` for a view with a selected row in it (the selection comes into view only when it moved, never on a repaint). A list whose wheel moves its selection moves it one row a report. A frame of nothing but wheel reports is `onlyScrolled()`, and a reader moves its last layout (`NoteSurface.layOut`) instead of laying the note out again | `src/scroll.ts`, `src/app.ts` |
-| let a person or agent do anything; let an agent see what the person sees | the action registry: an `ActionDef` in an `ActionSet`; the key, the mouse and `act` all call it (a change that isn't an action is a bug, and `test/parity.test.ts` finds it: it presses every key and clicks across every screen, traces the actions run with `traceActions`, and checks each key against the def's `keys` and each hint against `declaredKeys`, PIE-506). The shell's `SHELL_ACTIONS` (`screen.open`, `screen.back`, `screen.list`, `screen.help`, `video.cycle`, reached from a screen screens.ts imports through `src/shell-keys.ts`, and `screen.shell`, drop to shell: the person's only, through `App.suspend` as ctrl+e's `$EDITOR`, `src/drop.ts`) work on every screen and the BBS lists' `LIST_ACTIONS` (`list.select`, `list.open`, `list.read`) on each list (PIE-489); an agent's move of the person's screen goes through `agentMayMove`. Reads: `layout.get`, `view.get`; the live feed: `subscribe` on the control socket, diffed from the screen's `viewState()` after each paint (`App.subscribe`). See [the agent interface](AGENT-INTERFACE.md) | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts`, `src/app.ts`, `docs/AGENT-INTERFACE.md` |
+| let a person or agent do anything; let an agent see what the person sees | the action registry: an `ActionDef` in an `ActionSet`; the key, the mouse and `act` all call it; an action's other name (an older one agents' scripts use, a view's word for it) is an alias declared on its def (`ActionDef.aliases`, with its own arguments mapped when they differ), never a second def (a change that isn't an action is a bug, and `test/parity.test.ts` finds it: it presses every key and clicks across every screen, traces the actions run with `traceActions`, and checks each key against the def's `keys` and each hint against `declaredKeys`, PIE-506). The shell's `SHELL_ACTIONS` (`screen.open`, `screen.back`, `screen.list`, `screen.help`, `video.cycle`, reached from a screen screens.ts imports through `src/shell-keys.ts`, and `screen.shell`, drop to shell: the person's only, through `App.suspend` as ctrl+e's `$EDITOR`, `src/drop.ts`) work on every screen and the BBS lists' `LIST_ACTIONS` (`list.select`, `list.open`, `list.read`) on each list (PIE-489); an agent's move of the person's screen goes through `agentMayMove`. Reads: `layout.get`, `view.get`; the live feed: `subscribe` on the control socket, diffed from the screen's `viewState()` after each paint (`App.subscribe`). See [the agent interface](AGENT-INTERFACE.md) | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts`, `src/app.ts`, `docs/AGENT-INTERFACE.md` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer. The draft's list keys, the mouse and the preview are `DRAFT_ACTIONS` (PIE-496: `draft.newline` `draft.indent` `draft.outdent` `draft.place` `draft.scroll` `draft.preview`, forwarded as note actions); its soft wrap hangs a list item's rows under its text (`Draft.layout`); `renderEditor` records where it drew (`Draft.frame`) and `editorClick` maps a click to an action; the preview is the readers' renderer (`draftPreview`). Unsaved text is **put aside** where it was written (`shelve`, `unsent`, keyed `edit:<id>` `comment:<id>` `reply:<thread>` `card:<lane>` `child:<id>`) and brought back by `Draft.restore`, with who wrote it (a save names them); a draft only agents wrote is only copied, never put aside over the person's. A click outside the draft leaves it as in any editor (`session.leave`, NOTE_ACTIONS; the board composer's `composer.leave`), then does what it does: an unchanged edit closes, a changed one saves with its revision, a refused save and any comment, reply or new card are put aside as unsent; its hold goes with it. A paste typed out as keys (`pasteKeys`, tagged `pasted`) goes in as it came. An agent's `draft.*` works only in a draft it opened (`Draft.openedBy`) and alone wrote in. An agent's `draft.patch` (pi-herdr-outliner PIE-501) reaches the person's draft through its hold (`SocketBoard.holdDraft`, a lease renewed while it's open): `Draft.applyPatch` runs the service's compare (`src/vendor/draft-patch-compare.ts`, copied byte for byte) against the text as typed, moves the cursor, selection and view with it, lights it (`Draft.flashes`) and keeps it as one undo unit (`draft.undo`, ctrl+z); a proposal that couldn't apply is applied anyway by `proposal.apply` (`A`) or dismissed by `proposal.dismiss` (`X`, the service's `draft.proposal.dismiss`); its embed's source line and an opened proposal's header draw both as `[apply]` `[dismiss]` (only `[dismiss]` on one marked `[proposal-applies::no]`), elements of kind control that `[ ]` reaches and a click runs | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
-| open, split, zoom, close panes; tabs, drag and drop, drawers, floats, spines, columns from data, named layouts, locking a shape | the layout tree (PIE-412), one engine for the desk and every screen built on it: tiles in **containers**, n-ary splits by weight, minimums, **tab sets** (PIE-413), **drawers** (PIE-505: a `Drawer` node holding any tiles, a whole split too, sliding out from its `edge` over the others, shut to a handle on the hint row; `wrapDrawer`, `wrapNodeDrawer`, `unwrapDrawer`, `drawerToEdge`; `placeScreen`'s `slid`, each open drawer placed as if it alone docked; a click on a header's `⇤ drawer` docks it), **columns** (PIE-511: a `Columns` node, tiles side by side in the order its `source` gives, each its own weight; it stays with one tile or none and never merges; `columnsOf`), **floats** (PIE-511: `pane.float` takes a tile out of the tree to its own rectangle above everything, `float.place` moves and sizes it, its title drags it, its ◢ corner sizes it, `H J K L` step it, a click on its ⧉ docks it where the containers take it (`docking`); a float has no place in the tree, so nothing goes beside it, swaps with it or folds it until it docks: one rule, `floatRefusal`; saved with the layout), **spines** (`tile.collapse`, `^W c`: a tile side by side with others folds to a strip with its title, what it holds kept; a reader's spine marks a draft and new comments), borders that follow the pointer; every container and the screen carry a **policy** saved with the layout (`Policy`: draggable, droppable, closable (off: its tiles stay, `tile.close` refused with the reason), accepts, resizable, min/max/fixed, collapsible, overlay, stays (an open drawer stays when the keys leave it), locked, opensInto; `effective` resolves the layers, nearest wins and `locked` anywhere above locks), and every move, drop, open, close, resize, pin and link asks it and says why when it refuses (`dragRefusal`, `intoRefusal`, `resizeRefusal` in the desk; `layout.lock`, `layout.policy`, the `^W P` panel); tile moves (`move`, `tabInto`, `edge`, `normalise`, floatty's model ported, reaching into drawers) and the drop zones in cells (`dropAt`: header or centre tabs, triangles split, outer edges columns; `handleDrop`: a shut drawer's handle; each drop carries policy's `refused`). A columns container's tiles come from data: its `source` names a **tile source** (`registerTileSource`, `tileSource` in `src/desk/tile-kinds.ts`; `hub:<id>` is a hub's views, one query tile each, `HUB_SOURCE` in `src/desk/query.ts`), which the desk asks as the screen starts and again when a change `affects` it, keeping each tile by its `key` (`fillColumns`); a tile a source supplies doesn't close (it goes when its data does), and the source's `drop` says how to take one away (a hub's: its view out of the hub); a preview's `tile:<name>` may name a container, following any tile in it. The board is a preset on this engine (PIE-511, `DeliveryBoard extends Desk`): its lanes are those columns, its outline and backlinks the desk's drawers, its floats the desk's floats; its fixed shape is policy, read back by `layout.policy` (PIE-510: the lanes and the preview stay where they are, draggable off; the preview doesn't close, closable off, in a tab set of one that holds its policy; a lane closes only when its view goes, the desk's rule for any tile a source supplies; the drawers' lists stay in their drawers), never a rule kept by tile name. The desk is **tiles**: each a kind from the **tile-kind registry** (`src/desk/tile-kinds.ts`: `registerTileKind`, one `TileKind` entry per kind with `make`, `keys`, `actions`, `policy`, `accepts`, `take`, `save`, `revive`, `holdsWork`, `shows`, `follows`, `start`, `describe`, `view`, `previewSource`, and what the desk would otherwise switch on a class for: `press` (a key or click that runs one of its actions: a terminal's ⏎, e and click run `tile.enter`), `takesKeys`, `act` and `tick` (a whole screen in a tile), `whenFree` (a gone kind's tile waits for its program); the built-ins in `src/desk/builtin-tiles.ts`, an extension's kind the same way, `serviceKind` for one the service draws; the desk never switches on a kind's name), built by `makeTile`, named (`tileNameProblem`: never a number or an id), with a link for its opens (PIE-473); every split, tab set and tile has a stable id and the layout a revision (PIE-491: `s` `g` `t`, `rev`, `expected=`), so agents name them by id, not place; the arrangement is a **layout** saved by name (`src/desk/tiles.ts`, PIE-474), where an open with no link lands on the current note. Every operation is an action: `pane.*` (split, close, resize, zoom, float, pin) and `layout.*` `tile.*` `tab.select` (TILE_ACTIONS), a terminal's `tile.type`, `tile.enter`, `tile.leave`, `tile.restart`, `tile.herdr` (its kind's, `PTY_ACTIONS` in `src/desk/pty-actions.ts`); keys and drags only call them. A view built on the desk is a `DeskPreset` (the brief, Waiting, the welcome): its panes with their tile names, links and first focus, the glyphs its frames are drawn with (`DOTTED_BOX`), whether the digits are the desk's (`digits: false`: the view's own, the tiles unnumbered), and rows above the tiles for its own art (`bandRows`, `drawBand`) and its own hint (`screenHint`) | `src/desk/layout.ts`, `src/desk/drop.ts`, `src/desk/tiles.ts`, `src/desk/tile-kinds.ts`, `src/desk/builtin-tiles.ts`, `src/desk/tile-actions.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts`, `src/desk/desk.ts` |
+| open, split, zoom, close tiles; tabs, drag and drop, drawers, floats, spines, columns from data, named layouts, locking a shape | the layout tree (PIE-412), one engine for the desk and every screen built on it: tiles in **containers**, n-ary splits by weight, minimums, **tab sets** (PIE-413), **drawers** (PIE-505: a `Drawer` node holding any tiles, a whole split too, sliding out from its `edge` over the others, shut to a handle on the hint row; `wrapDrawer`, `wrapNodeDrawer`, `unwrapDrawer`, `drawerToEdge`; `placeScreen`'s `slid`, each open drawer placed as if it alone docked; a click on a header's `⇤ drawer` docks it), **columns** (PIE-511: a `Columns` node, tiles side by side in the order its `source` gives, each its own weight; it stays with one tile or none and never merges; `columnsOf`), **floats** (PIE-511: `tile.float` takes a tile out of the tree to its own rectangle above everything, `float.place` moves and sizes it, its title drags it, its ◢ corner sizes it, `H J K L` step it, a click on its ⧉ docks it where the containers take it (`docking`); a float has no place in the tree, so nothing goes beside it, swaps with it or folds it until it docks: one rule, `floatRefusal`; saved with the layout), **spines** (`tile.collapse`, `^W c`: a tile side by side with others folds to a strip with its title, what it holds kept; a reader's spine marks a draft and new comments), borders that follow the pointer; every container and the screen carry a **policy** saved with the layout (`Policy`: draggable, droppable, closable (off: its tiles stay, `tile.close` refused with the reason), accepts, resizable, min/max/fixed, collapsible, overlay, stays (an open drawer stays when the keys leave it), locked, opensInto; `effective` resolves the layers, nearest wins and `locked` anywhere above locks), and every move, drop, open, close, resize, pin and link asks it and says why when it refuses (`dragRefusal`, `intoRefusal`, `resizeRefusal` in the desk; `layout.lock`, `layout.policy`, the `^W P` panel); tile moves (`move`, `tabInto`, `edge`, `normalise`, floatty's model ported, reaching into drawers) and the drop zones in cells (`dropAt`: header or centre tabs, triangles split, outer edges columns; `handleDrop`: a shut drawer's handle; each drop carries policy's `refused`). A columns container's tiles come from data: its `source` names a **tile source** (`registerTileSource`, `tileSource` in `src/desk/tile-kinds.ts`; `hub:<id>` is a hub's views, one query tile each, `HUB_SOURCE` in `src/desk/query.ts`), which the desk asks as the screen starts and again when a change `affects` it, keeping each tile by its `key` (`fillColumns`); a tile a source supplies doesn't close (it goes when its data does), and the source's `drop` says how to take one away (a hub's: its view out of the hub); a preview's `tile:<name>` may name a container, following any tile in it. The board is a preset on this engine (PIE-511, `DeliveryBoard extends Desk`): its lanes are those columns, its outline and backlinks the desk's drawers, its floats the desk's floats; its fixed shape is policy, read back by `layout.policy` (PIE-510: the lanes and the preview stay where they are, draggable off; the preview doesn't close, closable off, in a tab set of one that holds its policy; a lane closes only when its view goes, the desk's rule for any tile a source supplies; the drawers' lists stay in their drawers), never a rule kept by tile name. The desk is **tiles**: each a kind from the **tile-kind registry** (`src/desk/tile-kinds.ts`: `registerTileKind`, one `TileKind` entry per kind with `make`, `keys`, `actions`, `policy`, `accepts`, `take`, `save`, `revive`, `holdsWork`, `shows`, `follows`, `start`, `describe`, `view`, `previewSource`, and what the desk would otherwise switch on a class for: `press` (a key or click that runs one of its actions: a terminal's ⏎, e and click run `tile.enter`), `takesKeys`, `act` and `tick` (a whole screen in a tile), `whenFree` (a gone kind's tile waits for its program); the built-ins in `src/desk/builtin-tiles.ts`, an extension's kind the same way, `serviceKind` for one the service draws; the desk never switches on a kind's name), built by `makeTile`, named (`tileNameProblem`: never a number or an id), with a link for its opens (PIE-473); every split, tab set and tile has a stable id and the layout a revision (PIE-491: `s` `g` `t`, `rev`, `expected=`), so agents name them by id, not place; the arrangement is a **layout** saved by name (`src/desk/tiles.ts`, PIE-474), where an open with no link lands on the current note. Every operation is an action: `tile.*` (open, close, resize, zoom, float, pin, collapse, …; the older `pane.*` names are declared aliases of them, and `pane.split` is `tile.open` with its own arguments) and `layout.*` `tab.select` (TILE_ACTIONS), a terminal's `tile.type`, `tile.enter`, `tile.leave`, `tile.restart`, `tile.herdr` (its kind's, `PTY_ACTIONS` in `src/desk/pty-actions.ts`); keys and drags only call them. A view built on the desk is a `DeskPreset` (the brief, Waiting, the welcome): its panes with their tile names, links and first focus, the glyphs its frames are drawn with (`DOTTED_BOX`), whether the digits are the desk's (`digits: false`: the view's own, the tiles unnumbered), and rows above the tiles for its own art (`bandRows`, `drawBand`) and its own hint (`screenHint`) | `src/desk/layout.ts`, `src/desk/drop.ts`, `src/desk/tiles.ts`, `src/desk/tile-kinds.ts`, `src/desk/builtin-tiles.ts`, `src/desk/tile-actions.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts`, `src/desk/desk.ts` |
 | add a kind of tile (a built-in, or an extension's whole tile); fill a container from data | the tile-kind registry (PIE-505): `registerTileKind` with one `TileKind` entry (`make`, `keys` under `^W o`, `actions` routed by `act`, a default `policy`, `accepts` notes or tab kinds, `take` (how it takes a note sent to it: a reader holds it, a preview follows it), `follower`, `save`/`revive`, `holdsWork`, `shows`, `follows`, `start`, `describe`, `view`, `previewSource`, `press`, `takesKeys`, `act`, `tick`, `whenFree`; `inherits`: another kind's action sets it shares); a saved tile of a kind not registered here is an `UnavailableTile` that says why (not loaded yet, or its extension removed: `unregisterTileKind(kind, why)`) and keeps its spec, and the desk makes it again when the kind comes (`watchTileKinds`, `kindsChanged`, `Desk.kindsChanged`); the built-ins register at startup, an extension's the same way; `serviceKind` makes one the service provides: rows it draws (`render`, a `ServiceTile`), or a program it names (`program`, a `ProgramTile`: a terminal tile of that kind with the terminal kind's hooks and actions, its args saved as `state` and passed as `--name=value`, a `block` arg defaulting to the note shown where it's opened). The service's `tileKinds` register through it (src/extensions.ts). The `query` kind (PIE-511, `QueryPane`): a saved view's cards with its own cursor (`query.pick`, `query.reload`; `^W o q` on a tile showing a view), a board lane on the board. A **tile source** (`registerTileSource`: `tiles`, `affects`, `key`) supplies a columns container's tiles. The desk and the layout never switch on a kind's name | `src/desk/tile-kinds.ts`, `src/desk/builtin-tiles.ts`, `src/desk/query.ts`, `src/extensions.ts` |
 | run a program beside the notes (nvim, claude, a shell) | the terminal tile (PIE-417): a pty from `Bun.Terminal`, the screen through `@xterm/headless`, drawn in cells; keys go to it while the person is in it, `ctrl+]` leaves, encoded as the program asked (`KbdModes` in `src/kbd.ts` follows its Kitty keyboard protocol requests; the same module reads the door's own terminal's reports in `Term`); the mouse goes to it when it asked. `ctrl+e` edits a draft in one (`Ctx.editInTile`). The program is told its door (`EP0CH_CONTROL`, the door's own control socket) and its tile (`EP0CH_TILE`, `EP0CH_TILE_ID`); its environment is `tileEnv` (one list of what a tile's program doesn't get; `HERDR_VARS` is the one Herdr list for tests and scripts). What every agent is told about its door is `agentVars` (`src/desk/agent-env.ts`), the one function for a tile's program, the drawer's and the Herdr launcher's pane alike; what a running agent knows (its own environment and start against the installed Claude mod) is `judgeAgent` there, read by the drawer's chip and `ep0ch doctor`. Where a program runs, the layers outside it, is `EP0CH_NEST` (`src/nest.ts`: each layer appends itself), checked by `ep0ch where` (`src/where.ts`, over `peek` and read-only `herdr pane list`). An agent that should outlive the door runs in a Herdr pane the tile attaches to (`scripts/door-agent-herdr.ts`: Herdr's attach in the tile, no second terminal; it says so with `tile.herdr`). An agent that stays with the person on every screen is the App's one agent tile (`AgentDock`, PIE-498): the status bar's chip pulls it up as a drawer over any screen, laid over its rows so nothing reflows; the daily layout's agent tile is that same instance (`shareAgent`), drawn in one place at a time; `agent.toggle`, `agent.height`, `agent.knows`, `agent.restart` (DOCK_ACTIONS) on every screen | `src/desk/pty.ts`, `src/surface/editor.ts`, `src/desk/herdr-agent.ts`, `src/desk/agent-env.ts`, `src/nest.ts`, `src/where.ts`, `src/dock.ts` |
 | follow a tile's selection or a file in a reader | the preview tile (PIE-473): a `ReaderPane` (the note surface, no second renderer) with a source, `tile:<name>` or `file:<path>` (re-read on save, read-only) | `src/desk/preview.ts` |
 | put a whole screen in a tile (the board, the river, the brief) | `ScreenTile` over the showcase's `FramedScreen`: the screen itself in a rectangle, its selection the tile's | `src/desk/screen-tile.ts`, `src/showcase/frame.ts` |
-| squeeze a pane to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
+| squeeze a tile to a title strip | the spine part: `drawSpine`, `SPINE` (rotated title under Kitty, stacked letters in cells, marks) | `src/spine.ts`; river columns, board lanes and readers |
 | show children, outlinks, backlinks, resources, or go back and forward | entity navigation (PIE-432); today `u` and link selection in the surface, `references.backlinks`; history (PIE-453): each reader's back and forward in the surface (`track` records a follow, `u` or an open into it; `travel` restores the note, scroll and `[ ]` position; `back`/`forward` actions; alt+← alt+→, backspace, the mouse's side buttons, the `← back` row), or the view's own through `SurfaceHost.history` where a follow opens elsewhere; backlinks presented as Detail presents them (PIE-442): `backlinkView` and the panel's text in `src/backlinks.ts`, Detail's `backlink-view.ts` over the service's facets, mirrored and parity-tested (`backlinkRows`, `backlinkStatusParts`, `describeBacklinkView` for agents), drawn by `backlinkRowLine` and `layoutBacklinkStatus` (the board's drawer and the backlinks tile, one drawing); the **backlinks tile** (`BacklinksPane`, kind `backlinks`, `^W o l`): the backlinks of what another tile shows (`source: tile:<name>`, through `DeskApi.tileShowing`), its selection shown where the tile's selection goes (`DeskApi.showFrom`: the previews following it and its link, never the current note, so the reader it lists stays put) as it moves and when the tile is given the keys (`Pane.focused`), `backlinks.pick` and `backlinks.view` (BACKLINKS_ACTIONS); a row's **links in the tree** (the outliner's Tree's authored links, PIE-324, PIE-329): `L` (`tree.links`, TREE_ACTIONS) shows under a row its outlinks and resources (the service's `blocks.authored-links`, laid out by `src/authored.ts` in the Tree's words) and its backlinks (the same `backlinkView` and `backlinkRows`), each group folding, a link to a note showing its own a level down; ⏎ or a click (`tree.pick`) opens a note where the tree's opens go, and on a resource shows its stored content as a read-only note (`openResource`: `resources.follow-authored` when it isn't registered, `resources.describe`, `resources.refresh` once when nothing is stored). A resource token in a reader (`[file::…]`, `[jira::KEY]`, as the service's spans name them, `resourceTokensOf`) is a link that does the same | `src/surface/note.ts`, `src/socket.ts`, `src/backlinks.ts`, `src/desk/backlinks-pane.ts`, `src/desk/tree.ts`, `src/authored.ts` |
 | show who's here or recent activity | presence (PIE-430); today `WhoPane` and `ActivityPane` over `clients.list`, `activity.recent` | `src/desk/panes.ts` |
 | put live data in a note | live figures, which read views with `views.read` | `src/live.ts`, `src/views.ts` |
@@ -53,12 +53,13 @@ three pane models and four searches (§4).
 - **One reader.** Board, desk, river and the BBS message reader (`MessageReader` `scr:273`, PIE-426)
   host `NoteSurface`; the BBS one keeps its header through `SurfaceHost.header`. `colourBody` still draws
   the desk's search preview and the river's cards (lists, not readers).
-- **Pane operations exist twice.** The desk and the board are one engine (PIE-511): the board is a preset
+- **Tile operations exist twice.** The desk and the board are one engine (PIE-511): the board is a preset
   on the desk, its lanes query tiles in a columns container, its drawers and floats the desk's. The river
   still has its strip of columns. The board keeps a few keys of its own (`x`, `o`, `T`, `B`, `{ }`), each the
   same tile action as the desk's `^W` key.
-- **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `pane.*`
-  actions (split, close, resize, zoom, float, pin) are shared by the desk and the board. The river has
+- **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `tile.*`
+  actions (open, close, resize, zoom, float, pin, collapse; `pane.*` their older names) are shared by the desk
+  and the board. The river has
   its own column actions. The BBS message reader has the note actions and its own `message.*`; the
   menu and every screen have the shell's `screen.*`, and the BBS lists `list.*` (PIE-489).
 - **Words collide.** "Reader", "pin", "preview", "detail", "region" and "spine" each mean two
@@ -124,21 +125,20 @@ pane, region or column, the table below says what it is today.
 |---|---|
 | block | Content in the outline. It is data, never UI. |
 | tile | A UI leaf that shows one thing: a block, a query, a terminal, a component or a tree. Its kind comes from the tile-kind registry (`src/desk/tile-kinds.ts`), where built-ins and extensions register the same way. |
-| container | Holds tiles or other containers and decides how they're arranged: `split` (side by side or stacked, resizable), `tabs` (stacked, one visible), `columns` (equal and ordered), `drawer` (slides out over the others from an edge and takes drops; `Drawer` in `src/desk/layout.ts`, PIE-505), `flow` (columns where opens go into the next one; the river). Split, tabs, drawer and columns (PIE-511: `Columns`, its tiles from a source, the board's lanes) are built; flow is next. |
+| container | Holds tiles or other containers and decides how they're arranged: `split` (side by side or stacked, resizable), `tabs` (stacked, one visible), `columns` (side by side in the order their source gives, each its own weight), `drawer` (slides out over the others from an edge and takes drops; `Drawer` in `src/desk/layout.ts`, PIE-505), `flow` (columns where opens go into the next one; the river). Split, tabs, drawer and columns (PIE-511: `Columns`, its tiles from a source, the board's lanes) are built; flow is next. |
 | policy | What a container allows, saved with the screen: draggable, droppable, closable, `accepts: [tile kinds]`, resizable (`min`, `max`, `fixed` cells), collapsible, overlay (and its edge), `locked`, `opens-into` (`opensInto`). The screen has one too, outermost: `locked` there is the screen's lock (`alt+k`, the `▣ locked` chip, `layout.lock`). `Policy`, `effective` in `src/desk/layout.ts`; set by `layout.policy` or `^W P`. |
-| screen | A saved tree of containers and tiles: a preset, stored in the outline. Board, desk, river, welcome, waiting and brief are all screens; the board, the welcome, waiting and the brief are presets on the desk now (`DeskPreset`, in code until gap 4). |
-| pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still uses `Pane` for a tile's class until the layout work renames it. |
+| screen | A saved tree of containers and tiles: a preset. Board, desk, river, welcome, waiting and brief are all screens; the board, the welcome, waiting and the brief are presets on the desk now (`DeskPreset`, in code until gap 4). Today a screen's layout is saved in the door's state (`desk.json`, `delivery.json`, `layouts.json` by name, §3's persist row); storing screens as notes in the outline is the planned PIE-412 step (gap 4). |
+| pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still names a tile's class `Pane` (`ReaderPane`, `PaneView`, …), a rename left for later; the `pane.*` actions are older names (aliases) of the `tile.*` ones, and `tile=` names a tile in `act` (`reader=` its older name). |
 
-### View and pane
+### View and tile
 
 | Canonical | Meaning | Code | Tree/Detail |
 |---|---|---|---|
 | view | What a screen arranges: board, desk, river, BBS list | each `Screen` | Tree / Detail |
-| pane | A framed rectangle that takes focus | desk `Pane` `pan:28` | Herdr pane |
+| tile | A framed rectangle that shows one thing and takes focus: a kind from the registry (outline, reader, detail, preview, terminal, board, river, brief, an extension's, …) with a name, dragged by its header (Layout, above) | the class `Pane` in the desk's tree (`pan:28`), `TileKind` `src/desk/tile-kinds.ts`, `makeTile` `src/desk/tiles.ts` | Herdr pane |
 | — alias: region | Gone (PIE-511): the board's areas are tiles with names (`preview`, `detail1`, `tree`, a lane's) | — | *collides:* PreviewRegion |
-| — alias: column | A river strip; stacked panes inside | `Col` `riv:47` `PaneS` `riv:28` | none |
+| — alias: column | A river strip; stacked tiles inside | `Col` `riv:47` `PaneS` `riv:28` | none |
 | layout tree | Containers (splits by weight, tab sets, drawers, columns) over tile ids, each with its policy; floats above it | `LNode` `lay` (the desk and the screens built on it, the board one of them; the river as a layout with its open rule) | none |
-| tile | A pane on the desk: a kind from the registry (outline, reader, detail, preview, terminal, board, river, brief, an extension's, …) with a name, dragged by its header | `Pane` in the desk's tree, `TileKind` `src/desk/tile-kinds.ts`, `makeTile` `src/desk/tiles.ts` | Herdr pane |
 | tab set | Tiles stacked in one place, one shown; the header shows the tabs | `Tabs` `lay` | none |
 | header | A tile's top border: its number and name (or its tabs), what it shows, `→ link`, `⇤ drawer` (the arrow is its edge: `⇤ ⇥ ⤒ ⤓`). Its title or tabs are the grip: drag them to move the tile. The bare line after them is the border above, so dragging it resizes the tile (a header with no border above is all grip) | `header` `dsk` | pane title |
 | drop | Where a dragged tile lands: tabs (a header or a centre), a split (a triangle), an outer edge; outlined while dragging (the ghost) | `dropAt` `src/desk/drop.ts` | none |
@@ -146,10 +146,10 @@ pane, region or column, the table below says what it is today.
 | layout (named) | The tile tree with each tile's spec, links, drawers and open rule, saved by name | `LayoutSpec` `src/desk/tiles.ts` | none |
 | open rule | Where an open with no link lands: the current note (`current`), or the next column (`river`) | `rule` `dsk` | none |
 | terminal tile | A program in a pty the door owns; the person is *in* it (like entered) until `ctrl+]` | `PtyPane` `src/desk/pty.ts` | Herdr pane |
-| focus | Which pane gets the keys | `focus` in each screen | pane focus |
+| focus | Which tile gets the keys | `focus` in each screen | pane focus |
 | entered | You are *inside* a reader's edit, comment or panel | `Entered` `pan:287` | draft focus |
-| zoom | One pane fills the view | `dsk:326` (desk only) | Herdr zoom |
-| float | A tile taken out of the tree to its own rectangle, above everything (`pane.float`, the board's `o`, `^W f`); its title drags it, its ◢ corner sizes it | `Desk.floats`, `ScreenLayout.floats` `lay`, `float.place` | none |
+| zoom | One tile fills the screen | `tile.zoom` (`^W z`): the desk and every screen on it, the board too (#98) | Herdr zoom |
+| float | A tile taken out of the tree to its own rectangle, above everything (`tile.float`, the board's `o`, `^W f`); its title drags it, its ◢ corner sizes it, a click on the `⧉` before its title docks it | `Desk.floats`, `ScreenLayout.floats` `lay`, `float.place` | none |
 | drawer | A container sliding over the others from an edge (PIE-505): on the desk any tile or tab set put in one (`^W p`, `tile.pin`, at an outer edge with `edge=`), holding anything moved into it (a drop on its handle, a move beside a tile in it); shuts when the keys leave (unless `collapsible` or `overlay` is off, or it `stays`); a shut one is a handle at the end of the hint row (`⇤ tree+now`, or a named container's name: the board's `⇤ outline`, `⤓ links`). The board's outline (the tree over its preview, a left drawer) and backlinks (the list beside its preview, a bottom drawer that stays) are desk drawers | `Drawer` `lay` | none |
 | lock | The screen's shape fixed for a task, its contents live: nothing moves, drops, opens as a new tile, closes, resizes, goes in or out of a drawer, relinks or loads; reading, editing, terminals, drawers sliding, tabs and zoom go on. Saved, so it comes back after a restart | `layout.lock` (`alt+k`, the hint row's `▣ locked` chip), `Policy.locked` | none |
 | spine | A tile folded to a title strip (`tile.collapse`; the board's `c` on a lane or a reader) | `drawSpine` (`src/spine.ts`), `Desk.collapsed`; river `Cover` `riv:48` | none |
@@ -160,7 +160,7 @@ pane, region or column, the table below says what it is today.
 
 | Canonical | Meaning | Code | Tree/Detail |
 |---|---|---|---|
-| reader | Any pane or screen hosting a note surface | `ReaderPane` `pan:184`, `MessageReader` `scr:273` | Detail |
+| reader | Any tile or screen hosting a note surface | `ReaderPane` `pan:184`, `MessageReader` `scr:273` | Detail |
 | note surface | Draws, folds, edits, comments on a note | `NoteSurface` `note:107` | Detail body |
 | surface host | What a view gives it: ctx, redraw, navigate, and maybe its own header rows | `SurfaceHost` `note:43` | none |
 | preview | The reader that follows the selection; on the desk, a preview tile follows a source (a tile, a file) | board `preview`, `PreviewPane` | **Preview** |
@@ -244,17 +244,17 @@ shell                                     App (app:72)
     ├── [~] primary content               lanes | layout tree | strip | list
     ├── [x] detail = reader(s)            NoteSurface in every view
     └── [~] hint row
-pane operations
+tile operations
     ├── [~] focus (Tab, number, click)    every view, 3 implementations
-    ├── [~] zoom                          desk only (PIE-428); pane.zoom
-    ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s; pane.split
-    ├── [~] close                         desk ^W x, board x, river x; pane.close (desk, board)
-    ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; pane.resize
-    ├── [~] dock / move                   desk: drag a header, ^W m t T H J K L (layout.move, tabs on drop); board float HJKL; pane.float, pane.pin
+    ├── [~] zoom                          desk and the screens on it, the board too (#98); tile.zoom; not the river (PIE-428)
+    ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s; tile.open, pane.split
+    ├── [~] close                         desk ^W x, board x, river x; tile.close (desk, board)
+    ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; tile.resize
+    ├── [~] dock / move                   desk: drag a header, ^W m t T H J K L (layout.move, tabs on drop); board float HJKL; tile.float, tile.pin
     ├── [~] squeeze (width tiers)         river full/peek/spine around the wide column (w widens); board lanes, readers c · one spine part
     └── [~] persist layout                the tree to desk.json, delivery.json (same fields); river.json
 entity navigation
-    ├── [~] children                      thread pane, river replies, BBS T
+    ├── [~] children                      thread tile, river replies, BBS T
     ├── [x] up                            note surface u
     ├── [x] outlinks (in-note links)      note surface [ ] ⏎ click; the tree's L lists a row's
     ├── [~] backlinks                     board drawer, backlinks tile, the tree's L (Detail's view, PIE-442)
@@ -265,18 +265,18 @@ extensions
     ├── [x] properties (summary, panel)   note surface
     ├── [x] edit, comments, completion    note surface + ed
     ├── [x] folds                         note surface (not river cards)
-    ├── [~] presence, activity, stats     BBS screens + desk panes (PIE-430)
+    ├── [~] presence, activity, stats     BBS screens + desk tiles (PIE-430)
     └── [~] view actions                  board cards, river columns
 ```
 
 Refinements to the proposed tree:
 
-- **"Entered" belongs in pane operations.** Focus picks the pane; *entered* says whether keys go
+- **"Entered" belongs in tile operations.** Focus picks the tile; *entered* says whether keys go
   into the reader's edit/comment/panel. It's shared (`Entered` `pan:287`) and it's how agents
   never steal keys.
 - **The hint row is part of the view.** Every view has one; only the edit control's is shared
   (`editHint` `ed:48`).
-- **Squeeze is a pane operation,** not a river feature. The board already has a manual version.
+- **Squeeze is a tile operation,** not a river feature. The board already has a manual version.
 - **History was missing** from the proposed tree and from the code; the outliner's Detail has it. Readers
   have it since PIE-453 (back and forward, alt+← alt+→, the side buttons).
 
@@ -310,20 +310,20 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | header | S `note:268` | S surface, BBS rows via `SurfaceHost.header` `scr:301` | S | R cards `riv:362` |
 | body render | S `renderDoc` | S `renderDoc` (the surface's) | S | R `colourBody` `riv:363` |
 
-### Pane operations
+### Tile operations
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
 | focus | R Tab `del:1540` kma | — | R Tab/1-9 `dsk:286` kma | R h l `riv:867` kma |
 | entered | S `Entered` | — | S `Entered` | R `isEntered` |
-| zoom | — (PIE-428) | — | S tree, `^W z`, `pane.zoom` k·a | — |
+| zoom | S tree, `^W z`, `tile.zoom` k·a (a preset on the desk, #98) | — | S tree, `^W z`, `tile.zoom` k·a | — (PIE-428) |
 | open beside | S tree, alt+⏎ detail kma | — | S tree, `^W o` add, `pane.split` k·a | R ⏎ column kma |
 | split | — (a detail opens with a note) | — | S tree, `^W o`, `pane.split` k·a | R `s` `riv:496` k·a |
-| close | S tree, `x`, `pane.close` k·a | — | S tree, `^W x`, `pane.close` k·a | R `x` k·a |
-| resize | S tree, drag, `{ } < >`, `pane.resize` kma | — | S tree, drag, `^W <>`, `pane.resize` kma | — (automatic) |
+| close | S tree, `x`, `tile.close` k·a | — | S tree, `^W x`, `tile.close` k·a | R `x` k·a |
+| resize | S tree, drag, `{ } < >`, `tile.resize` kma | — | S tree, drag, `^W <>`, `tile.resize` kma | — (automatic) |
 | dock / move | R float HJKL, drag, `float.place` kma | — | S tree, drag a header (tabs on drop), `^W m t T H J K L`, `layout.move` kma | R `p` pin k·a |
-| float | S tree floats, `o`, `pane.float` kma | — | — | — |
-| drawer | S tree, `t b`, pin `T B` or `[ ] pin`, `pane.pin` kma | — | S tree, `^W p` `^W d`, a handle's click, `tile.pin` `tile.drawer` kma | — |
+| float | S tree floats, `o`, the `⧉` click docks, `tile.float` kma | — | S tree floats, `^W f`, the `⧉` click docks, `tile.float` kma | — |
+| drawer | S tree, `t b`, pin `T B` or the header's `⇤ drawer` click, `tile.pin` kma | — | S tree, `^W p` `^W d`, a handle's click, `tile.pin` `tile.drawer` kma | — |
 | squeeze | S spine: lane `c`, `lane.collapse` kma, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
 | persist | S tree → `delivery.json` (its old fields) | — | S tree → `desk.json` | R `river.json` |
 
@@ -378,7 +378,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 - Desk: layout tree (`lay:5`), zoom, `^W` prefix. Board: fractions (`del:37`), floats, drawers,
   `x` and `o` without a prefix. River: strip, automatic squeeze, `x`, `p`, `s`.
-- Zoom exists only on the desk, and there it swaps the rectangle map (`dsk:177`), not a tree op.
+- Zoom was the desk's only (it swaps the rectangle map, `dsk:177`, not a tree op); the board has it since it became a preset on the desk (#98). The river still has none.
 - **Resolved for the board by PIE-511:** it is a preset on the desk, so its floats, drawers, zoom and `^W` keys are
   the desk's; its `x` and `o` are the same tile actions without a prefix. The river remains.
 - **Resolves:** PIE-412 (one layout tree), then PIE-428 (zoom everywhere) on top of it, PIE-413
@@ -393,11 +393,11 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 - Every reader shares `NOTE_ACTIONS` (`note:1329`), and since PIE-506 every key and click the note surface
   handles runs one of them (`scroll`, `element.select by=`, `fold.select`, `callouts`, `select.mode`, …).
-- Desk: `open`, `focus`, `pane.*`, `layout.*`, `tile.*` by stable id with a layout revision (PIE-412, PIE-413,
+- Desk: `open`, `tile.*` (with `focus` and `pane.*` as declared aliases, PIE-510), `layout.*` by stable id with a layout revision (PIE-412, PIE-413,
   PIE-491), the policy's `layout.lock` and `layout.policy` (PIE-505), and since PIE-506 `search`, `tile.enter` (the terminal kind's),
   `tile.leave` and each tile kind's own (`thread.pick`, `activity.pick`, `tree.fold`, `backlinks.fold`,
   `reader.hold`, registered on the kind).
-- Board: `pane.*`, `card.*`, `reader.*`, and since PIE-506 `board.hub` (the `g` picker), `lane.collapse`,
+- Board: the desk's `tile.*` (`reader.collapse`, `reader.expand` are `tile.collapse`), `card.*`, and since PIE-506 `board.hub` (the `g` picker), `lane.collapse`,
   `outline`, `float.place`, `backlinks.pick`, `board.reload`; the lane cursor is `card.select by=` (an agent's
   is its own selection).
 - River: its columns and, since PIE-506, `filter`, `tag`, `jump`, `column.scroll`, `back`, `forward`, `copy`.
@@ -405,7 +405,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   `art.*`, `screen.help` and `video.cycle`.
 - **Kept so by test:** `test/parity.test.ts` presses every key and clicks across every screen and fails on a
   change no action declared ([the agent interface](AGENT-INTERFACE.md#parity-every-key-and-click-is-an-action-pie-506)).
-- Still direct: dragging a border or a lane edge (a share, not steps; agents resize by `pane.resize` and
+- Still direct: dragging a border or a lane edge (a share, not steps; agents resize by `tile.resize` and
   `layout.resize`), moving a keyboard selection after `v`, drag-selecting text, and the desk's `^W r` / `^W w`
   pickers (input states that end in `layout.load` and `layout.save`).
 
@@ -417,8 +417,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | `C` | comment (was: reopen all lanes; now `alt+c`) | comment | comment | comment |
 | `s` | steps | `^W s` swap | split | — |
 | `m` | move card / threads in a reader | threads | threads | threads |
-| `x` | close detail or float | `^W x` close | close pane | — |
-| `o` | pop out float | `^W o` add pane | — | — |
+| `x` | close detail or float (on the preview: says why it stays) | `^W x` close | close tile | — |
+| `o` | pop out float | `^W o` add a tile | — | — |
 | `t` | outline drawer | `^W o t` add outline | — | thread (`t` `T`) |
 | `p` | — | hold reader | dock column | previous (`p` `P`) |
 | `w` | — (the backlinks drawer's `w` is stage) | — (`^W w` saves a layout) | widen: the focused column takes the wide place | — |
@@ -442,7 +442,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   its status choice, as on any element. Inside the choice `x o w !` mark done, to do, waiting and problem
   (the board's steps overlay already uses `x w !`), `y` copies the step link (`y` copies everywhere) and
   `a` makes it addressable; the choice takes every key first on the board, the desk, the river and the
-  BBS reader until a choice or `esc`, so their `x` (close), `o` (pop out, add pane) and `w` (the
+  BBS reader until a choice or `esc`, so their `x` (close), `o` (pop out, add tile) and `w` (the
   backlinks drawer's stage) can't fire. Outside it, `space` toggles a step only while the step is the
   current element in view (as Detail's space on a focused checkbox); it pages the reader otherwise, and
   in the river it only reaches the step through the column's `[ ]`. `ctrl+z` undoes the last step change
@@ -462,7 +462,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 ### F5. Entity navigation is scattered
 
-- Backlinks: board drawer only. Children: three shapes (thread pane, river replies, BBS `T`). Since
+- Backlinks: board drawer only. Children: three shapes (thread tile, river replies, BBS `T`). Since
   PIE-442 the drawer groups, filters and sorts as Detail does through `src/backlinks.ts`; the PIE-432
   connections screen should list backlinks through it too, not a new list.
 - Outlinks are in-note only (`[ ]`); no list of them. No resources list. No history anywhere. (Since then: the
@@ -487,8 +487,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 - Who's Online: `WhoOnline` (`scr:355`) and `WhoPane` (`pan:411`), both from `clients.list`.
 - Activity: `LastCallers` (`scr:392`, 80 rows) and `ActivityPane` (`pan:375`, 60 rows).
-- Stats: one screen (`scr:535`), a heatmap of `updatedAt`, not a pane.
-- **Resolves:** PIE-430 (active people and agents, one component used as screen or pane).
+- Stats: one screen (`scr:535`), a heatmap of `updatedAt`, not a tile.
+- **Resolves:** PIE-430 (active people and agents, one component used as screen or tile).
 
 ### F8. The shell is one workspace for the whole run
 
@@ -517,14 +517,14 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | PIE-412 | F2: one layout tree for board, desk, river (slice 1: the board and `pane.*`, done; slice 2: the river; slice 3: screens in the outline) |
 | PIE-413 | F2, F5: tabs, drag-and-drop, backlinks under details, two previews (done: §7) |
 | PIE-414 | bundles of readers: needs readers addressed the same way on every view |
-| PIE-417 | terminal panes: a new pane kind, not a `suspend` (done: the terminal tile; `suspend` stays for ctrl+e and drop to shell) |
+| PIE-417 | terminal tiles: a new tile kind, not a `suspend` (done: the terminal tile; `suspend` stays for ctrl+e and drop to shell) |
 | PIE-418 | daemon: shell state (layout, drafts, presence) outlives a terminal |
 | PIE-426 | F1, F3: BBS reader on the note surface, with actions (done) |
 | PIE-427 | F6, F8: switcher in the status bar; per-connection caches |
-| PIE-428 | F2: zoom as a pane operation everywhere |
+| PIE-428 | F2: zoom as a tile operation everywhere (the desk and the board have it; the river is left) |
 | PIE-429 | scratch note: a reader pinned to the shell, not a view |
 | PIE-430 | F7: one presence/activity component |
-| PIE-431 | F2, F4: river squeeze and columns as the shared pane model |
+| PIE-431 | F2, F4: river squeeze and columns as the shared layout model |
 | PIE-432 | F5: shared entity navigation |
 | PIE-434 | F3, F9: core vs extensions, editing component |
 
@@ -537,7 +537,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | Layer | Core (the door owns it) | Extension (a view or plugin adds it) |
 |---|---|---|
 | shell | stack, status bar, flash + log, theme, unsaved guard, control socket | menu entries |
-| panes | layout tree, focus, entered, zoom, open beside, close, resize, squeeze | pane kinds |
+| tiles | layout tree, focus, entered, zoom, open beside, close, resize, squeeze | tile kinds |
 | reader | note surface, header, summary, links, folds, embeds | summary keys per view |
 | editing | edit control with completion, draft safety, provenance | completion sources |
 | entity nav | up, children, outlinks, backlinks, resources, history, jump | extra projections |
@@ -546,7 +546,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 Rules that follow from the audit:
 
-- **A view never draws its own pane chrome.** Frames, thumbs, "(e enters)" and zoom come from
+- **A view never draws its own tile chrome.** Frames, thumbs, "(e enters)" and zoom come from
   core. Today each view draws them (`dsk:191`, `del:1218`, `riv:270`).
 - **Every key a view binds is an action first.** The key is only a binding in the action list.
 - **Pane operations use one key layer** across views.
@@ -579,10 +579,10 @@ Boundary for a TUI editing component that other TUIs can use:
 From a look at shiki, strata and mirador (all MIT). Where each fits:
 
 - **Width tiers** (shiki): side by side, stacked when narrow, focused only when tiny. Hidden
-  panes get zero size, so navigation is the same at every width.
-  - Place: pane operations (core). Today: the river has tiers (`riv:243`); lift them into the
+  tiles get zero size, so navigation is the same at every width.
+  - Place: tile operations (core). Today: the river has tiers (`riv:243`); lift them into the
     layout tree (PIE-412).
-- **Dim unfocused panes** (mirador).
+- **Dim unfocused tiles** (mirador).
   - Place: shell theme (core). Today: only the border colour changes (`dsk:191`).
 - **Miller columns** (strata): position is depth, preview far right, hidden by width;
   `Alt+←/→` history, `Ctrl+L` jump box.
@@ -637,8 +637,8 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `^W v` | a preview of this tile | none | new |
 | `^W p` / `^W d` | put the tile in a drawer container where it is, or take its drawer away (PIE-505; it was a flag on the tile) / slide its drawer open or shut | `p` holds a reader, `d d` trashes a card: both outside `^W` | new, under `^W`; `^W p` changed with PIE-505: what it makes is a container, which takes drops |
 | `^W c` | fold the tile to a spine where it is, or open it (`tile.collapse`, PIE-511) | the board's `c` folds a lane or a reader (outside `^W`, the same action underneath); `C` comments in a reader; `^W` bound no `c` | new, under `^W` |
-| `^W f` | pop the tile out as a float, or dock a float back (`pane.float`, PIE-511: the desk had no floats) | `f` folds in a reader (`( ) f`), the board's `o` floats: both outside `^W`; `^W` bound no `f` | new, under `^W` |
-| a click on a header's `⇤ drawer` | dock that drawer where it is (`pane.pin on=true`, PIE-511) | the board's `[ ] pin` in its drawers' titles did this (and the other way): the drawers are the desk's now, and `T` `B` put them back | changed: the board's pin box is gone; `T` and `B` toggle both ways |
+| `^W f` | pop the tile out as a float, or dock a float back (`tile.float`, PIE-511: the desk had no floats; a click on a float's `⧉` docks it too) | `f` folds in a reader (`( ) f`), the board's `o` floats: both outside `^W`; `^W` bound no `f` | new, under `^W` |
+| a click on a header's `⇤ drawer` | dock that drawer where it is (`tile.pin on=true`, PIE-511) | the board's `[ ] pin` in its drawers' titles did this (and the other way): the drawers are the desk's now, and `T` `B` put them back | changed: the board's pin box is gone; `T` and `B` toggle both ways |
 | the desk's keys on the board (`^W …`, `/`, `alt+l alt+n alt+p alt+m alt+x alt+k`) | the board is a preset on the desk (PIE-511): its tiles split, tab, float, zoom, lock and search as the desk's do; `alt+d` (a layout load) is refused there, as on every preset | the board bound none of these; its `/` is the backlinks tile's filter while that tile has the keys (the tile's keys come first); `1-9` stay unbound on the board (its digits are off) | new on the board |
 | `Tab` on the board | the next area: the lanes (the lane the cursor is in) count as one, then the preview, the details, the open drawers' lists, the floats | the desk's `Tab` steps every tile | kept from the board: one stop for the lanes |
 | `^W P` | the policy panel: the containers over the focused tile and what each allows; `j k` rows, `h l` container, `⏎`/space or a click changes a row, `+ -` a size, `esc` closes (PIE-505) | none: `^W` bound no `P` (only `p`); the BBS message reader's `P` (previous message) is its own screen, never the desk's `^W`; a terminal tile takes `^W` itself | new, under `^W` |
@@ -664,7 +664,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `A` in a reader | apply anyway: a proposal an agent's patch left (`proposal.apply`, PIE-501), shown or as the current element; on another embed the key isn't taken | none: no screen, surface or host binds `A` (only `alt+A`, the drawer's height); `a` is the steps choice's "make addressable", only while it's open | new |
 | `X` in a reader | dismiss a proposal (`proposal.dismiss`): on the proposal shown, or its embed or control as the current element; elsewhere the key isn't taken | none: only the main menu binds `X` (the showcase), and a reader never sees the menu's keys; `x` is the steps choice's "done", only while it's open | new |
 | the wheel, a click, a drag in a draft | scroll the draft (the cursor stays), place the cursor, select (`draft.scroll`, `draft.place`) | the wheel moved the cursor three lines; a click did nothing but choose a completion; a drag was ignored | changed, inside drafts only |
-| a click outside the draft (another tile, a board area, a river pane, the drawer handle) | leave it (`session.leave`, `composer.leave`): an unchanged edit closes, a changed one saves, a refused save, a comment, a reply or a new card is kept as unsent; then the click does what it does | it was refused ("finish the edit first"); a click in the draft's own tile or frame still stays in it | changed |
+| a click outside the draft (another tile, a board area, a river tile, the drawer handle) | leave it (`session.leave`, `composer.leave`): an unchanged edit closes, a changed one saves, a refused save, a comment, a reply or a new card is kept as unsent; then the click does what it does | it was refused ("finish the edit first"); a click in the draft's own tile or frame still stays in it | changed |
 | `^W` in a draft (desk) | arm the window keys: the next one leaves the edit as a click away does and runs; `esc` stays in | `^W` was unbound in a draft (the draft took it and did nothing); `tab` stays indent (PIE-496), the board and river have no `^W` (a click or `esc` leaves there) | new, inside drafts on the desk |
 | `ctrl+c` | the program's while in a terminal tile, else quit (asked twice) | the shell's quit | the terminal gets it |
 | ctrl-click, alt-click a link | open beside | none | new, as `alt+⏎` |
@@ -681,15 +681,20 @@ desk's.
 
 ### Tiles and their actions
 
+`tile=` names the tile an action is for (`reader=`, its older name, still works: `act` resolves both in one
+place). A name in brackets is an alias: the same action, listed once with it in `actions` (PIE-510).
+
 | Action | Args | Keys, mouse |
 |---|---|---|
 | `layout.get` | | `peek` shows the same `tree` |
 | `layout.list`, `layout.save`, `layout.load` (`layout.restore`) | `name` | `^W r`, `^W w`, `alt+d` |
-| `layout.move` | `reader=<tile>`, `to`, `where`, `index` | drag a header, `^W m t T H J K L` |
-| `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | `^W o`, `^W O` |
-| `tile.close`, `tile.focus`, `tile.info` | `reader=<tile>` | `^W x`, click, Tab, 1-9 |
-| `tile.link` | `reader=<tile>`, `to` (none unlinks) | `alt+l` then a click |
-| `tile.pin` | `on`, `edge` | `^W p`; the policy panel's edge row |
+| `layout.move` | `tile=<tile>`, `to`, `where`, `index` | drag a header, `^W m t T H J K L` |
+| `tile.open` (`pane.split`: `kind`, `dir`) | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | `^W o`, `^W O` |
+| `tile.close` (`pane.close`), `tile.focus` (`focus`), `tile.info` | `tile=<tile>` | `^W x`, the board's `x`; click, Tab, 1-9 |
+| `tile.resize` (`pane.resize`), `tile.zoom` (`pane.zoom`) | `by`, `axis`; `on` | `^W < > + -`, the board's `{ } < >`; `^W z` |
+| `tile.float` (`pane.float`), `tile.collapse` (`reader.collapse`, `reader.expand`) | none; `on` | `^W f`, the board's `o`, a click on a float's `⧉`; `^W c`, the board's `c`, `alt+c` |
+| `tile.link` | `tile=<tile>`, `to` (none unlinks) | `alt+l` then a click |
+| `tile.pin` (`pane.pin`) | `on`, `edge`, `container` | `^W p`; the policy panel's edge row; the board's `T` `B`; a click on a header's `⇤ drawer` |
 | `tile.drawer` | `open` | `^W d`, a handle's click, `Esc` in an open drawer; it shuts when the keys leave |
 | `layout.lock` | `on` | `alt+k`, a click on the hint row's lock chip; the policy panel's locked row on the screen |
 | `layout.policy` | `node`, the policy's fields, `clear`; nothing: a read | `^W P`, `⏎` or a click on a row |
@@ -712,7 +717,7 @@ collapsed to its headings. So the river keeps two things apart:
   they were in before) stays full beside it when there's room; a dock (`p`) outranks it.
 - **Why these inputs:** the first click must be harmless, so the shift needs a different target, not a second
   click on the same place (a second click on a card already opens it, and a double click selects a word). A
-  header is the tile grammar's place for acting on the whole pane (§7's drag). `w` is free on every screen's
+  header is the tile grammar's place for acting on the whole tile (§7's drag). `w` is free on every screen's
   reading keys (the backlinks drawer's `w` and the step choice's `w` only live while those are open; the desk's
   is under `^W`); `z` was the obvious zoom key but it's the surface's unfold.
 - **Covered, not collapsed:** a peek column draws the same view a full column does, at the same reading width,

@@ -29,7 +29,7 @@ export interface Policy {
   closable?: boolean;
   /** The tile kinds it takes (any when left out): a locked board's columns take only query tiles. */
   accepts?: string[];
-  /** Its borders move (a drag, layout.resize, pane.resize, layout.even). */
+  /** Its borders move (a drag, layout.resize, tile.resize, layout.even). */
   resizable?: boolean;
   /** Its size along its parent's axis, in cells: at least `min`, at most `max`, or exactly `fixed`. */
   min?: number; max?: number; fixed?: number;
@@ -402,22 +402,9 @@ export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab
   return null;
 }
 
-/**
- * The grabbed border follows the pointer: the two kids beside the divider share their cells anew, each at
- * least `mins`, the first's share of the pair within `bounds`. The pair's total weight stays the same.
- */
-export function dragTo<I>(g: Grab<I>, x: number, y: number, o: { mins?: [number, number]; bounds?: [number, number] } = {}): void {
-  const n = g.d.node, d = g.d;
-  const f = dragShare(g, x, y, o);
-  if (f === null) return;
-  const sum = n.weights[d.i]! + n.weights[d.i + 1]!;
-  n.weights[d.i] = sum * f;
-  n.weights[d.i + 1] = sum - n.weights[d.i]!;
-}
-
 // ── a screen: the tree, the drawers sliding over it, the floats ─────────────
 
-/** A tile with its own rectangle, above everything (`pane.float`): which tile, and where. */
+/** A tile with its own rectangle, above everything (`tile.float`): which tile, and where. */
 export interface Float<I = number> { id: I; rect: Rect }
 export interface ScreenLayout<I = number> {
   root: LNode<I>;

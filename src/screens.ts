@@ -1021,23 +1021,6 @@ export class Conferences implements BbsList {
   act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
 }
 
-export class Search implements Screen {
-  title = "search";
-  private q = "";
-  /** The query is typed here: every key is text (an Option character too, not an alt key). */
-  holdsKeys() { return true; }
-  render(ctx: Ctx): Frame {
-    return { lines: ["", center(paint("|09─=|11[ |15TEXT SEARCH |11]|09=─"), ctx.t.cols), "", paint(`  |11Search for: |15${this.q}|07_`), "", paint("|08  ENTER to scan the whole board · ESC back")] };
-  }
-  key(k: Key, ctx: Ctx) {
-    if (k.kind === "esc") return ctx.pop();
-    if (k.kind === "backspace") this.q = this.q.slice(0, -1);
-    else if (k.kind === "enter" && this.q.trim()) return ctx.replace(new MessageList(`search: ${this.q}`, n => ctx.board.search(this.q, n)));
-    else if (k.kind === "char" && !k.ctrl) this.q += k.ch;
-    ctx.redraw();
-  }
-}
-
 // ── who's online and last callers ────────────────────────────────────────────
 
 export class WhoOnline implements Screen {
@@ -1360,7 +1343,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live panes you tile yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
 };
 

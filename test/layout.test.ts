@@ -4,9 +4,22 @@
 import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import {
-  chainOf, columnsOf, dividerAt, dockedTiles, dragTo, drawerOf, drawers, drawerToEdge, effective, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
-  type LNode,
+  chainOf, columnsOf, dividerAt, dockedTiles, dragShare, drawerOf, drawers, drawerToEdge, effective, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
+  type Grab, type LNode,
 } from "../src/desk/layout";
+
+/**
+ * A border dragged to (x, y) on a bare tree: the pair beside it shares its weight by dragShare, as the desk's drag
+ * does through layout.resize (moved here from layout.ts: only these tests change weights directly, PIE-510 A8).
+ */
+function dragTo<I>(g: Grab<I>, x: number, y: number, o: { mins?: [number, number]; bounds?: [number, number] } = {}): void {
+  const n = g.d.node, d = g.d;
+  const f = dragShare(g, x, y, o);
+  if (f === null) return;
+  const sum = n.weights[d.i]! + n.weights[d.i + 1]!;
+  n.weights[d.i] = sum * f;
+  n.weights[d.i + 1] = sum - n.weights[d.i]!;
+}
 
 /** The desk's place() before PIE-412, kept here to hold the shared model to it exactly. */
 type Old = { t: "leaf"; id: number } | { t: "split"; dir: "row" | "col"; ratio: number; a: Old; b: Old };

@@ -178,7 +178,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     // A float: o on the preview pops a copy out; H J K L move it by float.place, as an agent's does.
     key({ kind: "tab" });
     await until(() => !!B().preview.msg, "the preview's note");
-    expect(ran(() => key(char("o")))).toEqual(["pane.float"]);
+    expect(ran(() => key(char("o")))).toEqual(["tile.float"]);
     const f = B().floats[0].rect, col = f.col;
     expect(ran(() => key(char("L")))).toEqual(["float.place"]);
     expect(B().floats[0].rect.col).toBe(col + 4);

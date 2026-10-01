@@ -10,7 +10,6 @@ import type { ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./soc
 
 /** The status marks, as the service writes them (pi-herdr-outliner CHECKLIST_MARKS). */
 export const STEP_MARKS: Readonly<Record<StepStatus, string>> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
-export const STEP_STATUSES = ["todo", "done", "waiting", "problem"] as const;
 
 /** One choice in the status menu: Detail's CHECKLIST_CHOICES, in its order, with the door's key for each. */
 export type StepChoice = StepStatus | "copy-link" | "address";

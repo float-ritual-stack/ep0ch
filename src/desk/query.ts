@@ -262,7 +262,7 @@ export const QUERY_ACTIONS = new ActionSet<{
   "query.reload": Record<string, never>;
 }, QueryOn>("query", {
   "query.pick": {
-    summary: "pick a card in a query tile (reader=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
+    summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
     keys: "j k ↑ ↓ PgUp PgDn, ⏎ (open), click on a card (again: open), wheel",
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },
