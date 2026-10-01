@@ -2169,7 +2169,7 @@ interface BoardOn {
 
 /** What the board adds to a reader's note actions: which note is where, and moving cards. */
 export const BOARD_ACTIONS = new ActionSet<{
-  "open": { id: string };
+  "open": { id: string; from?: string };
   "focus": Record<string, never>;
   "board.hub": { id?: string; close?: boolean };
   "board.reload": Record<string, never>;
@@ -2189,11 +2189,12 @@ export const BOARD_ACTIONS = new ActionSet<{
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
-    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "⏎, alt+⏎ (new-detail), click on the selected card, ⏎ in the outline or the backlinks",
-    args: { id: { type: "string", about: "the block id" } },
-    async run({ id }, { b, reader }, actor) {
-      const r = await b.openOnBoard(id, reader ?? "detail");
-      b.ctx.flash(`${agentLabel(actor)} opened a note in ${r.reader}`);
+    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader; or, with from=<tile>, where that tile's opens land (its link, as on the desk; unlinked, the detail). A program in a tile passes from=$EP0CH_TILE", keys: "⏎, alt+⏎ (new-detail), click on the selected card, ⏎ in the outline or the backlinks",
+    args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" } },
+    async run({ id, from }, { b, reader }, actor) {
+      // The desk's own open from= (Desk.openFrom): the tile's link is honoured on the board as on any desk.
+      const r = from !== undefined ? await b.openFrom(id, from, actor) : await b.openOnBoard(id, reader ?? "detail");
+      b.ctx.flash(`${agentLabel(actor)} opened a note${r.reader ? ` in ${r.reader}` : ""}`);
       return r;
     },
   },

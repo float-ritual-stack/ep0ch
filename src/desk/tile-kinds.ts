@@ -303,11 +303,16 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
       return new ProgramTile(o.kind, { cmd: [...prog.command, ...argv], cwd: prog.cwd, env: prog.env, label: s.name ?? prog.label }, state, prog.keys, prog.label);
     },
     save: p => (p instanceof ProgramTile || p instanceof UnavailableTile ? (Object.keys(p.state).length ? { state: p.state } : {}) : {}),
-    // A block arg is the note shown where it's opened (^W o from a reader), unless tile.open named one (note=).
+    // A block arg is the note read where it's opened (^W o from a reader or a detail), unless tile.open named
+    // one (note=). Only a kind that reads a note gives one: never a cursor (the tree's row, a lane's card,
+    // which at the start is the outline's root) and never a root, so a program never writes where the
+    // person didn't open it. Otherwise it's left unset, and the tile says so.
     defaults: (s, at) => {
       if (!blockArg || s.note || stateOf(s)[blockArg]) return {};
-      const m = registry.get(at.pane.kind)?.shows?.(at.pane);
-      return m ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
+      const k = registry.get(at.pane.kind);
+      if (!k?.accepts?.notes || k.follower) return {};
+      const m = k.shows?.(at.pane);
+      return m && m.parentId !== null ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
     },
     holdsWork: p => p instanceof PtyPane && p.running,
     // The terminal's own actions, keys and wait for its program, as a built-in terminal tile has them.

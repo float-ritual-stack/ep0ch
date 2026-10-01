@@ -3,7 +3,7 @@ import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
 import { AGENT_ACTOR_ID, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
-import { SHELL_ACTIONS, shellOpenBlock } from "./screens";
+import { SHELL_ACTIONS } from "./screens";
 import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
 import { printable } from "./text";
@@ -144,6 +144,9 @@ export interface ViewEvent { type: string; at: number; [k: string]: unknown }
 export function agentActor(as?: string): Actor {
   const id = (as ?? "").trim() || AGENT_ACTOR_ID;
   if (!/^[\w.:@/-]{1,80}$/.test(id)) throw new ActionRefused(`an actor id is 1-80 letters, digits and . : @ / - _, not ${JSON.stringify(id)}`);
+  // `ext:<id>` is an extension's, and only the service's extension runtime writes as one (it refuses a
+  // client that names it). An agent runs an extension's action as itself: `act ext.<id>.<action>`.
+  if (/^ext:/i.test(id)) throw new ActionRefused(`${id} is an extension's actor id: only the outline service writes as an extension; name yourself (--as <your id>) and run its action (act ext.${id.slice(4)}.<action>)`);
   return { kind: "agent", id };
 }
 
@@ -360,25 +363,24 @@ export class App implements Ctx {
       ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(), state: s?.describe?.() ?? null };
   }
 
-  async openBlock(id: string): Promise<string> {
-    const m = await this.board.get(id);
-    if (!m) throw new Error(`no block ${id}`);
-    const s = this.stack.at(-1);
-    // A screen with no readers of its own (the menu, a BBS list) opens it in a message reader over itself.
-    if (s?.openBlock) s.openBlock(m); else shellOpenBlock(m, this, s);
-    this.flash(`an agent opened: ${m.text.split("\n")[0]!.slice(0, 60)}`);
-    this.redraw();
-    return m.id;
+  /**
+   * An agent's `open <id>` (the control socket's `{cmd:"open"}`, `ep0ch open`): the `open` action as that agent
+   * (`as`, default the door's agent id), the same as `act open id=<id>`. Returns the block's id.
+   */
+  async openBlock(id: string, as?: string): Promise<string> {
+    const r = await this.act({ action: "open", args: { id }, ...(as !== undefined ? { as } : {}) }) as { id?: string } | null;
+    return r?.id ?? id;
   }
 
   /**
-   * The screen's actions, then the shell's (`screen.*`), the dock's (`agent.*`) and the extensions' (`ext.*`,
-   * a handler line's or a block's), which work on every screen.
+   * The screen's actions, then the shell's (`screen.*`, and `open` where the screen has none of its own), the
+   * dock's (`agent.*`) and the extensions' (`ext.*`, a handler line's or a block's), which work on every screen.
    */
   actions() {
     const s = this.stack.at(-1);
     const own = s?.actions?.() ?? { actions: [], readers: [] };
-    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()] };
+    const mine = new Set(own.actions.map(a => a.name));
+    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list().filter(a => !mine.has(a.name)), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list().filter(a => !mine.has(a.name))] };
   }
 
   /**
@@ -407,10 +409,15 @@ export class App implements Ctx {
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
-    const shell = SHELL_ACTIONS.has(req.action);
+    // A screen's own action of a shell action's name comes first (the desk's, the board's, the river's `open`);
+    // the shell's is the one every other screen has.
+    const screenHas = !!s?.act && !!s.actions?.().actions.some(a => a.name === req.action);
+    const shell = SHELL_ACTIONS.has(req.action) && !screenHas;
     const dock = DOCK_ACTIONS.has(req.action);
-    // An extension's line or block action (`ext.<id>.<action>`, PIE-512); a tile's is its tile kind's, on the desk.
-    const ext = !shell && !dock && EXT_ACTIONS.has(req.action);
+    // An extension's line or block action (`ext.<id>.<action>`, PIE-512), on every screen. One a tile kind also
+    // lists (tarot's keep) is the tile's when the request names the tile (reader=) or no block: its block is the
+    // tile's own. With block= it runs on that block, tile or none.
+    const ext = !shell && !dock && EXT_ACTIONS.has(req.action) && !(screenHas && (req.reader !== undefined || req.args?.block === undefined));
     // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.
     const herdr = req.action === "tile.herdr" && req.reader === DOCK_TILE_ID;
     if (!shell && !dock && !ext && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].map(a => a.name).join(", ")}`);

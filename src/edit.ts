@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
-import { actorIdOf, USER, type Actor } from "./socket";
+import { actorIdOf, isExtensionWriter, USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet } from "./surface/actions";
 import { SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
@@ -87,8 +87,15 @@ export class Draft {
   /** A save is under way (checking properties, or writing): nothing may change or close the draft. */
   get busy() { return this.saving || this.previewing; }
 
+  /**
+   * The person changed the text (never an agent's patch): the reader holding this draft tells the service, so a
+   * request line they write here (`@tidy …`) runs once quiet, before any save (`drafts.touch`).
+   */
+  onPersonTyped: (() => void) | null = null;
+
   /** `who` changed the text. */
   wrote(who: Actor) {
+    if (who.kind === "user") this.onPersonTyped?.();
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
@@ -97,9 +104,13 @@ export class Draft {
   /**
    * Who a save by `saver` is recorded as. One party wrote every change since the draft opened: them,
    * whoever presses save. Several did: the saver, naming the others (`with`), so neither is left out.
+   * An extension (`ext:<id>`, an `@tidy` line's patch) is never who a save is recorded as: only the service's
+   * extension runtime writes as one, and it refuses a client that names it. The saver records it, naming the
+   * extension (`ep0ch-door:<host>+ext:tidy`).
    */
   recordAs(saver: Actor): Actor {
-    if (this.writers.length === 1) return this.writers[0]!;
+    const only = this.writers.length === 1 ? this.writers[0]! : null;
+    if (only && !(only.kind === "agent" && isExtensionWriter(only.id))) return only;
     if (!this.writers.length) return saver;
     const others = this.writers.filter(w => !sameParty(w, saver)).map(actorIdOf);
     const { with: _, ...me } = saver;

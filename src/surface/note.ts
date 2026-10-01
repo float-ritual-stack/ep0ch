@@ -1115,6 +1115,9 @@ export class NoteSurface {
     this.draft.openedBy = host.actor ?? USER;
     if (host.actor?.kind !== "agent") this.draft.restore();
     this.holdDraft(host);
+    // The person's typing reaches the service (drafts.touch): an @name line they write runs before any save.
+    const typed = this.draft;
+    typed.onPersonTyped = () => { if (this.draft === typed) this.draftHold?.touched?.(); };
     host.redraw();
     if (external) this.external(host);
   }
@@ -1519,7 +1522,8 @@ export class NoteSurface {
   async refreshTickets(host: SurfaceHost, blockId: string, actor: Actor = USER, line?: number): Promise<{ refreshed: string; tickets: string[] }> {
     host.ctx.flash("fetching…");
     try {
-      const read = await host.ctx.board.refreshProjections(blockId, line);
+      // Who pressed r (or ran projection.refresh) is who asked: an @name line asked again records them.
+      const read = await host.ctx.board.refreshProjections(blockId, line, actor);
       resourceChanged(null);
       const keys = read.projections.flatMap(p => p.key ? [p.key] : []);
       const failed = read.projections.filter(p => p.fetchError);
@@ -3650,7 +3654,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "focus.set": { ...TINT, summary: `the older name of block.tint. ${TINT.summary}` },
   "focus.clear": { ...UNTINT, summary: `the older name of block.untint. ${UNTINT.summary}` },
   "projection.refresh": {
-    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line; @name requests only by their line). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
+    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line, and every @name request not answered yet). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
     args: {
       block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
       line: { type: "number", optional: true, about: "only that line (its index in the note's text, 0 the first), of block= or else the reader's note" },

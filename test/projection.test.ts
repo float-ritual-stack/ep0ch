@@ -6,7 +6,7 @@
 // asked and nothing extra is drawn. Fictional tickets and notes only; the scratch service's tickets come
 // from a made-up extension (src/showcase/tickets) and nothing contacts a real provider.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { subject, type Msg } from "../src/board";
@@ -417,14 +417,28 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   }, 20_000);
 
   test("what changed never lets extension writes push the person's own edit out of the list", async () => {
+    // A fixture extension whose action writes 20 rows a call: only the service writes as ext:<id> (a client
+    // naming ext:test is refused), so the rows are a real extension's writes.
+    const dir = join(scratch.workspace, "extensions", "syncrows");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "syncrows", version: 1, name: "Sync rows", run: ["bun", "sync.ts"],
+      actions: [{ id: "sync", label: "Sync rows", on: "block", effects: "write" }],
+    }));
+    writeFileSync(join(dir, "sync.ts"), `const r = await Bun.stdin.json();
+const at = r.input.target.blockId;
+process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ length: 20 }, (_, i) => ({ op: "create", parentId: at, text: "Made-up synced row " + i })) } }));`);
+    const end = Date.now() + 15_000;
+    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    const rows = await board.request<any>("create", { parentId: null, text: "Synced rows", author: "user" });
     const since = Date.now() - 1;
     const mine = await board.request<any>("create", { parentId: null, text: "Sort the seed packets", author: "user" });
     // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
-    for (let i = 0; i < 120; i++) await board.request<any>("create", { parentId: null, text: `Made-up synced row ${i}`, author: "agent", provenance: { actorId: "ext:test" } });
+    for (let i = 0; i < 6; i++) expect((await board.actExtension("syncrows", "sync", { blockId: rows.id })).written).toHaveLength(20);
     const first = await board.changedSince(since, 40);
     expect(first.map(m => m.id)).toContain(mine.id);
-    expect(first.some(m => m.author === "ext:test")).toBe(false);
-    expect((await board.changedSince(since, 40, true)).some(m => m.author === "ext:test")).toBe(true);
+    expect(first.some(m => m.author === "ext:syncrows")).toBe(false);
+    expect((await board.changedSince(since, 40, true)).some(m => m.author === "ext:syncrows")).toBe(true);
   }, 30_000);
 
   test("a second note asking for the same ticket shows the one ticket block, and its age refreshes through that block", async () => {
