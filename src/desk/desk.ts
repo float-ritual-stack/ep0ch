@@ -731,7 +731,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     if (TILE_ACTIONS.has(req.action)) return TILE_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
     // A tile kind's own actions (the tree's tree.*, a terminal's tile.type), on reader=<tile>, the focused tile or the first of that kind.
-    const own = this.kindAction(req.action, req.reader);
+    const own = this.kindAction(req.action, req.reader, actor);
     if (own) return { tile: own.tile, ...(await own.set.runUntyped(req.action, args, { pane: own.pane, desk: this, tile: own.tile }, actor) as object) };
     // An action its kind answers itself (a whole screen's: the board's card.*), in its tile.
     const t = req.reader ? this.tileNamed(req.reader, false) : null;
@@ -745,16 +745,20 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
 
   /**
    * The kind action `name` and the tile it runs on: reader=<tile> when its kind has the action, else (no reader
-   * named) the focused tile when its kind has it, else the first tile whose kind has it. Null when no kind has
-   * it; refused when the tile named, or every tile here, has a kind without it.
+   * named) the focused tile when its kind has it, else the only tile whose kind has it (the person's, the first).
+   * An agent never gets a guess between several (typing into whichever terminal came first): it names one.
+   * Null when no kind has it; refused when the tile named, or every tile here, has a kind without it.
    */
-  private kindAction(name: string, sel?: string): { set: ReturnType<typeof kindActions>[number]; tile: string; pane: Pane } | null {
+  private kindAction(name: string, sel?: string, actor: Actor = USER): { set: ReturnType<typeof kindActions>[number]; tile: string; pane: Pane } | null {
     const sets = (p: Pane | undefined) => kindActions(kindOf(p)).find(a => a.has(name));
     const owners = tileKinds().filter(k => kindActions(k).some(a => a.has(name)));
     if (!owners.length) return null;
     const all = this.all().filter(id => sets(this.panes.get(id)));
     const t = sel ? this.tileNamed(sel, false) : null;
     const id = t ? (all.includes(t.id) ? t.id : undefined) : sel ? undefined : all.includes(this.focus) ? this.focus : all[0];
+    if (!sel && id !== undefined && id !== this.focus && all.length > 1 && actor.kind === "agent") {
+      throw new ActionRefused(`${name} needs reader=<tile>: the focused tile has no such action and several here do (${all.map(i => this.nameOf(i)).join(", ")})`);
+    }
     if (id === undefined) {
       const key = owners.flatMap(k => k.keys ?? [])[0]?.key;
       const named = t ? this.panes.get(t.id) : undefined;
@@ -1592,7 +1596,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
     if (!e.closable) return `${this.nameOf(id)} stays: ${e.by.closable === "screen" ? "the screen" : e.by.closable} keeps its tiles (closable off)${fold}`;
     const src = this.sourced.get(id);
-    if (src) return `${this.nameOf(id)} stays: ${src.source} supplies it, and it goes when its data does${fold}`;
+    if (src) { const how = tileSource(src.source)?.source.drop; return `${this.nameOf(id)} stays: ${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}${fold}`; }
     return null;
   }
   /** Why tile `src` can't leave where it is: locked, or its container keeps its tiles (draggable off). */

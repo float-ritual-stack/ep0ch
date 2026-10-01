@@ -50,7 +50,7 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .* \(closable off\)/);
     await expect(act("pane.close", {}, "preview")).rejects.toThrow(/closable off/);
     // A lane is its view's: it closes when the view goes (the desk's rule for a tile a source supplies).
-    await expect(act("tile.close", {}, "To-do")).rejects.toThrow(/To-do stays: hub:\S+ supplies it/);
+    await expect(act("tile.close", {}, "To-do")).rejects.toThrow(/To-do stays: hub:\S+ supplies it, .* to drop it, take its view out of the hub/);
     await expect(act("layout.move", { where: "edge-left" }, "preview")).rejects.toThrow(/preview stays where it is: .* \(draggable off\)/);
     await expect(act("layout.move", { where: "edge-left" }, "tree")).rejects.toThrow(/draggable off/);
     // The person's x on the preview runs the same close, and the screen says why it stays.
@@ -64,6 +64,14 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     // It took the keys (an agent's open does, unless the person is in an edit): the person closes it.
     await act("tile.close", {}, r.reader, null);
     expect((b as any).detailTiles()).toHaveLength(0);
+  });
+
+  test("a tree tile of the person's own beside the preview closes; the drawer's tree shuts its drawer (by place, not by name)", async () => {
+    await act("tile.open", { kind: "tree", name: "tree-mine", where: "right" }, "preview", null);
+    expect((b as any).idNamed("tree-mine")).toBeDefined();
+    await act("tile.close", {}, "tree-mine", null);
+    expect((b as any).idNamed("tree-mine")).toBeUndefined();
+    expect((b as any).idNamed("tree")).toBeDefined();
   });
 
   test("a readers row taken apart opens no detail and says why (no TypeError), and the board comes back whole", async () => {

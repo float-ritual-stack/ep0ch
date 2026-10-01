@@ -185,6 +185,8 @@ export interface TileSource {
   tiles(arg: string, desk: DeskApi): Promise<{ tiles: { spec: TileSpec; prime?(p: Pane): void }[]; title?: string }>;
   /** A change that may change what `tiles` answers (a view added under the hub, renamed, taken away). */
   affects?(c: Change, arg: string): boolean;
+  /** How the person takes one of its tiles away (its tiles don't close: said when tile.close is refused). */
+  readonly drop?: string;
   /** Which tile is which across a refill: a tile with the same key is kept. */
   key(spec: Partial<TileSpec>): string | null;
 }

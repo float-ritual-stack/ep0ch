@@ -1215,11 +1215,14 @@ export class DeliveryBoard extends Desk {
    */
   override closeTile(sel: string | undefined, actor: Actor) {
     const t = this.tile(this.alias(sel));
-    if (this.inBoardDrawer(t.name)) return { tile: t.name, ...this.closePane(t.name, actor) };
+    if (this.inBoardDrawer(t.id)) return { tile: t.name, ...this.closePane(t.name, actor) };
     return super.closeTile(t.name, actor);
   }
-  /** One of the drawers' tiles (the outline and its preview, the backlinks and theirs). */
-  private inBoardDrawer(name: string): boolean { return name.startsWith("tree") || name.startsWith("backlinks"); }
+  /** Which of the board's drawers tile `id` is in (the outline: the tree and its preview; the backlinks and theirs), by place, not name. */
+  private inBoardDrawer(id: number): "tree" | "backlinks" | null {
+    for (const [key, d] of [["outline", "tree"], ["links", "backlinks"]] as const) { const n = node(this.root, key); if (n && leaves(n).includes(id)) return d; }
+    return null;
+  }
 
   /** Close a detail or a float (`x`), the drawers shut; the lanes and the preview stay (their policy: they collapse). */
   override closePane(sel: string | undefined, actor: Actor): PaneDone {
@@ -1228,8 +1231,9 @@ export class DeliveryBoard extends Desk {
     // Asked before the person's-keys rule: a tile that stays says so to anyone.
     this.refuse(this.closeRefusal(t.id));
     if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't close it`);
-    if (t.name.startsWith("tree") && this.inBoardDrawer(t.name)) { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { pane: "tree" }; }
-    if (t.name.startsWith("backlinks")) { const keep = this.focus; this.shutLinks(actor); if (keep !== this.idNamed("backlinks") && keep !== this.idNamed("backlinks-preview")) this.focus = keep; this.save(); this.redraw(); return { pane: "backlinks" }; }
+    const drawer = this.inBoardDrawer(t.id);
+    if (drawer === "tree") { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { pane: "tree" }; }
+    if (drawer === "backlinks") { const keep = this.focus; this.shutLinks(actor); if (keep !== this.idNamed("backlinks") && keep !== this.idNamed("backlinks-preview")) this.focus = keep; this.save(); this.redraw(); return { pane: "backlinks" }; }
     const rd = this.panes.get(t.id);
     if (rd instanceof ReaderPane && rd.editing) throw new ActionRefused(`not closed: ${t.name} holds ${sessionName(rd)}`);
     const wasFocus = this.focus;
