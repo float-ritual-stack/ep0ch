@@ -5,7 +5,6 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { bodyLinesOf, subject, type Msg } from "../src/board";
 import { renderDoc } from "../src/doc";
-import { Draft } from "../src/edit";
 import { isLiteralMarkerLine, literalLines, literalMarkerLineStarts, scanLiteralRegions } from "../src/literal";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { outliner } from "./scratch";
@@ -88,7 +87,7 @@ describe("literal regions in a reader", () => {
   test("editing shows the markers: the source is the note's text as stored", () => {
     const s = new NoteSurface(), h = host();
     s.show(note(TEXT), h);
-    s.draft = new Draft(s.msg!.id, 2, TEXT);
+    s.startDraft({ ...s.msg!, revision: 2, text: TEXT }, h);
     const text = s.render(90, 40, h).lines.map(plain).join("\n");
     expect(text).toContain("<!-- literal -->");
     expect(text).toContain("<!-- /literal -->");

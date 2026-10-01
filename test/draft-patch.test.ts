@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Draft } from "../src/edit";
+import { recordAs } from "../src/draft-session";
 import { ACTOR_ID, actorIdOf, mutationFor, SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
@@ -60,7 +61,7 @@ describe("a patch in a draft being typed in", () => {
     expect(d.col).toBe(typed.length);
     // Who made it is lit where it landed, and the save names both of them.
     expect(d.render(60, 8).map(visible).join("\n")).toContain("@tidy · just now");
-    expect(d.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["tidy"] });
+    expect(recordAs(d, { kind: "user" })).toEqual({ kind: "user", with: ["tidy"] });
   });
 
   test("a draft only an extension's @agent changed saves as the saver's, naming it: never as ext:<id> (PIE-510)", () => {
@@ -68,13 +69,13 @@ describe("a patch in a draft being typed in", () => {
     const p = span(d.text, "The beans   go along  the fence.", "The beans go along the fence.");
     expect(d.applyPatch({ patchId: "e1", patches: [p], revision: 3, mark: "@tidy tidy this" }, EXT_TIDY)).toEqual({ applied: true });
     expect(d.writers).toEqual([EXT_TIDY]);
-    expect(d.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["ext:tidy"] });
-    expect(mutationFor(d.recordAs({ kind: "user" }))).toEqual({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
-    expect(d.recordAs({ kind: "agent", id: "helper-7" })).toEqual({ kind: "agent", id: "helper-7", with: ["ext:tidy"] });
+    expect(recordAs(d, { kind: "user" })).toEqual({ kind: "user", with: ["ext:tidy"] });
+    expect(mutationFor(recordAs(d, { kind: "user" }))).toEqual({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
+    expect(recordAs(d, { kind: "agent", id: "helper-7" })).toEqual({ kind: "agent", id: "helper-7", with: ["ext:tidy"] });
     // An agent that alone wrote is still the one a save is recorded as.
     const a = typing();
     a.applyPatch({ patchId: "a1", patches: [span(a.text, "The beans   go along  the fence.", "The beans go along the fence.")], revision: 3, mark: "@tidy tidy this" }, TIDY);
-    expect(a.recordAs({ kind: "user" })).toEqual(TIDY);
+    expect(recordAs(a, { kind: "user" })).toEqual(TIDY);
   });
 
   test("a line the patch adds above moves the cursor's line down in the text, but not on screen", () => {
@@ -226,7 +227,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const d = s.draft!;
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
     await until(() => s.describe().editing!.held && d !== null, "the draft held");
-    await until(() => (board as any).drafts.get(id)?.holdId, "the service's hold");
+    await until(() => !!board.heldDraft(id)?.holdId, "the service's hold");
     const type = (str: string) => { for (const c of str) s.key(char(c), h); };
     return { id, s, h, d, type };
   }
@@ -433,7 +434,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const e = await editing("Beds\nrake  them   flat");
     e.s.dispose();
     await Bun.sleep(100);
-    expect((board as any).drafts.get(e.id)).toBeUndefined();
+    expect(board.heldDraft(e.id)).toBeNull();
     const m = (await board.get(e.id))!;
     const r = await agent.request("draft.patch", { blockId: e.id, revision: m.revision, patches: [span(m.text, "rake  them   flat", "rake them flat")], mutation: { author: "agent", actorId: "tidy" } });
     expect(r).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });

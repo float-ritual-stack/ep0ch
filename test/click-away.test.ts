@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
-import { unsent } from "../src/edit";
+import { unsent } from "../src/draft-session";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -65,7 +65,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
   test("a click on another tile saves the edit, lets go of its hold, and gives that tile the keys", async () => {
     const { id, rd } = await editing("Plant the leeks\nin the far bed");
     const d = rd.draft!;
-    await until(() => !!(board as any).drafts.get(id)?.holdId, "the service's hold on the draft");
+    await until(() => !!board.heldDraft(id)?.holdId, "the service's hold on the draft");
     type(" today");
     const to = clickElsewhere();
     expect(D().nameOf(D().focus)).toBe(to);                            // the click did what it does: focus
@@ -73,7 +73,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     expect((await current(id)).text).toBe("Plant the leeks today\nin the far bed");
     expect(message()).toContain("saved · revision");
     expect(unsent(`edit:${id}`)).toBeNull();
-    expect((board as any).drafts.get(id)).toBeUndefined();              // the hold (drafts.hold) went with the draft
+    expect(board.heldDraft(id)).toBeNull();              // the hold (drafts.hold) went with the draft
     expect(d.text).toBe("Plant the leeks today\nin the far bed");
   }, 30_000);
 
@@ -85,7 +85,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     await Bun.sleep(100);
     expect((await current(id)).revision).toBe(before);
     expect(unsent(`edit:${id}`)).toBeNull();
-    expect((board as any).drafts.get(id)).toBeUndefined();
+    expect(board.heldDraft(id)).toBeNull();
   }, 30_000);
 
   test("a save the service refuses (a conflict) keeps the draft as unsent, says so, and e brings its copy's place back", async () => {
@@ -98,7 +98,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     expect(message()).toMatch(/^not saved: it changed elsewhere since you started · the edit to “Net the brassicas” was kept as unsent · a copy is at /);
     expect((await current(id)).text).toBe("Net the brassicas\nbefore the pigeons land");   // theirs stands: nothing overwritten
     expect(unsent(`edit:${id}`)?.text).toBe("Net the brassicas soon\nbefore the pigeons");  // and ours is kept
-    expect((board as any).drafts.get(id)).toBeUndefined();
+    expect(board.heldDraft(id)).toBeNull();
     // Back in the reader, e says where it is (the note moved on since it was written).
     desk.focusOn(name);
     key(char("e"));

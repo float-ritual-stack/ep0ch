@@ -4,10 +4,11 @@
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import { scrolled, wheelRows } from "./scroll";
 import type { Msg } from "./board";
-import { Draft } from "./edit";
+import type { Draft } from "./edit";
+import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
-import { completionKey, type Completer } from "./surface/completer";
-import { Refused, USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
+import type { Completer } from "./surface/completer";
+import { USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { bg, C, fg, pad, RESET } from "./style";
 import type { Key } from "./term";
 import { ago, rule, wrap } from "./text";
@@ -144,31 +145,8 @@ export class Passage {
   }
 }
 
-// ── request identity ──────────────────────────────────────────────────────────
-
-/**
- * One requestId per thing the user means to send. A retry of the same text reuses it, so the service
- * answers with the comment it already saved. A changed text gets a new id; if the last send's outcome
- * is unknown, the session asks before sending, because both could land.
- */
-export class Outgoing {
-  private last: { key: string; id: string; unsure: boolean } | null = null;
-  /** The requestId for this payload, and whether it replaces a send whose outcome is unknown. */
-  peek(key: string): { requestId: string; replacesUnsure: boolean } {
-    if (this.last?.key === key) return { requestId: this.last.id, replacesUnsure: false };
-    return { requestId: "", replacesUnsure: !!this.last?.unsure };
-  }
-  begin(key: string): string {
-    if (this.last?.key !== key) this.last = { key, id: `ep0ch-door-${crypto.randomUUID()}`, unsure: false };
-    return this.last.id;
-  }
-  /** No answer: it may have been saved. */
-  unsure() { if (this.last) this.last.unsure = true; }
-  /** The service answered no: nothing was written under this id. */
-  refused() { if (this.last) this.last.unsure = false; }
-  done() { this.last = null; }
-  get requestId() { return this.last?.id ?? null; }
-}
+// One requestId per thing the person means to send: the comment adapter's (src/draft-session.ts).
+export { Outgoing };
 
 // ── the session a reader holds while commenting ───────────────────────────────
 
@@ -187,16 +165,15 @@ export interface CommentEnv {
   redraw(): void;
 }
 
-type Target =
-  | { kind: "quote"; blockId: string; revision: number; passage: CommentPassage }
-  | { kind: "reply"; thread: Comment };
+type Target = CommentWhere;
 
 export type CommentMode = "select" | "compose" | "threads";
 
 export class CommentSession {
   mode: CommentMode;
   passage: Passage | null = null;
-  composer: Draft | null = null;
+  /** The comment or reply being written: a draft session with the comment adapter (src/draft-session.ts). */
+  writing: DraftSession | null = null;
   target: Target | null = null;
   sel = 0;
   busy: string | null = null;
@@ -204,9 +181,9 @@ export class CommentSession {
   note = "";
   /** The last refusal was about the note moving on, so ctrl+r can find the quote again. */
   private stale = false;
-  /** A changed comment after an unanswered send: the next ctrl+s sends it as new. */
-  private confirmNew = false;
   private readonly out = new Outgoing();
+  /** The reader's environment, as the last key or send gave it (the adapter sends through its board). */
+  private env: CommentEnv | null = null;
   private top = 0;
   /** The person scrolled the list themselves (wheel, PgUp/PgDn): the view stops following the selection until j or k. */
   private free = false;
@@ -231,6 +208,8 @@ export class CommentSession {
   }
 
   get blockId() { return this.msg.id; }
+  /** The text being written (the writing session's draft). */
+  get composer(): Draft | null { return this.writing?.draft ?? null; }
   get dirty() { return !!this.composer?.dirty; }
   get requestId() { return this.out.requestId; }
 
@@ -258,19 +237,27 @@ export class CommentSession {
       return "keep";
     }
     if (this.mode === "compose") {
-      const d = this.composer!;
-      const a = completionKey(d, k, env.complete?.(d) ?? null);
-      if (a === "save") void this.send(env);
-      else if (a === "editor") env.external(d);
-      else if (a === "reload") void this.relocate(env);
-      else if (a === "close") {
-        this.composer = null; this.target = null; this.error = null; this.note = ""; this.out.done(); this.confirmNew = false;
-        if (this.inline) return "close";
-        if (this.back === "select" && this.passage) this.mode = "select";
-        else if (this.origin === "select" && !this.threads.length) return "close";
-        else this.mode = "threads";
-      }
-      return "keep";
+      const w = this.writing!, d = w.draft;
+      let out: "keep" | "close" = "keep";
+      this.env = env;
+      w.key(k, {
+        completer: env.complete?.(d) ?? null,
+        run: cmd => {
+          if (cmd === "save") void this.send(env);
+          else if (cmd === "editor") env.external(d);
+          else if (cmd === "reload") void this.relocate(env);
+          else if (cmd === "close" || cmd === "discard") {
+            // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
+            w.close(cmd === "discard");
+            this.writing = null; this.target = null; this.error = null; this.note = ""; this.out.done();
+            if (this.inline) out = "close";
+            else if (this.back === "select" && this.passage) this.mode = "select";
+            else if (this.origin === "select" && !this.threads.length) out = "close";
+            else this.mode = "threads";
+          }
+        },
+      });
+      return out;
     }
     // threads
     const c = ch(k), n = this.threads.length;
@@ -291,14 +278,9 @@ export class CommentSession {
     if (this.mode !== "select" || !p) return "no passage is being picked";
     if (!p.quote.trim()) return "nothing selected";
     this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: p.passage };
-    if (!this.composer) {
-      // A comment put aside on this note (esc twice, a closed screen) comes back under the new passage.
-      this.composer = new Draft("comment", 0, "");
-      this.composer.shelf = { key: `comment:${this.msg.id}`, back: "C and a passage bring it back", label: `${this.msg.id.slice(0, 8)}-comment` };
-      // An agent's comment is its own: the person's put-aside text stays put aside.
-      this.composer.openedBy = by;
-      if (by.kind !== "agent") this.composer.restore();
-    }
+    // A comment put aside on this note (esc twice, a closed screen) comes back under the new passage; an
+    // agent's comment is its own, and the person's put-aside text stays put aside (DraftSession.open).
+    if (!this.writing) this.writing = this.open(by);
     this.back = "select"; this.mode = "compose"; this.error = null; this.stale = false;
     return null;
   }
@@ -309,12 +291,22 @@ export class CommentSession {
     if (!t) return "no such thread";
     this.sel = i;
     this.target = { kind: "reply", thread: t };
-    this.composer = new Draft("reply", 0, "");
-    this.composer.shelf = { key: `reply:${t.id}`, back: "r on the thread brings it back", label: `${this.msg.id.slice(0, 8)}-reply` };
-    this.composer.openedBy = by;
-    if (by.kind !== "agent") this.composer.restore();
+    this.writing = this.open(by);
     this.back = "threads"; this.mode = "compose"; this.note = "";
     return null;
+  }
+
+  /** A draft session for the comment or reply `target` names, sent by the comment adapter. */
+  private open(by: Actor): DraftSession {
+    return DraftSession.open(commentTarget({
+      where: () => this.target!,
+      note: this.msg,
+      board: () => this.env!.board,
+      out: this.out,
+      landed: (r, t) => this.landed(r, t),
+      refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
+      relocate: () => this.relocate(this.env!),
+    }), { by });
   }
 
   /** Select a passage on the note as the service has it now. */
@@ -325,65 +317,41 @@ export class CommentSession {
     if (!fresh || fresh.revision === undefined) { this.error = "can't read the note's current revision"; env.redraw(); return; }
     this.msg = fresh; env.setMsg(fresh);
     this.passage = new Passage(fresh.text);
-    if (!carry) { this.composer = null; this.target = null; this.out.done(); }
+    if (!carry) { this.writing?.dispose(); this.writing = null; this.target = null; this.out.done(); }
     this.mode = "select"; env.redraw();
   }
 
-  private payloadKey(t: Target, body: string) {
-    return JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
+  /** Send it (ctrl+s, `comment.send`): through the writing session, recorded as whoever wrote the text. */
+  async send(env: CommentEnv): Promise<void> {
+    const w = this.writing, t = this.target;
+    if (!w || !t) return;
+    this.env = env;
+    if (w.draft.text.trim()) { this.busy = t.kind === "quote" ? "sending the comment..." : "sending the reply..."; this.error = null; env.redraw(); }
+    // A refusal is the adapter's to say (its error line, at once); one said on the draft itself (nothing typed) stays there.
+    const r = await w.submit(env.actor ?? USER);
+    if (!r.ok) this.busy = null;
+    env.redraw();
   }
 
-  async send(env: CommentEnv): Promise<void> {
-    const d = this.composer, t = this.target;
-    if (!d || !t) return;
-    const body = d.text.trim();
-    if (!body) { d.note = "write the comment first"; env.redraw(); return; }
-    const key = this.payloadKey(t, body);
-    if (this.out.peek(key).replacesUnsure && !this.confirmNew) {
-      this.confirmNew = true;
-      this.error = "the last send got no answer and may be saved; this text differs, so it would be a second comment · ctrl+s again sends it anyway";
-      env.redraw(); return;
-    }
-    this.confirmNew = false;
-    const requestId = this.out.begin(key);
-    // Recorded as whoever wrote the text, not only whoever pressed send (see Draft.recordAs).
-    const by = d.recordAs(env.actor ?? USER);
-    this.busy = t.kind === "quote" ? "sending the comment..." : "sending the reply..."; this.error = null; env.redraw();
-    try {
-      const r = t.kind === "quote"
-        ? await env.board.comment(requestId, t.blockId, t.revision, body, t.passage, by)
-        : await env.board.reply(requestId, t.thread.id, body, by);
-      this.out.done();
-      this.composer = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
-      this.mode = "threads"; this.busy = "loading the thread...";
-      // From an expanded thread: straight back to reading (the reader shows the reloaded thread there).
-      if (this.inline) this.finished = true;
-      env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
-      this.threads = await env.reloadComments();
-      this.busy = null;
-      const root = t.kind === "quote" ? r.id : t.thread.id;
-      this.sel = Math.max(0, this.threads.findIndex(x => x.id === root));
-      // A comment on a checklist step gives the step a stable id, which changes the note.
-      if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.busy = null;
-      if (e instanceof Refused) {
-        this.out.refused();
-        this.stale = t.kind === "quote" && /revision is stale|was not found|ambiguous/i.test(msg);
-        this.error = /revision is stale/i.test(msg) ? "the note changed since you picked the passage · not sent · ctrl+r finds the quote in the current text"
-          : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent · ctrl+r picks it again"
-          : `refused, not sent: ${msg}`;
-      } else {
-        this.out.unsure();
-        this.error = `no answer from the outline (${msg}) · it may be saved · ctrl+s retries with the same request id, so it can't land twice`;
-      }
-    }
-    env.redraw();
+  /** A send landed: back to the thread list, reloaded, on the thread it went to. */
+  private async landed(r: { id: string; deduplicated?: boolean }, t: Target): Promise<void> {
+    const env = this.env!;
+    this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
+    this.mode = "threads"; this.busy = "loading the thread...";
+    // From an expanded thread: straight back to reading (the reader shows the reloaded thread there).
+    if (this.inline) this.finished = true;
+    env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
+    this.threads = await env.reloadComments();
+    this.busy = null;
+    const root = t.kind === "quote" ? r.id : t.thread.id;
+    this.sel = Math.max(0, this.threads.findIndex(x => x.id === root));
+    // A comment on a checklist step gives the step a stable id, which changes the note.
+    if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
   }
 
   /** After a stale refusal: find the same quote in the note's current text, nearest where it was. */
   async relocate(env: CommentEnv): Promise<void> {
+    this.env = env;
     const t = this.target;
     if (!t || t.kind !== "quote" || !this.stale) { if (this.composer) this.composer.note = "nothing to reload"; return; }
     this.busy = "reading the note..."; env.redraw();

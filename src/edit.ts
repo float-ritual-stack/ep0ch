@@ -1,10 +1,10 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
-import { actorIdOf, isExtensionWriter, USER, type Actor } from "./socket";
+import { USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
@@ -29,8 +29,11 @@ export interface PatchFlash { start: number; end: number; label: string; until: 
 export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; mark?: string; force?: boolean }
 export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
-/** What a key in a draft asks its host to do; `copy` (cmd+c): the host runs its draft.copy, which reaches the clipboard. */
-export type DraftAction = "keep" | "save" | "editor" | "reload" | "close" | "copy";
+/**
+ * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
+ * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
+ */
+export type DraftAction = "keep" | "save" | "editor" | "reload" | "close" | "discard" | "copy";
 
 export class Draft {
   lines: string[];
@@ -61,11 +64,6 @@ export class Draft {
    */
   writers: Actor[] = [];
   lastWriter: Actor | null = null;
-  /**
-   * Who opened the draft: the person (their `e`, `C`, `n`) or an agent (`edit.text`, `comment.write`). An
-   * agent's draft actions (DRAFT_ACTIONS) work only in a draft it opened and alone wrote in.
-   */
-  openedBy: Actor = USER;
 
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
@@ -100,22 +98,6 @@ export class Draft {
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
-  }
-
-  /**
-   * Who a save by `saver` is recorded as. One party wrote every change since the draft opened: them,
-   * whoever presses save. Several did: the saver, naming the others (`with`), so neither is left out.
-   * An extension (`ext:<id>`, an `@tidy` line's patch) is never who a save is recorded as: only the service's
-   * extension runtime writes as one, and it refuses a client that names it. The saver records it, naming the
-   * extension (`ep0ch-door:<host>+ext:tidy`).
-   */
-  recordAs(saver: Actor): Actor {
-    const only = this.writers.length === 1 ? this.writers[0]! : null;
-    if (only && !(only.kind === "agent" && isExtensionWriter(only.id))) return only;
-    if (!this.writers.length) return saver;
-    const others = this.writers.filter(w => !sameParty(w, saver)).map(actorIdOf);
-    const { with: _, ...me } = saver;
-    return { ...(me as Actor), with: others };
   }
 
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
@@ -156,63 +138,8 @@ export class Draft {
     if (this.text !== before) this.wrote(by);
   }
 
-  /**
-   * Where this draft is kept when it's put aside (`key`, e.g. `edit:<id>`), what brings it back there
-   * (`back`: "e brings it back"), and the name of its copy on disk. Without it a put-aside draft is only copied.
-   */
-  shelf: { key: string; back: string; label?: string } | null = null;
-  /** The text a put-aside draft was brought back with: esc twice on it unchanged drops it. */
+  /** The text a put-aside draft was brought back with (its session's restore): esc twice on it unchanged drops it. */
   restored: string | null = null;
-  /** What happened to the text when the draft closed with it (put aside, or dropped), for the host to say. */
-  closedWith: string | null = null;
-
-  /**
-   * Keep this draft under its place with a copy on disk (a screen closing, the door quitting). Returns the copy.
-   * Text only agents wrote is only copied: it never covers the person's put-aside text there, and the person's
-   * next draft there never brings it back as theirs.
-   */
-  keep(): string {
-    const copy = this.copyOut(this.shelf?.label);
-    if (this.shelf && this.persons) shelve(this.shelf.key, this, copy);
-    return copy;
-  }
-
-  /** The person had a hand in the text (or nobody is recorded, as for text typed before writers were kept). */
-  private get persons() { return !this.writers.length || this.writers.some(w => w.kind === "user"); }
-
-  /**
-   * Esc, esc on unsaved text: never lost. It's put aside where it was written (and copied to disk), and
-   * opening the same draft again brings it back. Text already brought back and left unchanged is dropped
-   * instead, its copy kept. `closedWith` says which, and where.
-   */
-  putAside(): string {
-    if (this.shelf && this.restored !== null && this.restored === this.text) {
-      unshelve(this.shelf.key);
-      const copy = this.copyOut(this.shelf.label);
-      return this.closedWith = `dropped the unsent draft · a copy stays at ${tidy(copy)}`;
-    }
-    const copy = this.keep();
-    return this.closedWith = this.shelf && this.persons ? `put aside as unsent · ${this.shelf.back} · a copy is at ${tidy(copy)}` : `closed · your text is at ${tidy(copy)}`;
-  }
-
-  /**
-   * A draft opening where one was put aside: its text comes back, when it was written on the revision this
-   * draft starts from (a comment or a new card always). One on an older revision stays on disk, and is said.
-   */
-  restore(): boolean {
-    const u = this.shelf ? unsent(this.shelf.key) : null;
-    if (!u || !this.shelf) return false;
-    unshelve(this.shelf.key);
-    if (u.text === this.text) return false;
-    if (u.base !== this.base) { this.note = `your unsent draft from ${whenPut(u.at)} was on revision ${u.base}; the note changed since · it's at ${tidy(u.copy ?? "")}`; return false; }
-    this.lines = u.text.split("\n");
-    this.row = this.lines.length - 1; this.col = this.line.length;
-    this.restored = u.text;
-    // Whoever wrote it then wrote it now: a save names them all (recordAs).
-    for (const w of u.writers?.length ? u.writers : [USER]) this.wrote(w);
-    this.note = `brought back your unsent draft from ${whenPut(u.at)} · esc twice drops it`;
-    return true;
-  }
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
   copyOut(label = this.blockId.slice(0, 8)): string {
@@ -250,8 +177,7 @@ export class Draft {
           : "unsaved · esc again puts it aside as unsent (nothing is lost) · ctrl+s saves";
         return "keep";
       }
-      this.putAside();
-      return "close";
+      return "discard";
     }
     this.note = "";
     const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
@@ -829,59 +755,6 @@ export function wrapRows(chars: readonly string[], w: number, hang: number): { s
   }
 }
 
-// ── unsent drafts: put aside, never lost, brought back where they were written ──
-
-/** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */
-export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[] }
-
-const unsentDir = () => join(stateDir(), "drafts", "unsent");
-const unsentPath = (key: string) => join(unsentDir(), `${key.replace(/[^\w.-]+/g, "-")}.json`);
-
-/** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<lane>`). */
-export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
-  const u: Unsent = { key, text: d.text, base: d.base, at, copy, writers: d.writers };
-  try {
-    // The draft's whole text: private, like its copy (the folder 0700, the file 0600).
-    mkdirSync(unsentDir(), { recursive: true, mode: 0o700 });
-    const path = unsentPath(key), tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(u), { mode: 0o600 });
-    renameSync(tmp, path);
-    pruneUnsent(path);
-  } catch { /* the copy on disk still has it */ }
-  return u;
-}
-
-/** Drop old put-aside entries by the same rule as the copies (DRAFT_KEEP, DRAFT_DAYS). The one just written stays. */
-export function pruneUnsent(keep: string, now = Date.now()): string[] {
-  let files: { path: string; at: number }[];
-  try {
-    files = readdirSync(unsentDir()).filter(f => f.endsWith(".json")).map(f => {
-      const path = join(unsentDir(), f);
-      try { return { path, at: (JSON.parse(readFileSync(path, "utf8")) as Unsent).at }; } catch { return { path, at: 0 }; }
-    });
-  } catch { return []; }
-  files.sort((a, b) => b.at - a.at);
-  const old = files.filter((f, i) => f.path !== keep && i >= DRAFT_KEEP && now - f.at > DRAFT_DAYS * 86_400_000);
-  for (const f of old) { try { rmSync(f.path); } catch { /* best effort */ } }
-  return old.map(f => f.path);
-}
-
-/** The draft put aside at `key`, if there is one. */
-export function unsent(key: string): Unsent | null {
-  try { const p = unsentPath(key); return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) as Unsent : null; } catch { return null; }
-}
-
-/** Forget the draft put aside at `key` (it was brought back or dropped; its copy on disk stays). */
-export function unshelve(key: string): void { try { rmSync(unsentPath(key), { force: true }); } catch { /* best effort */ } }
-
-/** Every draft put aside, newest first. */
-export function unsentAll(): Unsent[] {
-  try {
-    return readdirSync(unsentDir()).filter(f => f.endsWith(".json")).map(f => { try { return JSON.parse(readFileSync(join(unsentDir(), f), "utf8")) as Unsent; } catch { return null; } })
-      .filter((u): u is Unsent => !!u).sort((a, b) => b.at - a.at);
-  } catch { return []; }
-}
-
 /** A path as the person would type it: their home as `~`. */
 export const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
 
@@ -905,46 +778,36 @@ export interface DraftActionArgs {
 }
 
 /**
- * The person's draft is theirs: its cursor, view and preview move only by their keys and mouse. An agent
- * works on a draft only when it opened it and no one else has typed in it.
- */
-export function agentMay(d: Draft, actor: Actor) {
-  if (actor.kind !== "agent") return;
-  if (!sameParty(d.openedBy, actor)) throw new ActionRefused("this draft is the person's; send the whole text with edit.text or comment.write");
-  if (d.writers.some(w => !sameParty(w, actor)))
-    throw new ActionRefused("someone else is typing in this draft; send the whole text with edit.text or comment.write");
-}
-
-/**
  * What the draft does besides typing, as actions: Enter's list continuation, Tab and Shift+Tab, a click or a
  * drag (place), the wheel (scroll) and the preview. The keys and the mouse call these; so does `act`
- * (through the note actions of the same names), on a draft the agent is the only one typing in.
+ * (through the note actions of the same names), where the draft session's agent rule decides first
+ * (`agentRefusal`: a draft the agent opened and alone typed in).
  */
 export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
   "draft.newline": {
     summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
     args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
-    run({ plain }, d, actor) { agentMay(d, actor); const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
+    run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   },
   "draft.indent": {
     summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
-    run({ from, to }, d, actor) { agentMay(d, actor); const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
+    run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
   },
   "draft.outdent": {
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
-    run({ from, to }, d, actor) { agentMay(d, actor); const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
+    run({ from, to }, d, actor) { const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
   },
   "draft.place": {
     summary: "put the draft's cursor at a line and column; extend=true selects from where it was", keys: "click, drag",
     args: { line: { type: "number", about: "line, from 1" }, col: { type: "number", optional: true, about: "column, from 1 (default the end)" }, extend: { type: "boolean", optional: true, about: "select from the cursor to here" } },
-    run({ line, col, extend }, d, actor) { agentMay(d, actor); d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
+    run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   },
   "draft.scroll": {
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view)", keys: "wheel",
     args: { by: { type: "number", about: "rows, negative up" } },
-    run({ by }, d, actor) { agentMay(d, actor); d.scrollBy(by); return { following: d.follow }; },
+    run({ by }, d, actor) { d.scrollBy(by); return { following: d.follow }; },
   },
   "draft.undo": {
     summary: "take back the last edit an agent's draft.patch made in this draft (an agent: only its own); one patch is one undo", keys: "ctrl+z",
@@ -954,13 +817,12 @@ export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
   "draft.preview": {
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
-    run({ on }, d, actor) { agentMay(d, actor); d.preview = on ?? !d.preview; return { preview: d.preview }; },
+    run({ on }, d, actor) { d.preview = on ?? !d.preview; return { preview: d.preview }; },
   },
   "draft.copy": {
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (an agent's never). A drag in a draft doesn't copy by itself, unlike a reader's: typing or a paste replaces what's selected there", keys: "cmd+c",
     args: {},
     run(_, d, actor) {
-      agentMay(d, actor);
       const text = d.selectedText();
       if (!text) throw new ActionRefused("nothing is selected in the draft · drag across the text, then cmd+c");
       return { text, chars: [...text].length };

@@ -43,6 +43,9 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   action is a bug, and `test/parity.ts` (run by `test/parity-*.test.ts`) catches it: it presses every key and clicks every row on every
   screen and fails on a change no action named that key ran. Mouse is first-class: every feature states its
   mouse path and its key path.
+- **Every draft is a draft session** (`src/draft-session.ts`): a new kind of text the door writes is a
+  target adapter on it (block, comment or reply, card or child), never its own put-aside, restore, hold or
+  click-away. Every rule about an agent and a draft is its `agentRefusal`.
 - **Agents are first-class, and never take the person's cursor.** An agent can do what the person can, with
   honest provenance (`author: agent`, its actor id, said on screen). It never moves the person's focus,
   selection or keys, and never the reader they type in; refusals say why. Safety comes from revision

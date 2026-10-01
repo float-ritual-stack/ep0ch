@@ -89,10 +89,20 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "edit", need: "edit text, complete [[ (( [file::", part: "the editing component: Draft, edit control, completer, DRAFT_ACTIONS (lists, wrap, mouse, preview, unsent); the property panel (i, I)", files: "src/edit.ts, src/surface/editor.ts, src/surface/completer.ts, src/surface/props-panel.ts",
-    aside: `${PARALLEL}: the board's composer (src/desk/delivery.ts) draws the edit control without completion (F9)`,
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · edit", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], () => b.surface.openPanel(false));
+    },
+  },
+  {
+    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts",
+    aside: "the left reader is in an edit (a block's draft, held on the service), the right one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · drafts", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], d => {
+        void a.act("edit", {}, d, USER).catch(() => {});
+        void b.act("passage.select", {}, d, USER).then(() => b.act("comment.write", { body: "" }, d, USER)).catch(() => {});
+      });
     },
   },
   {
@@ -398,7 +408,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-16> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-17> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
     run({ name }, s, actor) {
@@ -409,7 +419,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
     },
   },
   "section": {
-    summary: "show a section (name=<1-16> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-17> or its key: note, actions, edit, drafts, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);

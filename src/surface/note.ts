@@ -21,10 +21,11 @@ import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../a
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand } from "../open";
-import { agentMay, Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, tidy, unsent, whenPut, type DraftActionArgs } from "../edit";
+import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
+import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
-import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type OutlineEvent, type PropertyRecord } from "../socket";
+import { EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -278,13 +279,7 @@ const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose
 const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
-/** `-stage=queued +stage=doing`, or "" when the property set is the same. */
-export function propertyChange(before: Record<string, string>, after: Record<string, string>): string {
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(before)) if (after[k] !== v) out.push(`-${k}=${v}`);
-  for (const [k, v] of Object.entries(after)) if (before[k] !== v) out.push(`+${k}=${v}`);
-  return out.join(" ");
-}
+export { leaveSaid, propertyChange, type LeaveResult };
 
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
@@ -351,8 +346,13 @@ export class NoteSurface {
   /** A press landed in the draft's text: a drag from it selects there. */
   private editPress = false;
   private dragging = false;
-  /** An open edit of `msg`. While it exists every key goes to it and the surface stays on its note. */
-  draft: Draft | null = null;
+  /**
+   * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
+   * every key goes to it and the surface stays on its note.
+   */
+  drafting: DraftSession | null = null;
+  /** The edit's text (the session's draft). */
+  get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   session: CommentSession | null = null;
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
@@ -385,11 +385,6 @@ export class NoteSurface {
    * holds the reader's keys until a choice is made or esc.
    */
   picker: { key: string; sel: number; note: string; busy: boolean } | null = null;
-  /**
-   * The open draft's hold on the service (PIE-501): while held, an agent's `draft.patch` on this note lands in
-   * the draft being typed, not the saved note. Let go when the draft closes.
-   */
-  private draftHold: DraftHoldHandle | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new StepHistory();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
@@ -429,8 +424,8 @@ export class NoteSurface {
   keepDrafts(): string[] {
     const out: string[] = [];
     // Kept where they were written too: opening the edit or the comment again brings them back.
-    if (this.draft?.dirty) out.push(this.draft.keep());
-    if (this.session?.composer?.dirty) out.push(this.session.composer.keep());
+    if (this.drafting?.dirty) out.push(this.drafting.keep());
+    if (this.session?.writing?.dirty) out.push(this.session.writing.keep());
     return out;
   }
 
@@ -621,7 +616,7 @@ export class NoteSurface {
       ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
-      ...unsentLines(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),
+      ...unsentOn(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
@@ -986,6 +981,9 @@ export class NoteSurface {
    * from, so the service refuses it if the note has moved on. Returns the saved note (also shown here).
    */
   async patchValue(m: Msg, revision: number, row: PropRow, value: string, host: SurfaceHost, actor: Actor): Promise<Msg> {
+    // Never underneath a draft someone has open on that note (the draft session's agent rule).
+    const no = agentRefusal(actor, { board: host.ctx.board, blockId: m.id });
+    if (no) throw new ActionRefused(no);
     let ordinal = row.ordinal;
     if (ordinal === null) {
       // No properties.preview on this service: ask it for this key's tokens, at the same revision.
@@ -1104,35 +1102,50 @@ export class NoteSurface {
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { host.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
     if (this.msg?.id !== m.id || this.editing) return;
-    this.msg = fresh;
-    this.draft = new Draft(fresh.id, fresh.revision, fresh.text, fresh.props);
-    // An edit put aside on this note (esc twice, a closed screen, the door quitting) comes back here.
-    this.draft.shelf = { key: `edit:${fresh.id}`, back: "e brings it back", label: fresh.id.slice(0, 8) };
-    // Only for the person: an agent's edit never picks up the person's put-aside text.
-    this.draft.openedBy = host.actor ?? USER;
-    if (host.actor?.kind !== "agent") this.draft.restore();
-    this.holdDraft(host);
-    // The person's typing reaches the service (drafts.touch): an @name line they write runs before any save.
-    const typed = this.draft;
-    typed.onPersonTyped = () => { if (this.draft === typed) this.draftHold?.touched?.(); };
+    try { this.startDraft(fresh, host); }
+    catch (e) { const why = e instanceof Error ? e.message : String(e); host.ctx.flash(why); return why; }
     host.redraw();
     if (external) this.external(host);
   }
 
+  /**
+   * The edit's draft session on `fresh` (the note as the service has it now): the block adapter writes it
+   * against `fresh.revision`. The session brings back an edit the person put aside here (esc twice, a closed
+   * screen, the door quitting; never for an agent), holds it on the service while it's open (an agent's
+   * `draft.patch` lands in it), and refuses an agent a second draft of a note someone has open in one.
+   */
+  startDraft(fresh: Msg, host: SurfaceHost) {
+    const redraw = () => host.redraw();
+    const target = blockTarget(fresh, {
+      board: host.ctx.board,
+      saved: (m, by, asked, change) => this.saved(m, by, asked, change, host),
+      reread: m => { if (this.msg?.id === m.id) this.msg = m; },
+      redraw,
+    });
+    const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: fresh.props, by: host.actor ?? USER }, {
+      board: host.ctx.board, redraw,
+      agentDid: (by, did) => this.noteAgent(by, did, s.draft),
+      closed: how => this.draftClosed(s, how),
+    });
+    this.msg = fresh;
+    this.drafting = s;
+    return s;
+  }
+
   private draftKey(k: Key, host: SurfaceHost): boolean {
-    const d = this.draft!;
-    if (d.busy) return true;
-    const a = completionKey(d, k, this.completer(d, host));
+    const s = this.drafting!;
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
-    if (a === "save") void this.runKey("edit.save", {}, host, true);
-    else if (a === "editor") void this.runKey("edit", { external: true }, host);
-    else if (a === "reload") void this.runKey("edit.reload", {}, host);
-    else if (a === "copy") void this.runKey("draft.copy", {}, host);
-    else if (a === "close") {
-      // Esc, esc never drops typed text: the draft put itself aside (Draft.putAside) and says where.
-      void this.runKey("edit.close", {}, host);
-      if (d.closedWith) host.ctx.flash(d.closedWith, 8000);
-    }
+    s.key(k, {
+      completer: this.completer(s.draft, host),
+      run: cmd => {
+        if (cmd === "save") void this.runKey("edit.save", {}, host, true);
+        else if (cmd === "editor") void this.runKey("edit", { external: true }, host);
+        else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
+        else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
+        // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
+        else void this.runKey("edit.close", cmd === "discard" ? { discard: true } : {}, host);
+      },
+    });
     host.redraw();
     return true;
   }
@@ -1151,106 +1164,46 @@ export class NoteSurface {
    * Unsaved text was already copied to disk (keepDrafts) by the screen that asked before closing.
    */
   dispose() {
-    if (this.draft) this.closeDraft();
+    this.drafting?.dispose();
   }
 
   /**
-   * The draft closes: saved (`saved`), closed with nothing changed, or put aside as unsent. What an agent did
+   * The edit's session ended: written, closed with nothing changed, or put aside as unsent. What an agent did
    * to it is said no longer as if it were still open: gone once saved or closed, in the past tense once put aside.
    */
-  private closeDraft(saved = false) {
-    const d = this.draft;
-    this.draftHold?.release();
-    this.draftHold = null;
-    this.draft = null;
+  private draftClosed(s: DraftSession, how: Ended) {
+    if (this.drafting !== s) return;
+    this.drafting = null;
     if (this.msg) this.links = linksOf(this.msg);
-    if (d && this.agentDraft === d) {
-      this.agent = this.agent && !saved && d.dirty ? { ...this.agent, did: "edited the draft you put aside" } : null;
+    if (this.agentDraft === s.draft) {
+      this.agent = this.agent && how === "aside" ? { ...this.agent, did: "edited the draft you put aside" } : null;
       this.agentDraft = null;
     }
   }
 
-  /** Hold the open draft on the service, so an agent's patch on this note comes to it (PIE-501). */
-  private holdDraft(host: SurfaceHost) {
-    const d = this.draft;
-    if (!d) return;
-    const redraw = () => host.redraw();
-    this.draftHold = host.ctx.board.holdDraft?.(d.blockId, d.base, r => this.answerDraft(r, d, redraw)) ?? null;
+  /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
+  private saved(m: Msg, by: Actor, asked: Actor, change: string, host: SurfaceHost) {
+    this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
+    this.links = linksOf(this.msg);
+    // The service decides which [key::value] tokens are properties (a token followed by more text on
+    // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
+    this.notice = change ? `properties changed: ${change}` : "";
+    const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
+    host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
   }
 
   /**
-   * The service asks about the draft this reader holds: its text now, an agent's patch (compared against the
-   * text as typed; the cursor, selection and view shift with it), a revert of one, or a proposal's embed line.
-   * Never the person's keys: nothing here moves focus or leaves the draft.
+   * Save the edit (ctrl+s, `edit.save`): its session writes it through the block adapter, recorded as whoever
+   * wrote the text (recordAs), which is not always `actor`, who pressed save. Returns that, or null when
+   * nothing was written (unchanged, a property change shown first, or refused: the draft says why).
    */
-  answerDraft(r: DraftRequest, d: Draft, redraw: () => void): DraftAnswer {
-    if (this.draft !== d) throw new Error("the draft was closed");
-    if (r.kind === "read") return { text: d.text, revision: d.base };
-    if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
-    const by = patchActor(r.mutation);
-    const a = r.kind === "patch" ? d.applyPatch(r, by) : d.insertLine(r.line, r.mark, by);
-    if (a.applied) {
-      this.noteAgent(by, r.kind === "patch" ? (r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor") : "put a proposal under the mark", d);
-      setTimeout(redraw, PATCH_FLASH_MS + 50);
-      redraw();
-    }
-    return a;
-  }
-
-  /**
-   * Whole-text update from the draft's base revision. A refusal keeps the draft and copies it to disk.
-   * The write is recorded as whoever wrote the text (Draft.recordAs), which is not always `actor`, the
-   * one who pressed save; returns that, or null when nothing was written.
-   */
-  async save(host: SurfaceHost, actor: Actor = USER, away = false): Promise<Actor | null> {
-    const d = this.draft;
-    if (!d || d.busy) return null;
-    if (!d.dirty) { this.closeDraft(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
-    const text = d.text;
-    // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
-    // Meanwhile the draft holds still: keys wait, and edit.text / edit.close / edit.reload are refused.
-    if (d.propertyWarned !== text) {
-      d.previewing = true; host.redraw();
-      let next: Record<string, string> | null = null;
-      try { next = await host.ctx.board.previewProperties(text).catch(() => null); } finally { d.previewing = false; }
-      // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
-      if (this.draft !== d || d.text !== text) { host.redraw(); return null; }
-      const change = next ? propertyChange(d.baseProps, next) : "";
-      if (change) {
-        // Leaving by a click isn't the second save a property change asks for: the caller keeps it unsent.
-        if (away) { d.note = `it changes properties (${change}); ctrl+s twice saves it`; return null; }
-        d.propertyWarned = text;
-        d.note = `this save changes properties: ${change} · ctrl+s again saves`;
-        host.redraw();
-        return null;
-      }
-    }
-    const by = d.recordAs(actor);
-    d.saving = true; d.note = "saving…"; host.redraw();
-    try {
-      const m = await host.ctx.board.update(d.blockId, text, d.base, by);
-      if (this.draft === d) this.closeDraft(true);
-      this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
-      this.links = linksOf(this.msg);
-      // The service decides which [key::value] tokens are properties (a token followed by more text on
-      // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
-      const change = propertyChange(d.baseProps, m.props);
-      this.notice = change ? `properties changed: ${change}` : "";
-      const whose = sameParty(by, actor) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
-      host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
-      return by;
-    } catch (e) {
-      d.saving = false;
-      if (e instanceof EditConflict) {
-        d.conflict = "changed elsewhere since you started · not saved";
-        d.note = `your draft is kept and copied to ${d.copyOut()} · ctrl+r loads the current text`;
-      } else {
-        d.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
-      }
-      return null;
-    } finally {
-      host.redraw();
-    }
+  async save(host: SurfaceHost, actor: Actor = USER): Promise<Actor | null> {
+    const s = this.drafting;
+    if (!s || s.busy) return null;
+    if (!s.dirty) { s.close(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
+    const r = await s.submit(actor);
+    host.redraw();
+    return r.ok ? (r.result as Actor) : null;
   }
 
   /**
@@ -1263,20 +1216,17 @@ export class NoteSurface {
   }
 
   /**
-   * The person clicked (or ^W'd) away from the edit or comment they're in, as in any editor: nothing typed is
-   * lost and nothing is posted. An unchanged edit closes. A changed one is saved against the revision it
-   * started from; one that can't be (a conflict, offline, refused, or a property change not yet confirmed)
-   * is put aside as unsent, where `e` brings it back, and the flash says so. A comment or reply being
-   * written is put aside unsent, never sent: sending is an explicit act. Either way the draft's hold
-   * (`drafts.hold`) is let go as the draft closes. An agent may leave only a session it opened.
+   * The person clicked (or ^W'd) away from the edit or comment they're in, as in any editor: its draft
+   * session leaves (DraftSession.leave: an unchanged edit closes, a changed one is saved against its
+   * revision or kept as unsent, a comment or reply is kept as unsent, never sent), and the comment session
+   * closes with it. What was kept is flashed. An agent may leave only a session it opened.
    */
   async leave(host: SurfaceHost, actor: Actor = USER): Promise<LeaveResult> {
-    const d = this.draft, s = this.session, title = this.msg ? `“${subject(this.msg).slice(0, 40)}”` : "the note";
-    // An agent leaves only a draft it opened and alone typed in (the draft actions' rule, agentMay).
-    const mine = d ?? s?.composer;
+    const d = this.drafting, s = this.session;
+    const mine = d ?? s?.writing;
     if (actor.kind === "agent" && (d || s)) {
-      if (!mine || !sameParty(mine.openedBy, actor)) throw new ActionRefused("the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)");
-      agentMay(mine, actor);
+      const no = mine ? agentRefusal(actor, mine, { op: "leave" }) : "the person is in this comment; an agent doesn't save or close it (block.mark gets their attention)";
+      if (no) throw new ActionRefused(no);
     }
     const why = this.leaveRefusal();
     if (why) throw new ActionRefused(why);
@@ -1284,48 +1234,24 @@ export class NoteSurface {
     if (s) {
       // A send already on its way lands (or is refused) as it would have; the session waits in the reader.
       if (s.busy) return { left: "sending" };
-      const c = s.composer;
-      const keptAt = c?.dirty ? c.keep() : undefined;
+      // Kept at once (a comment or reply is never written by a click), then the session closes.
+      const leaving: Promise<LeaveResult> = s.writing ? s.writing.leave(actor) : Promise.resolve({ left: "closed" });
       this.closeSession();
       host.redraw();
-      if (c && keptAt) {
-        const said = `the ${c.blockId === "reply" ? "reply" : "comment"} on ${title} was kept as unsent, not sent · ${c.shelf?.back ?? `a copy is at ${tidy(keptAt)}`}`;
-        host.ctx.flash(said, 8000);
-        return { left: "kept", keptAt, said };
-      }
-      return { left: "closed" };
+      const r = await leaving;
+      if (r.left === "kept") host.ctx.flash(r.said, 8000);
+      return r;
     }
     if (!d) return { left: "nothing" };
-    // A save already on its way closes the draft when it lands, or keeps it here with the reason.
-    if (d.busy) return { left: "saving" };
-    if (!d.dirty) { this.closeDraft(); host.redraw(); return { left: "closed" }; }
-    const by = await this.save(host, actor, true);
-    if (by) return { left: "saved", revision: this.msg?.revision };
-    if (this.draft !== d) return { left: "closed" };
-    // Not saved: put aside where it was written (with a copy on disk), and the reader is back to reading.
-    // On a conflict the note moved on, so `e` opens its current text and says where this one is (Draft.restore).
-    const reason = d.conflict ? "it changed elsewhere since you started" : d.note.replace(/^not saved: /, "") || "refused";
-    const keptAt = d.keep();
-    this.closeDraft();
+    const r = await d.leave(actor);
     host.redraw();
-    const back = d.conflict ? `a copy is at ${tidy(keptAt)}` : d.shelf?.back ?? `a copy is at ${tidy(keptAt)}`;
-    const said = `not saved: ${reason} · the edit to ${title} was kept as unsent · ${back}`;
-    host.ctx.flash(said, 10000);
-    return { left: "kept", why: reason, keptAt, said };
+    if (r.left === "kept") host.ctx.flash(r.said, 10000);
+    return r;
   }
 
-  /** Drop the draft for the note's current text. Typed work is copied to disk first. */
+  /** ctrl+r: drop the draft for the note's current text (the block adapter's reload). Typed work is copied to disk first. */
   async reload(host: SurfaceHost): Promise<void> {
-    const d = this.draft!;
-    if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
-    const copy = d.dirty ? d.copyOut() : d.savedCopy;
-    const m = await host.ctx.board.get(d.blockId);
-    if (this.draft !== d) return;
-    if (!m) { d.note = "the note is gone from the outline"; host.redraw(); return; }
-    this.msg = m;
-    d.rebase(m);
-    this.draftHold?.revise(d.base);
-    if (copy) d.note = `loaded revision ${d.base} · your earlier draft is at ${copy}`;
+    await this.drafting?.reload();
     host.redraw();
   }
 
@@ -1413,7 +1339,7 @@ export class NoteSurface {
     if (this.panel) return this.panelKey(k, host);
     if (this.draft) return this.draftKey(k, host);
     if (this.session) {
-      const s = this.session, composer = s.composer;
+      const s = this.session, writing = s.writing;
       // The session's commands are actions (PIE-506): ctrl+s sends, x resolves or reopens, and the esc that
       // ends it closes it. Picking a passage, moving through the threads and typing are its own.
       if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
@@ -1426,7 +1352,7 @@ export class NoteSurface {
       if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
       if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
       // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
-      if (k.kind === "esc" && composer && s.composer !== composer && composer.closedWith) host.ctx.flash(composer.closedWith, 8000);
+      if (k.kind === "esc" && writing && s.writing !== writing && writing.closedWith) host.ctx.flash(writing.closedWith, 8000);
       host.redraw();
       return true;
     }
@@ -2324,6 +2250,9 @@ export class NoteSurface {
    */
   private async stepUpdate(ref: StepRef, choice: StepChoice, host: SurfaceHost, actor: Actor) {
     const board = host.ctx.board;
+    // Never underneath a draft someone has open on that note (the draft session's agent rule).
+    const no = agentRefusal(actor, { board, blockId: ref.block });
+    if (no) throw new ActionRefused(no);
     try {
       return await board.changeStep(ref.block, ref.step, ref.revision, changeOf(choice), actor);
     } catch (e) {
@@ -2586,7 +2515,7 @@ export class NoteSurface {
   clearSelections() { this.selection = null; this.agentSelection = null; this.gesture.cancel(); this.dragging = false; }
 
   /** The last press placed the cursor in a draft the person opened here (not an agent's): a click that enters it. */
-  get pressedIntoOwn(): boolean { const d = this.editing ? this.writing() : null; return this.editPress && !!d && d.openedBy.kind === "user"; }
+  get pressedIntoOwn(): boolean { const w = this.editing ? this.drafting ?? this.session?.writing : null; return this.editPress && !!w && w.openedBy.kind === "user"; }
 
   /**
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
@@ -2865,7 +2794,7 @@ export class NoteSurface {
     const d = this.draft;
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
-      editing: d ? { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null, writers: d.writers.map(actorIdOf), writtenBy: writtenBy(d, "save"), held: !!this.draftHold, cursor: { line: d.row + 1, col: d.col + 1 }, patches: d.patches.map(u => ({ id: u.patchId, by: actorIdOf(u.by) })), lit: d.flashes.map(f => f.label) } : undefined,
+      editing: this.drafting && d ? { ...this.drafting.describe(), writtenBy: writtenBy(d, "save") } : undefined,
       commenting: this.session ? this.session.describe() : undefined,
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
@@ -2930,48 +2859,26 @@ export class NoteSurface {
     return this.msg;
   }
 
-  async ensureDraft(host: SurfaceHost): Promise<Draft> {
+  async ensureDraft(host: SurfaceHost): Promise<DraftSession> {
     if (this.session) throw new ActionRefused("this reader is commenting; finish or close the comment first (comment.close)");
-    if (!this.draft) {
+    if (!this.drafting) {
       const was = this.requireNote().id;
       const why = await this.edit(host, false, host.still);
-      if (!this.draft) throw new ActionRefused(movedOn(host, this, was) ?? (why || "the note couldn't be opened for editing (its revision is unknown)"));
+      if (!this.drafting) throw new ActionRefused(movedOn(host, this, was) ?? (why || "the note couldn't be opened for editing (its revision is unknown)"));
     }
-    return this.draft;
+    return this.drafting;
   }
 
   /**
    * Replace the draft's text, as the $EDITOR handoff does. Text someone else changed last (the person's
    * typing, or another agent's) is copied to disk first, however often each of them has typed before.
    */
-  setDraftText(d: Draft, text: string, actor: Actor): string | null {
-    const kept = keepOthers(d, actor, () => d.copyOut());
-    d.replace(text, actor);
-    d.note = kept ? `${agentLabel(actor)} replaced the draft · what ${kept.whose} had typed is at ${kept.at}` : "";
-    return kept?.at ?? null;
-  }
-
-  /** The same for the comment or reply being written. */
-  setComposerText(s: CommentSession, body: string, actor: Actor): string | null {
-    const d = s.composer!;
-    const kept = keepOthers(d, actor, () => d.copyOut(`${s.blockId.slice(0, 8)}-comment`));
-    d.replace(body, actor);
-    d.note = kept ? `${agentLabel(actor)} replaced the text · what ${kept.whose} had typed is at ${kept.at}` : "";
-    return kept?.at ?? null;
-  }
-
-  closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string } {
-    const d = this.draft;
-    if (!d) return { closed: false };
-    if (d.busy) throw new ActionRefused("the save is still landing");
-    let keptAt: string | undefined;
-    // The person's esc, esc put it aside already (Draft.putAside): it closes without a second copy.
-    if (d.dirty && !d.closedWith) {
-      if (!discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
-      keptAt = d.keep();
-    }
-    this.closeDraft();
-    return { closed: true, keptAt };
+  closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string; said?: string } {
+    const s = this.drafting;
+    if (!s) return { closed: false };
+    if (s.busy) throw new ActionRefused("the save is still landing");
+    if (s.dirty && !discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+    return s.close(discard);
   }
 
   async ensureSession(host: SurfaceHost, mode: "select" | "threads"): Promise<CommentSession> {
@@ -2986,7 +2893,7 @@ export class NoteSurface {
     if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
     if (mode === "threads" && s.mode !== "threads") {
       if (s.dirty) throw new ActionRefused("a comment is being written here; send it (comment.send) or close it (comment.close discard=true)");
-      s.composer = null; s.target = null; s.passage = null; s.mode = "threads";
+      s.writing?.dispose(); s.writing = null; s.target = null; s.passage = null; s.mode = "threads";
     }
     if (mode === "select" && s.mode !== "select") {
       if (s.mode === "compose" && s.target?.kind === "reply") throw new ActionRefused("a reply is being written here; send or close it first");
@@ -3152,9 +3059,13 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
     summary: `${info.summary} (in this reader's edit or comment)`, keys: info.keys,
     args: info.args as ActionDef<DraftActionArgs[K], On>["args"],
     async run(args, { surface, host }, actor) {
-      const d = surface.writingDraft();
-      if (!d) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
+      const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
+      if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
+      const d = w.draft;
       if (d.busy) throw new ActionRefused("the save is still landing");
+      // The person's draft is theirs: its cursor, view and preview move only by their keys and mouse.
+      const no = name === "draft.undo" ? null : agentRefusal(actor, w);
+      if (no) throw new ActionRefused(no);
       const r = await DRAFT_ACTIONS.run(name, args, d, actor);
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
       if (name === "draft.copy" && actor.kind === "user") {
@@ -3174,22 +3085,6 @@ export function draftPreview(text: string, w: number, src: Source | null = null)
   return renderDoc(presentLinks(text, false, src, text), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true }).lines;
 }
 
-/** The reader's line for an edit or a comment put aside on note `id`: when, and the key that brings it back. */
-function unsentLines(id: string): string[] {
-  const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`);
-  return [
-    ...(e ? [`■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
-    ...(c ? [`■ unsent comment from ${whenPut(c.at)} · C and a passage bring it back`] : []),
-  ];
-}
-
-/** Copy a draft out before `actor` replaces it, when someone else changed it last. Who that was, and where. */
-function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; whose: string } | null {
-  const last = d.lastWriter;
-  if (!d.dirty || !last || sameParty(last, actor)) return null;
-  return { at: copy(), whose: last.kind === "user" ? "you" : agentLabel(last) };
-}
-
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
 function proposalTarget(id: string | undefined, surface: NoteSurface): string {
   const shown = surface.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
@@ -3201,27 +3096,10 @@ function proposalTarget(id: string | undefined, surface: NoteSurface): string {
 /** What a reader showing a trashed note says under its header (the river's column says it too). */
 export const IN_TRASH = "■ in the Trash · still readable here";
 
-/** Who a patch the service passes on is by: an agent by its actor id, else the person. */
-const patchActor = (m: { author: string; actorId?: string }): Actor => (m.author === "agent" ? { kind: "agent", id: m.actorId || "agent" } : USER);
 
 // ── the actions ──────────────────────────────────────────────────────────────
 
 interface On { surface: NoteSurface; host: SurfaceHost }
-
-/**
- * What leaving an edit or comment by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as
- * unsent (with why and the copy on disk), or left alone while a save or send already on its way lands.
- */
-export type LeaveResult =
-  | { left: "closed" | "nothing" | "saving" | "sending" }
-  | { left: "saved"; revision?: number }
-  | { left: "kept"; keptAt: string; why?: string; said: string };
-
-/**
- * What a host says once the click that left a session has done what it does (its own flash, a focus, came
- * after the leave's): the kept-as-unsent line, so it isn't lost under it.
- */
-export const leaveSaid = (r: unknown): string | null => (r && typeof r === "object" && "said" in r && typeof r.said === "string" ? r.said : null);
 
 /**
  * The person moved on (esc, another tile) while the note was read for their edit or comment, or the reader went
@@ -3563,7 +3441,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const writing = surface.session?.mode === "compose" ? surface.session.composer : null;
       if (writing && external) { surface.external(host, writing); return { comment: surface.session!.blockId, external: true }; }
       if (surface.draft) return { already: true, id: surface.draft.blockId, baseRevision: surface.draft.base };
-      const d = await surface.ensureDraft(host);
+      const { draft: d } = await surface.ensureDraft(host);
       if (external) openInEditor(host.ctx, d);
       surface.noteAgent(actor, "opened this note for editing");
       return { id: d.blockId, baseRevision: d.base };
@@ -3573,12 +3451,12 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR",
     args: { text: { type: "string", about: "subject line, body and [key::value] properties" } },
     async run({ text }, { surface, host }, actor) {
-      const d = await surface.ensureDraft(host);
-      if (d.busy) throw new ActionRefused("the save is still landing");
-      const kept = surface.setDraftText(d, text, actor);
+      const s = await surface.ensureDraft(host);
+      if (s.busy) throw new ActionRefused("the save is still landing");
+      const kept = s.replace(text, actor);
       surface.noteAgent(actor, "is editing this note");
       host.redraw();
-      return { dirty: d.dirty, keptYourDraftAt: kept ?? undefined };
+      return { dirty: s.dirty, keptYourDraftAt: kept ?? undefined };
     },
   },
   "edit.save": {
@@ -3599,7 +3477,13 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "edit.close": {
     summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsaved changes" } },
-    run({ discard }, { surface, host }) { const r = surface.closeDraftAction(!!discard); host.redraw(); return r; },
+    run({ discard }, { surface, host }, actor) {
+      const r = surface.closeDraftAction(!!discard);
+      // Put aside (or dropped, when it was brought back and left unchanged): said where, and how it comes back.
+      if (r.said && actor.kind === "user") host.ctx.flash(r.said, 8000);
+      host.redraw();
+      return r;
+    },
   },
   "session.leave": {
     summary: "leave the edit or comment as a click elsewhere does: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's gesture: an agent leaves only a session it opened",
@@ -3776,7 +3660,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       // An agent's comment is its own: the person's put-aside text stays put aside.
       if (s.mode === "select") { const why = s.write(actor); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");
-      const kept = surface.setComposerText(s, body, actor);
+      const kept = s.writing!.replace(body, actor);
       host.redraw();
       return { dirty: s.composer.dirty, keptYourDraftAt: kept ?? undefined };
     },
@@ -3817,13 +3701,10 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     run({ discard }, { surface, host }) {
       const s = surface.session;
       if (!s) return { closed: false };
-      let keptAt: string | undefined;
-      if (s.dirty) {
-        if (!discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
-        keptAt = s.composer!.keep();
-      }
+      if (s.dirty && !discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+      const r = s.writing?.close(true);
       surface.closeSession(); host.redraw();
-      return { closed: true, keptAt };
+      return { closed: true, keptAt: r?.keptAt };
     },
   },
   "threads": {
@@ -3858,7 +3739,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const s = await on.surface.ensureSession(on.host, "threads");
       const why = s.replyTo(findThread(s, thread), actor);
       if (why) throw new ActionRefused(why);
-      on.surface.setComposerText(s, body, actor);
+      s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },
   },

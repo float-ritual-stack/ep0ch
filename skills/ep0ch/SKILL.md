@@ -130,6 +130,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
   turns it off), and their `y` or cmd+c copies too.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
+- While the person has a note open in a draft, you don't write it underneath them: an `edit` of it in
+  another reader, a `props.edit`, a step or a card move on it is refused. Patch their draft instead
+  (`outline_patch`, the service's `draft.patch`: it lands above their cursor, or becomes a proposal), or
+  wait until they save or close it. The draft actions (`draft.*`, `session.leave`) work only in a draft you
+  opened and alone typed in.
 - Test data belongs in scratch services with fictional notes, never a real outline.
 - Moving the person's screen (`screen.open`, `screen.back`, `list.*`, `agent.toggle open=true`) waits until
   they've been idle 2s and aren't typing, and is said on their status bar. `screen.shell` (drop to shell) is

@@ -12,6 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { ReaderPane } from "../src/desk/panes";
 import { Draft } from "../src/edit";
+import { recordAs } from "../src/draft-session";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -50,13 +51,14 @@ describe("the surface without a service", () => {
       const s = new NoteSurface(), h = host();
       s.show(note(TEXT), h);
       const views: [string, string[]][] = [["read", s.render(w, 20, h).lines]];
-      s.draft = new Draft(s.msg!.id, 3, TEXT);
+      s.startDraft({ ...s.msg!, revision: 3, text: TEXT }, h);
       views.push(["edit", s.render(w, 20, h).lines]);
       // A long-lived note: the revision alone is wider than a narrow column.
-      s.draft = new Draft(s.msg!.id, 1_234_567_890, TEXT);
-      s.draft.changedElsewhere = true;
+      s.drafting!.dispose();
+      s.startDraft({ ...s.msg!, revision: 1_234_567_890, text: TEXT }, h);
+      s.draft!.changedElsewhere = true;
       views.push(["edit at a large revision", s.render(w, 20, h).lines]);
-      s.draft = null;
+      s.drafting!.dispose();
       s.session = new CommentSession(s.msg!, [], "select");
       s.session.passage!.selectText("squash by the compost");
       views.push(["quote", s.render(w, 20, h).lines]);
@@ -71,15 +73,14 @@ describe("the surface without a service", () => {
   });
 
   test("one edit control: a note edit and a comment say the same keys the same way", () => {
-    const d = new Draft("x", 1, "hello"), c = new Draft("comment", 0, "");
+    const s = new NoteSurface();
+    s.show(note("A\nb"), host());
+    const d = s.startDraft({ ...s.msg!, revision: 1, text: "hello" }, host()).draft, c = new Draft("comment", 0, "");
     expect(editHint(d, { save: "save" })).toBe("ctrl+s save · esc done · ctrl+e $EDITOR · tab indent · shift+tab out · ctrl+p preview");
     expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · esc back · ctrl+e $EDITOR · tab indent · shift+tab out · ctrl+p preview");
     d.key(char("!")); c.key(char("?"));
     for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(h).toContain(" · esc twice puts it aside · ");
     // The reader shows the same hint the edit control makes.
-    const s = new NoteSurface();
-    s.show(note("A\nb"), host());
-    s.draft = d;
     expect(s.hint()).toBe(editHint(d, { save: "save" }));
   });
 
@@ -179,11 +180,11 @@ describe("the surface without a service", () => {
     });
     const s = new NoteSurface();
     s.show(note("Plan the allotment [stage::queued]\nBeans."), h);
-    s.draft = new Draft(s.msg!.id, 3, s.msg!.text, { stage: "queued" });
+    s.startDraft({ ...s.msg!, revision: 3, props: { stage: "queued" } }, h);
     for (const c of " soon") s.key(char(c), h);
-    const previewed = s.draft.text;
+    const previewed = s.draft!.text;
     const saving = s.save(h);
-    expect(s.draft.busy).toBe(true);
+    expect(s.draft!.busy).toBe(true);
     expect(s.render(60, 10, h).lines.join("\n")).toContain("checking properties");
     // While the answer is out, nothing changes or closes the draft: not the keys, not an agent.
     s.key(char("!"), h); s.key({ kind: "esc" }, h); s.key({ kind: "esc" }, h);
@@ -230,30 +231,30 @@ describe("the surface without a service", () => {
   test("once an agent has typed, the person's later typing is still theirs: kept before an agent replaces it", () => withState(() => {
     const s = new NoteSurface(), h = host();
     s.show(note("Water the ferns\nTwice a week."), h);
-    const d = s.draft = new Draft(s.msg!.id, 3, s.msg!.text);
-    expect(s.setDraftText(d, "Water the ferns\nDaily.", AGENT)).toBeNull();
+    const ds = s.startDraft({ ...s.msg!, revision: 3 }, h), d = ds.draft;
+    expect(ds.replace("Water the ferns\nDaily.", AGENT)).toBeNull();
     s.key({ kind: "end" }, h); for (const c of " (mine)") s.key(char(c), h);
     expect(d.lastWriter).toEqual({ kind: "user" });
     const typed = d.text;
-    const kept = s.setDraftText(d, "Water the ferns\nWeekly.", AGENT);
+    const kept = ds.replace("Water the ferns\nWeekly.", AGENT);
     expect(readFileSync(kept!, "utf8")).toBe(typed + "\n");
     expect(d.note).toContain("what you had typed is at");
     // Another agent's text is kept from this one too.
-    expect(s.setDraftText(d, "Water the ferns\nNever.", { kind: "agent", id: "other-agent" })).not.toBeNull();
+    expect(ds.replace("Water the ferns\nNever.", { kind: "agent", id: "other-agent" })).not.toBeNull();
     expect(d.writers.map(w => (w.kind === "agent" ? w.id : "you"))).toEqual(["claude-7", "you", "other-agent"]);
   }));
 
   test("a save is recorded as whoever wrote the draft; when several did, as the saver's naming the rest", () => {
     const d = new Draft("x", 1, "Seed list");
-    expect(d.recordAs(AGENT)).toEqual(AGENT);                                      // nothing typed yet
+    expect(recordAs(d, AGENT)).toEqual(AGENT);                                      // nothing typed yet
     d.key(char("s"));
-    expect(d.recordAs(AGENT)).toEqual({ kind: "user" });                           // the person's alone
+    expect(recordAs(d, AGENT)).toEqual({ kind: "user" });                           // the person's alone
     const a = new Draft("x", 1, "Seed list");
     a.replace("Seed list: beans", AGENT);
-    expect(a.recordAs({ kind: "user" })).toEqual(AGENT);                           // the agent's alone
+    expect(recordAs(a, { kind: "user" })).toEqual(AGENT);                           // the agent's alone
     a.key(char("!"));
-    expect(a.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["claude-7"] });
-    expect(a.recordAs(AGENT)).toEqual({ ...AGENT, with: [ACTOR_ID] });
+    expect(recordAs(a, { kind: "user" })).toEqual({ kind: "user", with: ["claude-7"] });
+    expect(recordAs(a, AGENT)).toEqual({ ...AGENT, with: [ACTOR_ID] });
     // Navigation isn't writing.
     const n = new Draft("x", 1, "one\ntwo");
     for (const k of ["up", "down", "left", "right", "home", "end"] as const) n.key({ kind: k } as Key);
