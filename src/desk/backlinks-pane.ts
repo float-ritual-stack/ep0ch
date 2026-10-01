@@ -189,8 +189,11 @@ export class BacklinksPane implements Pane {
     const rows = this.rows();
     const r = rows[i];
     if (!r) throw new ActionRefused(this.data ? `pick a row from 1 to ${rows.length}` : "the backlinks are still being read");
-    this.sel = i;
+    const agent = actor.kind === "agent";
+    // An agent's pick is its own: the person's selection stays where it is.
+    if (!agent) this.sel = i;
     if (r.kind === "group") {
+      if (how !== "show" && agent) throw new ActionRefused("which groups are folded is the person's view; an agent reads every row with backlinks.view or peek");
       if (how !== "show") this.toggle(r.group.kind, desk);
       desk.redraw();
       return { row: i + 1, group: r.group.kind };
@@ -198,8 +201,7 @@ export class BacklinksPane implements Pane {
     const m = await desk.ctx.board.get(r.source.blockId);
     if (!m) throw new ActionRefused("that source isn't in the outline any more");
     // The selection may have moved on while the source was read: only the latest pick shows.
-    if (rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
-    const agent = actor.kind === "agent";
+    if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
     // follows it, whose backlinks these are, would move to the row and the list with it.
     if (how === "show" && desk.showFrom) desk.showFrom(this, m, agent);
@@ -253,9 +255,10 @@ export class BacklinksPane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const n = this.rows().length, c = ch(k);
     // The selection moves at once (the next key counts from it); the source is read and shown after.
-    const to = (i: number) => { if (n) { this.sel = Math.max(0, Math.min(n - 1, i)); this.run(desk, "backlinks.pick", { n: this.sel + 1 }); desk.redraw(); } return true; };
-    if (k.kind === "down" || c === "j") return to(this.sel + 1);
-    if (k.kind === "up" || c === "k") return to(this.sel - 1);
+    const to = (i: number) => { if (n && i >= 0 && i < n && i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 }); return true; };
+    const by = (d: number) => { const i = this.sel + d; if (n && i >= 0 && i < n) this.run(desk, "backlinks.pick", { by: d }); return true; };
+    if (k.kind === "down" || c === "j") return by(1);
+    if (k.kind === "up" || c === "k") return by(-1);
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.pick", { n: this.sel + 1, open: true, ...(k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
@@ -280,17 +283,17 @@ export class BacklinksPane implements Pane {
 /** A backlinks tile's actions: which row is picked (and where it opens), and the view's options. */
 export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi }
 export const BACKLINKS_ACTIONS = new ActionSet<{
-  "backlinks.pick": { n?: number; id?: string; open?: boolean; fresh?: boolean };
+  "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean };
   "backlinks.view": { kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string; step?: string };
   "backlinks.fold": { kind: string };
 }, BacklinksOn>("backlinks", {
   "backlinks.fold": {
-    summary: "open or fold a kind's group in a backlinks tile (kind=<its key>), as . or space on it does; every group is open while a filter is set",
+    summary: "open or fold a kind's group in a backlinks tile (kind=<its key>), as . or space on it does; every group is open while a filter is set. The person's view: an agent's is refused",
     keys: ". space",
     args: { kind: { type: "string", about: "the group's kind (its key, as peek's rows give it)" } },
     run({ kind }, { pane, desk }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("which groups are folded is the person's view; an agent reads every row with backlinks.view or peek");
       pane.toggle(kind, desk);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} folded or opened the ${kind} backlinks`);
       desk.redraw();
       return { backlinks: pane.describe() };
     },
@@ -301,13 +304,15 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a source's block id (or its start)" },
+      by: { type: "number", optional: true, about: "rows on from the selected one (1 the next, -1 the one before), as j k do" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
       fresh: { type: "boolean", optional: true, about: "open it fresh, as alt+⏎ does" },
     },
-    async run({ n, id, open, fresh }, { pane, desk }, actor) {
-      if ((n === undefined) === (id === undefined)) throw new ActionRefused("backlinks.pick takes n or id, one of them");
+    async run({ n, id, by, open, fresh }, { pane, desk }, actor) {
+      if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
       const rows = pane.rows();
-      const i = id !== undefined ? rows.findIndex(r => r.kind === "source" && r.source.blockId.startsWith(id)) : n! - 1;
+      const i = id !== undefined ? rows.findIndex(r => r.kind === "source" && r.source.blockId.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
+      if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
       if (id !== undefined && i < 0) throw new ActionRefused(`no backlink from ${id} here`);
       const r = await pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
       if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} picked a backlink (row ${r.row})`);

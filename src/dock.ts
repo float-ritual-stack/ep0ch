@@ -402,7 +402,7 @@ export class AgentDock implements SharedAgent {
       if (isAlt(k, "a")) { run("agent.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
       if (!p.running) {
-        if (k.kind === "enter") run("agent.enter", {});
+        if (k.kind === "enter") run("agent.enter", { restart: true });
         else this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the ${screen?.title ?? "screen"}`);
         return true;
       }
@@ -431,12 +431,20 @@ export class AgentDock implements SharedAgent {
     return true;
   }
 
-  /** The person goes into the drawer (ctrl+], a click in it): their keys are the agent's; one that exited runs again. */
-  enter(send?: string): { entered: boolean; restarted?: boolean } {
+  /**
+   * The person goes into the drawer (ctrl+], a click in it): their keys are the agent's. One that exited waits
+   * for ⏎ (`restart`), as it always has: going in only says so.
+   */
+  enter(send?: string, restart = false): { entered: boolean; restarted?: boolean } {
     if (!this.shown) throw new ActionRefused("the agent drawer is put away · alt+a pulls it up");
     const p = this.pane();
     this.leftAt = 0; this.entered = true; this.openedBy = null;
-    if (!p.running && p.exited !== null) { p.restart(); this.host.redraw(); return { entered: true, restarted: true }; }
+    if (!p.running && p.exited !== null) {
+      if (restart) { p.restart(); this.host.redraw(); return { entered: true, restarted: true }; }
+      this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
+      this.host.redraw();
+      return { entered: true };
+    }
     if (send && p.running) { p.input(send); this.host.flash(`sent ${ESCAPE_CHORD} to ${DOCK_NAME}`); }
     this.host.redraw();
     return { entered: true };
@@ -513,17 +521,17 @@ function defaultHerdr(): HerdrRun | null {
 }
 
 export interface DockOn { dock: AgentDock; ctx: Ctx; here: Screen | undefined }
-type DockArgs = { "agent.toggle": { open?: boolean }; "agent.height": { share: number }; "agent.restart": Record<string, never>; "agent.knows": Record<string, never>; "agent.enter": { send?: string }; "agent.leave": { quiet?: boolean } };
+type DockArgs = { "agent.toggle": { open?: boolean }; "agent.height": { share: number }; "agent.restart": Record<string, never>; "agent.knows": Record<string, never>; "agent.enter": { send?: string; restart?: boolean }; "agent.leave": { quiet?: boolean } };
 
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
   "agent.enter": {
-    summary: "go into the agent drawer: the person's keys go to the agent until ctrl+] (one that exited runs again). The person's only: an agent's would take their keys",
+    summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
-    args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" } },
-    run({ send }, { dock }, actor) {
+    args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" }, restart: { type: "boolean", optional: true, about: "run an agent that exited again, as ⏎ on it does" } },
+    run({ send, restart }, { dock }, actor) {
       if (actor.kind === "agent") throw new ActionRefused("going into the drawer takes the person's keys; an agent pulls it up with agent.toggle and leaves their keys where they are");
-      return dock.enter(send);
+      return dock.enter(send, restart);
     },
   },
   "agent.leave": {

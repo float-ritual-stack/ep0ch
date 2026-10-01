@@ -10,6 +10,8 @@ import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { USER, type Activity, type Actor, type Comment } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ART_ACTIONS, type ArtAbout } from "../art-actions";
+import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
@@ -84,7 +86,7 @@ const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
  * A tile's own key or click as the person: the action its kind registers (PIE-506), the same one `act` runs on
  * that tile. A refusal is said, not thrown.
  */
-export function runOwn<On extends { desk: DeskApi }>(set: ActionSet<any, On>, name: string, args: Record<string, unknown>, on: On) {
+export function runOwn<On>(set: ActionSet<any, On>, name: string, args: Record<string, unknown>, on: On & { desk: { ctx: { flash(msg: string): void }; redraw(): void } }) {
   const say = (e: unknown) => { on.desk.ctx.flash(e instanceof Error ? e.message : String(e)); on.desk.redraw(); };
   try { set.run(name as never, args as never, on, USER).then(() => on.desk.redraw(), say); } catch (e) { say(e); }
 }
@@ -402,9 +404,15 @@ export class WhoPane implements Pane {
   private asking = new Set<string>();
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
+  private desk: DeskApi | null = null;
   init(desk: DeskApi) { this.load(desk); }
   onEvent(desk: DeskApi) { this.load(desk); }
+  /** Ask again (who.refresh, src/who-actions.ts: the BBS Who's Online's too). */
+  refresh() { if (this.desk) this.load(this.desk); }
+  /** The callers as last read, as who.refresh answers them. */
+  rows(): WhoRow[] { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
   load(desk: DeskApi) {
+    this.desk = desk;
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
       // Titles only, in one read where the service can (blocks.read).
@@ -465,9 +473,11 @@ export class ArtPane implements Pane {
     return { lines: [], placements: [{ key: "art", image: img, col: 0, row: 0, cols, rows, z: -1, crop }] };
   }
   /** Step `by` pieces (wrapping); the piece starts at its top. */
-  step(by: number) { this.i = (((this.i + by) % PIECES.length) + PIECES.length) % PIECES.length; this.scroll = 0; return { piece: PIECES[this.i]!, n: this.i + 1, of: PIECES.length }; }
+  step(by: number): ArtAbout { this.i = (((this.i + by) % PIECES.length) + PIECES.length) % PIECES.length; this.scroll = 0; return this.about(); }
   /** Scroll `by` rows (two a step), never above the top. */
-  scrollBy(by: number) { this.scroll = Math.max(0, this.scroll + by); return { scroll: this.scroll }; }
+  scrollBy(by: number): ArtAbout { this.scroll = Math.max(0, this.scroll + by); return this.about(); }
+  /** Where the art is, as art.step and art.scroll answer (src/art-actions.ts: the art viewer's too). */
+  about(): ArtAbout { return { piece: PIECES[this.i]!, n: this.i + 1, of: PIECES.length, ice: false, scroll: this.scroll, height: this.art?.height ?? null }; }
   key(k: Key, desk: DeskApi): boolean {
     const c = ch(k), on = { pane: this, desk };
     if (c === "." || c === ",") { runOwn(ART_ACTIONS, "art.step", { by: c === "." ? 1 : -1 }, on); return true; }
@@ -531,30 +541,6 @@ export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; o
   },
 });
 
-export const WHO_ACTIONS = new ActionSet<{ "who.refresh": Record<string, never> }, { pane: WhoPane; desk: DeskApi }>("who", {
-  "who.refresh": {
-    summary: "ask who's attached to the outline again", keys: "r",
-    args: {},
-    run(_, { pane, desk }) { pane.load(desk); return { refreshing: true }; },
-  },
-});
-
-export const ART_ACTIONS = new ActionSet<{ "art.step": { by: number }; "art.scroll": { by: number } }, { pane: ArtPane; desk: DeskApi }>("art", {
-  "art.step": {
-    summary: "the next (by=1) or previous (by=-1) piece of art in an art tile", keys: ", .",
-    args: { by: { type: "number", about: "how many pieces on (negative: back)" } },
-    run({ by }, { pane, desk }, actor) {
-      const r = pane.step(Math.trunc(by));
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} showed ${r.piece}`);
-      return r;
-    },
-  },
-  "art.scroll": {
-    summary: "scroll an art tile by rows (by, negative up)", keys: "j k ↑ ↓ wheel",
-    args: { by: { type: "number", about: "rows down (negative: up)" } },
-    run({ by }, { pane }) { return pane.scrollBy(Math.trunc(by)); },
-  },
-});
 
 export const READER_ACTIONS = new ActionSet<{ "reader.hold": { on?: boolean } }, { pane: ReaderPane; desk: DeskApi }>("reader", {
   "reader.hold": {
