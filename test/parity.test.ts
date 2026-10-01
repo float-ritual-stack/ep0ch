@@ -243,10 +243,16 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
           continue;
         }
         if (after.holds && after.top === mid.top) continue;   // still typing, or another input state
-        // Cancelled: the screen as it was before the state (built again now, so rows that age match).
-        const ended = snap(mask);
-        await fresh(label, make, setup);
-        if (alike(snap(mask), ended)) continue;
+        // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
+        // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
+        let cancelled = false;
+        for (let tries = 0; tries < 3 && !cancelled; tries++) {
+          if (tries) { mask = await fresh(label, make, [...setup, k1]); push(k2); await settle(); }
+          const ended = snap(mask);
+          await fresh(label, make, setup);
+          cancelled = alike(snap(mask), ended);
+        }
+        if (cancelled) continue;
         if (!(await bare(label, make, [...setup, k1], k2))) continue;
         findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: "ended an input state with a change and no action" });
       }
