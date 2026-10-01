@@ -60,6 +60,16 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   }
 }
 
+/**
+ * The person's key or click: `name` run as `you`, the same code an agent's `act` runs. A refusal (thrown, or a
+ * rejected promise) is said through `say` (the status bar), never thrown at the key handler.
+ */
+export function runAsPerson<M extends { [K in keyof M]: object }, H, K extends keyof M & string>(set: ActionSet<M, H>, name: K, args: M[K], host: H, say: (msg: string) => void): Promise<unknown> {
+  const tell = (e: unknown) => { say(e instanceof Error ? e.message : String(e)); return undefined; };
+  try { return set.run(name, args, host, PERSON).catch(tell); } catch (e) { return Promise.resolve(tell(e)); }
+}
+const PERSON: Actor = { kind: "user" };
+
 /** One action run, as a tracer sees it: which set, which action, the keys it declares, and who ran it. */
 export interface ActionRun { scope: string; name: string; keys?: string; actor: Actor }
 const tracers = new Set<(r: ActionRun) => void>();
