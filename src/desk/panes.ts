@@ -8,7 +8,10 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import type { Activity, Actor, Comment } from "../socket";
+import { USER, type Activity, type Actor, type Comment } from "../socket";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "../surface/actions";
+import { ART_ACTIONS, type ArtAbout } from "../art-actions";
+import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
@@ -79,6 +82,22 @@ const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
+/**
+ * A tile's own key or click as the person: the action its kind registers (PIE-506), the same one `act` runs on
+ * that tile. A refusal is said, not thrown.
+ */
+export function runOwn<On>(set: ActionSet<any, On>, name: string, args: Record<string, unknown>, on: On & { desk: { ctx: { flash(msg: string): void }; redraw(): void } }) {
+  void runAsPerson(set, name as never, args as never, on, msg => on.desk.ctx.flash(msg)).then(() => on.desk.redraw());
+}
+
+/** Row `n` (from 1) of `count`, or why not. */
+function rowN(n: number | undefined, sel: number, count: number, what: string): number {
+  const i = n === undefined ? sel : n - 1;
+  if (!count) throw new ActionRefused(`the ${what} is empty`);
+  if (!Number.isInteger(i) || i < 0 || i >= count) throw new ActionRefused(`the ${what} has ${count} row${count === 1 ? "" : "s"}; n is 1-${count}`);
+  return i;
+}
+
 // ── outline tree: src/desk/tree.ts ─────────────────────────────────────────────
 
 export { TreePane } from "./tree";
@@ -118,6 +137,15 @@ export class ReaderPane implements Pane {
   get holdsKeys() { return this.surface.holdsKeys; }
   /** Hold `m` (a desk reader opened by alt+⏎ on a link): it keeps its note as the current one changes. */
   hold(m: Msg, desk: DeskApi) { this.held = this.follows; this.show(m, desk); }
+  /** Hold it on its note (on=true), or let it follow the current note again (false); left out, the other way. */
+  setHold(on: boolean | undefined, desk: DeskApi): { held: boolean } {
+    if (!this.follows) throw new ActionRefused("this reader keeps its own note; it doesn't follow the current one");
+    if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+    this.held = on ?? !this.held;
+    if (!this.held) this.show(desk.current, desk);
+    desk.redraw();
+    return { held: this.held };
+  }
   /** Held before it has a note (a detail tile waiting for its first open): the current note doesn't move it. */
   holdOn() { this.held = this.follows; }
   unsaved() { return this.surface.unsaved(); }
@@ -166,7 +194,7 @@ export class ReaderPane implements Pane {
 
   key(k: Key, desk: DeskApi): boolean {
     if (this.readOnly && !this.holdsKeys && sessionStart(k)) { desk.ctx.flash(`${subject(this.msg!)} is shown here to read · it isn't a note in the outline`); return true; }
-    if (this.follows && !this.editing && ch(k) === "p") { this.held = !this.held; if (!this.held) this.show(desk.current, desk); desk.redraw(); return true; }
+    if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.hold", {}, { pane: this, desk }); return true; }
     return this.surface.key(k, this.host(desk));
   }
 
@@ -250,7 +278,21 @@ export class ThreadPane implements Pane {
   private view = new RowView();
   private kidLine: number[] = [];
   title() { return this.kids ? `thread · ${this.kids.length} repl${this.kids.length === 1 ? "y" : "ies"} · ${this.comments?.length ?? "…"} comment${this.comments?.length === 1 ? "" : "s"}` : "thread"; }
-  hint() { return "⏎ open reply · u up · comment from a reader: c, m"; }
+  hint() { return "j k pick · ⏎ open reply · u up · comment from a reader: C, m"; }
+  /** Its replies (the note's children that aren't comments), as `thread.pick` numbers them. */
+  replies(): Msg[] { return this.kids ?? []; }
+  get selected() { return this.sel; }
+  /** Row `i` is the person's selection. */
+  pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
+  /** The note this one is under, made the current note (`u`). */
+  async up(desk: DeskApi, actor: Actor): Promise<{ id: string }> {
+    const id = this.msg?.parentId;
+    if (!id) throw new ActionRefused(this.msg ? "this note is at the top" : "no note shown");
+    const p = await desk.ctx.board.get(id);
+    if (!p) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
+    desk.setCurrent(p, { reveal: actor.kind !== "agent", from: this, ...(actor.kind === "agent" ? { agent: true } : {}) });
+    return { id: p.id };
+  }
 
   select(m: Msg | null, desk: DeskApi) {
     this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.view.reset();
@@ -296,20 +338,17 @@ export class ThreadPane implements Pane {
   }
 
   key(k: Key, desk: DeskApi): boolean {
-    const n = this.kids?.length ?? 0;
-    if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); desk.redraw(); return true; }
-    if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); desk.redraw(); return true; }
-    if (k.kind === "enter" && this.kids?.[this.sel]) { desk.setCurrent(this.kids[this.sel]!, { reveal: true, from: this }); return true; }
-    if (ch(k) === "u" && this.msg?.parentId) {
-      desk.ctx.board.get(this.msg.parentId).then(p => { if (p) desk.setCurrent(p, { reveal: true, from: this }); }, () => {});
-      return true;
-    }
+    const n = this.kids?.length ?? 0, on = { pane: this, desk };
+    if (isUp(k)) { if (this.sel > 0) runOwn(THREAD_ACTIONS, "thread.pick", { n: this.sel }, on); return true; }
+    if (isDown(k)) { if (this.sel + 1 < n) runOwn(THREAD_ACTIONS, "thread.pick", { n: this.sel + 2 }, on); return true; }
+    if (k.kind === "enter" && this.kids?.[this.sel]) { runOwn(THREAD_ACTIONS, "thread.pick", { open: true }, on); return true; }
+    if (ch(k) === "u" && this.msg?.parentId) { runOwn(THREAD_ACTIONS, "thread.up", {}, on); return true; }
     return false;
   }
 
   click(_x: number, y: number, desk: DeskApi) {
     const i = this.kidLine.indexOf(this.view.top + y);
-    if (i >= 0) { this.sel = i; desk.redraw(); }
+    if (i >= 0) runOwn(THREAD_ACTIONS, "thread.pick", { n: i + 1 }, { pane: this, desk });
   }
 
   wheel(dir: 1 | -1, desk: DeskApi) { this.view.scroll(wheelRows(dir)); desk.redraw(); }
@@ -324,7 +363,11 @@ export class ActivityPane implements Pane {
   private top = 0;
   private timer: Timer | null = null;
   title() { return "last callers · live"; }
-  hint() { return "⏎ open"; }
+  hint() { return "j k pick · ⏎ open · r reload"; }
+  list(): Activity[] { return this.rows ?? []; }
+  get selected() { return this.sel; }
+  pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
+  reload(desk: DeskApi) { this.load(desk); }
   init(desk: DeskApi) { this.load(desk); }
   private load(desk: DeskApi) { desk.ctx.board.activity(60).then(r => { this.rows = r; desk.redraw(); }, () => {}); }
   onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(desk), 1500); }
@@ -342,15 +385,15 @@ export class ActivityPane implements Pane {
     };
   }
   key(k: Key, desk: DeskApi): boolean {
-    const n = this.rows?.length ?? 0;
-    if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); desk.redraw(); return true; }
-    if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); desk.redraw(); return true; }
-    if (k.kind === "enter" && this.rows?.[this.sel]) { desk.setCurrent(this.rows[this.sel]!.block, { reveal: true, from: this }); return true; }
-    if (ch(k) === "r") { this.load(desk); return true; }
+    const n = this.rows?.length ?? 0, on = { pane: this, desk };
+    if (isUp(k)) { if (this.sel > 0) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: this.sel }, on); return true; }
+    if (isDown(k)) { if (this.sel + 1 < n) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: this.sel + 2 }, on); return true; }
+    if (k.kind === "enter" && this.rows?.[this.sel]) { runOwn(ACTIVITY_ACTIONS, "activity.pick", { open: true }, on); return true; }
+    if (ch(k) === "r") { runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, on); return true; }
     return false;
   }
-  click(_x: number, y: number, desk: DeskApi) { this.sel = this.top + y; desk.redraw(); }
-  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, Math.min((this.rows?.length ?? 1) - 1, this.sel + dir)); desk.redraw(); }
+  click(_x: number, y: number, desk: DeskApi) { const i = this.top + y; if (i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
+  wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
 
 export class WhoPane implements Pane {
@@ -360,9 +403,15 @@ export class WhoPane implements Pane {
   private asking = new Set<string>();
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
+  private desk: DeskApi | null = null;
   init(desk: DeskApi) { this.load(desk); }
   onEvent(desk: DeskApi) { this.load(desk); }
-  private load(desk: DeskApi) {
+  /** Ask again (who.refresh, src/who-actions.ts: the BBS Who's Online's too). */
+  refresh() { if (this.desk) this.load(this.desk); }
+  /** The callers as last read, as who.refresh answers them. */
+  rows(): WhoRow[] { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
+  load(desk: DeskApi) {
+    this.desk = desk;
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
       // Titles only, in one read where the service can (blocks.read).
@@ -384,7 +433,7 @@ export class WhoPane implements Pane {
       }),
     };
   }
-  key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { this.load(desk); return true; } return false; }
+  key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }); return true; } return false; }
 }
 
 // ── the ep0ch art as a pane ──────────────────────────────────────────────────
@@ -422,13 +471,85 @@ export class ArtPane implements Pane {
     if (visible >= 1 && rows < h) cols = w;
     return { lines: [], placements: [{ key: "art", image: img, col: 0, row: 0, cols, rows, z: -1, crop }] };
   }
+  /** Step `by` pieces (wrapping); the piece starts at its top. */
+  step(by: number): ArtAbout { this.i = (((this.i + by) % PIECES.length) + PIECES.length) % PIECES.length; this.scroll = 0; return this.about(); }
+  /** Scroll `by` rows (two a step), never above the top. */
+  scrollBy(by: number): ArtAbout { this.scroll = Math.max(0, this.scroll + by); return this.about(); }
+  /** Where the art is, as art.step and art.scroll answer (src/art-actions.ts: the art viewer's too). */
+  about(): ArtAbout { return { piece: PIECES[this.i]!, n: this.i + 1, of: PIECES.length, ice: false, scroll: this.scroll, height: this.art?.height ?? null }; }
   key(k: Key, desk: DeskApi): boolean {
-    const c = ch(k);
-    if (c === "." || c === ",") { this.i = (this.i + (c === "." ? 1 : PIECES.length - 1)) % PIECES.length; this.scroll = 0; desk.redraw(); return true; }
-    if (isDown(k)) { this.scroll += 2; desk.redraw(); return true; }
-    if (isUp(k)) { this.scroll = Math.max(0, this.scroll - 2); desk.redraw(); return true; }
+    const c = ch(k), on = { pane: this, desk };
+    if (c === "." || c === ",") { runOwn(ART_ACTIONS, "art.step", { by: c === "." ? 1 : -1 }, on); return true; }
+    if (isDown(k)) { runOwn(ART_ACTIONS, "art.scroll", { by: 2 }, on); return true; }
+    if (isUp(k)) { if (this.scroll > 0) runOwn(ART_ACTIONS, "art.scroll", { by: -2 }, on); return true; }
     return false;
   }
-  wheel(dir: 1 | -1, desk: DeskApi) { this.scroll = Math.max(0, this.scroll + dir * 2); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { if (dir > 0 || this.scroll > 0) runOwn(ART_ACTIONS, "art.scroll", { by: dir * 2 }, { pane: this, desk }); }
 }
 
+
+// ── the list tiles' own actions (PIE-506): what their keys and clicks do, by name, for `act` too ──
+
+/** An agent's own pick answers the row and moves nothing of the person's; its open opens as an agent's open does. */
+const agentOpens = { reveal: false, agent: true } as const;
+
+export const THREAD_ACTIONS = new ActionSet<{ "thread.pick": { n?: number; open?: boolean }; "thread.up": Record<string, never> }, { pane: ThreadPane; desk: DeskApi }>("thread", {
+  "thread.pick": {
+    summary: "pick a reply in a thread tile (reader=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
+    keys: "j k ↑ ↓ click, ⏎ (open)",
+    args: { n: { type: "number", optional: true, about: "the reply, from 1" }, open: { type: "boolean", optional: true, about: "make it the current note, as ⏎ does" } },
+    run({ n, open }, { pane, desk }, actor) {
+      const all = pane.replies(), i = rowN(n, pane.selected, all.length, "thread");
+      const m = all[i]!, agent = actor.kind === "agent";
+      if (!agent) pane.pickRow(i, desk);
+      if (open) desk.setCurrent(m, agent ? agentOpens : { reveal: true, from: pane });
+      if (agent && open) desk.ctx.flash(`${agentLabel(actor)} opened reply ${i + 1}`);
+      return { row: i + 1, id: m.id, title: subject(m), opened: !!open };
+    },
+  },
+  "thread.up": {
+    summary: "make the note above the thread's (its parent) the current note, as u does; an agent's never moves the person's keys",
+    keys: "u",
+    args: {},
+    async run(_, { pane, desk }, actor) {
+      const r = await pane.up(desk, actor);
+      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} went up a level`);
+      return r;
+    },
+  },
+});
+
+export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; open?: boolean }; "activity.reload": Record<string, never> }, { pane: ActivityPane; desk: DeskApi }>("activity", {
+  "activity.pick": {
+    summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
+    keys: "j k ↑ ↓ click wheel, ⏎ (open)",
+    args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
+    run({ n, open }, { pane, desk }, actor) {
+      const rows = pane.list(), i = rowN(n, pane.selected, rows.length, "activity");
+      const r = rows[i]!, agent = actor.kind === "agent";
+      if (!agent) pane.pickRow(i, desk);
+      if (open) desk.setCurrent(r.block, agent ? agentOpens : { reveal: true, from: pane });
+      if (agent && open) desk.ctx.flash(`${agentLabel(actor)} opened ${subject(r.block).slice(0, 40)}`);
+      return { row: i + 1, id: r.block.id, title: subject(r.block), actor: r.actor, at: r.at, opened: !!open };
+    },
+  },
+  "activity.reload": {
+    summary: "read recent activity again", keys: "r",
+    args: {},
+    run(_, { pane, desk }) { pane.reload(desk); return { reloading: true }; },
+  },
+});
+
+
+export const READER_ACTIONS = new ActionSet<{ "reader.hold": { on?: boolean } }, { pane: ReaderPane; desk: DeskApi }>("reader", {
+  "reader.hold": {
+    summary: "hold a desk reader (reader=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
+    keys: "p",
+    args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
+    run({ on }, { pane, desk }, actor) {
+      const r = pane.setHold(on, desk);
+      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${r.held ? "held the reader on its note" : "let the reader follow the current note"}`);
+      return r;
+    },
+  },
+});

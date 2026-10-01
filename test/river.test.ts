@@ -15,7 +15,7 @@ const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
 test("every river action has keys and a summary", () => {
   const list = RIVER_ACTIONS.list();
-  expect(list.map(a => a.name)).toEqual(["open", "focus", "select", "replies", "split", "pin", "widen", "close"]);
+  expect(list.map(a => a.name)).toEqual(["open", "focus", "select", "replies", "split", "pin", "widen", "close", "column.scroll", "filter", "tag", "jump", "back", "forward", "copy"]);
   for (const a of list) { expect(a.summary.length).toBeGreaterThan(10); expect(a.keys).toBeTruthy(); }
 });
 
@@ -406,6 +406,59 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(p.top).toBeLessThan(scrolled);
     key({ kind: "home" }); key({ kind: "pgdn" }); screen();
     expect(p.top).toBeGreaterThan(0);
+  });
+
+  test("an agent's filter, jump and tag (PIE-506) work through act, are said on the status bar, and leave the person's keys where they are", async () => {
+    focusOnReader("r1");                                         // the person's keys on the Library
+    const focus = R().focus, uid = focusedUid();
+    // The column the person has the keys in is theirs: its filter, scroll and cursor aren't an agent's to move.
+    await expect(act("filter", { query: "squash" }, "1")).rejects.toThrow("the person has the keys in column 1");
+    await expect(act("column.scroll", { by: 3 }, "1")).rejects.toThrow("the person has the keys in column 1");
+    await expect(act("select", { by: 1 }, "1")).rejects.toThrow("the person has the keys in column 1");
+    // A column of its own beside (peas lists its two replies): filtered, said on the status bar.
+    const own = (await act("open", { id: notes.peas.id, duplicate: true }, "1")) as { reader: string };
+    await until(() => (paneOf(own.reader).items?.length ?? 0) === 2, "the peas' replies");
+    const out = (await act("filter", { query: "Thin" }, own.reader)) as { filter: string; listed: number };
+    expect(out.filter).toBe("Thin");
+    expect(out.listed).toBe(1);
+    expect((app as any).message).toContain(`an agent (${AS}) filtered column`);
+    expect(focusedUid()).toBe(uid);
+    expect(R().holdsKeys()).toBe(false);                         // the person's filter input was never opened
+    await act("close", {}, own.reader);
+    // jump: query alone lists; n opens the match beside the column, the person's focus stays.
+    const listed = (await act("jump", { query: "Plant the squash" })) as { matches: { id: string }[] };
+    expect(listed.matches[0]!.id).toBe(notes.squash.id);
+    const opened = (await act("jump", { query: "Plant the squash", n: 1, duplicate: true })) as { reader: string };
+    expect(paneOf(opened.reader).source).toMatchObject({ kind: "block", id: notes.squash.id });
+    expect((app as any).message).toContain(`an agent (${AS}) jumped to a note`);
+    expect(focusedUid()).toBe(uid);
+    expect(R().focus).toBe(focus);
+    await act("close", {}, opened.reader);
+    // tag: a #queued column of the beans' stage, beside the Library; the person stays on the Library.
+    await act("select", { id: notes.beans.id }, "1");
+    const tag = (await act("tag", { key: "stage" }, "1")) as { reader: string; value: string };
+    expect(tag.value).toBe("queued");
+    expect(focusedUid()).toBe(uid);
+    await act("close", {}, tag.reader);
+    // back is the person's: an agent's is refused, with its way (open beside) named.
+    await expect(act("back", {}, "1")).rejects.toThrow("an agent opens beside");
+  });
+
+  test("the person's f, # and / end in the same actions as an agent's", async () => {
+    focusOnReader("r1");
+    key(char("f")); type("squash");
+    expect(R().holdsKeys()).toBe(true);                          // typing a filter holds the keys
+    key({ kind: "enter" });
+    await until(() => R().paneS.filter.length === 1, "the filter");
+    expect(R().holdsKeys()).toBe(false);
+    key(char("f"));
+    for (let i = 0; i < 10; i++) key({ kind: "backspace" });
+    key({ kind: "enter" });
+    await until(() => R().paneS.filter.length === 0, "the filter cleared");
+    key(char("?"));
+    expect(R().holdsKeys()).toBe(true);                          // the help overlay holds the keys until any key
+    key(char("x"));
+    expect(R().holdsKeys()).toBe(false);
   });
 });
 

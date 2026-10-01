@@ -45,6 +45,8 @@ export interface TileHost {
   previewTile(sel: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
   typeTile(sel: string | undefined, text: string, actor: Actor): TileDone;
   restartTile(sel: string | undefined, actor: Actor): TileDone;
+  enterTile(sel: string | undefined, send: string | undefined, actor: Actor): TileDone;
+  leaveTile(actor: Actor): TileDone;
   tileInfo(sel: string | undefined): unknown;
   saveLayout(name: string, actor: Actor): TileDone | { layout: string; [k: string]: unknown };
   loadLayout(name: string, actor: Actor): { layout: string; [k: string]: unknown } | Promise<{ layout: string; [k: string]: unknown }>;
@@ -95,6 +97,8 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.info": Record<string, never>;
   "tile.type": { text: string };
   "tile.restart": Record<string, never>;
+  "tile.enter": { send?: string };
+  "tile.leave": Record<string, never>;
   "tab.select": { by?: number };
   "tile.herdr": { pane?: string; on?: boolean };
   "layout.resize": { split?: string; path?: string; border: number; share: number };
@@ -132,7 +136,7 @@ export const TILE_ACTIONS = new ActionSet<{
   "layout.restore": { ...loadLayout, summary: `the same as layout.load. ${loadLayout.summary}` },
   "layout.move": {
     summary: "move tile reader=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A drawer moved this way is pinned. The person's focus stays where it is",
-    keys: "drag a header; ^W m hjkl beside, ^W t hjkl into tabs, ^W HJKL to an edge, ^W T takes a tab out",
+    keys: "drag a header; ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out",
     args: {
       to: { type: "string", optional: true, about: "the tile it goes beside or into (not needed for an edge)" },
       where: { type: "string", optional: true, about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
@@ -178,7 +182,7 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.link": {
     summary: "where reader=<tile>'s opens land: a link followed in it, the tree's ⏎, a list's pick opens in tile to=<tile> (a detail, a reader or a preview). No to= unlinks. Alt+⏎ or a ctrl- or alt-click still opens beside",
-    keys: "alt+l, then click the tile (or h j k l, or its number); alt+l, then click the tile itself, unlinks",
+    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks)",
     args: { to: { type: "string", optional: true, about: "the tile its opens land in; left out, the link is taken away" } },
     run({ to }, { d, reader }, actor) {
       const r = d.linkTile(reader, to, actor);
@@ -188,7 +192,7 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.focus": {
     summary: "give the person's keys to tile reader=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
-    keys: "click, Tab, 1-9, ^W hjkl",
+    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →)",
     args: {},
     run(_, { d, reader }, actor) {
       const r = d.focusTile(reader, actor);
@@ -290,6 +294,18 @@ export const TILE_ACTIONS = new ActionSet<{
       say(d, actor, `restarted ${r.tile}`);
       return r;
     },
+  },
+  "tile.enter": {
+    summary: "type in terminal tile reader=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
+    keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
+    args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
+    run({ send }, { d, reader }, actor) { return d.enterTile(reader, send, actor); },
+  },
+  "tile.leave": {
+    summary: "back to the door from the terminal tile the person types in (ctrl+] again soon sends one to the program). The person's only",
+    keys: "ctrl+]",
+    args: {},
+    run(_, { d }, actor) { return d.leaveTile(actor); },
   },
   "layout.resize": {
     summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",

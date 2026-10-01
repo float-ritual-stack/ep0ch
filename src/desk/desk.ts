@@ -7,6 +7,7 @@
 //
 // Every change goes through a named action (TILE_ACTIONS, PANE_ACTIONS, DESK_ACTIONS): the keys, the mouse
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
+import { shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
@@ -476,10 +477,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** The kind of tile that has the person's keys (a view's own keys step aside for a tile that uses them). */
   protected focusedKind(): PaneKind | undefined { return this.panes.get(this.focus)?.kind as PaneKind | undefined; }
 
+  /** The person's keys to the first tile of `kind` (waiting's ⏎, the tree's open): `tile.focus`, as their key does. */
   focusKind(kind: PaneKind) {
     const id = leaves(this.root).find(i => this.panes.get(i)?.kind === kind);
-    if (id !== undefined) { this.focus = id; activate(this.root, id); this.redraw(); }
+    if (id !== undefined && id !== this.focus) this.cmd("tile.focus", {}, this.nameOf(id));
   }
+
+  /** The shell's actions (screen.back, video.cycle) as the person's key (src/shell-keys.ts: screens.ts imports this module). */
+  private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   redraw() { if (this.onScreen) this.ctx?.redraw(); }
@@ -604,7 +609,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    */
   personTyping(): boolean {
     const f = this.panes.get(this.focus);
-    return !!this.search || !!this.picker || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing || this.inPty() || (f instanceof ScreenTile && f.holdsKeys());
+    return !!this.search || !!this.picker || !!this.policyPanel || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing || this.inPty() || (f instanceof ScreenTile && f.holdsKeys());
   }
   /** Screen.holdsKeys: the same, for a frame around the desk (a brief tile) and the shell's agentMayMove (PIE-489). */
   holdsKeys(): boolean { return this.personTyping(); }
@@ -908,7 +913,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves · a border resizes · |15alt+l|08 link · |15alt+d|08 daily · |15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
+          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · |15alt+d|08 daily · |15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -963,16 +968,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.
     if (this.inPty() && k.kind !== "mouse") {
       const p = this.ptyIn!;
-      if (isEscapeChord(k)) { this.ptyIn = null; this.chord = { pane: p, at: Date.now() }; ctx.flash(`back to the door · ctrl+] again sends ctrl+] to ${this.nameOf(this.focus)} · e or ⏎ types in it again`); return this.redraw(); }
-      if (!p.running) { if (k.kind === "enter") p.restart(); else ctx.flash(`${this.nameOf(this.focus)} exited · ⏎ runs it again · ctrl+] back to the door`); return this.redraw(); }
+      if (isEscapeChord(k)) return this.cmd("tile.leave", {}, this.nameOf(this.focus));
+      if (!p.running) { if (k.kind === "enter") this.cmd("tile.restart", {}, this.nameOf(this.focus)); else ctx.flash(`${this.nameOf(this.focus)} exited · ⏎ runs it again · ctrl+] back to the door`); return this.redraw(); }
       if (k.kind === "paste") p.paste(k.text); else p.key(k, this);
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
     if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running && !this.inDrawer(this.chord.pane, false)) {
-      const p = this.chord.pane;
-      this.chord = null; this.ptyIn = p; p.input("\x1d");
-      ctx.flash(`sent ctrl+] to ${this.nameOf(this.focus)}`); return this.redraw();
+      this.chord = null;
+      return this.cmd("tile.enter", { send: "\x1d" }, this.nameOf(this.focus));
     }
     // A board, river or brief tile in its own edit, comment or panel: every key is its, the desk's included.
     const held = this.panes.get(this.focus);
@@ -1030,26 +1034,22 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
     const pane = this.panes.get(this.focus);
     // A terminal tile the person isn't in: ⏎ or e starts typing in it (⏎ on one that exited runs it again).
-    if (pane instanceof PtyPane && (k.kind === "enter" || c === "e")) {
-      if (this.inDrawer(pane)) return this.redraw();
-      if (!pane.running && pane.exited !== null) { pane.restart(); return this.redraw(); }
-      this.ptyIn = pane; ctx.flash(`typing in ${this.nameOf(this.focus)} · ${ESCAPE_CHORD} back to the door`); return this.redraw();
-    }
+    if (pane instanceof PtyPane && (k.kind === "enter" || c === "e")) return this.cmd("tile.enter", {}, this.nameOf(this.focus));
     const readOnly = pane instanceof ReaderPane && pane.readOnly;
     const start = focused && !focused.holdsKeys && focused.msg && !readOnly ? sessionStart(k) : null;
     if (focused && start) return this.start(focused, start);
     if (!focused?.holdsKeys && !(pane instanceof PtyPane) && pane?.key(k, this)) return;
     if (k.kind === "char" && !k.ctrl) {
-      if (k.ch === "/") { this.search = new SearchOverlay(); return this.redraw(); }
-      if (k.ch === "V") return ctx.cycleVideo();
+      if (k.ch === "/") return this.cmd("search");
+      if (k.ch === "V") return this.shell("video.cycle");
       if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = leaves(this.root)[Number(k.ch) - 1]; if (id !== undefined) return this.cmd("tile.focus", {}, this.nameOf(id)); return; }
-      if (k.ch === "q") { this.pending = null; return ctx.pop(); }
+      if (k.ch === "q") { this.pending = null; return this.shell("screen.back"); }
     }
     if (k.kind === "esc") {
       if (this.zoom !== null) return this.cmd("pane.zoom", { on: false }, String(this.numberOf(this.zoom)));
       const d = drawerOf(this.root, this.focus);
       if (d?.open && d.policy?.overlay !== false && this.effectiveAt(d).collapsible) return this.cmd("tile.drawer", { open: false }, this.nameOf(this.focus));
-      this.pending = null; return ctx.pop();
+      this.pending = null; return this.shell("screen.back");
     }
   }
 
@@ -1067,7 +1067,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private command(k: Key) {
     const mode = this.prefix;
     this.prefix = "";
-    const c = k.kind === "char" ? k.ch : k.kind === "left" ? "h" : k.kind === "right" ? "l" : k.kind === "up" ? "k" : k.kind === "down" ? "j" : "";
+    // A ctrl+letter isn't the letter: ^W then ctrl+x closes nothing.
+    const c = k.kind === "char" && !k.ctrl ? k.ch : k.kind === "left" ? "h" : k.kind === "right" ? "l" : k.kind === "up" ? "k" : k.kind === "down" ? "j" : "";
     const me = this.nameOf(this.focus);
     if (mode === "add" || mode === "addtab") {
       // The kind under that key, from the registry (an extension's kind with a key is here too).
@@ -1564,6 +1565,52 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { tile: t.name, herdr: p.herdr };
   }
 
+  /**
+   * The person types in terminal tile `sel` (e, ⏎ or a click): every key but ctrl+] goes to its program. One that
+   * exited runs again. `send`: bytes to give it first (ctrl+] twice sends a literal ctrl+]). An agent's would
+   * take the person's keys, so it's refused: tile.type sends a program text without them.
+   */
+  enterTile(sel: string | undefined, send: string | undefined, actor: Actor): TileDone {
+    if (actor.kind === "agent") throw new ActionRefused("typing in a terminal tile takes the person's keys; an agent sends it text with tile.type");
+    const t = this.tile(sel);
+    const p = this.panes.get(t.id);
+    if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile`);
+    if (t.id !== this.focus) throw new ActionRefused(`${t.name} doesn't have the keys · tile.focus first`);
+    if (this.inDrawer(p)) { this.redraw(); return { tile: t.name, drawer: true }; }
+    if (!p.running && p.exited !== null) { p.restart(); return { tile: t.name, restarted: true }; }
+    if (!p.running) throw new ActionRefused(`${t.name}'s program hasn't started`);
+    this.ptyIn = p; this.chord = null;
+    if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${t.name}`); }
+    else this.ctx.flash(`typing in ${t.name} · ${ESCAPE_CHORD} back to the door`);
+    return { tile: t.name, typing: true };
+  }
+
+  /** Back to the door from the terminal the person types in (ctrl+]); ctrl+] again soon sends one to it. The person's only. */
+  leaveTile(actor: Actor): TileDone {
+    if (actor.kind === "agent") throw new ActionRefused("the person's keys are theirs: an agent doesn't take them out of a terminal tile");
+    const p = this.ptyIn;
+    if (!p) throw new ActionRefused("the person isn't typing in a terminal tile");
+    this.ptyIn = null; this.chord = { pane: p, at: Date.now() };
+    this.ctx.flash(`back to the door · ctrl+] again sends ctrl+] to ${this.nameOf(this.focus)} · e or ⏎ types in it again`);
+    return { tile: this.nameOf(this.focus), typing: false };
+  }
+
+  /**
+   * Find notes by text, as `/` does. An agent's (or anyone's with a query) answers the hits (the service's
+   * search); the person's opens the search overlay (with the query typed in, when given), and ⏎ there runs `open`.
+   */
+  async searchNotes(query: string | undefined, limit: number | undefined, actor: Actor): Promise<unknown> {
+    const q = query?.trim() ?? "";
+    if (actor.kind !== "agent") {
+      this.search = new SearchOverlay(q, this);
+      this.redraw();
+      return { overlay: true, query: q };
+    }
+    if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
+    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)));
+    return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
+  }
+
   restartTile(sel: string | undefined, _actor: Actor): TileDone {
     const t = this.tile(sel);
     const p = this.panes.get(t.id);
@@ -2034,7 +2081,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         if (pane instanceof PtyPane) {
           // A click in a terminal starts typing in it; the program gets the click when it asked for the mouse.
           if (this.inDrawer(pane)) return this.redraw();
-          if (pane.running) this.ptyIn = pane;
+          if (pane.running) this.cmd("tile.enter", {}, this.nameOf(id));
           if (pane.wantsMouse()) { this.mouseTile = { id, r }; pane.mouse(k, x, y); }
         } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
@@ -2170,18 +2217,18 @@ class PolicyPanel {
 // ── floating search ──────────────────────────────────────────────────────────
 
 class SearchOverlay {
-  private q = "";
   private hits: Msg[] = [];
   private sel = 0;
   private busy = false;
   private timer: Timer | null = null;
   private seq = 0;
+  constructor(private q = "", desk?: Desk) { if (q && desk) this.run(desk); }
 
   key(k: Key, desk: Desk): "keep" | "close" {
     if (k.kind === "esc") return "close";
     if (k.kind === "up") this.sel = Math.max(0, this.sel - 1);
     else if (k.kind === "down" || k.kind === "tab") this.sel = Math.min(Math.max(0, this.hits.length - 1), this.sel + 1);
-    else if (k.kind === "enter") { const m = this.hits[this.sel]; if (m) { desk.setCurrent(m, { reveal: true }); return "close"; } }
+    else if (k.kind === "enter") { const m = this.hits[this.sel]; if (m) { desk.run("open", { id: m.id }); return "close"; } }
     else if (k.kind === "backspace") { this.q = this.q.slice(0, -1); this.run(desk); }
     else if (k.kind === "char" && !k.ctrl) { this.q += k.ch; this.run(desk); }
     return "keep";
@@ -2215,7 +2262,13 @@ class SearchOverlay {
 interface DeskOn { d: Desk; reader?: string }
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
-export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string }; "focus": Record<string, never> }, DeskOn>("desk", {
+export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string }; "focus": Record<string, never>; "search": { query?: string; limit?: number } }, DeskOn>("desk", {
+  "search": {
+    summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the search overlay, ⏎ there opens the hit (`open`)",
+    keys: "/",
+    args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
+    run({ query, limit }, { d }, actor) { return d.searchNotes(query, limit, actor); },
+  },
   "open": {
     summary: "make a note the desk's current one and show it in reader=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it). A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search",
     args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" } },
@@ -2226,7 +2279,7 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string 
     },
   },
   "focus": {
-    summary: "give keys to reader=<pane number or tile name> (tile.focus does the same for any tile)", keys: "tab, 1-9, click",
+    summary: "give keys to reader=<pane number or tile name> (tile.focus does the same for any tile)", keys: "tab, shift+tab, 1-9, click",
     args: {},
     // The older name of tile.focus: the same code, the same rule (never while the person is typing).
     run(_, { d, reader }, actor) {

@@ -294,6 +294,12 @@ at, and what it does while they're typing:
 | `projection.refresh` | no | allowed |
 | `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
 | `tile.herdr` | no | allowed |
+| `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
+| the river's `select` by row, `column.scroll`, `filter` | no | refused on the column the person has the keys in, with the agent's way named (`select id=`, `jump`, `open`, `tag`); said on the status bar elsewhere |
+| the board's `card.select` | no: an agent's selection is its own | allowed |
+| `board.hub id=` | yes: the board shown | refused while the person holds the keys; said on the status bar |
+| `search`, `jump query=`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
+| `tile.enter`, `tile.leave`, `agent.enter`, `agent.leave`, `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
@@ -375,30 +381,33 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 - A tint (`block.tint`, a block or passage tinted inside one reader) is the in-reader counterpart: no reason,
   no frame, gone when the reader shows another note or the person presses `esc`.
 
-## What still changes the UI without a command
+## Parity: every key and click is an action (PIE-506)
 
-Audited for this interface (PIE-413 part b). Fixed then, on the desk:
-- a dragged border (now `layout.resize`);
-- `^W =` (`layout.even`) and `^W s` (`layout.swap`);
-- a drawer sliding shut when the keys leave (`tile.drawer`);
-- the person's focus by Tab, 1-9, clicks and `^W hjkl` (`tile.focus`);
-- tabs (`tab.select`), zoom and unzoom (`pane.zoom`);
-- an agent's `open`, the control socket's `open <id>`, `focus`, and shutting a drawer the person has: one
-  guard, the same actions as `tile.*` (`focus` is `tile.focus`, `pane.split` and `pane.close` are
-  `tile.open` and `tile.close`);
-- an agent's open revealing its note in the outline (it moved the person's outline cursor; no longer).
+Audited screen by screen in PIE-506 (the table is in its PR); PIE-413 part b did the desk's layout first. The
+rule now holds by test, not by review:
 
-Still direct, next:
-- **A reader's own keys that change only what it has in view.** `j k`, PgUp, PgDn and the wheel scroll it,
-  and `[ ]` moves the person's element. These are the note surface's (`src/surface/note.ts`); the feed
-  publishes their effect (`viewport`), and `view.scrollTo` is the agent's way to scroll.
-- **The outline tile's cursor** (`j k`, clicks). The feed publishes it (`viewport.selected`), but there is no
-  `tree.select` action yet. An agent's `tree.pick` shows a row's note where the tree's selection goes without
-  moving the person's cursor, and `tree.links` shows a row's links (both above).
-- **Input states:** the search overlay (`/`), the layout picker, `alt+l` link mode, the `^W` prefix, and being
-  "in" a terminal tile or a reader's edit. What they end in is a command.
-- **Other screens.** The board has `card.*` and `reader.*` for most of what its keys do (lane focus and the
-  lane cursor aren't actions). The river has `RIVER_ACTIONS` for columns, but not its filter, `#` or `/`
-  jump. The BBS lists have `list.*` and every screen the shell's `screen.*` (PIE-489); Who's Online's `r`, the art
-viewer's keys and a message list's `t` aren't actions yet. See
-  `docs/UI-GRAMMAR.md` §3, where the `·` in `kma` marks each missing agent action.
+- **Every key or click that changes what a screen shows runs an action that names it.** The key, the click and
+  `act` call the same `ActionDef`, and the def's `keys` says which keys and gestures run it, in one spelling
+  (`declaredKeys` in `src/surface/actions.ts`: `q Q`, `⏎`, `esc`, `shift+tab`, `alt+l`, `ctrl+e` or `^E`, `^W x`
+  for the desk's window chords, `X then Y` for other chords, `click`, `drag`, `wheel`).
+- **Every key a hint names is declared** by an action the screen lists (`actions`), the shell's or the
+  agent drawer's. A hint is `keys words · keys words` (`hintKeys`); a part that starts with a word names none.
+- **Input states** (a prefix such as `^W`, `alt+l` link mode, a palette or filter being typed, a picker, an
+  edit, a comment, the property panel, the board's mover and steps overlay, the hub picker) hold the keys
+  (`holdsKeys`), so an agent doesn't move the person's screen while they're in one. Typing in them isn't a
+  command; what they end in is, and so is opening a list the person picks from (`board.hub`, `layout.list`).
+  A cancel that puts the screen back as it was runs nothing.
+- **An agent's run never takes the person's focus, selection or keys.** Where an action moves only the
+  person's own cursor or view, an agent's either moves its own (the board's `card.select`) or is refused with
+  the agent's way named (`view.scrollTo`, `tree.pick`, `list.read`).
+
+`test/parity.test.ts` keeps it so. It builds every screen the menu opens against a scratch outline, and
+more states of the board, the river, the desk and the reader, then presses every key a person can press and
+clicks across the screen, one at a time from where it opens, and from each input state a second key. Every
+action run is traced (`traceActions`). A key or click that changed the screen (its rows, `describe()`, the
+screen stack or the video mode) without running an action whose `keys` names it fails, as does a hint that
+names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
+with no action is checked once more on a fresh screen before it fails. `PARITY_ONLY=<screen,…>`,
+`PARITY_DEPTH=1` and `PARITY_LOG=<file>` narrow it while working on one screen.
+
+What the probe doesn't reach: a terminal tile's own keys (they're its program's), and the logon and logoff.

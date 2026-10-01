@@ -5,17 +5,18 @@
 //
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
+import { shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen } from "../app";
 import type { Msg } from "../board";
 import { subject } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { Actor, Capability, OutlineEvent } from "../socket";
+import { USER, type Actor, type Capability, type OutlineEvent } from "../socket";
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
 import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
@@ -284,13 +285,20 @@ export class Showcase implements Screen {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.focus === "stage") { const f = this.stage(this.sel); if (f) f.key(k); else this.focus = "index"; return ctx.redraw(); }
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    if (k.kind === "esc" || c === "q") return ctx.pop();
-    if (k.kind === "up" || c === "k") return this.pick(this.sel - 1);
-    if (k.kind === "down" || c === "j") return this.pick(this.sel + 1);
-    if (/^[0-9]$/.test(c)) return this.pick(c === "0" ? 9 : Number(c) - 1);
-    if (k.kind === "enter" || k.kind === "right" || k.kind === "tab" || c === "l") return this.pick(this.sel, true);
-    if (c === "V") return ctx.cycleVideo();
+    if (k.kind === "esc" || c === "q") return this.shell("screen.back");
+    if (k.kind === "up" || c === "k") return this.sel > 0 ? this.run("section", { name: String(this.sel) }) : undefined;
+    if (k.kind === "down" || c === "j") return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;
+    if (/^[0-9]$/.test(c)) return this.run("section", { name: c === "0" ? "10" : c });
+    if (k.kind === "enter" || k.kind === "right" || k.kind === "tab" || c === "l") return this.run("section.try", {});
+    if (c === "V") return this.shell("video.cycle");
   }
+
+  /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
+  private run(name: "section" | "section.try", args: { name?: string }) {
+    void runAsPerson(SHOWCASE_ACTIONS, name, args as { name: string }, this, msg => this.ctx.flash(msg)).then(() => this.ctx.redraw());
+  }
+  /** The shell's q, Esc and V (src/shell-keys.ts: screens.ts imports this module). */
+  private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const r = this.stageRect;
@@ -303,14 +311,15 @@ export class Showcase implements Screen {
       return this.ctx.redraw();
     }
     if (k.action === "down") {
-      if (inStage && f) { this.focus = "stage"; this.pressed = true; f.key(rel); return this.ctx.redraw(); }
+      if (inStage && f) { if (this.focus !== "stage") this.run("section.try", {}); this.pressed = true; f.key(rel); return this.ctx.redraw(); }
       const i = k.x < this.indexW && k.y >= 2 ? Math.floor((k.y - 2) / 2) : -1;
-      if (i >= 0 && i < SECTIONS.length) return this.pick(i);
+      if (i >= 0 && i < SECTIONS.length && (i !== this.sel || this.focus !== "index")) return this.run("section", { name: String(i + 1) });
       return;
     }
     // The wheel: the stage under the pointer scrolls; over the index it moves between sections.
     if (inStage && f) { f.key(rel); return this.ctx.redraw(); }
-    if (k.x < this.indexW) this.pick(this.sel + (k.action === "wheel-down" ? 1 : -1));
+    const to = this.sel + (k.action === "wheel-down" ? 1 : -1);
+    if (k.x < this.indexW && to >= 0 && to < SECTIONS.length) this.run("section", { name: String(to + 1) });
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
@@ -357,9 +366,20 @@ export class Showcase implements Screen {
 }
 
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
-export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string } }, Showcase>("showcase", {
+export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
+  "section.try": {
+    summary: "go into a section's stage (name=<1-15> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    keys: "⏎ → l tab, click in the stage",
+    args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
+    run({ name }, s, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("going into a section gives it the person's keys; an agent runs the shown section's own actions instead");
+      const i = name === undefined ? s.shown : s.sectionOf(name);
+      s.pick(i, true);
+      return { section: i + 1, key: SECTIONS[i]!.key, in: s.personInStage() };
+    },
+  },
   "section": {
-    summary: "show a section (name=<1-15> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
+    summary: "show a section (name=<1-15> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);

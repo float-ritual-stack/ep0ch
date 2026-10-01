@@ -16,7 +16,7 @@ import {
   DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkSource, type BacklinkView, type BacklinkViewOptions,
 } from "../backlinks";
-import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
 import { draftPreview, leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
@@ -34,6 +34,7 @@ import {
 } from "./layout";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { TREE_ACTIONS } from "./tree";
+import { shellKeyOf } from "../shell-keys";
 import { backlinkRowLine, layoutBacklinkStatus } from "./backlinks-pane";
 import { Draft, DRAFT_ACTIONS, tidy } from "../edit";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
@@ -150,6 +151,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private status = "looking for boards…";
   private hubs: Record<string, string> = {};          // workspace → last board hub id
   private picker: { items: { hub: Msg; lanes: number }[]; sel: number } | null = null;
+  /** Where the hub picker drew each board, for a click. */
+  private pickerRows: { i: number; col: number; row: number; cols: number }[] = [];
   /** The move picker (`m`): every lane with what moving the selected card there would patch. */
   private mover: { card: Msg; from: number; plans: MovePlan[] | null; sel: number } | null = null;
   /**
@@ -568,7 +571,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   /**
    * Screen.holdsKeys: the person's keys are the board's own business right now: an edit, a comment or the
    * property panel they're in (or one of theirs still opening), a step's status choice, a new card or note
-   * being written, a backlinks filter being typed, or the mover or steps overlay. A tile around the board
+   * being written, a backlinks filter being typed, the mover or steps overlay, or the hub picker. A tile around the board
    * gives it every key then, and an agent doesn't move the person's screen (agentMayMove, PIE-489).
    */
   holdsKeys(): boolean {
@@ -576,7 +579,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return !!this.pending || (!!rd && !this.shut.has(rd) && !!this.personIn())
       || this.readers().some(r => r.surface.choosing && !this.shut.has(r))
       || !!this.composer || (this.linkView.draft !== null && this.focus === "backlinks" && !!this.links)
-      || !!this.steps || !!this.mover;
+      || !!this.steps || !!this.mover || !!this.picker;
   }
   keepDrafts() {
     const c = this.composer;
@@ -677,7 +680,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** `open`: put a note in a reader — the preview (selecting its card when a lane lists it), a detail, a new detail, or a new float. */
   async openIn(id: string, where = "detail"): Promise<{ reader: string; id: string }> {
-    const m = await this.ctx.board.get(id);
+    // A card the lanes list, or a note a reader shows, opens at once (the person's ⏎ on it); any other is read first.
+    const known = this.lanes.flatMap(l => l.items ?? []).find(x => x.id === id) ?? this.readers().find(r => r.msg?.id === id)?.msg;
+    const m = known ?? await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     this.current = m;
     // An agent's open gives the keys to the reader it opened, unless the person is in an edit, a comment
@@ -713,21 +718,30 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { reader: r?.name ?? where, id: m.id };
   }
 
+  /** Whether `sel` names the area that has the keys now. */
+  focusedIs(sel: string): boolean {
+    if (sel === "lanes") return this.focus === "lanes";
+    try { return this.findReader(sel).region === this.focus; } catch { return false; }
+  }
+
   /** `focus`: which area keys go to — "lanes" or a reader. */
   focusOn(sel: string): { focus: string } {
     const was = this.focus;
     if (sel === "lanes") this.focus = "lanes";
     else {
-      const r = this.pickReader(sel);
+      let r = this.pickReader(sel);
       if (!r.region) throw new ActionRefused(`${r.name} isn't open`);
-      this.focus = r.region;
-      if (r.region.startsWith("detail")) this.active = Number(r.region.slice(6));
+      // A float given the keys comes to the top (the floats are drawn in order, the last on top).
+      const at = r.region;
+      if (at.startsWith("float")) { this.raise(Number(at.slice(5))); r = this.pickReader(r.name); }
+      this.focus = r.region!;
+      if (this.focus.startsWith("detail")) this.active = Number(this.focus.slice(6));
     }
     // The person comes back to a session by moving to it: they enter it again with e or ⏎. Focusing the
     // reader they're already in moves nothing, so they stay in it.
     if (this.focus !== was) this.entered.clear();
     this.redraw();
-    return { focus: sel === "lanes" ? "lanes" : this.pickReader(sel).name };
+    return { focus: this.focus === "lanes" ? "lanes" : this.nameOf(this.focus) };
   }
 
   /** Select a card in the lanes (the preview follows). False when no loaded lane lists it. */
@@ -739,6 +753,199 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (focus) this.focus = "lanes";
     this.follow(); this.redraw();
     return true;
+  }
+
+  // ── the person's keys and clicks run the board's actions (PIE-506): the same code as `act` ──
+
+  /** A board action as the person; a refusal is said on the status bar. */
+  private run<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
+    // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
+    const said = name === "card.move";
+    return runAsPerson(BOARD_ACTIONS, name, args, { b: this, reader, ...extra }, msg => { if (!said) this.ctx.flash(msg); this.redraw(); });
+  }
+  /** A pane operation (PANE_ACTIONS) as the person, on the pane named as `peek` names it. */
+  private pane<K extends Parameters<typeof PANE_ACTIONS.run>[0]>(name: K, args: Parameters<typeof PANE_ACTIONS.run<K>>[1], reader: string) {
+    void runAsPerson(PANE_ACTIONS, name, args, { h: this, reader }, msg => { this.ctx.flash(msg); this.redraw(); });
+  }
+  /** The shell's action (screen.back, video.cycle), as on every screen. */
+  private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
+
+  /** `card.select`: by id, or a step from the selection (the person's cursor, or an agent's own selection). */
+  selectBy(a: { id?: string; lane?: string; by?: number; lanes?: number; focus?: boolean }, actor: Actor): unknown {
+    const steps = a.by !== undefined || a.lanes !== undefined;
+    if (a.id === undefined && !steps && a.lane === undefined) throw new ActionRefused("card.select takes id, or a step from the selection (by, lanes, lane)");
+    if (a.id !== undefined && steps) throw new ActionRefused("card.select takes id, or a step (by, lanes), not both");
+    const named = (n: string) => { const i = this.lanes.findIndex(l => l.name.toLowerCase() === n.toLowerCase()); if (i < 0) throw new ActionRefused(`no lane ${n}; lanes: ${this.lanes.map(l => l.name).join(", ")}`); return i; };
+    if (a.id !== undefined) {
+      if (actor.kind === "agent") return this.selectForAgent(a.id, actor);
+      const at = a.lane !== undefined ? named(a.lane) : -1;
+      if (at >= 0) {
+        const l = this.lanes[at]!, i = l.items?.findIndex(m => m.id === a.id || (a.id!.length >= 8 && m.id.startsWith(a.id!))) ?? -1;
+        if (i < 0) throw new ActionRefused(`${l.name} doesn't list ${a.id}`);
+        this.lane = at; l.sel = i; this.focus = "lanes"; this.follow(); this.save(); this.redraw();
+        return { selected: l.items![i]!.id, lane: l.name };
+      }
+      if (!this.selectCard(a.id)) throw new ActionRefused(`no lane on the board lists ${a.id}`);
+      return { selected: a.id };
+    }
+    if (!this.lanes.length) throw new ActionRefused("the board has no lanes yet");
+    // Where the step starts: an agent's own selection (else the person's cursor), never moving the person's.
+    let lane = this.lane, sel = this.lanes[lane]?.sel ?? 0;
+    if (actor.kind === "agent") {
+      const own = this.agentCards.get(actor.id);
+      const at = own ? this.lanes.findIndex(l => l.items?.some(m => m.id === own)) : -1;
+      if (at >= 0) { lane = at; sel = this.lanes[at]!.items!.findIndex(m => m.id === own); }
+    }
+    // Moved to another lane (lane=, lanes=): the person's step starts at that lane's cursor, an agent's at its top.
+    const moveTo = (to: number) => { if (to !== lane) { lane = to; sel = actor.kind === "agent" ? 0 : this.lanes[to]!.sel; } };
+    if (a.lane !== undefined) moveTo(named(a.lane));
+    moveTo(clamp(lane + (a.lanes ?? 0), 0, this.lanes.length - 1));
+    const l = this.lanes[lane]!, n = l.items?.length ?? 0;
+    sel = clamp(sel + (a.by ?? 0), 0, Math.max(0, n - 1));
+    if (actor.kind === "agent") {
+      const card = l.items?.[sel];
+      if (!card) throw new ActionRefused(`${l.name} has no cards to select`);
+      return this.selectForAgent(card.id, actor);
+    }
+    l.sel = sel;
+    // focus=false (the wheel over a lane): that lane's cursor moves; the current lane and the keys stay.
+    if (a.focus !== false) { this.lane = lane; this.focus = "lanes"; }
+    if (lane === this.lane) this.follow();
+    this.save(); this.redraw();
+    return { lane: l.name, selected: l.items?.[sel]?.id ?? null };
+  }
+
+  /** `board.hub`: the hubs (the person's opens the picker), or show the one named. */
+  async chooseHub(id: string | undefined, actor: Actor): Promise<unknown> {
+    if (id === undefined) {
+      if (actor.kind !== "agent") { this.openPicker(); return { picker: true }; }
+      const found = await this.findBoards();
+      return { current: this.hub?.id ?? null, hubs: found.map(f => ({ id: f.hub.id, title: subject(f.hub), lanes: f.lanes })) };
+    }
+    if (actor.kind === "agent" && this.holdsKeys()) throw new ActionRefused("the person is typing on the board (an edit, a comment, a picker or a filter); the board stays as it is");
+    const hub = this.picker?.items.find(i => i.hub.id === id || (id.length >= 8 && i.hub.id.startsWith(id)))?.hub ?? await this.ctx.board.get(id);
+    if (!hub) throw new ActionRefused(`no block ${id}`);
+    const kids = await this.ctx.board.children(hub.id);
+    if (kids.filter(k => (k.props.type ?? "").toLowerCase() === "virtual-branch").length < 2) throw new ActionRefused(`${subject(hub)} isn't a board: it has fewer than two virtual-branch lanes`);
+    await this.useHub(hub);
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} showed the board ${subject(hub)}`);
+    return { hub: hub.id, title: subject(hub), lanes: this.lanes.map(l => l.name) };
+  }
+  /** The picker put away (esc, q): the board as it was, or with no board yet, back to the menu. */
+  closePicker(actor: Actor) {
+    if (actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
+    if (!this.picker) return { picker: false };
+    if (!this.hub) { this.shell("screen.back"); return { left: true }; }
+    this.picker = null; this.redraw();
+    return { picker: false };
+  }
+  /** `g`: the hub picker, the board shown now selected; it holds the keys until ⏎ or esc. */
+  private openPicker() {
+    this.status = "looking for boards…"; this.redraw();
+    this.findBoards().then(items => {
+      this.status = "";
+      this.picker = { items, sel: Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id)) };
+      this.redraw();
+    }, e => { this.status = ""; this.ctx.flash(`couldn't look for boards: ${(e as Error).message}`); this.redraw(); });
+  }
+
+  /** `board.reload`: every lane asked again. */
+  reloadLanes(actor: Actor) {
+    if (!this.hub) throw new ActionRefused("no board is shown yet; board.hub picks one");
+    this.loadLanes();
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} reloaded the lanes`);
+    this.redraw();
+    return { lanes: this.lanes.map(l => l.name) };
+  }
+
+  /** `lane.collapse`: a lane to a spine, or open again. */
+  collapseLane(name: string | undefined, on: boolean | undefined, actor: Actor) {
+    const l = name === undefined ? this.lanes[this.lane] : this.lanes.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (!l) throw new ActionRefused(name === undefined ? "the board has no lanes yet" : `no lane ${name}; lanes: ${this.lanes.map(x => x.name).join(", ")}`);
+    const want = on ?? !this.collapsed.has(l.name);
+    if (want) this.collapsed.add(l.name); else this.collapsed.delete(l.name);
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} ${want ? "collapsed" : "opened"} the lane ${l.name}`);
+    this.save(); this.redraw();
+    return { lane: l.name, collapsed: want };
+  }
+
+  /** `outline`: the outline drawer open or shut, and on which side. */
+  outlineDrawer(open: boolean | undefined, side: string | undefined, actor: Actor) {
+    const agent = actor.kind === "agent";
+    if (side !== undefined) {
+      if (side !== "left" && side !== "right" && side !== "other") throw new ActionRefused(`side is left, right or other, not ${side}`);
+      const to = side === "other" ? (this.lay.treeSide === "left" ? "right" : "left") : side;
+      if (to !== this.lay.treeSide) this.treeSide();
+      if (open === undefined) open = true;
+    }
+    // The person's t: shut when it's open and theirs, else open and theirs.
+    const want = open ?? (agent ? !this.treeOpen : !(this.treeOpen && this.focus === "tree"));
+    if (!want) {
+      if (agent && this.focus === "tree") throw new ActionRefused("the person is in the outline drawer; an agent doesn't shut it");
+      this.treeOpen = false; this.treePinned = false;
+      if (this.focus === "tree") this.focus = "lanes";
+    } else {
+      this.treeOpen = true;
+      if (!agent && side === undefined) this.focus = "tree";
+    }
+    if (agent) this.ctx.flash(`${agentLabel(actor)} ${want ? "opened" : "shut"} the outline drawer${side ? ` on the ${this.lay.treeSide}` : ""}`);
+    this.save(); this.redraw();
+    return { open: this.treeOpen, side: this.lay.treeSide, pinned: this.treePinned };
+  }
+
+  /** `float.place`: move or size a float, kept on the screen. */
+  placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor) {
+    const r = sel ? this.findReader(sel) : this.focus.startsWith("float") ? this.findReader("focused") : this.findReader("float");
+    const i = this.floats.findIndex(f => f.pane === r.pane);
+    if (i < 0) throw new ActionRefused(`${r.name} isn't a float; o pops a reader out as one`);
+    const f = this.floats[i]!.rect, W = this.ctx.t.cols, H = this.ctx.t.rows - 2, F = SIZE.float;
+    if (a.cols !== undefined) f.cols = clamp(Math.round(a.cols), F.cols, W);
+    if (a.rows !== undefined) f.rows = clamp(Math.round(a.rows), F.rows, H);
+    f.col = clamp(Math.round(a.col ?? f.col + (a.dx ?? 0)), -f.cols + 4, W - 4);
+    f.row = clamp(Math.round(a.row ?? f.row + (a.dy ?? 0)), 0, H - 1);
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} moved ${r.name}`);
+    this.redraw();
+    return { reader: r.name, rect: { ...f } };
+  }
+
+  /** `backlinks.fold`: a kind group opens or folds (the person's view). */
+  foldLinks(kind: string | undefined, actor: Actor) {
+    if (actor.kind === "agent") throw new ActionRefused("a group's folding is the person's view; an agent reads every row with backlinks");
+    if (!this.links) throw new ActionRefused("no backlinks drawer is open; b opens it on a reader's note");
+    const row = this.linkRow();
+    const k = kind === undefined ? (row?.kind === "group" ? row.group.kind : row?.source.facets?.kind)
+      : this.linkViewNow().kinds.find(x => x.kind === kind || x.label.toLowerCase() === kind.toLowerCase())?.kind;
+    if (!k) throw new ActionRefused(kind === undefined ? "the selected row has no kind group" : `no backlink kind ${kind}`);
+    this.toggleLinkGroup(k);
+    return { kind: k, open: this.linkView.expanded.has(k) };
+  }
+
+  /** `backlinks.pick`: a row of the drawer; open does what ⏎ does. */
+  async pickLink(a: { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean }, actor: Actor) {
+    const L = this.links;
+    if (!L) throw new ActionRefused("no backlinks drawer is open; b opens it on a reader's note");
+    const rows = this.linkRows();
+    const given = [a.n, a.id, a.by].filter(x => x !== undefined).length;
+    if (given > 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
+    const i = a.id !== undefined ? rows.findIndex(r => r.kind === "source" && (r.source.blockId === a.id || (a.id!.length >= 8 && r.source.blockId.startsWith(a.id!))))
+      : a.n !== undefined ? a.n - 1 : a.by !== undefined ? clamp(L.sel + a.by, 0, Math.max(0, rows.length - 1)) : L.sel;
+    const row = rows[i];
+    if (!row) throw new ActionRefused(a.id !== undefined ? `no backlink from ${a.id} here` : `the drawer has ${rows.length} row${rows.length === 1 ? "" : "s"}; n is 1-${rows.length}`);
+    const open = a.open || a.fresh;
+    const what = row.kind === "group" ? { row: i + 1, group: row.group.kind } : { row: i + 1, source: row.source.blockId };
+    if (actor.kind === "agent") {
+      // The person's selection and the preview under it stay; an agent opens only what it names.
+      if (open && row.kind === "group") throw new ActionRefused("a group's folding is the person's view; an agent reads every row with backlinks");
+      if (open && row.kind === "source") return { ...what, ...(await this.openIn(row.source.blockId, a.fresh ? "new-detail" : "detail")) };
+      return what;
+    }
+    L.sel = i;
+    if (open) {
+      if (row.kind === "group") this.toggleLinkGroup(row.group.kind);
+      else { this.previewLink(); this.enterLinkRow(!!a.fresh); }
+    } else this.previewLink();
+    this.redraw();
+    return what;
   }
 
   /**
@@ -755,6 +962,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
+    // Refused before the move starts: said to the person as a move's refusal is (moveTo says its own).
+    const refuse = (m: string) => { if (actor.kind !== "agent") this.ctx.flash(`not moved: ${m}`); return new ActionRefused(m); };
     if (!card && actor.kind === "agent") card = this.cardFor(undefined, actor).id;   // its own selection, else the person's
     // An agent's move names its card without selecting it: the person's lane, selection, preview and
     // keys stay where they are. (The person's own card.move, through the socket as `you`, selects it.)
@@ -763,15 +972,15 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (actor.kind === "agent") {
         from = this.lanes.findIndex(l => l.items?.some(m => m.id === card || (card.length >= 8 && m.id.startsWith(card))));
         c = from >= 0 ? this.lanes[from]!.items!.find(m => m.id === card || m.id.startsWith(card)) : undefined;
-        if (!c) throw new ActionRefused(`no lane on the board lists ${card}`);
-      } else if (!this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+        if (!c) throw refuse(`no lane on the board lists ${card}`);
+      } else if (!this.selectCard(card)) throw refuse(`no lane on the board lists ${card}`);
       else { from = this.lane; c = this.card(); }
     }
-    if (!c) throw new ActionRefused("no card is selected");
+    if (!c) throw refuse("no card is selected");
     const want = lane.toLowerCase();
     const to = this.lanes.findIndex(l => l.name.toLowerCase() === want);
-    if (to < 0) throw new ActionRefused(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
-    if (to === from) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
+    if (to < 0) throw refuse(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
+    if (to === from) throw refuse(`the card is already in ${this.lanes[to]!.name}`);
     this.lastMove = null;
     await this.moveTo(to, actor, { card: c, from });
     const r = this.lastMove as DeliveryBoard["lastMove"];
@@ -1019,7 +1228,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions) => backlinkView(data, { ...o, kind: null }).kinds;
     const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base)); } catch (e) { throw new ActionRefused((e as Error).message); } };
     if (actor.kind !== "agent") {
-      if (!same || !this.links) await this.openLinks(target, "act");
+      if (!same || !this.links) await this.openLinks(target, this.namedReaders().find(r => r.region && r.pane.msg?.id === target.id)?.name ?? "act");
       else if (!this.links.data) await this.links.ready;
       const next = parse(this.linkView.options, this.links!.data);
       this.linkView.draft = null;
@@ -1207,6 +1416,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const why = this.setShut(r.pane, on, actor);
     if (why) throw new ActionRefused(why);
     if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} ${on ? "collapsed" : "reopened"} ${this.labelOf(r.pane)}`);
+    else if (on) this.ctx.flash(`${this.labelOf(r.pane)} collapsed${r.pane.holdsKeys ? `, keeping ${sessionName(r.pane)}` : ""} · c opens it`);
     return { reader: r.name, collapsed: this.shut.has(r.pane), holds: r.pane.surface.state() };
   }
 
@@ -1338,7 +1548,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     else if (k.kind === "enter") {
       this.mover = null;
       if (this.card()?.id !== M.card.id || this.lane !== M.from) return this.ctx.flash("the selection changed · not moved");
-      void this.moveTo(M.sel);
+      if (M.sel === M.from) return this.redraw();
+      return void this.run("card.move", { lane: this.lanes[M.sel]!.name, card: M.card.id });
     }
     this.redraw();
   }
@@ -1491,8 +1702,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const by = d.recordAs(USER);
     d.saving = true; d.note = "creating…"; this.redraw();
     try {
-      if (C0.kind === "card") await this.createCard(C0.lane, d.text, by, C0.parent?.id);
-      else await this.createNote(C0.parent.id, d.text, by);
+      // The same actions an agent creates with: card.create, note.create.
+      if (C0.kind === "card") await BOARD_ACTIONS.run("card.create", { lane: C0.lane.name, text: d.text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { b: this }, by);
+      else await BOARD_ACTIONS.run("note.create", { text: d.text, parent: C0.parent.id }, { b: this }, by);
       if (this.composer === C0) this.composer = null;
     } catch (e) {
       d.saving = false;
@@ -1629,7 +1841,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const it = S.read.items[S.sel];
       if (it) {
         const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
-        void this.setStep(S.card.id, S.sel, status, USER, { item: it, revision: S.read.revision }).catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
+        BOARD_ACTIONS.run("step.set", { step: String(S.sel + 1), status, card: S.card.id }, { b: this, shown: { item: it, revision: S.read.revision } }, USER)
+          .catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
       }
     }
     this.redraw();
@@ -1678,20 +1891,18 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   // ── trash ──
 
-  /** `d`: the first press arms, a second within five seconds trashes. */
-  private async armTrash() {
+  /** `card.trash` with no confirm (the person's first `d`): the selected card is armed; a second d within five seconds trashes it. */
+  async armTrash(): Promise<{ armed: string; title: string; notesUnder: number; say: string }> {
     const card = this.card();
-    if (!card) return this.ctx.flash("select a card to trash");
-    if (this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000) {
-      this.trashArm = null;
-      return void this.trashCard(card.id, card.id, USER).catch(e => this.ctx.flash(`not trashed: ${(e as Error).message}`));
-    }
+    if (!card) throw new ActionRefused("select a card to trash");
     const blocked = this.moveBlocked(card);
-    if (blocked) return this.ctx.flash(`not trashed: ${blocked}`);
+    if (blocked) throw new ActionRefused(`not trashed: ${blocked}`);
     this.trashArm = { id: card.id, at: Date.now() };
     const fresh = await this.ctx.board.get(card.id).catch(() => null);
     const kids = fresh?.childIds.length ?? 0;
-    if (this.trashArm?.id === card.id) this.ctx.flash(`d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`);
+    const say = `d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`;
+    if (this.trashArm?.id === card.id) this.ctx.flash(say);
+    return { armed: card.id, title: titleOf(card), notesUnder: kids, say: "press d again" };
   }
 
   /**
@@ -2030,6 +2241,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const r: Rect = { col: Math.round(W * 0.2), row: Math.round(H * 0.15), cols: Math.round(W * 0.6), rows: Math.min(H - 4, P.items.length + 4) };
     canvas.clear(r, bg(C.black));
     canvas.box(r, fg(C.yellow), fg(C.yellow) + `pick a board · ${this.ctx.workspace}`, fg(C.dark) + "⏎ open · esc back");
+    this.pickerRows = P.items.map((_, i) => ({ i, col: r.col + 1, row: r.row + 1 + i, cols: r.cols - 2 })).filter(x => x.row < r.row + r.rows - 1);
     P.items.forEach((it, i) => canvas.text(r.col + 1, r.row + 1 + i,
       (i === P.sel ? SEL : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
   }
@@ -2247,7 +2459,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     }
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     const base = this.focus === "lanes"
-      ? "|08 |15g|08 boards · h l lane · j k card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area · |15q|08 menu"
+      ? "|08 |15g|08 boards · |15h l|08 lane · |15j k|08 card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15o|08 pop out · |15tab|08 area · |15q|08 menu"
       : this.focus === "backlinks"
         ? this.linkView.draft !== null
           ? "|08 type to filter the backlinks · |15⏎|08 keep · |15esc|08 undo · |15backspace ctrl+u|08 erase"
@@ -2329,59 +2541,61 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     if (this.mover && k.kind !== "mouse") return this.moverKey(k, c);
     if (this.picker) {
       const P = this.picker;
+      if (k.kind === "mouse") {
+        // A click on a board in the picker shows it, as ⏎ on it does.
+        const row = k.action === "down" ? this.pickerRows.find(r => k.y === r.row && k.x >= r.col && k.x < r.col + r.cols) : undefined;
+        if (row) { P.sel = row.i; this.run("board.hub", { id: P.items[row.i]!.hub.id }); }
+        return;
+      }
       if (k.kind === "down" || c === "j") P.sel = Math.min(P.items.length - 1, P.sel + 1);
       else if (k.kind === "up" || c === "k") P.sel = Math.max(0, P.sel - 1);
-      else if (k.kind === "enter") { void this.useHub(P.items[P.sel]!.hub); return; }
-      else if (k.kind === "esc" || c === "q") { if (this.hub) this.picker = null; else return ctx.pop(); }
+      else if (k.kind === "enter") { const it = P.items[P.sel]; if (it) this.run("board.hub", { id: it.hub.id }); return; }
+      else if (k.kind === "esc" || c === "q") return void this.run("board.hub", { close: true });
       return this.redraw();
     }
     if (k.kind === "mouse") return this.mouse(k);
-    if (shut && (c === "c" || c === " " || k.kind === "enter")) { this.setShut(rd!, false); return; }
-    if (c === "g") { this.status = "looking for boards…"; this.redraw(); this.findBoards().then(items => { this.status = ""; this.picker = { items, sel: Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id)) }; this.redraw(); }, () => {}); return; }
+    if (shut && (c === "c" || c === " " || k.kind === "enter")) return this.run("reader.expand", {}, this.nameOf(this.focus));
+    if (c === "g") return this.run("board.hub", {});
     if (k.kind === "tab" || k.kind === "backtab") {
       const rs = this.regions(), i = rs.indexOf(this.focus);
-      this.focus = rs[(i + (k.kind === "tab" ? 1 : rs.length - 1)) % rs.length]!;
-      if (this.focus.startsWith("detail")) this.active = Number(this.focus.slice(6));
-      return this.redraw();
+      return this.run("focus", {}, this.nameOf(rs[(i + (k.kind === "tab" ? 1 : rs.length - 1)) % rs.length]!));
     }
     // Layout keys work from anywhere: { } the lanes' height, < > the focused pane's width.
-    if (c === "{" || c === "}") { this.resizeRegion("lanes", "col", c === "}" ? 1 : -1); this.save(); return this.redraw(); }
+    if (c === "{" || c === "}") return this.pane("pane.resize", { by: c === "}" ? 1 : -1, axis: "col" }, "lanes");
     if (c === "<" || c === ">") {
-      if (this.focus === "lanes" || this.focus === "tree" || this.focus === "preview" || this.focus.startsWith("detail")) this.resizeRegion(this.focus, "row", c === ">" ? 1 : -1);
-      this.save(); return this.redraw();
+      if (this.focus === "lanes" || this.focus === "tree" || this.focus === "preview" || this.focus.startsWith("detail")) this.pane("pane.resize", { by: c === ">" ? 1 : -1, axis: "row" }, this.nameOf(this.focus));
+      return;
     }
-    if (c === "t") { this.treeOpen = !this.treeOpen || this.focus !== "tree"; this.focus = this.treeOpen ? "tree" : "lanes"; if (!this.treeOpen) this.treePinned = false; this.save(); return this.redraw(); }
-    if (c === "T") return this.pinTree();
-    if (c === "S") { this.treeSide(); this.treeOpen = true; this.save(); return this.redraw(); }
-    if (c === "b" && this.focus !== "backlinks") return this.showLinks(this.focus);
-    if (c === "B") return this.pinLinks();
-    if (c === "o") return this.popOut();
-    if (k.kind === "alt" && k.ch === "c") return this.reopenAll();
+    if (c === "t") return this.run("outline", {});
+    if (c === "T") return this.pane("pane.pin", {}, "tree");
+    if (c === "S") return this.run("outline", { side: "other" });
+    if (c === "b" && this.focus !== "backlinks") {
+      const rd = this.readerFor(this.focus) ?? this.readerFor("preview");
+      if (!rd?.pane.msg) return this.ctx.flash("nothing in that reader to find backlinks for");
+      return this.run("backlinks", { id: rd.pane.msg.id });
+    }
+    if (c === "B") return this.pane("pane.pin", {}, "backlinks");
+    if (c === "o") return this.pane("pane.float", {}, this.nameOf(this.focus));
+    if (k.kind === "alt" && k.ch === "c") return this.run("reader.expand", {}, "all");
     // c collapses the preview or a detail (the lanes' own c collapses a lane).
-    if (c === "c" && rd && (this.focus === "preview" || this.focus.startsWith("detail"))) {
-      this.setShut(rd, true);
-      return this.ctx.flash(`${this.labelOf(rd)} collapsed${rd.holdsKeys ? `, keeping ${sessionName(rd)}` : ""} · c opens it`);
-    }
+    if (c === "c" && rd && (this.focus === "preview" || this.focus.startsWith("detail"))) return this.run("reader.collapse", {}, this.nameOf(this.focus));
     if (c === "c" && this.focus.startsWith("float")) return this.ctx.flash("a float doesn't collapse · o docks it");
     if (c === "x" && rd?.editing) return this.ctx.flash(`not closed: it holds ${sessionName(rd)} · ${shut ? "c opens it" : "e or ⏎ enters it"}`);
-    if (c === "x" && (this.focus.startsWith("detail") || this.focus.startsWith("float"))) { this.closeReader(this.focus, USER); return this.redraw(); }
+    if (c === "x" && (this.focus.startsWith("detail") || this.focus.startsWith("float"))) return this.pane("pane.close", {}, this.nameOf(this.focus));
     if (this.focus.startsWith("float") && "HJKL".includes(c) && c) {
-      const f = this.floats[Number(this.focus.slice(5))]!;
-      f.rect.col += c === "H" ? -4 : c === "L" ? 4 : 0;
-      f.rect.row += c === "K" ? -2 : c === "J" ? 2 : 0;
-      return this.redraw();
+      return this.run("float.place", { dx: c === "H" ? -4 : c === "L" ? 4 : 0, dy: c === "K" ? -2 : c === "J" ? 2 : 0 }, this.nameOf(this.focus));
     }
-    if (c === "V") return ctx.cycleVideo();
+    if (c === "V") return this.shell("video.cycle");
     // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.
     if (k.kind === "esc" && rd && !rd.holdsKeys && !shut && rd.key(k, this)) return this.redraw();
     // q is back, as on every screen (PIE-489): the same steps as Esc, drawers and areas first, then the menu.
     if (k.kind === "esc" || c === "q") {
-      if (this.focus === "tree" && !this.treePinned) { this.treeOpen = false; this.focus = "lanes"; return this.redraw(); }
-      if (this.focus === "backlinks" && !this.linksPinned) { this.links = null; this.focus = "lanes"; return this.redraw(); }
-      if (this.focus !== "lanes") { this.focus = "lanes"; return this.redraw(); }
-      if (this.treeOpen && !this.treePinned) { this.treeOpen = false; return this.redraw(); }
-      if (this.links && !this.linksPinned) { this.links = null; return this.redraw(); }
-      this.pending = null; return ctx.pop();
+      if (this.focus === "tree" && !this.treePinned) return this.run("outline", { open: false });
+      if (this.focus === "backlinks" && !this.linksPinned) return this.pane("pane.close", {}, "backlinks");
+      if (this.focus !== "lanes") return this.run("focus", {}, "lanes");
+      if (this.treeOpen && !this.treePinned) return this.run("outline", { open: false });
+      if (this.links && !this.linksPinned) return this.pane("pane.close", {}, "backlinks");
+      this.pending = null; return this.shell("screen.back");
     }
 
     if (this.focus === "lanes") return this.laneKey(k, c);
@@ -2392,37 +2606,36 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const start = sessionStart(k);
     if (start) return this.start(rd, start);
     // ⏎ or alt+⏎ in the preview that isn't on one of its elements opens its note, as on the card.
-    if (!rd.key(k, this) && (k.kind === "enter" || k.kind === "alt-enter") && rd === this.preview && this.preview.msg) this.openDetail(this.preview.msg, k.kind === "alt-enter");
+    if (!rd.key(k, this) && (k.kind === "enter" || k.kind === "alt-enter") && rd === this.preview && this.preview.msg) this.run("open", { id: this.preview.msg.id }, k.kind === "alt-enter" ? "new-detail" : "detail");
   }
 
   private laneKey(k: Key, c: string) {
-    const visible = this.lanes.map((_, i) => i);
     const l = this.lanes[this.lane];
-    const n = l?.items?.length ?? 0;
-    if (k.kind === "left" || c === "h") this.lane = visible[Math.max(0, visible.indexOf(this.lane) - 1)]!;
-    else if (k.kind === "right" || c === "l") this.lane = visible[Math.min(visible.length - 1, visible.indexOf(this.lane) + 1)]!;
+    if (k.kind === "left" || c === "h") return this.run("card.select", { lanes: -1 });
+    if (k.kind === "right" || c === "l") return this.run("card.select", { lanes: 1 });
     // e, ctrl+e, i, I edit or open the properties of the selected card in the preview, which takes the keys.
-    else if ((c === "e" || c === "C" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) {
+    if ((c === "e" || c === "C" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && this.preview.msg) {
       if (this.shut.has(this.preview)) return this.ctx.flash("the preview is collapsed · tab to its spine and c, or click it, to open it");
       return this.start(this.preview, sessionStart(k)!);
     }
-    else if (c === "H" || c === "L") { const i = visible.indexOf(this.lane) + (c === "H" ? -1 : 1); if (i >= 0 && i < visible.length) void this.moveTo(visible[i]!); return; }
-    else if (c === "m") return this.openMover();
-    else if (c === "n") return this.openCardComposer();
-    else if (c === "N") return this.openChildComposer();
-    else if (c === "s") return void this.openSteps();
-    else if (c === "d") return void this.armTrash();
-    else if (c === "u" && this.trashed) return void this.restoreCard(undefined, USER).catch(e => this.ctx.flash(`not restored: ${(e as Error).message}`));
-    else if (c === "c" && l) { this.collapsed.has(l.name) ? this.collapsed.delete(l.name) : this.collapsed.add(l.name); this.save(); return this.redraw(); }
-    else if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) { this.collapsed.delete(l.name); this.save(); return this.redraw(); }
-    else if (l && (k.kind === "down" || c === "j")) l.sel = Math.min(Math.max(0, n - 1), l.sel + 1);
-    else if (l && (k.kind === "up" || c === "k")) l.sel = Math.max(0, l.sel - 1);
-    else if (l && k.kind === "pgdn") l.sel = Math.min(Math.max(0, n - 1), l.sel + 8);
-    else if (l && k.kind === "pgup") l.sel = Math.max(0, l.sel - 8);
-    else if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.card(); if (m) return this.openDetail(m, k.kind === "alt-enter"); }
-    else if (c === "r") this.loadLanes();
-    else return;
-    this.follow(); this.save(); this.redraw();
+    if (c === "H" || c === "L") { const to = this.lanes[this.lane + (c === "H" ? -1 : 1)]; if (to) this.run("card.move", { lane: to.name }); return; }
+    if (c === "m") return this.openMover();
+    if (c === "n") return this.openCardComposer();
+    if (c === "N") return this.openChildComposer();
+    if (c === "s") return void this.openSteps();
+    if (c === "d") {
+      // The second d within 5 s trashes the card the first one armed; the first arms it.
+      const card = this.card(), armed = card && this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000;
+      if (armed) this.trashArm = null;
+      return void this.run("card.trash", armed ? { confirm: card!.id, card: card!.id } : {});
+    }
+    if (c === "u" && this.trashed) return this.run("card.restore", {});
+    if (c === "c" && l) return this.run("lane.collapse", { lane: l.name });
+    if (l && this.collapsed.has(l.name) && (k.kind === "enter" || c === " ")) return this.run("lane.collapse", { lane: l.name, on: false });
+    const by = k.kind === "down" || c === "j" ? 1 : k.kind === "up" || c === "k" ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    if (l && by) return this.run("card.select", { by });
+    if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.card(); if (m) this.run("open", { id: m.id }, k.kind === "alt-enter" ? "new-detail" : "detail"); return; }
+    if (c === "r") return this.run("board.reload", {});
   }
 
   /**
@@ -2431,21 +2644,40 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
    * drawer, so kind is K and stage is w (the work stage).
    */
   private linksKey(k: Key, c: string) {
-    const L = this.links!, n = this.linkRows().length;
-    if (k.kind === "down" || c === "j") { L.sel = Math.min(Math.max(0, n - 1), L.sel + 1); this.previewLink(); }
-    else if (k.kind === "up" || c === "k") { L.sel = Math.max(0, L.sel - 1); this.previewLink(); }
-    else if (k.kind === "home") { L.sel = 0; this.previewLink(); }
-    else if (k.kind === "end") { L.sel = Math.max(0, n - 1); this.previewLink(); }
-    else if (k.kind === "pgdn" || k.kind === "pgup") this.linksPreview.key(k, this);
-    else if (k.kind === "enter" || k.kind === "alt-enter") return this.enterLinkRow(k.kind === "alt-enter");
-    else if (c === "." || c === " ") { const r = this.linkRow(); const kind = r?.kind === "group" ? r.group.kind : r?.source.facets?.kind; if (kind) return this.toggleLinkGroup(kind); }
-    else if (c === "/") return this.linkControl("filter");
-    else if (c === "s") return this.linkControl("sort");
-    else if (c === "K") return this.linkControl("kind");
-    else if (c === "w") return this.linkControl("stage");
-    else if (c === "h") return this.linkControl("resolved");
-    else if (c === "n") return this.linkControl("related");
-    this.redraw();
+    const n = this.linkRows().length;
+    if (k.kind === "down" || c === "j") return this.run("backlinks.pick", { by: 1 });
+    if (k.kind === "up" || c === "k") return this.run("backlinks.pick", { by: -1 });
+    if (k.kind === "home" && n) return this.run("backlinks.pick", { n: 1 });
+    if (k.kind === "end" && n) return this.run("backlinks.pick", { n });
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.linksPreview.key(k, this); return this.redraw(); }
+    if (k.kind === "enter" || k.kind === "alt-enter") return this.run("backlinks.pick", k.kind === "alt-enter" ? { fresh: true } : { open: true });
+    if (c === "." || c === " ") return this.run("backlinks.fold", {});
+    if (c === "/") return this.linkControl("filter");
+    const control: Record<string, BacklinkControl> = { s: "sort", K: "kind", w: "stage", h: "resolved", n: "related" };
+    if (control[c]) return this.linkStep(control[c]!);
+  }
+
+  /**
+   * One of the status line's controls, by its key or a click: the next value, set by `backlinks` as the
+   * person (the action an agent reads the view with). `/` starts typing a filter instead.
+   */
+  private linkStep(c: BacklinkControl) {
+    if (c === "filter") return this.linkControl("filter");
+    const o = this.linkView.options;
+    let args: { sort?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean }, said: string;
+    if (c === "sort") { const [f, d] = nextBacklinkSort(o.sortField, o.sortDirection); args = { sort: `${f}-${d}` }; said = `backlinks sorted by ${f} ${d === "asc" ? "↑" : "↓"}`; }
+    else if (c === "kind") {
+      const v = this.linkViewNow();
+      if (!v.faceted) return this.ctx.flash("nothing to pick: this service sends no backlink kinds");
+      const next = nextBacklinkKindFilter(o.kind, v.kinds);
+      args = { kind: next ?? "all" }; said = next ? `backlinks: only ${v.kinds.find(x => x.kind === next)?.label ?? next}` : "backlinks: every kind";
+    }
+    else if (c === "stage") { const next = nextBacklinkStageFilter(o.stage); args = { stage: next }; said = next === "all" ? "backlinks: every stage" : `backlinks: only ${next}`; }
+    else if (c === "resolved") { args = { resolved: !o.showResolved }; said = o.showResolved ? "hiding resolved comments" : "showing resolved comments"; }
+    else { args = { related: !o.showRelated }; said = o.showRelated ? "hiding this note and its descendants" : "showing this note and its descendants"; }
+    // Said now, as the key lands; a refusal says why instead.
+    this.ctx.flash(said);
+    void this.run("backlinks", args);
   }
 
   /** ⏎ on a row: a group opens or folds; a source opens in the detail (alt: a new one), as a click does. */
@@ -2457,18 +2689,22 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     else if (r) this.openLink(r.source.blockId, fresh);
   }
 
-  /** Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was. */
+  /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks filter=`), esc goes back to what it was. */
   private linkFilterKey(k: Key) {
     const v = this.linkView;
-    if (k.kind === "enter") { v.options.filter = (v.draft ?? "").trim(); v.draft = null; this.ctx.flash(v.options.filter ? `backlinks filtered by "${v.options.filter}"` : "backlink filter cleared"); }
-    else if (k.kind === "esc") v.draft = null;
+    if (k.kind === "enter") {
+      const f = (v.draft ?? "").trim();
+      this.ctx.flash(f ? `backlinks filtered by "${f}"` : "backlink filter cleared");
+      void this.run("backlinks", { filter: f });
+      return;
+    }
+    if (k.kind === "esc") v.draft = null;
     else if (k.kind === "backspace") v.draft = (v.draft ?? "").slice(0, -1);
     else if (k.kind === "char" && k.ctrl && k.ch === "u") v.draft = "";
     else if (k.kind === "char" && !k.ctrl) v.draft = (v.draft ?? "") + k.ch;
     else return;
     this.changeLinks(() => {});
   }
-
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     if (k.action !== "down") return this.pointer(k);
     this.pointer(k);
@@ -2487,8 +2723,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (d?.kind === "select") { d.pane.release(k.x - d.col, k.y - d.row, this, d.open); return this.redraw(); }
       if (d?.kind === "card") {
         // Released over another lane: move it there. Released where it started: a click (a second click opens it).
-        if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.moveTo(d.over); }
-        else if (d.open) return this.openDetail(d.card, false);
+        if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.run("card.move", { lane: this.lanes[d.over]!.name, card: d.card.id }); }
+        else if (d.open) return void this.run("open", { id: d.card.id }, "detail");
         return this.redraw();
       }
       if (d) this.save();
@@ -2501,7 +2737,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     const W = this.ctx.t.cols, H = this.ctx.t.rows - 2;
     if (k.action === "down") {
       if (floatHit !== undefined) {
-        this.raise(floatHit);
+        // A press on a float gives it the keys and brings it to the top (focus), then its title moves it and its corner sizes it (float.place).
+        this.run("focus", {}, this.readerName(this.floats[floatHit]!.pane, "float"));
         const top = this.floats.length - 1, f = this.floats[top]!;
         if (inside({ col: f.rect.col + f.rect.cols - 2, row: f.rect.row + f.rect.rows - 2, cols: 2, rows: 2 })) this.drag = { kind: "float-size", f };
         else if (k.y === f.rect.row) this.drag = { kind: "float-move", f, dx: k.x - f.rect.col, dy: k.y - f.rect.row };
@@ -2534,8 +2771,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const e = edgeHit();
       if (e) { this.drag = e; return; }
       // A drawer's `[ ] pin` in its top border: the same toggle as T and B.
-      if (this.treeOpen && inside(this.rects.get("pin:tree"))) return this.pinTree();
-      if (this.links && inside(this.rects.get("pin:backlinks"))) return this.pinLinks();
+      if (this.treeOpen && inside(this.rects.get("pin:tree"))) return this.pane("pane.pin", {}, "tree");
+      if (this.links && inside(this.rects.get("pin:backlinks"))) return this.pane("pane.pin", {}, "backlinks");
       // The drawers' previews aren't areas of their own (yet): a click there doesn't reach what's under
       // them, but a link clicked in one opens in a detail (their previews follow the drawer's selection).
       if (this.treeOpen && inside(this.rects.get("tree-preview"))) return void this.clickReader(this.treePreview, this.rects.get("tree-preview")!, k);
@@ -2543,9 +2780,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const order: Region[] = ["tree", "backlinks", "preview", ...this.details.map((_, i) => `detail${i}` as Region)];
       const region = order.find(r => inside(this.rects.get(r)) && (r !== "tree" || this.treeOpen) && (r !== "backlinks" || !!this.links));
       if (region) {
-        if (this.treeOpen && !this.treePinned && region !== "tree") this.treeOpen = false;
-        this.focus = region;
-        if (region.startsWith("detail")) this.active = Number(region.slice(6));
+        // Somewhere else: an outline drawer sliding over shuts; the area clicked takes the keys.
+        if (this.treeOpen && !this.treePinned && region !== "tree") this.run("outline", { open: false });
+        this.run("focus", {}, this.nameOf(region));
         if (region === "tree") { const r = this.rects.get("tree")!; this.tree.click(k.x - r.col - 1, k.y - r.row - 1, this); }
         if (region === "backlinks") {
           // The status line's controls do what their keys do; a group's header opens or folds it; a source
@@ -2553,15 +2790,10 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
           // not the frame, nor the spare lines under the last one.
           const r = this.rects.get("backlinks")!, L = this.links!;
           const control = LINK_CONTROLS.find(c => inside(this.rects.get(`bl:${c}`)));
-          if (control) { this.linkControl(control); return; }
+          if (control) return this.linkStep(control);
           const rows = this.linkRows(), j = k.y - r.row - 1 - this.linkHead, idx = L.top + j;
           const drawn = j >= 0 && k.y < r.row + r.rows - 1 && k.x > r.col && k.x < r.col + r.cols - 1;
-          const row = drawn ? rows[idx] : undefined;
-          if (row) {
-            L.sel = idx;
-            if (row.kind === "group") { this.toggleLinkGroup(row.group.kind); return; }
-            this.previewLink(); this.openLink(row.source.blockId);
-          }
+          if (drawn && rows[idx]) return void this.run("backlinks.pick", { n: idx + 1, open: true });
         }
         const rd = this.readerFor(region);
         if (region !== "tree" && region !== "backlinks" && rd) this.clickReader(rd.pane, this.rects.get(region)!, k);
@@ -2571,26 +2803,25 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       const sp = this.readerSpines.find(x => inside(x.rect));
       const spPane = sp && this.readerFor(sp.region)?.pane;
       if (sp && spPane) {
-        if (this.treeOpen && !this.treePinned) this.treeOpen = false;
-        this.focus = sp.region;
-        if (sp.region.startsWith("detail")) this.active = Number(sp.region.slice(6));
-        this.setShut(spPane, false);
+        if (this.treeOpen && !this.treePinned) this.run("outline", { open: false });
+        const name = this.nameOf(sp.region);
+        this.run("reader.expand", {}, name);
+        this.run("focus", {}, name);
         return this.redraw();
       }
       const hit = this.laneRects.find(l => inside(l.rect));
       if (hit) {
-        if (this.treeOpen && !this.treePinned) this.treeOpen = false;
+        if (this.treeOpen && !this.treePinned) this.run("outline", { open: false });
         const l = this.lanes[hit.lane]!;
-        if (hit.spine) { this.collapsed.delete(l.name); this.lane = hit.lane; this.focus = "lanes"; this.save(); return this.redraw(); }
+        if (hit.spine) { this.run("lane.collapse", { lane: l.name, on: false }); this.run("card.select", { lane: l.name, by: 0 }); return; }
         const idx = l.top + Math.floor((k.y - hit.rect.row - 1) / 2);
         const same = this.lane === hit.lane && l.sel === idx && this.focus === "lanes";
-        this.lane = hit.lane; this.focus = "lanes";
         if (l.items && idx >= 0 && idx < l.items.length) {
-          l.sel = idx; this.follow();
+          this.run("card.select", { id: l.items[idx]!.id, lane: l.name });
           // Drag it onto another lane to move it; a click on the selected card opens it when released.
           this.drag = { kind: "card", from: hit.lane, card: l.items[idx]!, over: null, open: same };
           if (this.movePlans?.failed) this.movePlans = null;
-        }
+        } else this.run("card.select", { lane: l.name, by: 0 });
         this.redraw();
       }
       void W; void H;
@@ -2601,11 +2832,11 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (floatHit !== undefined) return this.floats[floatHit]!.pane.wheel(dir, this);
       if (this.treeOpen && inside(this.rects.get("tree"))) return this.tree.wheel(dir, this);
       if (this.treeOpen && inside(this.rects.get("tree-preview"))) return this.treePreview.wheel(dir, this);
-      if (this.links && inside(this.rects.get("backlinks"))) { const L = this.links; L.sel = clamp(L.sel + dir, 0, Math.max(0, this.linkRows().length - 1)); this.previewLink(); return this.redraw(); }
+      if (this.links && inside(this.rects.get("backlinks"))) return void this.run("backlinks.pick", { by: dir });
       if (this.links && inside(this.rects.get("links-preview"))) return this.linksPreview.wheel(dir, this);
       for (const r of ["preview", ...this.details.map((_, i) => `detail${i}`)] as Region[]) if (inside(this.rects.get(r))) return this.readerFor(r)!.pane.wheel(dir, this);
       const hit = this.laneRects.find(l => inside(l.rect));
-      if (hit && !hit.spine) { const l = this.lanes[hit.lane]!; l.sel = clamp(l.sel + dir, 0, Math.max(0, (l.items?.length ?? 1) - 1)); if (hit.lane === this.lane) this.follow(); this.redraw(); }
+      if (hit && !hit.spine) this.run("card.select", { lane: this.lanes[hit.lane]!.name, by: dir, focus: false });
     }
   }
 
@@ -2646,8 +2877,11 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
         this.lay.laneWeights[na] = (sum * wa) / total; this.lay.laneWeights[nb] = (sum * (total - wa)) / total;
       }
     }
-    else if (d.kind === "float-move") { d.f.rect.col = x - d.dx; d.f.rect.row = y - d.dy; }
-    else if (d.kind === "float-size") { d.f.rect.cols = Math.max(20, x - d.f.rect.col + 1); d.f.rect.rows = Math.max(5, y - d.f.rect.row + 1); }
+    else if (d.kind === "float-move" || d.kind === "float-size") {
+      const name = this.readerName(d.f.pane, "float");
+      if (d.kind === "float-move") this.run("float.place", { col: x - d.dx, row: y - d.dy }, name);
+      else this.run("float.place", { cols: x - d.f.rect.col + 1, rows: y - d.f.rect.row + 1 }, name);
+    }
     else if (d.kind === "select") d.pane.drag(x - d.col, y - d.row, this);
     else if (d.kind === "card") d.over = this.laneRects.find(l => x >= l.rect.col && x < l.rect.col + l.rect.cols && y >= l.rect.row && y < l.rect.row + l.rect.rows)?.lane ?? null;
     this.redraw();
@@ -2680,19 +2914,30 @@ const draftState = (r: ReaderPane) => {
   return { id: d.blockId, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy };
 };
 
-interface BoardOn { b: DeliveryBoard; reader?: string }
+interface BoardOn {
+  b: DeliveryBoard; reader?: string;
+  /** The person's step change from the steps overlay: the step as it was read, so a change since is refused. */
+  shown?: { item: ChecklistStep; revision: number };
+}
 
 /** What the board adds to a reader's note actions: which note is where, and moving cards. */
 export const BOARD_ACTIONS = new ActionSet<{
   "open": { id: string };
   "focus": Record<string, never>;
-  "card.select": { id: string };
+  "board.hub": { id?: string; close?: boolean };
+  "board.reload": Record<string, never>;
+  "card.select": { id?: string; lane?: string; by?: number; lanes?: number; focus?: boolean };
+  "lane.collapse": { lane?: string; on?: boolean };
+  "outline": { open?: boolean; side?: string };
+  "float.place": { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number };
+  "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean };
+  "backlinks.fold": { kind?: string };
   "card.move": { lane: string; card?: string };
   "card.create": { lane: string; text: string; parent?: string };
   "note.create": { text: string; parent?: string };
   "steps": { card?: string };
   "step.set": { step: string; status?: string; card?: string };
-  "card.trash": { confirm: string; card?: string };
+  "card.trash": { confirm?: string; card?: string };
   "card.restore": { id?: string };
   "reader.collapse": Record<string, never>;
   "reader.expand": Record<string, never>;
@@ -2700,7 +2945,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
-    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "enter, alt+enter, o",
+    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader", keys: "⏎, alt+⏎ (new-detail), click on the selected card",
     args: { id: { type: "string", about: "the block id" } },
     async run({ id }, { b, reader }, actor) {
       const r = await b.openIn(id, reader ?? "detail");
@@ -2709,34 +2954,90 @@ export const BOARD_ACTIONS = new ActionSet<{
     },
   },
   "focus": {
-    summary: "give keys to reader=<name> or reader=lanes", keys: "tab, click",
+    summary: "give keys to reader=<name> or reader=lanes (a float comes to the top). An agent's is refused while the person is typing (an edit, a comment, a panel, a picker, a filter)", keys: "tab, shift+tab, click, esc q (back to the lanes)",
     args: {},
     run(_, { b, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)");
+      // Refused only when it would move the keys of a person who is typing; focusing where they already are leaves them in it.
+      if (actor.kind === "agent" && b.holdsKeys() && !b.focusedIs(reader)) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
       const r = b.focusOn(reader);
-      b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
+      if (actor.kind === "agent") b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
       return r;
     },
   },
   "card.select": {
-    summary: "select a card in its lane; the preview follows. An agent's selection is its own: what its card actions default to, leaving the person's cursor, preview and keys where they are", keys: "h l j k, click",
-    args: { id: { type: "string", about: "the card's block id (or its first 8+ characters)" } },
+    summary: "select a card: id (in lane=<name> when it's in more than one), or step from the selection: by=<cards> down its lane (negative up), lanes=<lanes> right (negative left), or lane=<name> with by. The preview follows. An agent's selection is its own: what its card actions default to, leaving the person's cursor, preview and keys where they are",
+    keys: "h l j k ↑↓ ← → PgUp PgDn, click on a card, wheel over a lane",
+    args: {
+      id: { type: "string", optional: true, about: "the card's block id (or its first 8+ characters)" },
+      lane: { type: "string", optional: true, about: "the lane, by name: where id is, or whose cursor by moves" },
+      by: { type: "number", optional: true, about: "cards to move down the lane (negative: up)" },
+      lanes: { type: "number", optional: true, about: "lanes to move right (negative: left)" },
+      focus: { type: "boolean", optional: true, about: "false: move that lane's cursor only, the current lane and the keys staying (the wheel over a lane); default true" },
+    },
     // An agent's selection is its own (what its card actions default to): the person's lane cursor,
     // preview and keys stay where they are. The person's own card.select, through the socket as `you`, moves them.
-    run({ id }, { b }, actor) {
-      if (actor.kind === "agent") return b.selectForAgent(id, actor);
-      if (!b.selectCard(id)) throw new ActionRefused(`no lane on the board lists ${id}`);
-      return { selected: id };
+    run(args, { b }, actor) { return b.selectBy(args, actor); },
+  },
+  "board.hub": {
+    summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
+    keys: "g, then j k ↑↓ and ⏎ or click on a board; esc q puts the picker away",
+    args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" } },
+    run: ({ id, close }, { b }, actor) => (close ? b.closePicker(actor) : b.chooseHub(id, actor)),
+  },
+  "board.reload": {
+    summary: "read every lane again from the service", keys: "r on the lanes",
+    args: {},
+    run(_, { b }, actor) { return b.reloadLanes(actor); },
+  },
+  "lane.collapse": {
+    summary: "collapse a lane to a spine showing its name, or open it again (on=true/false; default toggles): lane=<name>, default the person's lane. Its cards stay where they are",
+    keys: "c on the lanes, ⏎ or space on a collapsed lane, click on a lane's spine",
+    args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
+    run: ({ lane, on }, { b }, actor) => b.collapseLane(lane, on, actor),
+  },
+  "outline": {
+    summary: "the outline drawer: open=true opens it (the person's also gives it the keys; an agent's leaves them), open=false shuts it, left out toggles; side=left or right moves it, keeping its width. An agent doesn't shut it while the person is in it",
+    keys: "t, S, esc q in the drawer, click outside it",
+    args: { open: { type: "boolean", optional: true, about: "true opens, false shuts; default toggles" }, side: { type: "string", optional: true, about: "left or right; other moves it to the other side" } },
+    run: ({ open, side }, { b }, actor) => b.outlineDrawer(open, side, actor),
+  },
+  "float.place": {
+    summary: "move or size reader=<a float>: dx dy step it (columns, rows), col row put its corner there, cols rows size it. Never smaller than a float is drawn, never off the screen",
+    keys: "H J K L on a float, drag its title or its ◢ corner",
+    args: {
+      dx: { type: "number", optional: true, about: "columns to move right (negative: left)" }, dy: { type: "number", optional: true, about: "rows to move down (negative: up)" },
+      col: { type: "number", optional: true, about: "its left column" }, row: { type: "number", optional: true, about: "its top row" },
+      cols: { type: "number", optional: true, about: "its width" }, rows: { type: "number", optional: true, about: "its height" },
     },
+    run: (args, { b, reader }, actor) => b.placeFloat(reader, args, actor),
+  },
+  "backlinks.pick": {
+    summary: "pick a row of the backlinks drawer: n (as peek's rows, from 1), id (a source), or by=<rows> from the selected one; open=true does what ⏎ does (a source opens in the detail, a group opens or folds), fresh=true opens it in a new detail. The person's moves their selection and the preview under it; an agent's leaves both and opens only what it asks for",
+    keys: "j k ↑↓ Home End, ⏎ alt+⏎, click on a row or a group's header, wheel",
+    args: {
+      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
+      id: { type: "string", optional: true, about: "a source's block id (or its start)" },
+      by: { type: "number", optional: true, about: "rows from the selected one (the person's)" },
+      open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
+      fresh: { type: "boolean", optional: true, about: "open it in a new detail, as alt+⏎ does" },
+    },
+    run: (args, { b }, actor) => b.pickLink(args, actor),
+  },
+  "backlinks.fold": {
+    summary: "open or fold a kind group in the backlinks drawer (kind=<its key or label>; default the selected row's). The person's view: an agent's is refused (it reads every row with backlinks)",
+    keys: ". space",
+    args: { kind: { type: "string", optional: true, about: "the group's kind, its key or label; default the selected row's" } },
+    run: ({ kind }, { b }, actor) => b.foldLinks(kind, actor),
   },
   "card.move": {
-    summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m, drag",
+    summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
   },
   "composer.leave": {
     summary: "leave the new card or note the person is writing, as a click outside it does: never created (ctrl+s creates); typed text is kept as unsent, and n or N brings it back. The person's own: an agent creates with card.create or note.create",
-    keys: "a click outside it",
+    keys: "click outside it",
     args: {},
     run(_, { b }, actor) {
       if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
@@ -2763,40 +3064,46 @@ export const BOARD_ACTIONS = new ActionSet<{
     run: ({ card }, { b }, actor) => b.listSteps(card, actor),
   },
   "step.set": {
-    summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s, j k, space x w !",
+    summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w !",
     args: {
       step: { type: "string", about: "the step's number in `steps` (from 1), or its ^id" },
       status: { type: "string", optional: true, about: "todo, done, waiting or problem; default toggles done" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
-    run({ step, status, card }, { b }, actor) {
+    run({ step, status, card }, { b, shown }, actor) {
       if (status !== undefined && !["todo", "done", "waiting", "problem"].includes(status)) throw new ActionRefused(`status is todo, done, waiting or problem, not ${status}`);
       const n = /^\d+$/.test(step) ? Number(step) - 1 : step;
       if (typeof n === "number" && n < 0) throw new ActionRefused("steps are numbered from 1");
-      return b.setStep(card ?? b.selectedCardId(actor), n, status as StepStatus | undefined, actor);
+      return b.setStep(card ?? b.selectedCardId(actor), n, status as StepStatus | undefined, actor, shown);
     },
   },
   "card.trash": {
-    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. The service records no author for this", keys: "d d",
+    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d arms it (a second d within 5 s trashes it, any other key keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
     args: {
-      confirm: { type: "string", about: "the card's id (or its first 8+ characters): the same card, said twice" },
+      confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
-    run: ({ confirm, card }, { b }, actor) => b.trashCard(card ?? b.selectedCardId(actor), confirm, actor),
+    run({ confirm, card }, { b }, actor) {
+      if (confirm === undefined) {
+        if (actor.kind === "agent") throw new ActionRefused("card.trash needs confirm=<the card's id>: the same card, said twice");
+        return b.armTrash();
+      }
+      return b.trashCard(card ?? b.selectedCardId(actor), confirm, actor);
+    },
   },
   "reader.collapse": {
-    summary: "collapse reader=<name> (the preview or a detail) to a spine showing its note's title; a draft, comment or property panel in it is kept exactly. Refused for the reader the person has focused", keys: "c",
+    summary: "collapse reader=<name> (the preview or a detail) to a spine showing its note's title; a draft, comment or property panel in it is kept exactly. Refused for the reader the person has focused", keys: "c on a reader",
     args: {},
     run: (_, { b, reader }, actor) => b.collapseReader(reader, true, actor),
   },
   "reader.expand": {
-    summary: "open a collapsed reader=<name> again, as it was; reader=all opens every collapsed reader and lane (alt+c). The person's focus stays where it is", keys: "c, enter, click on the spine, alt+c",
+    summary: "open a collapsed reader=<name> again, as it was; reader=all opens every collapsed reader and lane (alt+c). The person's focus stays where it is", keys: "c ⏎ space on a spine, click on the spine, alt+c",
     args: {},
     run: (_, { b, reader }, actor) => b.collapseReader(reader, false, actor),
   },
   "backlinks": {
     summary: "the backlinks drawer's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (as=you) opens the drawer on id and sets their options",
-    keys: "b, then / s K w h n . and clicks on the status line and group headers",
+    keys: "b, then / s K w h n and click on the status line; / then typing, backspace ctrl+u and ⏎",
     args: {
       id: { type: "string", optional: true, about: "the note whose backlinks to read; default the drawer's" },
       filter: { type: "string", optional: true, about: "text to match, as / filters" },

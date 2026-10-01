@@ -10,7 +10,7 @@ import { subject, type Msg } from "../board";
 import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
 import { Desk } from "../desk/desk";
@@ -225,8 +225,8 @@ export class Brief extends Desk {
   override key(k: Key, ctx: Ctx) {
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if ((c === "," || c === ".") && !this.personTyping()) {
-      try { this.step(c === "," ? -1 : 1); } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }
-      return this.redraw();
+      void runAsPerson(BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }, this, msg => ctx.flash(msg)).then(() => this.redraw());
+      return;
     }
     super.key(k, ctx);
   }

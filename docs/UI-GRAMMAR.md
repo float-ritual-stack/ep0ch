@@ -15,7 +15,7 @@ three pane models and four searches (§4).
 |---|---|---|
 | render or read a note | `NoteSurface`, hosted through `SurfaceHost` (a view with its own header gives its rows through `SurfaceHost.header`, as the BBS message reader does, PIE-426); the body drawn by `renderDoc` after `presentLinks`; literal regions (PIE-422) found by `src/literal.ts`, inline Markdown (PIE-444: bold, italic, strikethrough) by `src/inline.ts` (checked against marked, Detail's parser) and `component:` fences by the reader host's renderers in `src/components.ts` (checked against the service's `documentComponent`), each the outliner's rules mirrored and parity-tested; Markdown links open through `src/open.ts`; transclusions (`!((id))`, `!((id^fragment))`) by `src/embeds.ts` from the service's projection (`transclusions.read`, PIE-424: fragment slices, nesting depth, cycles and their wording are the service's), each embedded body drawn by the surface's own renderer; a followed `((id^fragment))` revealed from `fragments.read` (PIE-425) | `src/surface/note.ts`, `src/doc.ts`, `src/refs.ts`, `src/literal.ts`, `src/inline.ts`, `src/components.ts`, `src/open.ts`, `src/embeds.ts` |
 | scroll a view (the wheel, `j k`, PgUp PgDn) | `src/scroll.ts`: `scrolled(top, by, max)` moves a position by rows within its content and nothing else; `wheelRows(dir)` is what one wheel report scrolls (`EP0CH_SCROLL_ROWS`, default 1, no timing: the terminal already paces a trackpad's reports); `RowView` for a view with a selected row in it (the selection comes into view only when it moved, never on a repaint). A list whose wheel moves its selection moves it one row a report. A frame of nothing but wheel reports is `onlyScrolled()`, and a reader moves its last layout (`NoteSurface.layOut`) instead of laying the note out again | `src/scroll.ts`, `src/app.ts` |
-| let a person or agent do anything; let an agent see what the person sees | the action registry: an `ActionDef` in an `ActionSet`; the key, the mouse and `act` all call it (a change that isn't an action is a bug). The shell's `SHELL_ACTIONS` (`screen.open`, `screen.back`, `screen.list`, and `screen.shell`, drop to shell: the person's only, through `App.suspend` as ctrl+e's `$EDITOR`, `src/drop.ts`) work on every screen and the BBS lists' `LIST_ACTIONS` (`list.select`, `list.open`, `list.read`) on each list (PIE-489); an agent's move of the person's screen goes through `agentMayMove`. Reads: `layout.get`, `view.get`; the live feed: `subscribe` on the control socket, diffed from the screen's `viewState()` after each paint (`App.subscribe`). See [the agent interface](AGENT-INTERFACE.md) | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts`, `src/app.ts`, `docs/AGENT-INTERFACE.md` |
+| let a person or agent do anything; let an agent see what the person sees | the action registry: an `ActionDef` in an `ActionSet`; the key, the mouse and `act` all call it (a change that isn't an action is a bug, and `test/parity.test.ts` finds it: it presses every key and clicks across every screen, traces the actions run with `traceActions`, and checks each key against the def's `keys` and each hint against `declaredKeys`, PIE-506). The shell's `SHELL_ACTIONS` (`screen.open`, `screen.back`, `screen.list`, `screen.help`, `video.cycle`, reached from a screen screens.ts imports through `src/shell-keys.ts`, and `screen.shell`, drop to shell: the person's only, through `App.suspend` as ctrl+e's `$EDITOR`, `src/drop.ts`) work on every screen and the BBS lists' `LIST_ACTIONS` (`list.select`, `list.open`, `list.read`) on each list (PIE-489); an agent's move of the person's screen goes through `agentMayMove`. Reads: `layout.get`, `view.get`; the live feed: `subscribe` on the control socket, diffed from the screen's `viewState()` after each paint (`App.subscribe`). See [the agent interface](AGENT-INTERFACE.md) | `src/surface/actions.ts`, `NOTE_ACTIONS` in `src/surface/note.ts`, `src/control.ts`, `src/app.ts`, `docs/AGENT-INTERFACE.md` |
 | edit text, complete `[[` `((` `[file::` | the editing component: `Draft`, edit control, completer. The draft's list keys, the mouse and the preview are `DRAFT_ACTIONS` (PIE-496: `draft.newline` `draft.indent` `draft.outdent` `draft.place` `draft.scroll` `draft.preview`, forwarded as note actions); its soft wrap hangs a list item's rows under its text (`Draft.layout`); `renderEditor` records where it drew (`Draft.frame`) and `editorClick` maps a click to an action; the preview is the readers' renderer (`draftPreview`). Unsaved text is **put aside** where it was written (`shelve`, `unsent`, keyed `edit:<id>` `comment:<id>` `reply:<thread>` `card:<lane>` `child:<id>`) and brought back by `Draft.restore`, with who wrote it (a save names them); a draft only agents wrote is only copied, never put aside over the person's. A click outside the draft leaves it as in any editor (`session.leave`, NOTE_ACTIONS; the board composer's `composer.leave`), then does what it does: an unchanged edit closes, a changed one saves with its revision, a refused save and any comment, reply or new card are put aside as unsent; its hold goes with it. A paste typed out as keys (`pasteKeys`, tagged `pasted`) goes in as it came. An agent's `draft.*` works only in a draft it opened (`Draft.openedBy`) and alone wrote in. An agent's `draft.patch` (pi-herdr-outliner PIE-501) reaches the person's draft through its hold (`SocketBoard.holdDraft`, a lease renewed while it's open): `Draft.applyPatch` runs the service's compare (`src/vendor/draft-patch-compare.ts`, copied byte for byte) against the text as typed, moves the cursor, selection and view with it, lights it (`Draft.flashes`) and keeps it as one undo unit (`draft.undo`, ctrl+z); a proposal that couldn't apply is applied anyway by `proposal.apply` (`A`) or dismissed by `proposal.dismiss` (`X`); its embed's source line and an opened proposal's header draw both as `[apply]` `[dismiss]`, elements of kind control that `[ ]` reaches and a click runs | `src/edit.ts`, `src/surface/editor.ts`, `src/surface/completer.ts`, `src/completion.ts` |
 | open, split, zoom, close panes; tabs, drag and drop, drawers, named layouts, locking a shape | the layout tree (PIE-412): tiles in **containers**, n-ary splits by weight with spines (`fixed`), minimums, **tab sets** (PIE-413), **drawers** (PIE-505: a `Drawer` node holding any tiles, sliding out from its `edge` over the others, shut to a handle on the hint row; `wrapDrawer`, `unwrapDrawer`, `drawerToEdge`; `placeScreen`'s `slid`), floats, borders that follow the pointer; every container and the screen carry a **policy** saved with the layout (`Policy`: draggable, droppable, accepts, resizable, min/max/fixed, collapsible, overlay, locked, opensInto; `effective` resolves the layers, nearest wins and `locked` anywhere above locks), and every move, drop, open, close, resize, pin and link asks it and says why when it refuses (`dragRefusal`, `intoRefusal`, `resizeRefusal` in the desk; `layout.lock`, `layout.policy`, the `^W P` panel); tile moves (`move`, `tabInto`, `edge`, `normalise`, floatty's model ported, reaching into drawers) and the drop zones in cells (`dropAt`: header or centre tabs, triangles split, outer edges columns; `handleDrop`: a shut drawer's handle; each drop carries policy's `refused`); the desk and the board are on it (the board's own drawers are still tile ids, `ScreenLayout.over`, until its lanes move onto containers). The desk is **tiles**: each a kind from the **tile-kind registry** (`src/desk/tile-kinds.ts`: `registerTileKind`, one `TileKind` entry per kind with `make`, `keys`, `actions`, `policy`, `accepts`, `take`, `save`, `revive`, `holdsWork`, `shows`, `follows`, `start`, `describe`, `view`, `previewSource`; the built-ins in `src/desk/builtin-tiles.ts`, an extension's kind the same way, `serviceKind` for one the service draws; the desk never switches on a kind's name), built by `makeTile`, named (`tileNameProblem`: never a number or an id), with a link for its opens (PIE-473); every split, tab set and tile has a stable id and the layout a revision (PIE-491: `s` `g` `t`, `rev`, `expected=`), so agents name them by id, not place; the arrangement is a **layout** saved by name (`src/desk/tiles.ts`, PIE-474), where an open with no link lands on the current note. Every operation is an action: `pane.*` (split, close, resize, zoom, float, pin) and `layout.*` `tile.*` `tab.select` (TILE_ACTIONS); keys and drags only call them. A view built on the desk is a `DeskPreset` (the brief, Waiting, the welcome): its panes with their tile names, links and first focus, the glyphs its frames are drawn with (`DOTTED_BOX`), whether the digits are the desk's (`digits: false`: the view's own, the tiles unnumbered), and rows above the tiles for its own art (`bandRows`, `drawBand`) and its own hint (`screenHint`) | `src/desk/layout.ts`, `src/desk/drop.ts`, `src/desk/tiles.ts`, `src/desk/tile-kinds.ts`, `src/desk/builtin-tiles.ts`, `src/desk/tile-actions.ts`, `src/desk/pane-actions.ts`, `src/desk/panes.ts`, `src/desk/desk.ts` |
 | add a kind of tile (a built-in, or an extension's whole tile) | the tile-kind registry (PIE-505): `registerTileKind` with one `TileKind` entry (`make`, `keys` under `^W o`, `actions` routed by `act`, a default `policy`, `accepts` notes or tab kinds, `take` (how it takes a note sent to it: a reader holds it, a preview follows it), `follower`, `save`/`revive`, `holdsWork`, `shows`, `follows`, `start`, `describe`, `view`, `previewSource`); a saved tile of a kind not registered yet stands in as a reader and keeps its spec; the built-ins register at startup, an extension's the same way; `serviceKind` makes one whose tile the service draws (`ServiceTile`: its rows come from a render call, its code runs in the service). The desk and the layout never switch on a kind's name | `src/desk/tile-kinds.ts`, `src/desk/builtin-tiles.ts` |
@@ -290,8 +290,8 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
 | enter from menu | S `K`, `screen.open` kma | S `N J R`, `screen.open` kma | S `D`, `screen.open` kma | S `Q`, `screen.open` kma |
-| back | S `q`, `screen.back` k·a (PIE-489) | S `q` `Esc`, `screen.back` k·a | S `q` `Esc`, `screen.back` k·a | S `q`, `screen.back` k·a |
-| drop to shell | S `screen.shell` (the person's only) k·· | S the menu's `!`, `! Shell` click km· | S `^W !` k·· | S k·· |
+| back | S `q`, `screen.back` k·a (PIE-489) | S `q` `Esc`, a click on `Q back`, `screen.back` kma | S `q` `Esc`, `screen.back` k·a | S `q`, `screen.back` k·a |
+| drop to shell | S `screen.shell`, the person's only (an agent's is refused by design) k·· | S the menu's `!`, `! Shell` click km· | S `^W !` k·· | S k·· |
 | status bar, flash | S | S | S | S |
 | hint row | R `del:1450` | R `scr:242` | R `dsk:210` | R `riv:397` |
 | peek state | S `del:479` | S message reader `scr:430` | S `dsk:163` | S `riv:615` |
@@ -302,7 +302,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
-| content | lanes `del:1225` kma | list `scr:203` k·· | tiles `dsk:173` km· | strip `riv:270` kma |
+| content | lanes `del:1225` kma | list `scr:203`, `list.*` kma | tiles `dsk:173`, `tile.focus` kma | strip `riv:270` kma |
 | reader | S `ReaderPane` | S `MessageReader` hosts the surface kma | S `ReaderPane` | S surface (edit only) |
 | header | S `note:268` | S surface, BBS rows via `SurfaceHost.header` `scr:301` | S | R cards `riv:362` |
 | body render | S `renderDoc` | S `renderDoc` (the surface's) | S | R `colourBody` `riv:363` |
@@ -318,23 +318,23 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | split | — (a detail opens with a note) | — | S tree, `^W o`, `pane.split` k·a | R `s` `riv:496` k·a |
 | close | S tree, `x`, `pane.close` k·a | — | S tree, `^W x`, `pane.close` k·a | R `x` k·a |
 | resize | S tree, drag, `{ } < >`, `pane.resize` kma | — | S tree, drag, `^W <>`, `pane.resize` kma | — (automatic) |
-| dock / move | R float HJKL, drag km· | — | S tree, drag a header (tabs on drop), `^W m t T H J K L`, `layout.move` kma | R `p` pin k·a |
+| dock / move | R float HJKL, drag, `float.place` kma | — | S tree, drag a header (tabs on drop), `^W m t T H J K L`, `layout.move` kma | R `p` pin k·a |
 | float | S tree floats, `o`, `pane.float` kma | — | — | — |
 | drawer | S tree, `t b`, pin `T B` or `[ ] pin`, `pane.pin` kma | — | S tree, `^W p` `^W d`, a handle's click, `tile.pin` `tile.drawer` kma | — |
-| squeeze | S spine: lane `c` km·, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
+| squeeze | S spine: lane `c`, `lane.collapse` kma, reader `c` kma, `alt+c` | — | — | S spine, `riv:243` auto, `p` |
 | persist | S tree → `delivery.json` (its old fields) | — | S tree → `desk.json` | R `river.json` |
 
 ### Entity navigation
 
 | Element | Kanban (board) | BBS | Desk | River |
 |---|---|---|---|---|
-| children | — (`N` writes one) | R `T` `scr:400`, `message.thread` k·a | R `pan:299` km· | R `space` kma |
+| children | — (`N` writes one) | R `T` `scr:400`, `message.thread` k·a, a list's `t` `list.thread` kma | R `pan:299`, `thread.pick` kma | R `space` kma |
 | up | S `u` k·a | S `u` (`U` too) k·a | S `u` k·a | S `u` k·a |
 | outlinks | S `[ ]` ⏎ click kma | S kma | S kma | S kma |
 | backlinks | S drawer, Detail's view (`src/backlinks.ts`) kma | — | S backlinks tile (`^W o l`, the welcome's strip), the tree's `L` kma | — |
 | resources | S images, `[file::` | S (projections, images) | S; the tree's `L` lists a row's, ⏎ or a click shows one; a `[file::]` token in a reader is a link kma | — |
-| search | R `g` boards only | R `scr:338` dead | R `/` `dsk:371` k·· | R `/` `riv:66` k·· |
-| history | S alt+← alt+→ ⌫, `← back` row, `back` `forward` kma | — (next: the screen stack) | S kma | — (next: the columns) |
+| search | R `g` boards only, `board.hub` kma | R `scr:338` dead | R `/` `dsk:371`, `search` kma | R `/` `riv:66`, `jump` kma |
+| history | S alt+← alt+→ ⌫, `← back` row, `back` `forward` kma | — (next: the screen stack) | S kma | R the columns, the river's `back` `forward` kma |
 
 ### Extensions
 
@@ -345,9 +345,9 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | comments | S `C m` kma | S kma | S kma | S kma |
 | completion | S (not in composer) | S | S | S |
 | folds | S kma | S kma | S kma | — (cards) |
-| presence | — | R `scr:355` k·· | R `pan:411` k·· | — |
-| activity | — | R `scr:392` k·· | R `pan:375` km· | — |
-| stats | — | R `scr:535` k·· | — | — |
+| presence | — | R `scr:355`, `who.refresh` kma | R `pan:411`, `who.refresh` kma | — |
+| activity | — | R `scr:392`, `list.*` kma | R `pan:375`, `activity.pick` `activity.reload` kma | — |
+| stats | — | R `scr:535` (nothing to do there but `screen.back`) kma | — | — |
 | view actions | R cards `del:1799` kma | — | — | R `riv:976` kma |
 
 ---
@@ -384,19 +384,25 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   hints and `delivery.json` fields are unchanged. Slice 2 moves the river's strip onto it; slice 3 stores
   the tree in the outline as screen notes.
 
-### F3. Agents can read and edit, but not arrange
+### F3. Agents can read and edit, but not arrange (resolved by PIE-506)
 
-- Every reader shares `NOTE_ACTIONS` (`note:1329`). Good.
-- Desk agent actions: `open`, `focus`, the shared `pane.*` actions (split, close, resize, zoom, since
-  PIE-412), and since PIE-413 and PIE-491 `layout.*` (move, swap, even, load, save) and `tile.*`, by stable id
-  with a layout revision.
-- Board: `pane.*` since PIE-412 (close, resize, float, pin; split and zoom refuse with the reason). No lane
-  collapse action. Readers collapse and expand by action since PIE-440 (`reader.collapse`,
-  `reader.expand`). River: no filter, `#` or jump actions (`riv:976`).
-- The BBS message reader has `act`, `openBlock` and `describe` since PIE-426 (the note actions and
-  `message.*`). Since PIE-489 every screen has the shell's `screen.*` and the BBS lists `list.*`; Who's
-  Online's `r`, the art viewer's keys and a message list's `t` aren't actions yet.
-- **Resolves:** PIE-434 should make "every pane operation is an action" part of core.
+- Every reader shares `NOTE_ACTIONS` (`note:1329`), and since PIE-506 every key and click the note surface
+  handles runs one of them (`scroll`, `element.select by=`, `fold.select`, `callouts`, `select.mode`, …).
+- Desk: `open`, `focus`, `pane.*`, `layout.*`, `tile.*` by stable id with a layout revision (PIE-412, PIE-413,
+  PIE-491), the policy's `layout.lock` and `layout.policy` (PIE-505), and since PIE-506 `search`, `tile.enter`,
+  `tile.leave` and each tile kind's own (`thread.pick`, `activity.pick`, `tree.fold`, `backlinks.fold`,
+  `reader.hold`, registered on the kind).
+- Board: `pane.*`, `card.*`, `reader.*`, and since PIE-506 `board.hub` (the `g` picker), `lane.collapse`,
+  `outline`, `float.place`, `backlinks.pick`, `board.reload`; the lane cursor is `card.select by=` (an agent's
+  is its own selection).
+- River: its columns and, since PIE-506, `filter`, `tag`, `jump`, `column.scroll`, `back`, `forward`, `copy`.
+- BBS: `screen.*`, `list.*`, `message.*`, and since PIE-506 `menu.select`, `list.thread`, `who.refresh`,
+  `art.*`, `screen.help` and `video.cycle`.
+- **Kept so by test:** `test/parity.test.ts` presses every key and clicks across every screen and fails on a
+  change no action declared ([the agent interface](AGENT-INTERFACE.md#parity-every-key-and-click-is-an-action-pie-506)).
+- Still direct: dragging a border or a lane edge (a share, not steps; agents resize by `pane.resize` and
+  `layout.resize`), moving a keyboard selection after `v`, drag-selecting text, and the desk's `^W r` / `^W w`
+  pickers (input states that end in `layout.load` and `layout.save`).
 
 ### F4. The same key means different things
 
