@@ -19,6 +19,7 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
+import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -76,13 +77,14 @@ export const isEscapeChord = (k: Key) => k.kind === "char" && !!k.ctrl && k.ch =
 export const HERDR_VARS = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID"] as const;
 /** The ones naming the door's own Herdr pane and tab: a tile's program is in neither, so they never reach it. */
 export const HERDR_PANE_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID"] as const;
-/** How this door was opened: a door started inside a tile mustn't repeat it (the daily agent, the landing). */
-export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
+/** How this door was opened (src/desk/agent-env.ts): a door started inside a tile mustn't repeat it. */
+export { DOOR_START_VARS };
 
 /**
  * A terminal tile's environment: the person's own (a shell in a tile is their shell, keys and all), without
  * the door's Herdr pane and tab and without how this door was started; with the terminal it runs in and
- * the door and tile it is in (EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID), and EP0CH_IN_DOOR=1. Everything else passes through on
+ * the agent variables (`agentVars`, src/desk/agent-env.ts: the one place they're made, for the Herdr
+ * launcher's pane too): EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID, EP0CH_NEST, EP0CH_IN_DOOR=1. Everything else passes through on
  * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
  * An inherited EP0CH_TILE_ID is always dropped: a door run in a tile mustn't hand its own tiles the outer
  * tile's id.
@@ -97,10 +99,8 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
   // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
   // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
-  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", EP0CH_TILE: tile, EP0CH_IN_DOOR: "1" });
-  if (tileId) out.EP0CH_TILE_ID = tileId;
-  if (control) out.EP0CH_CONTROL = control;
-  out.EP0CH_NEST = appendNest(doorNest(env), doorLayer(pid, place, tileId, tile));
+  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0" });
+  Object.assign(out, agentVars(env, { tile, control, tileId, nest: appendNest(doorNest(env), doorLayer(pid, place, tileId, tile)) }));
   return out;
 }
 
@@ -127,10 +127,16 @@ export class PtyPane implements Pane {
   herdr: { pane: string } | null = null;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
+  /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */
+  tileName: string | null = null;
   /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
   place: string | null = null;
   /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
+  /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
+  personKeyAt = 0;
+  /** The next start only: a restart that keeps the conversation (`withContinue`, and the Herdr launcher told so). */
+  private continueNext = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -194,12 +200,15 @@ export class PtyPane implements Pane {
     });
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
-    const env = tileEnv(process.env, this.run.label ?? "", controlPath, this.tileId, this.place);
+    const env = tileEnv(process.env, this.run.label || this.tileName || basename(this.run.cmd[0] ?? "") || "tile", controlPath, this.tileId, this.place);
+    const keep = this.continueNext;
+    this.continueNext = false;
+    if (keep) env.EP0CH_AGENT_CONTINUE = "1";
     try {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
       // buffer, and an agent edits other lines through it without moving the person's cursor.
-      const cmd = [...this.run.cmd];
+      const cmd = keep ? withContinue(this.run.cmd) : [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       this.proc = Bun.spawn(CTTY ? [...CTTY, ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
       if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
@@ -240,8 +249,23 @@ export class PtyPane implements Pane {
     this.redrawSoon = setTimeout(() => { this.redrawSoon = null; this.desk?.redraw(); }, 16);
   }
 
-  /** Run it again after it exited (⏎ on the tile, or `tile.restart`). */
-  restart() { this.kill(); this.proc = null; this.start(this.cols || 80, this.rows || 24); this.desk?.redraw(); }
+  /**
+   * Run it again after it exited (⏎ on the tile, or `tile.restart`). `keep`: the conversation is kept: a bare
+   * `claude` gets --continue, and the Herdr launcher is told to do the same in its pane (`agent.restart`).
+   */
+  restart(keep = false) { this.kill(); this.proc = null; this.continueNext = keep; this.start(this.cols || 80, this.rows || 24); this.desk?.redraw(); }
+
+  /**
+   * Ask the program to exit (SIGTERM) and wait for it; SIGKILL after `graceMs`. Only this tile's own program:
+   * its pid, nothing else. Resolves once it's gone (or wasn't running).
+   */
+  async stop(graceMs = 8000): Promise<void> {
+    const proc = this.proc;
+    if (!proc || this.exited !== null) return;
+    try { proc.kill("SIGTERM"); } catch { /* gone */ }
+    const done = await Promise.race([proc.exited.then(() => true), Bun.sleep(graceMs).then(() => false)]);
+    if (!done) { try { proc.kill("SIGKILL"); } catch { /* gone */ } await proc.exited; }
+  }
 
   kill() {
     LIVE.delete(this);
@@ -254,9 +278,9 @@ export class PtyPane implements Pane {
   /** Keys or text straight to the program (an agent's `tile.type`). */
   input(s: string) { if (this.running) { this.back = 0; this.pty?.write(s); } }
   /** Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for them. */
-  inputRaw(s: string) { this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  inputRaw(s: string) { this.personKeyAt = Date.now(); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
-  paste(text: string) { this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
+  paste(text: string) { this.personKeyAt = Date.now(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
   render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
@@ -292,6 +316,7 @@ export class PtyPane implements Pane {
     if (this.exited !== null && k.kind === "enter") { this.restart(); return true; }
     const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false) : null;
     if (s === null) return false;
+    this.personKeyAt = Date.now();
     this.input(s);
     return true;
   }

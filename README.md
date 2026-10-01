@@ -433,16 +433,21 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
     `q` stops watching.
   - Only the attached door gets the agent's `ep0ch act` and `show` (below).
 - **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
-  `EP0CH_CONTROL`, the program's name in the layout as `EP0CH_TILE`, and the tile's id as `EP0CH_TILE_ID`.
+  `EP0CH_CONTROL`, the tile's name in the layout as `EP0CH_TILE` (the name the desk gave it, `pty2`, when you
+  opened it without one), the tile's id as `EP0CH_TILE_ID` and `EP0CH_IN_DOOR=1`.
   Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
   how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
   - It also gets `EP0CH_NEST`, the layers it runs in (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`),
     and `ep0ch where` checks each one and says where your keys are ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
-  - The agent's pane gets `EP0CH_NEST` (the tile's, then `herdr:door-claude`), `EP0CH_TILE` and an
+  - The agent's pane gets the same variables as an agent in a tile (one function, `agentVars` in
+    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-claude`), `EP0CH_TILE`,
+    `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
     `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
+    The agent is started with `env -u` for what the pane mustn't inherit from the Herdr server's own
+    environment (how a door was started, an agent variable this door doesn't set).
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
   - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
     points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
@@ -491,8 +496,23 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   watches it, and the drawer says that `⏎` in it would take the pane from the other door.
 - **It persists.** Whether it's up and how tall are saved in `dock.json` in the door's state. The next door
   shows it where you left it (not entered). With Herdr it's the same session on every screen and after a restart.
-- **Agents.** `agent.toggle [open=true|false]` and `agent.height share=0.2…0.9` work on every screen through
-  `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
+- **What it knows.** After its state the chip says what the agent knows: `▲ claude · idle · door tools` when
+  it started in a door (with `EP0CH_CONTROL` and the rest) after the Outliner's Claude mod last changed. A
+  running Claude never picks up a new mod or new variables, so when the mod changed after it started (a
+  `git pull` in the Outliner), or it was started without the door's variables (by an older door, say, in a
+  Herdr pane made before), the chip says `started before update ⟳` (or `no door tools ⟳`). The door reads
+  this from the agent's own process: its environment (`/proc/<pid>/environ` on Linux, `ps eww` on macOS; in
+  Herdr, the process in the `door-claude` pane, `herdr pane process-info`) and its start time, against the
+  newest file of the mod Claude Code loads (`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`), every 15s.
+  `agent.knows` says the same, with why.
+- **Restarting it.** A click on `⟳` (the chip's last cell), `alt+R`, or `agent.restart`. Only that agent's
+  process is asked to exit (SIGTERM; SIGKILL after 8s), then the same command runs again, keeping the
+  conversation: `door-claude` continues by itself, and a bare `claude` is given `--continue`. With the agent in
+  Herdr, its pane closes with it and the launcher makes a new `door-claude` pane, with today's variables, and
+  starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
+  within 10s of your last key in it.
+- **Agents.** `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`, `agent.knows` and
+  `agent.restart` work on every screen through `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.
 

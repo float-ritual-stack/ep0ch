@@ -12,8 +12,9 @@
 // - Herdr not installed, no server answering (or one not answering in 10s), or the pane couldn't be made: the
 //   agent runs in the tile directly, as before.
 //
-// The agent's pane gets EP0CH_NEST (the tile's, then `herdr:<pane label>`: src/nest.ts), EP0CH_TILE (so tools
-// know they're in a door tile) and EP0CH_CONTROL: a link in the
+// The agent's pane gets what an agent in a terminal tile gets (`agentVars`, src/desk/agent-env.ts): EP0CH_TILE,
+// EP0CH_TILE_ID, EP0CH_IN_DOOR, EP0CH_NEST (the tile's, then `herdr:<pane label>`: src/nest.ts), the door's
+// EP0CH_STATE and EP0CH_SOCKET when it has them, and EP0CH_CONTROL: a link in the
 // door's state that this wrapper points at the attached door's control socket each time it attaches, so
 // `ep0ch act` (and the outliner's `show`) from the agent reach the door it is shown in, whichever that is.
 // When the attach ends (detached, or the door quit or crashed) the link is dropped if it's still this door's,
@@ -24,6 +25,7 @@ import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { appendNest } from "../nest";
 import { alive, stateDir } from "../state";
+import { AGENT_VARS, agentVars, DOOR_START_VARS, lineWithContinue } from "./agent-env";
 
 export interface Ran { code: number; out: string; err: string }
 /** Runs one `herdr` command to completion (a fake one in tests). */
@@ -40,8 +42,13 @@ export interface AgentConfig {
   cwd: string;
   /** The agent's command line, as the pane's shell runs it (after `exec`). */
   cmd: string;
-  /** The env a new pane gets (EP0CH_TILE, EP0CH_CONTROL, and EP0CH_NEST ending in `herdr:<pane label>`). */
+  /** The env a new pane gets (`agentVars`: EP0CH_CONTROL the link, EP0CH_NEST ending in `herdr:<pane label>`). */
   env: Record<string, string>;
+  /**
+   * What the pane must not have from the Herdr server's own environment (how a door was started, an agent
+   * variable this door doesn't set): `env -u` before the agent's command.
+   */
+  unset: string[];
   /** The link EP0CH_CONTROL names in the pane, re-pointed at each attach. */
   link: string;
   /** Held while the pane is looked for and made, so two doors starting at once make one pane. */
@@ -52,15 +59,18 @@ export interface AgentConfig {
 export function agentConfig(env: Record<string, string | undefined> = process.env, which = (c: string) => Bun.which(c)): AgentConfig {
   const pane = env.EP0CH_HERDR_PANE || "door-claude";
   const link = join(stateDir(), `agent-${pane.replace(/[^\w.-]/g, "_")}.sock`);
+  const vars = agentVars(env, { tile: env.EP0CH_TILE || "claude", control: link, tileId: env.EP0CH_TILE_ID, nest: appendNest(env.EP0CH_NEST, `herdr:${pane}`) });
   return {
     pane,
     name: env.EP0CH_HERDR_NAME || "door",
     workspace: env.EP0CH_HERDR_WORKSPACE || "door",
     cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || env.PWD || process.cwd(),
-    cmd: env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude"),
+    // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue (door-claude does it itself).
+    cmd: ((c: string) => (env.EP0CH_AGENT_CONTINUE === "1" ? lineWithContinue(c) : c))(env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude")),
     // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later
     // (`ep0ch where` follows EP0CH_CONTROL to the door that shows it now).
-    env: { EP0CH_TILE: env.EP0CH_TILE || "claude", EP0CH_CONTROL: link, EP0CH_NEST: appendNest(env.EP0CH_NEST, `herdr:${pane}`) },
+    env: vars,
+    unset: [...DOOR_START_VARS, ...AGENT_VARS.filter(k => !vars[k])],
     link,
     lock: `${link}.lock`,
   };
@@ -122,10 +132,16 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
   const pane = String(root.pane_id);
   await herdr(["pane", "rename", pane, cfg.pane]);
   // `exec`: the agent is the pane's program, so /exit ends the pane and the next ⏎ in the tile starts afresh.
-  const ran = await herdr(["pane", "run", pane, `exec ${cfg.cmd}`]);
+  const ran = await herdr(["pane", "run", pane, runLine(cfg)]);
   if (ran.code !== 0) throw new Error(`herdr couldn't start ${cfg.cmd}: ${ran.err.trim()}`);
   return { kind: "pane", pane, terminal: String(root.terminal_id), created: true };
 }
+
+/**
+ * The pane's command: `exec` the agent (so /exit ends the pane), without what the pane mustn't inherit from the
+ * Herdr server (`env -u`, Linux and macOS alike).
+ */
+export const runLine = (cfg: Pick<AgentConfig, "cmd" | "unset">) => `exec ${cfg.unset.length ? `env ${cfg.unset.map(k => `-u ${k}`).join(" ")} ` : ""}${cfg.cmd}`;
 
 /**
  * Names the agent once Herdr has seen it start (a name needs a detected agent): retried every half second.

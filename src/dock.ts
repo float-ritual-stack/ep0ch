@@ -11,15 +11,24 @@
 // the same door would only watch). While the drawer shows it, the desk's tile says so instead of drawing it
 // at a second size, so the program isn't resized back and forth each paint.
 //
-// Everything is an action (`DOCK_ACTIONS`: `agent.toggle`, `agent.height`): the chip's click, alt+a, Esc,
-// the drawer's dragged top edge and alt+A call them, and so does an agent over `act`. An agent may pull it up
+// Everything is an action (`DOCK_ACTIONS`: `agent.toggle`, `agent.height`, `agent.knows`, `agent.restart`): the
+// chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
+// agent over `act`. An agent may pull it up
 // only under the shell's rule (`agentMayMove`: never while the person types, never within 2s of their last
 // key), it's said on the status bar and in the drawer's title, and an agent never enters it: its keys stay
 // where they were. Whether it's open and how tall is saved in the door's state (dock.json), so it's still
 // there after a screen switch and after a restart; with Herdr it's the same session everywhere.
+//
+// The chip also says what the agent knows (src/desk/agent-env.ts): `door tools` when it started in a door after
+// the Outliner's Claude mod last changed; `started before update ⟳` (or `no door tools ⟳`) when it didn't, read
+// from the agent process's own environment and start time (in Herdr: the pane's process). ⟳ restarts it, keeping
+// the conversation; an agent's restart waits until the person isn't typing in it.
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { agentConfig, herdrBin, herdrRunner, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
+import { DOCK_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
+import { alive } from "./state";
+import { controlPath } from "./control";
 import type { DeskApi } from "./desk/panes";
 import { ESCAPE_CHORD, isEscapeChord, PtyPane } from "./desk/pty";
 import { dailyAgent, type SharedAgent } from "./desk/tiles";
@@ -31,7 +40,7 @@ import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
 
 /** The dock agent's tile id and name: what `EP0CH_TILE_ID` and `EP0CH_TILE` tell its program (never a desk id, `t<n>`). */
-export const DOCK_TILE_ID = "dock.agent";
+export { DOCK_TILE_ID };
 export const DOCK_NAME = "claude";
 /** The drawer's height, as a share of the rows above the status bar: at least this, at most that. */
 export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
@@ -45,6 +54,10 @@ const CHORD_MS = 1500;
 const WORKING_MS = 1500;
 /** How often Herdr is asked for the agent's state while the drawer shows a Herdr pane. */
 const HERDR_POLL_MS = 3000;
+/** How often what the agent knows is read again (its environment, its start, the mod's newest file). */
+const KNOWS_POLL_MS = 15_000;
+/** An agent's `agent.restart` waits this long after the person last typed into the agent. */
+const RESTART_IDLE_MS = 10_000;
 
 /** What dock.json keeps. */
 export interface DockSaved { open: boolean; share: number }
@@ -94,6 +107,13 @@ export class AgentDock implements SharedAgent {
   private readonly api = { redraw: () => this.changed(), ctx: { flash: (m: string, ms?: number) => this.host.flash(m, ms) } } as unknown as DeskApi;
   private polling = false;
   private lastPoll = 0;
+  /** What the running agent knows (null: not read yet, or not running); the pid it was read from. */
+  knows: AgentKnows | null = null;
+  knowsPid: number | null = null;
+  private knowing = false;
+  private lastKnow = 0;
+  /** A restart under way: the chip says so, and a second one waits for it. */
+  restarting: Promise<RestartDone> | null = null;
 
   /** `persist`: read and write dock.json (a test's dock may not). `herdr`: how Herdr is asked (a fake in tests). */
   constructor(private readonly host: DockHost, private readonly persist = true, private readonly herdr: HerdrRun | null = defaultHerdr()) {
@@ -177,16 +197,105 @@ export class AgentDock implements SharedAgent {
     }, () => { this.herdrState = null; }).finally(() => { this.polling = false; });
   }
 
-  /** The chip's words: `▲ claude`, `▲ claude · working`, `▼ claude · idle` (▼ while it's up). */
-  chipText(now = Date.now()): string {
+  /**
+   * The chip's words: `▲ claude`, `▲ claude · working`, `▼ claude · idle` (▼ while it's up), then what it knows:
+   * `· door tools`, or `· started before update ⟳` (⟳: a click restarts it).
+   */
+  chipText(now = Date.now()): string { const c = this.chipParts(now); return c.head + c.knows; }
+
+  /** The chip in two parts: what it's doing, and what it knows (drawn in yellow when it offers ⟳). */
+  private chipParts(now: number): { head: string; knows: string } {
     const s = this.state(now);
-    return `${this.open ? "▼" : "▲"} ${DOCK_NAME}${s === "off" ? "" : ` · ${s === "blocked" ? "needs you" : s === "exited" ? `exited ${this.p?.exited ?? ""}`.trim() : s}`}`;
+    if (s !== "off" && s !== "exited") this.pollKnows(now);
+    const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? `exited ${this.p?.exited ?? ""}`.trim() : s;
+    const knows = this.restarting || s === "off" || s === "exited" ? "" : knowsLabel(this.knows);
+    return { head: `${this.open ? "▼" : "▲"} ${DOCK_NAME}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
+  }
+
+  /** The chip ends in ⟳: a click on it restarts the agent. */
+  get offersRestart(): boolean { return !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
+
+  /**
+   * The agent's process: in Herdr, the process in the agent's pane (`pane process-info`); else the tile's own
+   * program. Null when it isn't running or Herdr doesn't say.
+   */
+  async agentPid(): Promise<number | null> {
+    const p = this.p;
+    if (!p?.running) return null;
+    if (!p.herdr) return p.pid ?? null;
+    if (!this.herdr) return null;
+    const pane = await this.herdrPaneId(p.herdr.pane);
+    if (!pane) return null;
+    const info = await this.herdr(["pane", "process-info", "--pane", pane]);
+    try { const pid = Number(JSON.parse(info.out)?.result?.process_info?.shell_pid); return pid > 0 ? pid : null; } catch { return null; }
+  }
+
+  private async herdrPaneId(label: string): Promise<string | null> {
+    if (!this.herdr) return null;
+    const listed = await this.herdr(["pane", "list"]);
+    try { const hit = (JSON.parse(listed.out)?.result?.panes ?? []).find((x: any) => x?.label === label); return hit?.pane_id ? String(hit.pane_id) : null; } catch { return null; }
+  }
+
+  /** Read again what the agent knows, every KNOWS_POLL_MS while it runs (and at once after a start). */
+  private pollKnows(now: number) {
+    if (this.knowing || now - this.lastKnow < KNOWS_POLL_MS) return;
+    this.knowing = true; this.lastKnow = now;
+    void this.readKnows().finally(() => { this.knowing = false; });
+  }
+
+  /** What the agent knows now: its own environment and start against the installed mod. Says a change on the chip. */
+  async readKnows(): Promise<AgentKnows | null> {
+    const pid = await this.agentPid().catch(() => null);
+    let knows = pid ? judgeAgent(await readAgent(pid), modStamp(modDirs())) : null;
+    // Without a control socket of its own, this door has none to give a restarted agent: ⟳ wouldn't help.
+    if (knows?.state === "no-door" && !controlPath) knows = { state: "unknown", why: "this door has no control socket to give it" };
+    const was = this.knows ? `${this.knows.state}|${this.knows.why}` : "";
+    this.knows = knows; this.knowsPid = pid;
+    if ((knows ? `${knows.state}|${knows.why}` : "") !== was) this.host.statusChanged();
+    return knows;
+  }
+
+  /**
+   * Restart the agent so it starts with the door's environment and the installed mod, keeping the conversation:
+   * - in a terminal tile (or the drawer), its program is asked to exit (SIGTERM; SIGKILL after 8s), then the same
+   *   command runs again (a bare `claude` with --continue; door-claude continues by itself);
+   * - in Herdr, the process in the agent's pane alone is asked to exit, the pane closes with it, and the tile's
+   *   launcher runs again: it makes a new pane with today's variables and starts the agent there, continuing.
+   * Nothing but that one agent process (and this door's own launcher for it) is signalled.
+   */
+  restart(): Promise<RestartDone> {
+    if (this.restarting) return this.restarting;
+    const p = this.pane();
+    const run = async (): Promise<RestartDone> => {
+      const was = this.knows?.state ?? null;
+      const herdr = p.herdr?.pane ?? null;
+      if (herdr && p.running) {
+        // Restarting only the attach would leave the old agent in its pane: without its pid, nothing is done.
+        const pid = await this.agentPid();
+        if (!pid) throw new ActionRefused(`couldn't find the agent's process in Herdr pane ${herdr}; restart it there (/exit, then ⏎ in the tile)`);
+        try { process.kill(pid, "SIGTERM"); } catch { /* gone */ }
+        const until = Date.now() + 8000;
+        while (alive(pid) && Date.now() < until) await Bun.sleep(100);
+        if (alive(pid)) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+        // The pane goes with its process; the launcher's attach ends with it.
+        const end = Date.now() + 3000;
+        while (p.running && Date.now() < end) await Bun.sleep(50);
+      }
+      await p.stop();
+      p.restart(true);
+      this.knows = null; this.lastKnow = 0;
+      return { restarted: true, ...(herdr ? { herdr } : {}), was };
+    };
+    this.restarting = run().finally(() => { this.restarting = null; this.changed(); });
+    this.changed();
+    return this.restarting;
   }
   /** The chip as drawn on the status bar (its colour says the state). */
   chip(now = Date.now()): string {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "exited" ? C.lred : s === "watching" ? C.lcyan : C.white;
-    return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${this.chipText(now)}${bg(C.blue)}${fg(C.lcyan)}`;
+    const { head, knows } = this.chipParts(now);
+    return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
   }
 
   // ── actions ──
@@ -218,6 +327,7 @@ export class AgentDock implements SharedAgent {
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100,
       rect: this.shown ? this.rect : null, state: this.state(), tile: { id: DOCK_TILE_ID, name: DOCK_NAME },
+      knows: this.knows ? { ...this.knows, pid: this.knowsPid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
       ...(p?.herdr ? { herdr: p.herdr } : {}),
       terminal: p ? p.describe() : null,
@@ -301,6 +411,7 @@ export class AgentDock implements SharedAgent {
       return true;
     }
     if (isAlt(k, "a")) { run("agent.toggle", {}); return true; }
+    if (isAlt(k, "R")) { run("agent.restart", {}); return true; }
     if (this.shown && isEscapeChord(k)) return this.chordBack(screen);
     if (this.shown && isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
@@ -341,7 +452,8 @@ export class AgentDock implements SharedAgent {
     }
     const chip = this.chipAt;
     if (chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to) {
-      if (k.action === "down") run("agent.toggle", {});
+      // ⟳, the chip's last cell when it offers one, restarts the agent; anywhere else on the chip toggles the drawer.
+      if (k.action === "down") run(this.offersRestart && k.x >= chip.to - 1 ? "agent.restart" : "agent.toggle", {});
       return true;
     }
     const r = this.shown ? this.rect : null;
@@ -375,7 +487,10 @@ export function nextStep(share: number): number {
 }
 
 /** How the dock's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DockRun = (name: "agent.toggle" | "agent.height", args: Record<string, unknown>) => void;
+export type DockRun = (name: "agent.toggle" | "agent.height" | "agent.restart", args: Record<string, unknown>) => void;
+
+/** What `agent.restart` answers once the agent runs again. */
+export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
 
 function defaultHerdr(): HerdrRun | null {
   const bin = herdrBin();
@@ -383,7 +498,7 @@ function defaultHerdr(): HerdrRun | null {
 }
 
 export interface DockOn { dock: AgentDock; ctx: Ctx; here: Screen | undefined }
-type DockArgs = { "agent.toggle": { open?: boolean }; "agent.height": { share: number } };
+type DockArgs = { "agent.toggle": { open?: boolean }; "agent.height": { share: number }; "agent.restart": Record<string, never>; "agent.knows": Record<string, never> };
 
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
@@ -413,6 +528,29 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
       dock.height(share);
       return { share: dock.share, open: dock.open };
     },
+  },
+  "agent.restart": {
+    summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (door-claude continues; a bare claude gets --continue). In Herdr it comes back in a new door-claude pane. An agent's restart is refused while the person types in it, and is said on screen",
+    keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started before an update, or without door tools); alt+R`,
+    args: {},
+    async run(_, { dock, ctx }, actor) {
+      const p = dock.tile;
+      if (actor.kind === "agent") {
+        if (dock.shown && dock.entered) throw new ActionRefused("the person is typing in the agent drawer; an agent doesn't restart it under them");
+        const idle = Date.now() - (p?.personKeyAt ?? 0);
+        if (p && idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
+      }
+      ctx.flash(`restarting ${DOCK_NAME}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
+      const r = await dock.restart();
+      if (actor.kind === "agent") ctx.flash(`restarted ${DOCK_NAME}`, 6000);
+      return r;
+    },
+  },
+  "agent.knows": {
+    summary: "what the agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools), stale (started before the mod changed, or by an older door), no-door (no EP0CH_CONTROL) or unknown",
+    keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
+    args: {},
+    async run(_, { dock }) { return { knows: await dock.readKnows(), pid: dock.knowsPid }; },
   },
 });
 

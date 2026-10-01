@@ -81,6 +81,24 @@ In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Outliner's Cla
 `door_peek`, `door_act` and `door_open`. They run `ep0ch` on that tile's socket. Prefer them to running
 `ep0ch act` through Bash. Outside a door tile they aren't there: use the commands above.
 
+**Three ways a door agent starts, one environment.** Each gets the same variables (`agentVars`,
+`src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
+the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
+1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
+2. `D`, then the `daily` layout's `claude` tile: the door's own agent. On float-2 it runs in Herdr
+   (`EP0CH_DAILY_AGENT=…/door-agent-herdr.ts`, the `door-claude` pane, `EP0CH_CONTROL` a link the launcher
+   points at the attached door); elsewhere plain `claude` in the tile.
+3. The `▲ claude` chip on the status bar, or `alt+a`: the same agent as 2, in a drawer over any screen.
+
+**A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` in
+the Outliner), or it started without them, it has no door tools or old ones. The chip says so:
+`▲ claude · door tools` when current, `▲ claude · started before update ⟳` (or `no door tools ⟳`) when not.
+`ep0ch act agent.knows` says the same with why; `ep0ch doctor` lists every door agent on an older mod.
+A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent, keeping the conversation
+(`door-claude` continues; a bare `claude` gets `--continue`; in Herdr it comes back in a new `door-claude`
+pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
+yourself (path 1): `/exit`, then `claude --continue`.
+
 - **Who it's from:** each act and open goes with `--as`: the call's `actor`, else `OUTLINER_ACTOR`, else
   `EP0CH_AGENT`, else `claude-code`. The person's screen shows it.
 - **`door_act {action, args, reader?}`:** `args` is `key: value`. `ep0ch` reads a value starting with `@` as
@@ -106,9 +124,9 @@ In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Outliner's Cla
 
 ## Useful actions beyond notes
 
-- **The agent drawer** (every screen): `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`. It
-  never takes the person's keys; you can't put it away or resize it while they type in it. `peek` shows it
-  as `dock`.
+- **The agent drawer** (every screen): `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`,
+  `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put it away, resize it or
+  restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
 - **The outline tree's links:** `tree.links reader=<tree tile> n=<row>` shows a row's outlinks, resources and
   backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,

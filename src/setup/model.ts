@@ -1,6 +1,7 @@
 // `ep0ch doctor` and `ep0ch install` (PIE-450): what a machine's stack looks like, as plain data. `facts.ts`
 // gathers it (read-only: git, Herdr, the outline sockets, the file system); `doctor.ts` and `plan.ts` only
 // read it, so the tests describe a machine instead of needing one.
+import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
 export type Platform = "linux" | "macos" | "other";
@@ -128,6 +129,11 @@ export interface Facts {
     /** CLAUDE_CODE_PLUGIN_DIRS in this process's environment. */
     envDirs: string[] | null;
     forceHyperlink?: string;
+    /**
+     * The Claude processes started in a door tile or a door's Herdr pane, each judged against the mod Claude
+     * loads (src/desk/agent-env.ts); undefined when not looked for.
+     */
+    agents?: DoorAgent[];
   };
   /** What a current service offers: the door's capabilities and the installed plugin's. */
   expected: string[];

@@ -1,6 +1,7 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { OUTLINE_CAPABILITIES } from "../socket";
+import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { chooseLinkDir, claudeModState, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
 
@@ -101,7 +102,31 @@ export function doctorChecks(f: Facts): Check[] {
   const mod = claudeModState(f);
   add("claude", "claude-mod", mod.status, mod.detail, mod.fix);
   if (f.claude.forceHyperlink !== undefined) add("claude", "FORCE_HYPERLINK", "info", `set to ${f.claude.forceHyperlink}: a known issue (PIE-486)`);
+  for (const c of doorAgentChecks(f)) out.push(c);
   return out;
+}
+
+/** The fix for a door agent that doesn't know what it should: a restart, which keeps the conversation. */
+export const AGENT_RESTART_FIX = {
+  dock: "restart it: the ⟳ on its door's ▲ claude chip, alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
+  tile: "restart it: /exit in its tile, then claude --continue",
+};
+/** The door's own agent (the ▲ claude chip, D's daily tile, its Herdr pane): `agent.restart` restarts it. */
+const isDockAgent = (env: Record<string, string> | null) => env?.EP0CH_TILE_ID === DOCK_TILE_ID || /(^| › )herdr:[^›]*$/.test(env?.EP0CH_NEST ?? "") && !!env?.EP0CH_NEST?.includes("door:");
+
+/** Door agents (Claude in a door tile or the door's Herdr pane) running on an older mod, or without door tools. */
+export function doorAgentChecks(f: Facts): Check[] {
+  const agents = f.claude.agents;
+  if (!agents) return [];
+  if (!agents.length) return [{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }];
+  return agents.map(a => {
+    const where = a.env?.EP0CH_NEST?.split(" › ").at(-1) ?? a.env?.EP0CH_TILE ?? "a door";
+    const name = `agent ${a.pid}`;
+    const detail = `${where}: ${a.knows.why}`;
+    if (a.knows.state === "current") return { group: "claude", name, status: "ok" as const, detail };
+    if (a.knows.state === "unknown") return { group: "claude", name, status: "info" as const, detail };
+    return { group: "claude", name, status: "behind" as const, detail, fix: isDockAgent(a.env) ? AGENT_RESTART_FIX.dock : AGENT_RESTART_FIX.tile };
+  });
 }
 
 export function doctorReport(f: Facts) {
