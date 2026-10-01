@@ -25,6 +25,8 @@ export interface Policy {
   draggable?: boolean;
   /** It takes tiles moved or opened into it. */
   droppable?: boolean;
+  /** Its tiles close (tile.close, ^W x); off, they stay (the board's preview and lanes: they fold to a spine instead). */
+  closable?: boolean;
   /** The tile kinds it takes (any when left out): a locked board's columns take only query tiles. */
   accepts?: string[];
   /** Its borders move (a drag, layout.resize, pane.resize, layout.even). */
@@ -42,7 +44,7 @@ export interface Policy {
   /** Where opens from its tiles land when a tile has no link of its own: a tile's name. */
   opensInto?: string;
 }
-export const POLICY_KEYS = ["draggable", "droppable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto"] as const;
 
 export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[]; policy?: Policy;
@@ -712,7 +714,7 @@ export function unwrapDrawer<I>(root: LNode<I>, d: Drawer<I>): LNode<I> {
 
 /** What applies to a tile, from the screen's policy down through its containers to its kind's default. */
 export interface Effective {
-  locked: boolean; draggable: boolean; droppable: boolean; resizable: boolean; collapsible: boolean;
+  locked: boolean; draggable: boolean; droppable: boolean; closable: boolean; resizable: boolean; collapsible: boolean;
   accepts: string[] | null; opensInto: string | null;
   /** Which layer said each: "screen", a container's id, or "kind". */
   by: Partial<Record<keyof Policy, string>>;
@@ -722,11 +724,11 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, by: {} };
+  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, by: {} };
   for (const { by, policy: p } of layers) {
     if (!p) continue;
     if (p.locked) { out.locked = true; out.by.locked ??= by; }
-    for (const k of ["draggable", "droppable", "resizable", "collapsible"] as const) if (p[k] !== undefined) { out[k] = p[k]!; out.by[k] = by; }
+    for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible"] as const) if (p[k] !== undefined) { out[k] = p[k]!; out.by[k] = by; }
     if (p.accepts) { out.accepts = p.accepts; out.by.accepts = by; }
     if (p.opensInto) { out.opensInto = p.opensInto; out.by.opensInto = by; }
   }
@@ -830,7 +832,7 @@ export function policyOf(x: unknown): Policy {
   const out: Policy = {};
   if (!x || typeof x !== "object") return out;
   const o = x as Record<string, unknown>;
-  for (const k of ["draggable", "droppable", "resizable", "collapsible", "overlay", "stays", "locked"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
+  for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
   for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;

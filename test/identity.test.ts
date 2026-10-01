@@ -205,7 +205,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     expect(r).toMatchObject({ tile: "claude", herdr: { pane: "door-claude" } });
     expect((await act("tile.info", {}, "claude") as any).herdr).toEqual({ pane: "door-claude" });
     expect(D().leaveWarning() ?? "").not.toContain(pane.title());
-    await expect(act("tile.herdr", { pane: "door-claude" }, "tree")).rejects.toThrow(/terminal tile/);
+    await expect(act("tile.herdr", { pane: "door-claude" }, "tree")).rejects.toThrow(/tree is an outline tile: tile.herdr is for a terminal tile/);
     await act("tile.herdr", { on: false }, "claude");
     expect(pane.herdr).toBeNull();
   });

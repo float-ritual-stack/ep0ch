@@ -406,7 +406,7 @@ export class AgentDock implements SharedAgent {
         else this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the ${screen?.title ?? "screen"}`);
         return true;
       }
-      if (k.kind === "paste") p.paste(k.text); else p.key(k, this.api);
+      if (k.kind === "paste") p.paste(k.text); else p.typed(k);
       return true;
     }
     if (isAlt(k, "a")) { run("agent.toggle", {}); return true; }

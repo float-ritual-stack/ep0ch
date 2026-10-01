@@ -28,11 +28,11 @@ import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneKind, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
-import { ScreenTile } from "./screen-tile";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
+import type { TerminalHost } from "./pty-actions";
 import { builtin, dailyAgent, type SavedFloat, sharedAgent, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withDailyAgent, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { kindForKey, kindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type TileEnv } from "./tile-kinds";
+import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type TileEnv } from "./tile-kinds";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -56,7 +56,7 @@ type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
 /** A header pressed: the tile (a tab) it would drag, and where. A drag of a cell or more starts moving it. */
 interface HeadPress { id: number; x: number; y: number }
 
-export class Desk implements Screen, DeskApi, PaneHost, TileHost {
+export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   title = "desk";
   ctx!: Ctx;
   current: Msg | null = null;
@@ -346,9 +346,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         if (this.ctx) this.startTile(id);
         changed = true;
       } else if (!saved && !isTileKind(p.kind) && wasTileKind(p.kind)) {
-        // A program still running keeps its tile until it exits (closing it would lose what it holds); it
-        // goes then, and its tile says why.
-        if (p instanceof PtyPane && p.running) { this.whenExits(p, id); continue; }
+        // A tile still holding work (a program running) keeps its place until it's free (closing it would lose
+        // what it holds); it goes then, and its tile says why. Its kind's own hooks say so, as they were.
+        const was = lastKindOf(p);
+        if (was?.holdsWork?.(p) && was.whenFree) { this.whenFree(p, id, was.whenFree); continue; }
         const spec = this.specOf(id);
         p.dispose?.();
         if (this.ptyIn === p) this.ptyIn = null;
@@ -360,14 +361,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (changed && this.ctx) this.redraw();
   }
 
-  /** When a tile's program exits after its kind went away: its tile says why, in its place. */
-  private whenExits(p: PtyPane, id: number) {
-    if (this.exitWatch.has(p)) return;
-    this.exitWatch.add(p);
-    const was = p.onExit;
-    p.onExit = code => { was?.(code); this.exitWatch.delete(p); if (this.panes.get(id) === p) this.kindsChanged(); };
+  /** When a tile is free (its program exited) after its kind went away: its tile says why, in its place. */
+  private whenFree(p: Pane, id: number, wait: (p: Pane, then: () => void) => void) {
+    if (this.freeWatch.has(p)) return;
+    this.freeWatch.add(p);
+    wait(p, () => { this.freeWatch.delete(p); if (this.panes.get(id) === p) this.kindsChanged(); });
   }
-  private readonly exitWatch = new WeakSet<PtyPane>();
+  private readonly freeWatch = new WeakSet<Pane>();
 
   /** A running program, an unsaved edit, a screen with a draft: closing it would lose something (its kind says). */
   private holdsWork(p: Pane): boolean { return !!kindOf(p)?.holdsWork?.(p); }
@@ -660,7 +660,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   redraw() { if (this.onScreen) this.ctx?.redraw(); }
 
-  tick(): boolean { let any = false; for (const p of this.panes.values()) if (p instanceof ScreenTile && p.tick()) any = true; return any; }
+  tick(): boolean { let any = false; for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
 
   onEvent(e: OutlineEvent) {
     this.hear(e);
@@ -718,7 +718,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   actions() {
     return {
-      actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...tileKinds().flatMap(k => k.actions?.list() ?? []), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: this.all().map(id => this.nameOf(id)),
+      actions: [...DESK_ACTIONS.list(), ...TILE_ACTIONS.list(), ...PANE_ACTIONS.list(), ...allKindActions().flatMap(a => a.list()), ...NOTE_ACTIONS.list()], readers: this.namedReaders().map(r => r.name), tiles: this.all().map(id => this.nameOf(id)),
       rev: this.rev, expected: "any action here takes expected=<rev> (layout.get's rev): refused, with nothing done, when the layout changed since",
     };
   }
@@ -730,26 +730,39 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (DESK_ACTIONS.has(req.action)) return DESK_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (TILE_ACTIONS.has(req.action)) return TILE_ACTIONS.runUntyped(req.action, args, { d: this, reader: req.reader }, actor);
     if (PANE_ACTIONS.has(req.action)) return PANE_ACTIONS.runUntyped(req.action, args, { h: this, reader: req.reader }, actor);
-    // A tile kind's own actions (the tree's tree.*, the backlinks' backlinks.*), on reader=<tile> or the first of that kind.
-    const own = tileKinds().find(k => k.actions?.has(req.action));
-    if (own) { const t = this.tileOfKind(own.kind, req.reader); return { tile: t.name, ...(await own.actions!.runUntyped(req.action, args, { pane: t.pane, desk: this }, actor) as object) }; }
-    // A whole screen's own actions (the board's card.*), in its tile.
+    // A tile kind's own actions (the tree's tree.*, a terminal's tile.type), on reader=<tile>, the focused tile or the first of that kind.
+    const own = this.kindAction(req.action, req.reader);
+    if (own) return { tile: own.tile, ...(await own.set.runUntyped(req.action, args, { pane: own.pane, desk: this, tile: own.tile }, actor) as object) };
+    // An action its kind answers itself (a whole screen's: the board's card.*), in its tile.
     const t = req.reader ? this.tileNamed(req.reader, false) : null;
-    const sp = t ? this.panes.get(t.id) : null;
-    if (sp instanceof ScreenTile) return { tile: t!.name, ...(await sp.act({ ...req, reader: undefined }, actor) as object) };
+    const sp = t ? this.panes.get(t.id) : undefined;
+    const answers = kindOf(sp)?.act;
+    if (sp && answers) return { tile: t!.name, ...(await answers(sp, { ...req, reader: undefined }, actor) as object) };
     const r = this.pickReader(req.reader);
     const out = await r.pane.act(req.action, args, this, actor);
     return { reader: r.name, ...(out && typeof out === "object" ? out : { result: out }) };
   }
 
-  /** A tile of `kind` by name or number, or the first one (for that kind's own actions). */
-  private tileOfKind(kind: string, sel?: string): { name: string; pane: Pane } {
-    const all = this.all().filter(id => this.panes.get(id)?.kind === kind);
+  /**
+   * The kind action `name` and the tile it runs on: reader=<tile> when its kind has the action, else (no reader
+   * named) the focused tile when its kind has it, else the first tile whose kind has it. Null when no kind has
+   * it; refused when the tile named, or every tile here, has a kind without it.
+   */
+  private kindAction(name: string, sel?: string): { set: ReturnType<typeof kindActions>[number]; tile: string; pane: Pane } | null {
+    const sets = (p: Pane | undefined) => kindActions(kindOf(p)).find(a => a.has(name));
+    const owners = tileKinds().filter(k => kindActions(k).some(a => a.has(name)));
+    if (!owners.length) return null;
+    const all = this.all().filter(id => sets(this.panes.get(id)));
     const t = sel ? this.tileNamed(sel, false) : null;
-    const id = t && all.includes(t.id) ? t.id : !sel ? all[0] : undefined;
-    const key = kindOf(this.panes.get(all[0] ?? -1))?.keys?.[0]?.key ?? tileKinds().find(k => k.kind === kind)?.keys?.[0]?.key;
-    if (id === undefined) throw new ActionRefused(all.length ? `${sel} isn't a ${kind} tile; ${kind} tiles: ${all.map(i => this.nameOf(i)).join(", ")}` : `no ${kind} tile here${key ? `; ^W o ${key} opens one` : ""}`);
-    return { name: this.nameOf(id), pane: this.panes.get(id)! };
+    const id = t ? (all.includes(t.id) ? t.id : undefined) : sel ? undefined : all.includes(this.focus) ? this.focus : all[0];
+    if (id === undefined) {
+      const key = owners.flatMap(k => k.keys ?? [])[0]?.key;
+      const named = t ? this.panes.get(t.id) : undefined;
+      const nouns = [...new Set(owners.map(k => kindNoun(k.kind)))].join(" or ");
+      throw new ActionRefused(t ? `${t.name} is ${named ? kindNoun(named.kind) : "a tile"}: ${name} is for ${nouns}${all.length ? `; here: ${all.map(i => this.nameOf(i)).join(", ")}` : ""}`
+        : sel ? `no tile ${sel} here` : `no ${nouns.replace(/^an? /, "")} here${key ? `; ^W o ${key} opens one` : ""}`);
+    }
+    return { set: sets(this.panes.get(id))!, tile: this.nameOf(id), pane: this.panes.get(id)! };
   }
 
   /** A key or a click runs the same action as `act`, as the person; a refusal is said, not thrown. */
@@ -760,6 +773,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (TILE_ACTIONS.has(name)) return void done(TILE_ACTIONS.run(name, args as never, on, USER));
       if (PANE_ACTIONS.has(name)) return void done(PANE_ACTIONS.run(name, args as never, { h: this, reader }, USER));
       if (DESK_ACTIONS.has(name)) return void done(DESK_ACTIONS.run(name, args as never, on, USER));
+      const own = this.kindAction(name, reader);
+      if (own) return void done(own.set.run(name, args as never, { pane: own.pane, desk: this, tile: own.tile }, USER));
     } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); }
   }
 
@@ -788,7 +803,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    */
   personTyping(): boolean {
     const f = this.panes.get(this.focus);
-    return !!this.search || !!this.picker || !!this.policyPanel || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing || this.inPty() || (f instanceof ScreenTile && f.holdsKeys()) || !!f?.typing?.();
+    return !!this.search || !!this.picker || !!this.policyPanel || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.focusedReader()?.surface.choosing || this.inPty() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.();
   }
   /** Screen.holdsKeys: the same, for a frame around the desk (a brief tile) and the shell's agentMayMove (PIE-489). */
   holdsKeys(): boolean { return this.personTyping(); }
@@ -1023,7 +1038,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const typing = pane === this.ptyIn && focused;
     // The dock's agent pulled up over the screen (PIE-498): drawn there, at one size, and said here.
     const away: PaneView | null = sharedAgent()?.drawnElsewhere(pane) ? { lines: ["", `${fg(C.dark)}  ${this.nameOf(id)} is in the agent drawer below${RESET}`, `${fg(C.dark)}  alt+a or Esc puts it back here${RESET}`] } : null;
-    const view = inner.cols >= 1 && inner.rows >= 1 ? (away ?? (pane instanceof PtyPane ? pane.render(inner.cols, inner.rows, focused, this, typing) : pane.render(inner.cols, inner.rows, focused, this))) : null;
+    const view = inner.cols >= 1 && inner.rows >= 1 ? (away ?? pane.render(inner.cols, inner.rows, focused, this, typing)) : null;
     // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
     const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
     const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
@@ -1278,7 +1293,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       const p = this.ptyIn!;
       if (isEscapeChord(k)) return this.cmd("tile.leave", {}, this.nameOf(this.focus));
       if (!p.running) { if (k.kind === "enter") this.cmd("tile.restart", {}, this.nameOf(this.focus)); else ctx.flash(`${this.nameOf(this.focus)} exited · ⏎ runs it again · ctrl+] back to the door`); return this.redraw(); }
-      if (k.kind === "paste") p.paste(k.text); else p.key(k, this);
+      if (k.kind === "paste") p.paste(k.text); else p.typed(k);
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
@@ -1288,7 +1303,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
     // A board, river or brief tile in its own edit, comment or panel: every key is its, the desk's included.
     const held = this.panes.get(this.focus);
-    if (held instanceof ScreenTile && held.holdsKeys() && k.kind !== "mouse") { held.key(k); return; }
+    if (held && kindOf(held)?.takesKeys?.(held) && k.kind !== "mouse") { held.key(k, this); return; }
     if (this.dragging && k.kind === "esc") { this.dragging = null; this.headPress = null; ctx.flash("not moved"); return this.redraw(); }
     if (this.linking && k.kind !== "mouse") return this.linkKey(k);
     // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
@@ -1349,12 +1364,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.cmd("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));
-    // A terminal tile the person isn't in: ⏎ or e starts typing in it (⏎ on one that exited runs it again).
-    if (pane instanceof PtyPane && (k.kind === "enter" || c === "e")) return this.cmd("tile.enter", {}, this.nameOf(this.focus));
+    // A key its kind gives an action of its own (a terminal the person isn't in: ⏎ or e starts typing in it).
+    const pressed = pane ? kindOf(pane)?.press?.(pane, k) : null;
+    if (pressed) return this.cmd(pressed.action, pressed.args ?? {}, this.nameOf(this.focus));
     const readOnly = pane instanceof ReaderPane && pane.readOnly;
     const start = focused && !focused.holdsKeys && focused.msg && !readOnly ? sessionStart(k) : null;
     if (focused && start) return this.start(focused, start);
-    if (!focused?.holdsKeys && !(pane instanceof PtyPane) && pane?.key(k, this)) return;
+    if (!focused?.holdsKeys && pane?.key(k, this)) return;
     if (k.kind === "char" && !k.ctrl) {
       if (k.ch === "/") return this.cmd("search");
       if (k.ch === "V") return this.shell("video.cycle");
@@ -1459,7 +1475,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const tname = this.nameOf(tile);
     const set = (args: Record<string, unknown>) => this.cmd("layout.policy", { node: id, ...args }, tname);
     const onOff = (b: boolean) => (b ? "on" : "off");
-    const flag = (k: "draggable" | "droppable" | "resizable" | "collapsible", about: string) => ({
+    const flag = (k: "draggable" | "droppable" | "closable" | "resizable" | "collapsible", about: string) => ({
       label: `${k} · ${about}`, value: own[k] === undefined ? `${onOff(at[k])} (from ${at.by[k] ?? "the default"})` : onOff(own[k]!),
       // Cycles: from above → off → on → from above.
       run: () => (own[k] === undefined ? set({ [k]: false }) : own[k] === false ? set({ [k]: true }) : set({ clear: k })),
@@ -1467,7 +1483,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const rows: ReturnType<Desk["policyRows"]> = [{
       label: "locked · the shape is fixed, the contents live", value: own.locked ? "on" : at.locked ? `on (from ${at.by.locked})` : "off",
       run: () => (node ? set({ locked: !own.locked }) : this.cmd("layout.lock")),
-    }, flag("draggable", "its tiles move out"), flag("droppable", "it takes tiles"), flag("resizable", "its borders move")];
+    }, flag("draggable", "its tiles move out"), flag("droppable", "it takes tiles"), flag("closable", "its tiles close"), flag("resizable", "its borders move")];
     const kinds = [...new Set((node ? leaves(node) : this.all()).map(i => this.panes.get(i)!.kind))];
     rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", run: () => (own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
     const notes = this.all().filter(i => kindOf(this.panes.get(i))?.accepts?.notes && !(node && leaves(node).includes(i))).map(i => this.nameOf(i));
@@ -1567,6 +1583,18 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   protected floatRefusal(id: number, what: string): string | null {
     return this.isFloat(id) ? `${this.nameOf(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ docks it first` : null;
   }
+  /**
+   * Why tile `id` can't close: a container over it keeps its tiles (closable off), or a tile source supplied it
+   * (the board's lanes: it goes when its data does, and a refill would bring it back). It folds to a spine instead, when it may.
+   */
+  protected closeRefusal(id: number): string | null {
+    const e = this.policyAt(id);
+    const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
+    if (!e.closable) return `${this.nameOf(id)} stays: ${e.by.closable === "screen" ? "the screen" : e.by.closable} keeps its tiles (closable off)${fold}`;
+    const src = this.sourced.get(id);
+    if (src) return `${this.nameOf(id)} stays: ${src.source} supplies it, and it goes when its data does${fold}`;
+    return null;
+  }
   /** Why tile `src` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   protected dragRefusal(src: number): string | null {
     const e = this.policyAt(src);
@@ -1625,6 +1653,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (e.locked) out.locked = e.by.locked;
     if (!e.draggable) out.draggable = false;
     if (!e.droppable) out.droppable = false;
+    if (!e.closable) out.closable = false;
     if (!e.resizable) out.resizable = false;
     if (e.accepts) out.accepts = e.accepts;
     return Object.keys(out).length ? { policy: out } : {};
@@ -1711,9 +1740,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   closeTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
+    // A tile that stays says so first, to anyone: its container's rule, not who asked.
+    this.refuse(this.shapeRefusal(t.id, `closing ${t.name}`) ?? this.closeRefusal(t.id));
     const why = this.closeRefused(t.id, actor);
     if (why) throw new ActionRefused(why.why);
-    this.refuse(this.shapeRefusal(t.id, `closing ${t.name}`));
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running && !this.isShared(pty)) {
@@ -1937,28 +1967,24 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return this.openTile({ kind: "preview", source, name: this.autoName(`${t.name}-preview`) }, t.name, where, actor);
   }
 
-  typeTile(sel: string | undefined, text: string, actor: Actor): TileDone {
-    const t = this.tile(sel);
-    const p = this.panes.get(t.id);
-    if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile`);
-    if (!p.running) throw new ActionRefused(`${t.name}'s program isn't running · tile.restart runs it again`);
-    if (actor.kind === "agent" && this.ptyIn === p && this.focus === t.id) throw new ActionRefused(`the person is typing in ${t.name}; an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)`);
+  // ── terminal tiles: what the terminal kind's actions (PTY_ACTIONS) change on the desk ──
+
+  typeTerminal(name: string, p: PtyPane, text: string, actor: Actor): TileDone {
+    if (!p.running) throw new ActionRefused(`${name}'s program isn't running · tile.restart runs it again`);
+    if (actor.kind === "agent" && this.ptyIn === p && this.panes.get(this.focus) === p) throw new ActionRefused(`the person is typing in ${name}; an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)`);
     // The dock's agent is this tile too (PIE-498): the person typing in it in the drawer holds its keys as well.
-    if (actor.kind === "agent" && sharedAgent()?.personIn(p)) throw new ActionRefused(`the person is typing in ${t.name} in the agent drawer; an agent doesn't type there`);
+    if (actor.kind === "agent" && sharedAgent()?.personIn(p)) throw new ActionRefused(`the person is typing in ${name} in the agent drawer; an agent doesn't type there`);
     p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-    return { tile: t.name, chars: text.length };
+    return { tile: name, chars: text.length };
   }
 
-  herdrTile(sel: string | undefined, pane: string | undefined, on: boolean | undefined, _actor: Actor): TileDone {
-    const t = this.tile(sel);
-    const p = this.panes.get(t.id);
-    if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile; only a terminal tile shows an agent in Herdr`);
-    if (on === false) { p.herdr = null; return { tile: t.name, herdr: null }; }
+  herdrTerminal(name: string, p: PtyPane, pane: string | undefined, on: boolean | undefined, _actor: Actor): TileDone {
+    if (on === false) { p.herdr = null; return { tile: name, herdr: null }; }
     if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-    if (!p.running) throw new ActionRefused(`${t.name}'s program isn't running`);
+    if (!p.running) throw new ActionRefused(`${name}'s program isn't running`);
     p.herdr = { pane };
     this.redraw();
-    return { tile: t.name, herdr: p.herdr };
+    return { tile: name, herdr: p.herdr };
   }
 
   /**
@@ -1966,23 +1992,20 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
    * exited runs again. `send`: bytes to give it first (ctrl+] twice sends a literal ctrl+]). An agent's would
    * take the person's keys, so it's refused: tile.type sends a program text without them.
    */
-  enterTile(sel: string | undefined, send: string | undefined, actor: Actor): TileDone {
+  enterTerminal(name: string, p: PtyPane, send: string | undefined, actor: Actor): TileDone {
     if (actor.kind === "agent") throw new ActionRefused("typing in a terminal tile takes the person's keys; an agent sends it text with tile.type");
-    const t = this.tile(sel);
-    const p = this.panes.get(t.id);
-    if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile`);
-    if (t.id !== this.focus) throw new ActionRefused(`${t.name} doesn't have the keys · tile.focus first`);
-    if (this.inDrawer(p)) { this.redraw(); return { tile: t.name, drawer: true }; }
-    if (!p.running && p.exited !== null) { p.restart(); return { tile: t.name, restarted: true }; }
-    if (!p.running) throw new ActionRefused(`${t.name}'s program hasn't started`);
+    if (this.panes.get(this.focus) !== p) throw new ActionRefused(`${name} doesn't have the keys · tile.focus first`);
+    if (this.inDrawer(p)) { this.redraw(); return { tile: name, drawer: true }; }
+    if (!p.running && p.exited !== null) { p.restart(); return { tile: name, restarted: true }; }
+    if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
     this.ptyIn = p; this.chord = null;
-    if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${t.name}`); }
-    else this.ctx.flash(`typing in ${t.name} · ${ESCAPE_CHORD} back to the door`);
-    return { tile: t.name, typing: true };
+    if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${name}`); }
+    else this.ctx.flash(`typing in ${name} · ${ESCAPE_CHORD} back to the door`);
+    return { tile: name, typing: true };
   }
 
   /** Back to the door from the terminal the person types in (ctrl+]); ctrl+] again soon sends one to it. The person's only. */
-  leaveTile(actor: Actor): TileDone {
+  leaveTerminal(actor: Actor): TileDone {
     if (actor.kind === "agent") throw new ActionRefused("the person's keys are theirs: an agent doesn't take them out of a terminal tile");
     const p = this.ptyIn;
     if (!p) throw new ActionRefused("the person isn't typing in a terminal tile");
@@ -2007,13 +2030,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
   }
 
-  restartTile(sel: string | undefined, _actor: Actor): TileDone {
-    const t = this.tile(sel);
-    const p = this.panes.get(t.id);
-    if (!(p instanceof PtyPane)) throw new ActionRefused(`${t.name} isn't a terminal tile`);
-    if (p.running) throw new ActionRefused(`${t.name} is still running`);
+  restartTerminal(name: string, p: PtyPane, _actor: Actor): TileDone {
+    if (p.running) throw new ActionRefused(`${name} is still running`);
     p.restart();
-    return { tile: t.name };
+    return { tile: name };
   }
 
   tileInfo(sel: string | undefined): unknown { const t = this.tile(sel); return this.tileView(t.id); }
@@ -2640,11 +2660,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) {
         const pane = this.panes.get(id);
         const x = k.x - r.col - 1, y = k.y - r.row - 1;
-        if (pane instanceof PtyPane) {
-          // A click in a terminal starts typing in it; the program gets the click when it asked for the mouse.
+        const press = pane ? kindOf(pane)?.press : undefined;
+        if (pane && press) {
+          // A click its kind gives an action (in a terminal: typing in it); the tile gets the click when it asks for the mouse.
           if (this.inDrawer(pane)) return this.redraw();
-          if (pane.running) this.cmd("tile.enter", {}, this.nameOf(id));
-          if (pane.wantsMouse()) { this.mouseTile = { id, r }; pane.mouse(k, x, y); }
+          const a = press(pane, k);
+          if (a) this.cmd(a.action, a.args ?? {}, this.nameOf(id));
+          if (pane.mouse?.(k, x, y, this)) this.mouseTile = { id, r };
         } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {

@@ -39,8 +39,9 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   const whole = (p: ReaderPane) => until(() => !!p.msg && !p.msg.partial, "the whole note");
   const find = (n: any, key: string): any => (n.key === key ? n : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].map((k: any) => find(k, key)).find(Boolean));
   /** The tiles in the readers row, by name. */
-  const row = () => find(tree(), "readers").kids.map((k: any) => k.pane);
-  const panesIn = (n: any): string[] => (n.pane ? [n.pane] : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].flatMap(panesIn));
+  // The preview sits in a tab set of one, the holder of its policy (PIE-510): its place stays, it doesn't close.
+  const row = () => find(tree(), "readers").kids.map((k: any) => k.pane ?? (k.tabs?.length === 1 ? k.tabs[0] : k.tabs));
+  const panesIn = (n: any): string[] => (n.pane ? [n.pane] : n.tabs ? n.tabs : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].flatMap(panesIn));
   const lanesNode = () => find(tree(), "lanes");
   const details = () => B().details;
   /** A new board, the saved layout cleared first, lanes loaded, the preview on the first card. */
@@ -90,11 +91,11 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await fresh();
     expect(shape(tree())).toMatchObject({
       split: "row", kids: [
-        { drawer: "left", open: false, kid: { split: "col", key: "outline", kids: [{ pane: "tree" }, { pane: "tree-preview" }] } },
+        { drawer: "left", open: false, kid: { split: "col", key: "outline", policy: { draggable: false }, kids: [{ pane: "tree" }, { pane: "tree-preview" }] } },
         { split: "col", key: "board", kids: [
           { columns: `hub:${hub.id}`, key: "lanes", policy: { draggable: false, accepts: ["query"], opensInto: "preview" }, kids: [{ pane: "Doing" }, { pane: "Queued" }] },
-          { split: "row", key: "readers", kids: [{ pane: "preview" }] },
-          { drawer: "down", open: false, policy: { stays: true }, kid: { split: "row", key: "links", kids: [{ pane: "backlinks" }, { pane: "backlinks-preview" }] } },
+          { split: "row", key: "readers", kids: [{ tabs: ["preview"], policy: { draggable: false, droppable: false, closable: false } }] },
+          { drawer: "down", open: false, policy: { stays: true }, kid: { split: "row", key: "links", policy: { draggable: false }, kids: [{ pane: "backlinks" }, { pane: "backlinks-preview" }] } },
         ] },
       ],
     });
@@ -286,7 +287,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().describe().tree.open).toBe(false);
     // The board is on the desk's engine: zoom is the desk's (an agent's never hides the person's tile).
     await expect(act("pane.zoom", {}, "detail2")).rejects.toThrow(/would hide/);
-    await expect(act("pane.close", {}, "preview")).rejects.toThrow(/stays on the board/);
+    await expect(act("pane.close", {}, "preview")).rejects.toThrow(/preview stays: .*closable off/);
     await expect(act("pane.resize", { by: 0 })).rejects.toThrow(/whole number/);
   });
 
@@ -412,7 +413,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const W = () => key({ kind: "char", ch: "w", ctrl: true } as Key);
     W(); key(char("x"));                                                // on a lane
     expect(B().lanes.length).toBe(2);
-    expect(message()).toContain("lanes stay");
+    expect(message()).toMatch(/Doing stays: hub:\S+ supplies it/);
     await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays/);
     key(char("t"));
     W(); key(char("x"));                                                // in the outline: it shuts

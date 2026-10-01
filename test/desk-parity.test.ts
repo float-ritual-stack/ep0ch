@@ -9,6 +9,9 @@ import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { traceActions, type ActionRun } from "../src/surface/actions";
+import { PTY_ACTIONS } from "../src/desk/pty-actions";
+import { TILE_ACTIONS } from "../src/desk/tile-actions";
+import { serviceKind, tileKind } from "../src/desk/tile-kinds";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -90,6 +93,30 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     await expect(act("tile.leave")).rejects.toThrow(/keys are theirs/);
     expect(D().inPty()).toBe(true);
     expect(await ran(ctrl("]"))).toEqual(["tile.leave"]);
+    expect(D().inPty()).toBe(false);
+  });
+
+  test("a terminal's actions are its kind's (PIE-510): keys, a click and act reach them through the registry", async () => {
+    expect(TILE_ACTIONS.has("tile.type")).toBe(false);
+    expect(tileKind("pty")?.actions).toBe(PTY_ACTIONS);
+    // A program an extension names is a terminal too: it shares them.
+    const prog = serviceKind({ kind: "orchard.counter", about: "counts rows", program: { command: ["sh"], cwd: "/", env: {}, args: {}, label: "counter" } });
+    expect(prog.inherits).toContain(PTY_ACTIONS);
+    // The shell has the keys (the test above left it): an agent's tile.type with no reader goes to it.
+    expect(get().focus).toBe("shell");
+    expect((await act("tile.type", { text: "echo kind-typed\\n" }) as any).tile).toBe("shell");
+    await expect(act("tile.restart", {}, "shell")).rejects.toThrow(/shell is still running/);
+    const other = get().tiles.find((t: any) => t.kind === "reader" || t.kind === "tree").name;
+    await expect(act("tile.type", { text: "x" }, other)).rejects.toThrow(new RegExp(`${other} is an? \\w+ tile: tile.type is for a terminal tile`));
+    await expect(act("tile.type", { text: "x" }, "no-such-tile")).rejects.toThrow(/no tile no-such-tile/);
+    // A click inside it runs tile.enter, as e does, by its kind's press.
+    const r = get().tiles.find((t: any) => t.name === "shell").rect;
+    const runs: ActionRun[] = [];
+    const stop = traceActions(x => runs.push(x));
+    try { key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 2 }); key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 2 }); await Bun.sleep(20); } finally { stop(); }
+    expect(runs.filter(x => x.name === "tile.enter").map(x => x.scope)).toEqual(["terminal"]);
+    expect(D().inPty()).toBe(true);
+    await D().act({ action: "tile.leave", args: {} }, { kind: "user" });
     expect(D().inPty()).toBe(false);
   });
 

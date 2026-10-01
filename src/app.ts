@@ -431,7 +431,7 @@ export class App implements Ctx {
     }
   }
 
-  /** `tile.herdr` for the dock's agent: the same rule as a desk tile's (`herdrTile`). */
+  /** `tile.herdr` for the dock's agent: the same rule as a desk tile's (the terminal kind's `tile.herdr`, PTY_ACTIONS). */
   private dockHerdr(args: Record<string, unknown>) {
     const p = this.dock.tile;
     if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);

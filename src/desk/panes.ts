@@ -49,7 +49,8 @@ export interface Pane {
   readonly kind: PaneKind;
   title(): string;
   hint(): string;
-  render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView;
+  /** `typing`: the person is typing in it (a terminal shows its cursor then). */
+  render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
   key(k: Key, desk: DeskApi): boolean;
   click?(x: number, y: number, desk: DeskApi): void;

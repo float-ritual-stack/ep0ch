@@ -25,7 +25,7 @@ import { ReaderPane, sessionName, sessionStart, TreePane, type Pane, type PaneKi
 import { PreviewPane } from "./preview";
 import { BacklinksPane, BACKLINKS_ACTIONS } from "./backlinks-pane";
 import { DetailPane, type LayoutSpec } from "./tiles";
-import { clone, columnsOf, drawerOf, drawerToEdge, insert, normalise, unwrapDrawer, leaf, leaves, node, remove, serialize, splitOf, visible, type Columns, type Dir, type LNode } from "./layout";
+import { clone, columnsOf, drawerOf, drawerToEdge, insert, normalise, unwrapDrawer, leaf, leaves, node, parentOf, remove, serialize, splitOf, visible, type Columns, type Dir, type LNode, type Policy } from "./layout";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { TREE_ACTIONS } from "./tree";
 import { shellKeyOf } from "../shell-keys";
@@ -74,8 +74,19 @@ const SEL = bg(C.blue) + fg(C.white);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 /** The tiles every board has, by name (the lanes come from its hub). */
 const FIXED = ["tree", "tree-preview", "preview", "backlinks", "backlinks-preview"] as const;
-/** The board's lanes policy: its tiles stay (draggable off), only query tiles join, and their opens land in the preview. */
-const LANES_POLICY = { draggable: false, accepts: ["query"], opensInto: "preview" };
+/**
+ * The board's fixed shape, as policy (PIE-510, A1): what the desk's one close, move, drop and float path enforces
+ * and `layout.policy` reads back, never a rule kept by tile name. The lanes stay where they are (draggable off; a
+ * lane closes only when its view goes: the desk's rule for a tile a source supplies), only query tiles join them,
+ * and their opens land in the preview.
+ */
+const LANES_POLICY: Policy = { draggable: false, accepts: ["query"], opensInto: "preview" };
+/** The preview's own place (a tab set of one: a tile's policy holder): it stays in the readers row, takes no tabs, and folds instead of closing. */
+const PREVIEW_POLICY: Policy = { draggable: false, droppable: false, closable: false };
+/** The drawers' lists and their previews stay in their drawers (x shuts the drawer instead: the board's own rule, below). */
+const DRAWER_POLICY: Policy = { draggable: false };
+/** `n` with the fixed shape's fields it doesn't say yet (a person's own choice, set with layout.policy, is kept). */
+const withPolicy = <N extends { policy?: Policy }>(n: N, p: Policy): N => { n.policy = { ...p, ...n.policy }; return n; };
 
 /**
  * The board's screen: the outline drawer (the tree over its preview) on the left, then the lanes over the readers
@@ -83,10 +94,10 @@ const LANES_POLICY = { draggable: false, accepts: ["query"], opensInto: "preview
  */
 function boardTree(ids: number[], hub: string | undefined): LNode {
   const [tree, treePv, preview, links, linksPv] = ids as [number, number, number, number, number];
-  const outline = splitOf("col", [leaf(tree), leaf(treePv)], [0.6, 0.4], "outline");
-  const lanes = columnsOf<number>([], { key: "lanes", ...(hub ? { source: `hub:${hub}` } : {}), policy: LANES_POLICY });
-  const readers = splitOf("row", [leaf(preview)], [4], "readers");
-  const backlinks = splitOf("row", [leaf(links), leaf(linksPv)], [0.5, 0.5], "links");
+  const outline = withPolicy(splitOf("col", [leaf(tree), leaf(treePv)], [0.6, 0.4], "outline"), DRAWER_POLICY);
+  const lanes = columnsOf<number>([], { key: "lanes", ...(hub ? { source: `hub:${hub}` } : {}), policy: { ...LANES_POLICY } });
+  const readers = splitOf<number>("row", [{ t: "tabs", ids: [preview], active: 0, policy: { ...PREVIEW_POLICY } }], [4], "readers");
+  const backlinks = withPolicy(splitOf("row", [leaf(links), leaf(linksPv)], [0.5, 0.5], "links"), DRAWER_POLICY);
   // The backlinks stay open while a source is read in a detail (stays); the outline slides shut as the keys leave it.
   const board = splitOf<number>("col", [lanes, readers, { t: "drawer", kid: backlinks, edge: "down", open: false, policy: { stays: true } }], [0.42, 0.58, 0.36], "board");
   return splitOf("row", [{ t: "drawer", kid: outline, edge: "left", open: false, policy: { min: 28 } }, board], [0.3, 0.7]);
@@ -157,6 +168,7 @@ export class DeliveryBoard extends Desk {
       if (!FIXED.every(n => this.idNamed(n) !== undefined) || !this.lanesNode()) this.freshLayout();
     } else if (s && !s.layout && typeof s === "object" && isOldSaved(s)) this.migrateOld(s);
     if (hubId) { const c = this.lanesNode(); if (c) c.source = `hub:${hubId}`; }
+    this.fixShape();
     this.focus = this.idNamed("preview") ?? this.focus;
     this.labelReaders();
     // Docked when the board was saved, its drawers slide as they should when put back.
@@ -191,6 +203,20 @@ export class DeliveryBoard extends Desk {
     if (o.laneWeights && typeof o.laneWeights === "object" && !Array.isArray(o.laneWeights)) for (const [k, v] of Object.entries(o.laneWeights)) { const w = typeof v === "number" && v > 0 ? share(v, 0.2, 5) : undefined; if (k.trim() && w !== undefined) weights[laneTileName(k)] = w; }
     const folded = Array.isArray(o.collapsed) ? o.collapsed.filter((x): x is string => typeof x === "string").map(laneTileName) : [];
     this.oldLanes = { weights, folded, ...(typeof o.lane === "number" && Number.isInteger(o.lane) && o.lane >= 0 ? { lane: o.lane } : {}) };
+  }
+  /**
+   * A board saved before its fixed shape was policy (PIE-510): its lanes, its drawers' lists and its preview get
+   * the fields boardTree gives them, where they don't say them already; a bare preview gets its own place.
+   */
+  private fixShape() {
+    const lanes = this.lanesNode(), outline = node(this.root, "outline"), links = node(this.root, "links"), pv = this.idNamed("preview");
+    if (lanes) withPolicy(lanes, LANES_POLICY);
+    if (outline) withPolicy(outline, DRAWER_POLICY);
+    if (links) withPolicy(links, DRAWER_POLICY);
+    // Only a preview in the readers row (a tab set it shares keeps its own rules: its other tabs close).
+    const row = node(this.root, "readers"), at = pv !== undefined ? parentOf(this.root, pv) : null, k = at?.parent === row ? row?.kids[at!.i] : undefined;
+    if (k?.t === "leaf") row!.kids[at!.i] = { t: "tabs", ids: [k.id], active: 0, policy: { ...PREVIEW_POLICY } };
+    else if (k?.t === "tabs" && k.ids.length === 1) withPolicy(k, PREVIEW_POLICY);
   }
   /** An old delivery.json's lanes (`migrateOld`): applied when the lanes are first filled, then forgotten. */
   private oldLanes: { weights: Record<string, number>; folded: string[]; lane?: number } | null = null;
@@ -592,7 +618,7 @@ export class DeliveryBoard extends Desk {
   }
 
   /** `open`: put a note in a reader — the preview (selecting its card when a lane lists it), a detail, a new detail, or a new float. */
-  async openOnBoard(id: string, where = "detail"): Promise<{ reader: string; id: string }> {
+  async openOnBoard(id: string, where = "detail"): Promise<{ reader: string; id: string; why?: string }> {
     // A card the lanes list, or a note a reader shows, opens at once (the person's ⏎ on it); any other is read first.
     const known = this.lanes.flatMap(l => l.items ?? []).find(x => x.id === id) ?? this.readers().find(r => r.msg?.id === id)?.msg;
     const m = known ?? await this.ctx.board.get(id);
@@ -610,9 +636,9 @@ export class DeliveryBoard extends Desk {
       shown = this.preview;
     } else if (where === "detail" || where === "new-detail") {
       if (!this.openDetail(m, where === "new-detail") || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
-        // A locked board opens no detail: the note is in the preview, said so.
-        const locked = this.shapeRefusal(this.idNamed("preview")!, "opening a detail");
-        if (locked && this.preview.msg?.id === m.id) return { reader: "preview", id: m.id };
+        // A locked board (or one whose readers row was taken apart) opens no detail: the note is in the preview, said so.
+        const locked = this.shapeRefusal(this.idNamed("preview")!, "opening a detail") ?? this.noReadersRow("opening a detail");
+        if (locked && this.preview.msg?.id === m.id) return { reader: "preview", id: m.id, why: locked };
         throw new ActionRefused(locked ?? "both details hold edits, comments or properties, or the person is in one · save or close one first");
       }
       shown = this.detailTiles()[this.active]!.pane;
@@ -1041,7 +1067,7 @@ export class DeliveryBoard extends Desk {
     // A detail holding an edit, a comment or the panel is never reused or dropped, nor the one the person is in.
     const wantNew = fresh || !details.length || details[this.active]?.pane.holdsKeys;
     // A locked screen keeps its shape: no detail is added; the note opens in a detail free to take it, else the preview.
-    const locked = wantNew && this.shapeRefusal(this.idNamed("preview")!, "opening a detail");
+    const locked = wantNew && (this.shapeRefusal(this.idNamed("preview")!, "opening a detail") ?? this.noReadersRow("opening a detail"));
     if (locked) {
       const free = details.findIndex(d => !d.pane.holdsKeys && d.pane !== keep);
       this.ctx.flash(`${locked} · opened in ${free >= 0 ? this.labelOf(details[free]!.pane) : "the preview"}`);
@@ -1169,27 +1195,40 @@ export class DeliveryBoard extends Desk {
     return r;
   }
   /** A float docks as the last detail. */
-  protected override dockFloat(id: number): LNode { return insert(this.root, "readers", leaf(id), this.detailWeight()); }
+  protected override dockFloat(id: number): LNode {
+    this.refuse(this.noReadersRow(`docking ${this.nameOf(id)}`));
+    return insert(this.root, "readers", leaf(id), this.detailWeight());
+  }
+  /**
+   * Why the readers row (the preview and the details) can't take a detail: it isn't in the layout, its tiles
+   * moved out of it (its policy was changed to let them). Details open there; nothing guesses another place.
+   */
+  private noReadersRow(what: string): string | null {
+    return node(this.root, "readers") ? null : `the board's readers row is gone (its tiles were moved out of it): ${what} needs it · the board comes back whole when it is opened again`;
+  }
   /** A detail's share of the readers row as it opens: three to the preview's four. */
   private detailWeight(): number { const row = node(this.root, "readers"); return (row?.weights[0] ?? 4) * 0.75; }
 
   /**
-   * `tile.close` (`^W x`) on the board: the tiles the board is made of stay (the lanes, the preview, the
-   * drawers' lists and previews: a drawer shuts instead, `x`'s rule); any other tile closes as on the desk.
+   * `tile.close` (`^W x`) on the board: a drawer's list or preview shuts its drawer instead (`x`'s rule); any other
+   * tile closes as on the desk, where the board's policy keeps the lanes and the preview (closable off).
    */
   override closeTile(sel: string | undefined, actor: Actor) {
     const t = this.tile(this.alias(sel));
-    if (this.isLane(t.id) || (FIXED as readonly string[]).includes(t.name)) return { tile: t.name, ...this.closePane(t.name, actor) };
+    if (this.inBoardDrawer(t.name)) return { tile: t.name, ...this.closePane(t.name, actor) };
     return super.closeTile(t.name, actor);
   }
+  /** One of the drawers' tiles (the outline and its preview, the backlinks and theirs). */
+  private inBoardDrawer(name: string): boolean { return name.startsWith("tree") || name.startsWith("backlinks"); }
 
-  /** Close a detail or a float (`x`), the drawers shut; the lanes and the preview stay (they collapse). */
+  /** Close a detail or a float (`x`), the drawers shut; the lanes and the preview stay (their policy: they collapse). */
   override closePane(sel: string | undefined, actor: Actor): PaneDone {
     const s = this.alias(sel ?? (this.onLanes ? "lanes" : this.nameOf(this.focus)));
-    if (sel === "lanes" || (s && this.isLane(this.tileNamed(s, false)?.id ?? -1)) || s === "preview") throw new ActionRefused(`the ${s === "preview" ? "preview stays" : "lanes stay"} on the board; c collapses ${s === "preview" ? "the preview" : "a lane"} to a spine`);
     const t = this.tile(s);
+    // Asked before the person's-keys rule: a tile that stays says so to anyone.
+    this.refuse(this.closeRefusal(t.id));
     if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't close it`);
-    if (t.name.startsWith("tree")) { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { pane: "tree" }; }
+    if (t.name.startsWith("tree") && this.inBoardDrawer(t.name)) { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { pane: "tree" }; }
     if (t.name.startsWith("backlinks")) { const keep = this.focus; this.shutLinks(actor); if (keep !== this.idNamed("backlinks") && keep !== this.idNamed("backlinks-preview")) this.focus = keep; this.save(); this.redraw(); return { pane: "backlinks" }; }
     const rd = this.panes.get(t.id);
     if (rd instanceof ReaderPane && rd.editing) throw new ActionRefused(`not closed: ${t.name} holds ${sessionName(rd)}`);
@@ -1210,7 +1249,8 @@ export class DeliveryBoard extends Desk {
     const s = this.alias(sel ?? (this.onLanes ? "lanes" : undefined));
     // A reader's height is the room the lanes leave it; the backlinks list's is its drawer's.
     const t = this.tileNamed(s, false);
-    const reader = !!t && (t.name === "preview" || this.detailTiles().some(d => d.id === t.id));
+    const row = node(this.root, "readers");
+    const reader = !!t && !!row && leaves(row).includes(t.id);
     if (t && reader && axis === "col") {
       const lane = this.laneIds()[this.lane];
       if (lane === undefined) throw new ActionRefused(`${t.name}'s height is the room the lanes leave it, and there are no lanes yet`);
@@ -1898,7 +1938,8 @@ export class DeliveryBoard extends Desk {
     // On a float too: the action says why it doesn't fold (floatRefusal).
     if (c === "c" && (reader || this.isFloat(this.focus))) { void this.runBoard("reader.collapse", {}, me); return true; }
     if (c === "x" && rd?.editing) { this.ctx.flash(`not closed: it holds ${sessionName(rd)} · ${shut ? "c opens it" : "e or ⏎ enters it"}`); return true; }
-    if (c === "x" && (this.detailTiles().some(d => d.id === this.focus) || this.isFloat(this.focus))) { this.paneAct("pane.close", {}, me); return true; }
+    // x closes a detail or a float; on the preview the same action says why it stays (its policy: closable off).
+    if (c === "x" && (reader || this.isFloat(this.focus))) { this.paneAct("pane.close", {}, me); return true; }
     // Esc in a reader first lets go of a fold point selected with ( ), so ⏎ opens the note again.
     if (k.kind === "esc" && rd && !rd.holdsKeys && !shut && rd.key(k, this)) { this.redraw(); return true; }
     // q is back, as on every screen (PIE-489): the same steps as Esc, drawers and areas first, then the menu.

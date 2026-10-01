@@ -46,17 +46,12 @@ export interface TileHost {
   policyGet(sel: string | undefined): unknown;
   drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string): TileDone;
   previewTile(sel: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
-  typeTile(sel: string | undefined, text: string, actor: Actor): TileDone;
-  restartTile(sel: string | undefined, actor: Actor): TileDone;
-  enterTile(sel: string | undefined, send: string | undefined, actor: Actor): TileDone;
-  leaveTile(actor: Actor): TileDone;
   tileInfo(sel: string | undefined): unknown;
   saveLayout(name: string, actor: Actor): TileDone | { layout: string; [k: string]: unknown };
   loadLayout(name: string, actor: Actor): { layout: string; [k: string]: unknown } | Promise<{ layout: string; [k: string]: unknown }>;
   layouts(): unknown;
   layoutGet(): unknown;
   resizeBorder(at: { path?: string; split?: string }, border: number, share: number, actor: Actor): TileDone | { split: string | undefined; [k: string]: unknown };
-  herdrTile(sel: string | undefined, pane: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
   evenOut(actor: Actor): { even: true };
   swapTile(sel: string | undefined, to: string, actor: Actor): TileDone;
   viewGet(sel: string | undefined): unknown;
@@ -103,16 +98,11 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.collapse": { on?: boolean };
   "float.place": { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number };
   "layout.lock": { on?: boolean };
-  "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; stays?: boolean; locked?: boolean; opensInto?: string; clear?: string };
+  "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; closable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; stays?: boolean; locked?: boolean; opensInto?: string; clear?: string };
   "tile.drawer": { open?: boolean; container?: string };
   "tile.preview": { where?: string };
   "tile.info": Record<string, never>;
-  "tile.type": { text: string };
-  "tile.restart": Record<string, never>;
-  "tile.enter": { send?: string };
-  "tile.leave": Record<string, never>;
   "tab.select": { by?: number };
-  "tile.herdr": { pane?: string; on?: boolean };
   "layout.resize": { split?: string; path?: string; border: number; share: number };
   "layout.even": Record<string, never>;
   "layout.swap": { to: string };
@@ -265,6 +255,7 @@ export const TILE_ACTIONS = new ActionSet<{
       node: { type: "string", optional: true, about: "the container's id, or screen" },
       draggable: { type: "boolean", optional: true, about: "its tiles can be dragged out" },
       droppable: { type: "boolean", optional: true, about: "it takes tiles moved or opened into it" },
+      closable: { type: "boolean", optional: true, about: "its tiles close (tile.close); false: they stay" },
       accepts: { type: "string", optional: true, about: "the tile kinds it takes, comma-separated; any clears" },
       resizable: { type: "boolean", optional: true, about: "its borders move" },
       min: { type: "number", optional: true, about: "its least size in cells (-1 clears)" },
@@ -314,37 +305,6 @@ export const TILE_ACTIONS = new ActionSet<{
     args: {},
     run(_, { d, reader }) { return d.tileInfo(reader); },
   },
-  "tile.type": {
-    summary: "send text=<text> to the program in terminal tile reader=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
-    args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
-    run({ text }, { d, reader }, actor) {
-      const r = d.typeTile(reader, text, actor);
-      say(d, actor, `typed into ${r.tile}`);
-      return r;
-    },
-  },
-  "tile.restart": {
-    summary: "run the program in terminal tile reader=<tile> again (after it exited)",
-    keys: "⏎ on an exited terminal",
-    args: {},
-    run(_, { d, reader }, actor) {
-      const r = d.restartTile(reader, actor);
-      say(d, actor, `restarted ${r.tile}`);
-      return r;
-    },
-  },
-  "tile.enter": {
-    summary: "type in terminal tile reader=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
-    keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
-    args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
-    run({ send }, { d, reader }, actor) { return d.enterTile(reader, send, actor); },
-  },
-  "tile.leave": {
-    summary: "back to the door from the terminal tile the person types in (ctrl+] again soon sends one to the program). The person's only",
-    keys: "ctrl+]",
-    args: {},
-    run(_, { d }, actor) { return d.leaveTile(actor); },
-  },
   "layout.resize": {
     summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",
     keys: "drag a border; ^W < > + - (pane.resize)",
@@ -355,15 +315,6 @@ export const TILE_ACTIONS = new ActionSet<{
       share: { type: "number", about: "kid border's part of the pair, 0.08-0.92" },
     },
     run({ split, path, border, share }, { d }, actor) { return d.resizeBorder({ split, path }, border, share, actor); },
-  },
-  "tile.herdr": {
-    summary: "terminal tile reader=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
-    run({ pane, on }, { d, reader }, actor) {
-      const r = d.herdrTile(reader, pane, on, actor);
-      say(d, actor, on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${pane} in Herdr (quitting the door leaves it running)`);
-      return r;
-    },
   },
   "layout.even": {
     summary: "every split shares its room equally", keys: "^W =",
