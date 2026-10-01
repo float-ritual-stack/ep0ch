@@ -2,13 +2,13 @@
 // remove, collapse, normalise) and the drop zones in cells. floatty's layoutTypes cases are ported where
 // they apply (moveLeafToTarget, moveLeafToRoot, removeNode, clampRatio); the tab set cases are new.
 import { describe, expect, test } from "bun:test";
-import { dropAt, type DropTile } from "../src/desk/drop";
+import { dropAt, handleDrop, type DropTile } from "../src/desk/drop";
 import { activate, clone, cycle, leaf, leaves, move, normalise, pair, place, remove, reorder, revive, serialize, shown, splitOf, tabInto, tabsOf, type LNode } from "../src/desk/layout";
 
 type N = LNode<string>;
 const L = (id: string): N => leaf(id);
 /** The tree as a short string: row(a,b) col(a,b) tabs(a,*b) — the shown tab starred. */
-const s = (n: N | null): string => !n ? "∅" : n.t === "leaf" ? n.id : n.t === "tabs" ? `tabs(${n.ids.map((x, i) => (i === n.active ? "*" + x : x)).join(",")})` : `${n.dir}(${n.kids.map(s).join(",")})`;
+const s = (n: N | null): string => !n ? "∅" : n.t === "leaf" ? n.id : n.t === "tabs" ? `tabs(${n.ids.map((x, i) => (i === n.active ? "*" + x : x)).join(",")})` : n.t === "drawer" ? `drawer<${n.edge}${n.open ? "" : ",shut"}>(${s(n.kid)})` : `${n.dir}(${n.kids.map(s).join(",")})`;
 const weights = (n: N) => (n.t === "split" ? n.weights.map(w => Math.round(w * 1000) / 1000) : []);
 
 describe("moving a tile beside another (floatty's moveLeafToTarget)", () => {
@@ -217,5 +217,21 @@ describe("drop zones in cells (Replit's hit model, floatty's outer edges)", () =
     expect(dropAt(tiles, area, 5, 20, "c")!.ghost).toEqual({ col: 0, row: 0, cols: 30, rows: 40 });
     expect(dropAt(tiles, area, 30, 20, "c")!.ghost).toEqual(tiles[0]!.rect);
     expect(dropAt(tiles, area, 119, 20, "c")!.ghost).toEqual({ col: 84, row: 0, cols: 36, rows: 40 });
+  });
+});
+
+describe("drops and policy (PIE-505)", () => {
+  const area = { col: 0, row: 0, cols: 100, rows: 30 };
+  const tiles = [{ id: "a", rect: { col: 0, row: 0, cols: 50, rows: 30 } }, { id: "b", rect: { col: 50, row: 0, cols: 50, rows: 30 } }];
+  test("a drop carries the reason policy refuses it; one it takes carries none", () => {
+    const refuse = (to: any) => (to.kind === "tabs" && to.target === "b" ? "b takes no drops (droppable off)" : null);
+    expect(dropAt(tiles, area, 75, 15, "a", true, refuse)).toMatchObject({ kind: "tabs", target: "b", refused: "b takes no drops (droppable off)" });
+    expect(dropAt(tiles, area, 60, 15, "a", true, refuse)!.refused).toBeUndefined();
+  });
+  test("a shut drawer's handle on the hint row takes a tile into the tabs of what it shows", () => {
+    const handles = [{ from: 80, to: 88, row: 30, shows: "t", edge: "left" as const }];
+    expect(handleDrop(handles, area, 82, 30, "a")).toMatchObject({ kind: "tabs", target: "t", label: "⇤ into the drawer" });
+    expect(handleDrop(handles, area, 82, 29, "a")).toBeNull();
+    expect(handleDrop(handles, area, 82, 30, "t")).toBeNull();     // onto itself means nothing
   });
 });

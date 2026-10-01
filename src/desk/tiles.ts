@@ -11,18 +11,19 @@ import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
-import { leaf, splitOf, type LNode, type NaryForm, type BinaryForm } from "./layout";
-import { makePane, ReaderPane, type Pane, type PaneKind } from "./panes";
-import { PreviewPane, sourceOf } from "./preview";
-import { BacklinksPane } from "./backlinks-pane";
-import { PtyPane } from "./pty";
+import { leaf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./layout";
+import { ReaderPane, type Pane } from "./panes";
+import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
-import { ScreenTile, SCREEN_KINDS, type ScreenKind } from "./screen-tile";
+import { SCREEN_KINDS, type ScreenKind } from "./screen-tile";
+import { isTileKind, tileKind, tileKinds, type TileKindName } from "./tile-kinds";
+import { registerBuiltinTiles } from "./builtin-tiles";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
 export interface TileSpec {
   t: "leaf";
-  kind: PaneKind;
+  /** Its kind: a name in the tile-kind registry (an extension's too). */
+  kind: TileKindName;
   /** The tile's name: what links, previews, `act reader=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. Absent before PIE-491. */
@@ -46,8 +47,13 @@ export interface TileSpec {
   preview?: boolean;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   link?: string;
-  /** A drawer: slides over the layout (`over`), and is shut (`shut`) until opened. Pinned when absent. */
+  /**
+   * Before PIE-505, a drawer was a flag on its tile: slides over (`over`), shut (`shut`). Read once and turned
+   * into a drawer container holding the tile (`migrateDrawers`); never written now.
+   */
   drawer?: "over" | "shut";
+  /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
+  state?: Record<string, unknown>;
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
@@ -56,7 +62,39 @@ export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
  * is the River screen's own; the `river` layout hosts that screen in a tile rather than copying it.)
  */
 export type OpenRule = "current";
-export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string }
+/**
+ * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
+ * (the outermost container's: `locked` there locks the whole screen, PIE-505).
+ */
+export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy }
+
+/**
+ * A layout saved before PIE-505 marks a drawer on its tile (`drawer: "over"` or `"shut"`). Each such tile (a tab
+ * set whose tiles all say so, as one) is put in a drawer container where it was, sliding from the edge it sits
+ * at, open or shut as it was. A layout with drawer containers comes back as it was.
+ */
+export function migrateDrawers(spec: LayoutSpec): LayoutSpec {
+  if (!savedLeaves(spec.root).some(l => l.drawer)) return spec;
+  const strip = (l: TileSpec): TileSpec => { const { drawer: _d, ...rest } = l; return rest; };
+  const wrap = (n: any, edge: Dir): any => {
+    if (n?.t === "leaf" && n.drawer) return { t: "drawer", edge, open: n.drawer === "over", kid: strip(n) };
+    if (n?.t === "tabs" && Array.isArray(n.tabs) && n.tabs.length && n.tabs.every((l: any) => l?.drawer)) return { t: "drawer", edge, open: n.tabs.some((l: any) => l.drawer === "over"), kid: { ...n, tabs: n.tabs.map(strip) } };
+    return fix(n);
+  };
+  const fix = (n: any): any => {
+    if (!n || typeof n !== "object") return n;
+    if (n.t === "leaf") return n.drawer ? strip(n) : n;
+    if (n.t === "tabs") return { ...n, tabs: (n.tabs ?? []).map((l: any) => (l?.drawer ? strip(l) : l)) };
+    if (n.t === "drawer") return { ...n, kid: fix(n.kid) };
+    const row = n.dir !== "col";
+    if (n.a) return { ...n, a: wrap(n.a, row ? "left" : "up"), b: wrap(n.b, row ? "right" : "down") };
+    if (Array.isArray(n.kids)) return { ...n, kids: n.kids.map((k: any, i: number) => wrap(k, i === n.kids.length - 1 && i > 0 ? (row ? "right" : "down") : (row ? "left" : "up"))) };
+    return n;
+  };
+  // A whole layout that was one drawer has nothing to slide over: it's just its tiles.
+  return { ...spec, root: fix(spec.root) };
+}
+
 
 /**
  * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the
@@ -145,7 +183,7 @@ function savedLeaves(root: SavedTree): TileSpec[] {
   const walk = (n: any) => {
     if (!n || typeof n !== "object") return;
     if (n.t === "leaf") { all.push(n); return; }
-    for (const k of [n.a, n.b, ...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : [])]) walk(k);
+    for (const k of [n.a, n.b, n.kid, ...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : [])]) walk(k);
   };
   walk(root);
   return all;
@@ -156,7 +194,7 @@ function mapLeaves(root: SavedTree, f: (l: TileSpec) => TileSpec): SavedTree {
   const fix = (n: any): any => {
     if (!n || typeof n !== "object") return n;
     if (n.t === "leaf") return f(n);
-    return { ...n, ...(n.a ? { a: fix(n.a), b: fix(n.b) } : {}), ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(Array.isArray(n.tabs) ? { tabs: n.tabs.map(fix) } : {}) };
+    return { ...n, ...(n.a ? { a: fix(n.a), b: fix(n.b) } : {}), ...(n.kid ? { kid: fix(n.kid) } : {}), ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(Array.isArray(n.tabs) ? { tabs: n.tabs.map(fix) } : {}) };
   };
   return fix(root);
 }
@@ -184,20 +222,15 @@ let shared: SharedAgent | null = null;
 export function shareAgent(s: SharedAgent | null) { shared = s; }
 export const sharedAgent = (): SharedAgent | null => shared;
 
-export const TILE_KINDS: readonly PaneKind[] = ["tree", "reader", "detail", "preview", "pty", "thread", "activity", "who", "art", "board", "river", "brief", "backlinks"];
+/** The kinds a tile can be: every kind in the registry, built-ins first. */
+export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
 
-/** Build a tile from its spec. A spec it can't build (a preview with no source) is a reader, and says why. */
-export function makeTile(s: Partial<TileSpec> & { kind: PaneKind }): Pane {
-  switch (s.kind) {
-    case "detail": { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; }
-    case "preview": return new PreviewPane((s.source && sourceOf(s.source)) || { tile: "tree" });
-    case "pty": { const p = s.agent && shared ? shared.paneFor(s) : null; if (p) return p; }
-      return new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
-    case "board": case "river": case "brief": return new ScreenTile(s.kind as ScreenKind, { preview: s.preview });
-    case "backlinks": { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); }
-    default: return makePane(s.kind as "tree");
-  }
+/** Build a tile from its spec, by its kind's registry entry. A kind nobody registered is a reader, and the spec says so. */
+export function makeTile(s: Partial<TileSpec> & { kind: TileKindName }): Pane {
+  const k = tileKind(s.kind) ?? tileKind("reader")!;
+  return k.make(k.revive ? (k.revive({ t: "leaf", ...s } as TileSpec) as typeof s) : s);
 }
+export { isTileKind };
 
 /** A reader that keeps its note: opened on purpose, the current note never moves it (the board's detail). */
 export class DetailPane extends ReaderPane {
@@ -232,7 +265,7 @@ export function dailyDraft(): string {
   return p;
 }
 
-const T = (kind: PaneKind, name: string, more: Partial<TileSpec> = {}): LNode<TileSpec> => leaf({ t: "leaf", kind, name, ...more });
+const T = (kind: TileKindName, name: string, more: Partial<TileSpec> = {}): LNode<TileSpec> => leaf({ t: "leaf", kind, name, ...more });
 
 /**
  * The built-in layouts, as trees of tile specs:
@@ -245,7 +278,7 @@ const T = (kind: PaneKind, name: string, more: Partial<TileSpec> = {}): LNode<Ti
  * - `desk`: the desk as it has always opened.
  */
 export function builtin(name: string): LayoutSpec | null {
-  const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
+  const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : n.t === "drawer" ? { t: "drawer", edge: n.edge, open: n.open, kid: serial(n.kid) as NaryForm<TileSpec> } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
   if (name === "daily") {
     const agent = dailyAgent();
     const draft = dailyDraft();
@@ -282,3 +315,6 @@ export function layoutNames(): { name: string; saved: boolean; builtin: boolean 
   return [...new Set([...BUILTIN, ...saved])].map(name => ({ name, saved: saved.includes(name), builtin: (BUILTIN as readonly string[]).includes(name) }));
 }
 export const isScreenKind = (k: string): k is ScreenKind => (SCREEN_KINDS as readonly string[]).includes(k);
+
+// The built-in kinds register as the door starts (an extension's join the same registry later).
+registerBuiltinTiles();

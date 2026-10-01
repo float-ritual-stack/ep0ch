@@ -14,12 +14,10 @@ import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
+import type { TileKindName } from "./tile-kinds";
 
-export type PaneKind = "tree" | "reader" | "thread" | "activity" | "who" | "art"
-  /** Tiles (PIE-413): a reader that keeps its note, one that follows a tile or a file, a program, a whole screen. */
-  | "detail" | "preview" | "pty" | "board" | "river" | "brief"
-  /** The backlinks of what another tile shows (PIE-432). */
-  | "backlinks";
+/** A tile's kind: a name in the tile-kind registry (src/desk/tile-kinds.ts), built-in or an extension's. */
+export type PaneKind = TileKindName;
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
@@ -44,8 +42,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
-  /** "exhibit": a pane a view brings to a preset desk (the showcase's); it's never saved to desk.json. */
-  readonly kind: PaneKind | "exhibit";
+  /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a view brings to a preset desk (the showcase's), never saved to desk.json. */
+  readonly kind: PaneKind;
   title(): string;
   hint(): string;
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView;
@@ -64,6 +62,10 @@ export interface Pane {
    * took it. Without it the desk sends clicks and the wheel as above.
    */
   mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean;
+  /** The tile it follows selected `m` (a preview): it shows it. */
+  follow?(m: Msg | null, desk: DeskApi): void;
+  /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
+  followFile?(path: string | null | undefined, desk: DeskApi): void;
   /** What the tile needs to be built again (a layout saved by name): its note, command, source. */
   spec?(): Record<string, unknown>;
   /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
@@ -430,13 +432,3 @@ export class ArtPane implements Pane {
   wheel(dir: 1 | -1, desk: DeskApi) { this.scroll = Math.max(0, this.scroll + dir * 2); desk.redraw(); }
 }
 
-export function makePane(kind: "tree" | "reader" | "thread" | "activity" | "who" | "art"): Pane {
-  switch (kind) {
-    case "tree": return new TreePane();
-    case "reader": return new ReaderPane(true);
-    case "thread": return new ThreadPane();
-    case "activity": return new ActivityPane();
-    case "who": return new WhoPane();
-    case "art": return new ArtPane();
-  }
-}

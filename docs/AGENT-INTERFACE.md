@@ -104,7 +104,7 @@ The door paints at most once a frame (16ms), however busy its terminal tiles are
 | `focus.changed` | `tile`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
 | `viewport` | `tile`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
 | `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
-| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, pin, drawer, resize, load |
+| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `locked`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, drawers with their `id`, edge, `open` and `kid`, each container's `policy`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer` with its `edge` and `container`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, drawer in or out, open or shut, resize, policy, lock, load |
 | `marks.changed` | `marks`: each mark's `n`, `block` or `tile`+`line`, `reason`, `by`, `at`, `showing` | a mark set or dismissed |
 | `screen` | `screen` | the door moved to another screen (the feed is the desk's) |
 
@@ -115,7 +115,8 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below); the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link`, `drawer`, `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each drawer with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<drawer's>.0`), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `drawer` (`open`, `shut`) with its `edge` and `container`, the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.policy reader=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`reader=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info reader=<tile>` | one tile as `layout.get` gives it |
 | `marks.list` | every mark, and the tiles showing it |
@@ -222,7 +223,10 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.close` | `reader` | never the person's tile, never a running program |
 | `tile.focus` | `reader` | refused while the person is typing |
 | `tile.link` | `reader`, `to` | |
-| `tile.pin`, `tile.drawer` | `on`, `open` | |
+| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.drawer` | `reader`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
+| `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
+| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
 | `tile.preview` | `reader`, `where` | |
 | `tile.type`, `tile.restart` | `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
 | `tab.select` | `reader`, `by` | never hides the person's tab |
@@ -278,7 +282,8 @@ at, and what it does while they're typing:
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
-| `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |
+| `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut drawer opens it | the typing tile refused |
+| `tile.pin` | no; a drawer around their tile (or its tab set) starts open | allowed |
 | `tile.close`, `pane.close` (the same code) | never the focused tile, never a running program | refused for those |
 | `tab.select` | never hides the person's tab | refused for that |
 | `pane.zoom` | only the focused tile, never one that hides it | refused otherwise |
@@ -351,7 +356,7 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 | `^W x` on a running program | asks; again within 3s ends it | the tile goes |
 | an agent's `tile.close` on a running program | refused | — |
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
-| `layout.load` | same-named tiles keep their programs; others running become shut drawers | replaced |
+| `layout.load` | same-named tiles keep their programs; others running go in one shut drawer on the right | replaced (refused on a locked screen) |
 | quitting the door (ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
 | SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception | ended with the door, after drafts, comments and an open `ctrl+e` editor's text are copied to `drafts/`; the terminal is put back and the socket removed | kept; written whole (temp file, rename) |
 | `kill -9` | ended by the pty's hangup; a watcher puts the terminal back; the next door sweeps the socket and keeps the `ctrl+e` file | kept |

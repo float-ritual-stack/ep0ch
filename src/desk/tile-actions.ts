@@ -6,7 +6,7 @@
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import type { Dir } from "./layout";
+import { isDir, type Dir, type Policy } from "./layout";
 import type { PaneKind } from "./panes";
 
 export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
@@ -37,8 +37,11 @@ export interface TileHost {
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor): TileDone;
   selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone;
   focusTile(sel: string | undefined, actor: Actor): TileDone;
-  pinTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
-  drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor): TileDone;
+  pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | undefined, actor: Actor): TileDone;
+  lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean };
+  setPolicy(sel: string | undefined, node: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy };
+  policyGet(sel: string | undefined): unknown;
+  drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string): TileDone;
   previewTile(sel: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
   typeTile(sel: string | undefined, text: string, actor: Actor): TileDone;
   restartTile(sel: string | undefined, actor: Actor): TileDone;
@@ -84,8 +87,10 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.close": Record<string, never>;
   "tile.link": { to?: string };
   "tile.focus": Record<string, never>;
-  "tile.pin": { on?: boolean };
-  "tile.drawer": { open?: boolean };
+  "tile.pin": { on?: boolean; edge?: string };
+  "layout.lock": { on?: boolean };
+  "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; locked?: boolean; opensInto?: string; clear?: string };
+  "tile.drawer": { open?: boolean; container?: string };
   "tile.preview": { where?: string };
   "tile.info": Record<string, never>;
   "tile.type": { text: string };
@@ -192,21 +197,62 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "tile.pin": {
-    summary: "pin reader=<tile> into the layout (on=true) or make it a drawer that slides over the others without moving them (on=false); default toggles. A tab can't be a drawer",
-    keys: "^W p",
-    args: { on: { type: "boolean", optional: true, about: "true pins it, false makes it slide over" } },
-    run({ on }, { d, reader }, actor) {
-      const r = d.pinTile(reader, on, actor);
-      if (r.changed !== false) say(d, actor, `${r.pinned ? "pinned" : "unpinned"} ${r.tile}`);
+    summary: "put reader=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is docked where it was (on=true); default toggles. A tab set goes in as one. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
+    keys: "^W p; ^W P then edge (⏎ or a click cycles it)",
+    args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from" } },
+    run({ on, edge }, { d, reader }, actor) {
+      if (edge !== undefined && !isDir(edge)) throw new ActionRefused(`tile.pin: edge is left, right, up or down, not ${edge}`);
+      const r = d.pinTile(reader, on, edge as Dir | undefined, actor);
+      if (r.changed !== false) say(d, actor, r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${r.edge}`);
+      return r;
+    },
+  },
+  "layout.lock": {
+    summary: "lock the screen (on=true): its shape is fixed (no moves, drops, opens of new tiles, closes, resizes, drawers in or out, links or layout loads) and its contents stay live (reading, editing, typing in terminals, drawers sliding, tabs shown, zoom); on=false unlocks; default toggles. Saved with the layout",
+    keys: "alt+k; a click on the hint row's □ lock / ▣ locked chip",
+    args: { on: { type: "boolean", optional: true, about: "true locks, false unlocks; default toggles" } },
+    run({ on }, { d }, actor) {
+      const r = d.lockScreen(on, actor);
+      if (r.changed) say(d, actor, r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen");
+      return r;
+    },
+  },
+  "layout.policy": {
+    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a drawer, from layout.get) or node=screen; left out, the innermost container holding reader=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible and overlay (a drawer), locked, opensInto=<tile> (where its tiles' opens land when they have no link); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
+    keys: "^W P (⏎ or a click on a row changes it; alt+k locks the screen)",
+    args: {
+      node: { type: "string", optional: true, about: "the container's id, or screen" },
+      draggable: { type: "boolean", optional: true, about: "its tiles can be dragged out" },
+      droppable: { type: "boolean", optional: true, about: "it takes tiles moved or opened into it" },
+      accepts: { type: "string", optional: true, about: "the tile kinds it takes, comma-separated; any clears" },
+      resizable: { type: "boolean", optional: true, about: "its borders move" },
+      min: { type: "number", optional: true, about: "its least size in cells (-1 clears)" },
+      max: { type: "number", optional: true, about: "its most size in cells (-1 clears)" },
+      fixed: { type: "number", optional: true, about: "its size in cells, kept (-1 clears)" },
+      collapsible: { type: "boolean", optional: true, about: "a drawer can slide shut" },
+      overlay: { type: "boolean", optional: true, about: "a drawer slides over (true) or takes its room while open (false)" },
+      locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
+      opensInto: { type: "string", optional: true, about: "the tile its tiles' opens land in (empty clears)" },
+      clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
+    },
+    run({ node, clear, accepts, opensInto, min, max, fixed, ...flags }, { d, reader }, actor) {
+      const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
+      for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
+      for (const [k, v] of Object.entries({ min, max, fixed })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
+      if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
+      if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
+      if (!Object.keys(set).length && !gone.length && node === undefined) return d.policyGet(reader);
+      const r = d.setPolicy(reader, node, set, gone, actor);
+      say(d, actor, `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`);
       return r;
     },
   },
   "tile.drawer": {
-    summary: "slide drawer reader=<tile> open (open=true) or shut (open=false); default toggles. A shut drawer is a handle at the end of the hint row",
+    summary: "slide the drawer holding reader=<tile> open (open=true) or shut (open=false); default toggles. A shut drawer is a handle at the end of the hint row; a tile dragged onto the handle goes into the drawer. Refused when its policy says it isn't collapsible",
     keys: "^W d; a click on its handle; a drawer slides shut when the keys go elsewhere",
-    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" } },
-    run({ open }, { d, reader }, actor) {
-      const r = d.drawerTile(reader, open, actor);
+    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the drawer's id (d<n>), when it isn't the innermost one holding reader=" } },
+    run({ open, container }, { d, reader }, actor) {
+      const r = d.drawerTile(reader, open, actor, container);
       say(d, actor, `${r.open ? "opened" : "shut"} drawer ${r.tile}`);
       return r;
     },

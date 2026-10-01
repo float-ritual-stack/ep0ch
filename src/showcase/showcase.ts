@@ -27,6 +27,7 @@ import { leaf, pair, type LNode } from "../desk/layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
+import { serviceKind, tileKinds } from "../desk/tile-kinds";
 import { ScreenTile } from "../desk/screen-tile";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
@@ -91,15 +92,33 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "panes", need: "open, split, zoom, close panes", part: "the pane model: the layout tree, shared by the desk and the board (^W then o x z s HJKL < > + -; the board's x o T B { } < >); pane.* actions", files: "src/desk/layout.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
+    key: "panes", need: "open, split, zoom, close panes; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers) with a policy each, shared by the desk and the board (^W then o x z s HJKL < > + -, p a drawer, P the policy; alt+k locks; the board's x o T B { } < >); pane.* layout.* tile.* actions; tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is on the tree since PIE-412`,
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
+      // The outline is in a drawer on the left (PIE-505): it slides shut when the keys leave it, and its handle
+      // on the hint row opens it again; a header dropped on the handle goes into it.
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
-        layout: ([t, rd, h, a]) => pair("row", 0.24, leaf(t!), pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
+        layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "drawer", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+    },
+  },
+  {
+    key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile)", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts",
+    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind (PIE-507) registers the same way, its rows from the service",
+    stage(n, show) {
+      // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
+      const list = serviceKind({
+        kind: "showcase.kinds", about: "the registry, listed",
+        render: async req => ({
+          title: "tile kinds",
+          lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`.slice(0, req.cols + 20)]),
+        }),
+      }).make({ kind: "showcase.kinds" });
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · kinds", panes: [list, r], layout: ([a, b]) => row(0.5, a!, b!) }, show, [[r, n.notebook]]);
     },
   },
   {
@@ -340,7 +359,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string } }, Showcase>("showcase", {
   "section": {
-    summary: "show a section (name=<1-14> or its key: note, actions, edit, panes, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
+    summary: "show a section (name=<1-15> or its key: note, actions, edit, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click",
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);
