@@ -19,6 +19,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { valueTarget } from "../src/surface/props-panel";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -317,7 +318,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     // One key from the lanes: the preview takes focus with its panel open.
     await act("focus", {}, "lanes");
     key(char("i"));
-    expect([B().focus, !!B().preview.surface.panel]).toEqual(["preview", true]);
+    expect([BV.where(b), !!B().preview.surface.panel]).toEqual(["preview", true]);
     const r = await act("props");
     expect(r.rows.map((x: any) => `${x.key}=${x.value}:${x.scope}`)).toEqual([
       "type=roadmap-item:block", "priority=high:block", "work-stage=doing:block", "project=garden:block", "track=soil:block", "track=tools:block",
@@ -326,7 +327,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     expect(r.rows.find((x: any) => x.key === "related-to")).toMatchObject({ target: { block: ids.plan } });
     // Tab moves between values inside the panel instead of moving the board's focus.
     key({ kind: "tab" }); key({ kind: "tab" });
-    expect([B().focus, B().preview.surface.panel.sel]).toEqual(["preview", 2]);
+    expect([BV.where(b), B().preview.surface.panel.sel]).toEqual(["preview", 2]);
     await expect(act("props.copy", { key: "track" })).rejects.toThrow("pass n");
     // An agent gets the value in its reply; the person's panel selection and clipboard stay as they were.
     expect(await act("props.copy", { n: 6 })).toMatchObject({ key: "track", value: "tools" });

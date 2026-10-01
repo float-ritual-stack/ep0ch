@@ -344,6 +344,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | terminal (`pty`) | a program in a pty the door owns: nvim, claude, a shell. Click it or `⏎` to type in it; `ctrl+]` back to the door |
 | backlinks | the backlinks of what another tile shows (`tile:detail`), grouped as Detail groups them: `j` `k` show one where the tile's selection goes (a preview following it), `⏎` or a click opens it, `alt+⏎` or a ctrl-click opens it fresh; `s K w h n .` and the status line change the view (`backlinks.pick`, `backlinks.view`) |
 | board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
+| query | a saved view's cards with its own cursor (`view=<its block id>`; `^W o q` on a tile showing a view): a board lane, on the desk; `j k` pick, `⏎` opens where its opens go, `r` reads it again |
 | thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
 
 | Keys (mouse) | Action |
@@ -373,11 +374,13 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `[ ]` | previous / next tab |
 | `Ctrl+W` then `< > + -`, `=` | resize, even out |
 | `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
-| `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile |
+| `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile, `q` the cards of the view this tile shows (a query tile) |
 | `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
 | `Ctrl+W` then `p` / `d` | put this tile (its tab set, as one) in a drawer where it is, or take its drawer away / slide the drawer open or shut. A drawer slides over the others without moving them, shuts when the keys leave it, and holds anything moved into it |
-| `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a drawer's collapsible, overlay and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
+| `Ctrl+W` then `c` / `f` | fold this tile to a spine where it is (a tile side by side with others), or open it / pop it out as a float over everything (its title drags it, `◢` sizes it, `H J K L` step it), or dock a float back |
+| a click on a header's `⇤ drawer` | dock that drawer where it is |
+| `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a drawer's collapsible, overlay, stays and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
 | `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
@@ -572,18 +575,25 @@ The last board per workspace is remembered.
   agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
   a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
-  The edge you grab stays under the pointer. Keys: `{ }` lane height, `< >` width of the focused lane,
-  reader or outline drawer.
-- **One layout tree** (PIE-412): the board is laid out by the desk's tree (`src/desk/layout.ts`): the lanes
-  pane over the readers row, the backlinks drawer under the readers, the outline drawer beside everything, floats
-  over it all. `peek` shows it (`layout`), and agents change it with the `pane.*` actions (`pane.resize`,
-  `pane.close`, `pane.float`, `pane.pin`), which never close or float the pane that has your keys.
-- **`o`** pops the focused reader out as a floating pane: drag its title to move, drag `◢` to resize, `H J K L`
-  to nudge, `o` again to dock it back as a detail, `x` to close.
-- **`t`** outline drawer with its own mini preview underneath; slides over unless pinned (`T`, or click `[ ] pin` in its top border: pinned, it becomes part of the layout); `S` moves it
-  to the other side so it doesn't cover the preview.
-- **`b`** backlinks drawer spanning all readers, with its own preview of the selected source and the quoted
-  snippet; `B` or a click on its `[ ] pin` pins it into the layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
+  The edge you grab stays under the pointer; on a header row the title is the grip that moves a tile, the bare
+  line after it the border. Keys: `{ }` lane height, `< >` width of the focused lane, reader or outline drawer.
+- **A preset on the desk** (PIE-511): the board is a screen on the desk's one layout engine
+  (`src/desk/layout.ts`). Its lanes are query tiles in a columns container whose tiles come from the hub
+  (`hub:<id>`: one per view, kept by view as views come and go); the readers row is the preview, then the
+  details; the outline (the tree over its preview) is a drawer on the left, the backlinks (the list beside
+  its preview) a drawer at the bottom; floats sit over it all. The lanes' policy keeps their tiles (draggable
+  off), takes only query tiles and opens into the preview: `^W P` changes it, and a lane let go can be dragged
+  anywhere, still a lane. Every desk key works here too (`^W` splits, tabs, zoom, lock, `/` search), and a desk
+  tile can sit beside the lanes (`^W o`). `peek` and `layout.get` show the tree; agents change it with the
+  `pane.*` and `tile.*` actions, which never close or float the tile that has your keys.
+- **`o`** pops the focused reader out as a float (the preview floats a copy): drag its title to move, drag
+  `◢` to resize, `H J K L` to nudge, `o` again to dock it back as a detail, `x` to close.
+- **`t`** outline drawer with its own preview underneath; slides over unless pinned (`T`, or a click on
+  `⇤ drawer` in its header: pinned, it becomes part of the layout); `S` moves it to the other side so it
+  doesn't cover the preview. Shut, it's a handle at the end of the hint row (`⇤ outline`): a click opens it.
+- **`b`** backlinks drawer under the readers, the list beside its own preview of the selected source (the
+  quoted snippet in its title); it stays open while you read a source in a detail. `B` pins it into the
+  layout; ⏎ / alt+⏎ or a click opens a source in a detail. A link clicked in either drawer's
   preview opens in a detail too. It shows what Detail's Backlinks panel shows (PIE-442, the service's
   `references.backlinks.facets`): this note and its descendants hidden, resolved comments hidden, sources
   grouped by kind with stage counts (`+ Outbox item 10 (2 waiting · 1 draft · 7 done)`), open items first
@@ -594,8 +604,9 @@ The last board per workspace is remembered.
   `n` this note, `.` or space folds a group (⏎ or a click on its header too). Detail's `k` and `t` are the
   board's up and outline drawer, so kind is **`K`** and stage is **`w`**. Against a service without facets
   it's one flat list, and the status line says nothing is grouped.
-- Layout, pins, collapsed lanes, a collapsed preview and drawer side are saved to `delivery.json`. Details
-  aren't saved, so neither is their collapse.
+- The board's layout (sizes, drawers pinned or shut and their sides, collapsed lanes and preview) is saved to
+  `delivery.json` as a layout, with the hub per workspace and the lane the cursor was in. Details and floats
+  aren't saved.
 
 ## Moving cards
 

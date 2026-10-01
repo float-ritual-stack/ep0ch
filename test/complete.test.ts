@@ -474,7 +474,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       expect(y).toBeGreaterThan(0);
       // A float drawn over the popup's rows (a note popped out earlier and dragged there).
       const { ReaderPane } = await import("../src/desk/panes");
-      B.floats.push({ pane: new ReaderPane(), rect: { col: x - 5, row: y - 2, cols: 30, rows: 6 } });
+      const fid = B.put(new ReaderPane(), "over");
+      B.floats.push({ id: fid, rect: { col: x - 5, row: y - 2, cols: 30, rows: 6 } });
+      screen();                                                            // drawn before the person clicks
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
       // The float is elsewhere: the click leaves the edit (saved as typed), and the hidden candidate wasn't inserted.
@@ -482,7 +484,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       expect(draft.lines.at(-1)).toBe("sow [[se");
       const saved = (await board.get(beans.id))!;
       expect(saved.text.split("\n").at(-1)).toBe("sow [[se");
-      B.floats.pop();
+      B.closeId(fid);
       await board.update(beans.id, was, saved.revision!);                  // the note as it was, for the next hosts
     } finally { app.pop(); }
   });

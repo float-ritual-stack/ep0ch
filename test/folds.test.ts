@@ -15,6 +15,7 @@ import { SocketBoard, type Actor } from "../src/socket";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -414,8 +415,8 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     await act("open", { id: card.id }, "detail");
     const d = B().details[0];
     await until(() => d.msg?.id === card.id && !d.msg.partial, "the whole note");
-    expect(B().focus).toBe("detail0");
-    const r = B().rects.get("detail0") ?? (frame(), B().rects.get("detail0"));
+    expect(BV.where(b)).toBe("detail0");
+    const r = BV.rectOf(b, "detail0") ?? (frame(), BV.rectOf(b, "detail0"));
     const title = () => [...frame()[r.row]!].slice(r.col, r.col + r.cols).join("");
     expect(title()).toMatch(/ · \d+%/);                        // long: the frame says how far down
     key(char(")")); key(char("f"));
@@ -452,7 +453,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     await act("open", { id: card.id }, "preview");
     const p = B().preview;
     await until(() => p.msg?.id === card.id && !p.msg.partial, "the whole note in the preview");
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     const opened = () => B().details.filter((d: any) => d.msg?.id === card.id).length;
     const was = opened();
     frame();
@@ -466,7 +467,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     key(char(")"));
     key({ kind: "esc" });
     expect(p.surface.describe().folds.selected).toBe(null);
-    expect(B().focus).toBe("preview");                        // the first esc only let go of the fold point
+    expect(BV.where(b)).toBe("preview");                        // the first esc only let go of the fold point
   });
 
   test("review 4, 5: a heading's link opens, the heading folds, each click reaches the surface once, and the frame never folds", async () => {
@@ -476,7 +477,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     const d = B().details.find((x: any) => x.msg?.id === linked.id);
     await until(() => !d.msg.partial && frame().join("\n").includes("Stake the beans"), "the link's title drawn");
     const region = `detail${B().details.indexOf(d)}`;
-    const r = B().rects.get(region);
+    const r = BV.rectOf(b, region);
     let calls = 0;
     const orig = d.surface.click.bind(d.surface);
     d.surface.click = (...a: any[]) => { calls++; return orig(...a); };

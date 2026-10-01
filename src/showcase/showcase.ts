@@ -24,7 +24,7 @@ import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { LastCallers, MessageReader, WhoOnline } from "../screens";
-import { leaf, pair, type LNode } from "../desk/layout";
+import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
@@ -94,8 +94,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "panes", need: "open, split, zoom, close panes; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers) with a policy each, shared by the desk and the board (^W then o x z s HJKL < > + -, p a drawer, P the policy; alt+k locks; the board's x o T B { } < >); pane.* layout.* tile.* actions; tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is on the tree since PIE-412`,
+    key: "panes", need: "open, split, zoom, close panes; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); pane.* layout.* tile.* actions; tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
+    aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is a preset on this engine since PIE-511`,
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
@@ -108,8 +108,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile)", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts",
-    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind (PIE-507) registers the same way, its rows from the service",
+    key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile); fill a container from data", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws; a tile source fills columns (hub:<id>, one query tile per view)", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/query.ts",
+    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind (PIE-507) registers the same way, its rows from the service. Over the reader, columns filled from the house board's hub: a query tile per view, as the board's lanes are",
     stage(n, show) {
       // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
       const list = serviceKind({
@@ -120,7 +120,9 @@ export const SECTIONS: Section[] = [
         }),
       }).make({ kind: "showcase.kinds" });
       const r = new ReaderPane();
-      return deskOf({ title: "showcase · kinds", panes: [list, r], layout: ([a, b]) => row(0.5, a!, b!) }, show, [[r, n.notebook]]);
+      // The hub's views as query tiles: a columns container its tile source (hub:<id>) fills, as the board's lanes.
+      const lanes = n.hub ? [columnsOf<number>([], { key: "lanes", source: `hub:${n.hub.id}` })] : [];
+      return deskOf({ title: "showcase · kinds", panes: [list, r], layout: ([a, b]) => pair("row", 0.4, leaf(a!), lanes.length ? splitOf("col", [...lanes, leaf(b!)], [0.45, 0.55]) : leaf(b!)) }, show, [[r, n.notebook]]);
     },
   },
   {

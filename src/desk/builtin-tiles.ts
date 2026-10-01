@@ -10,7 +10,8 @@ import { WHO_ACTIONS } from "../who-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
-import { kindOf, registerTileKind, tileKind, type TileKind } from "./tile-kinds";
+import { HUB_SOURCE, laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
+import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
 import { DetailPane, dailyDraft, editor, sharedAgent, shell, words } from "./tiles";
 import { TREE_ACTIONS } from "./tree";
 
@@ -138,6 +139,17 @@ const builtins = (): TileKind[] => [
   screen("river", "v", "the river (Quay) as a tile, its columns and open rule its own"),
   screen("brief", "f", "the brief as a tile"),
   {
+    kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>); a board lane is one",
+    // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
+    keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (m.props.type ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
+    make: s => new QueryPane(s.view ?? ""), actions: QUERY_ACTIONS,
+    save: p => (p as QueryPane).spec(),
+    check: s => (s.view ? null : "a query tile needs view=<a saved view's block id> (^W o q on a tile showing a view, say the outline's row on it)"),
+    shows: p => (p as QueryPane).card() ?? null,
+    view: p => { const q = p as QueryPane, m = q.card(); return { viewport: { view: q.view, lane: q.name, selected: m?.id ?? null, title: m ? subject(m) : null } }; },
+    describe: p => (p as QueryPane).describe(),
+  },
+  {
     kind: "backlinks", about: "the backlinks of what another tile shows (source=tile:<name>)",
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); },
@@ -148,7 +160,8 @@ const builtins = (): TileKind[] => [
   },
 ];
 
-/** Register the built-ins (once: the desk's module and a test's both ask). */
+/** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
   for (const k of builtins()) if (!tileKind(k.kind)) registerTileKind(k);
+  if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

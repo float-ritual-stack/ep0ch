@@ -81,8 +81,8 @@ export const PANE_ACTIONS = new ActionSet<{
     },
   },
   "pane.float": {
-    summary: "pop reader=<pane> out as a float over the board, or dock a float back as a detail. Refused to an agent for the pane that has the person's keys",
-    keys: "board o",
+    summary: "pop tile reader=<pane> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or dock a float back (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
+    keys: "board o; desk ^W f",
     args: {},
     run(_, { h, reader }, actor) {
       const r = h.floatPane(reader, actor);
@@ -91,8 +91,8 @@ export const PANE_ACTIONS = new ActionSet<{
     },
   },
   "pane.pin": {
-    summary: "pin a drawer (reader=tree or backlinks) into the layout, or unpin it to slide over again (on=true/false; default toggles)",
-    keys: "board T, B, a click on the drawer's [ ] pin",
+    summary: "dock the drawer holding reader=<pane> into the layout (on=true), or put the pane back in a drawer to slide over again (on=false); default toggles. On the board reader=tree and reader=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview)",
+    keys: "board T, B; a click on a header's ⇤ drawer docks it",
     args: { on: { type: "boolean", optional: true, about: "true pins, false unpins; default toggles" } },
     run({ on }, { h, reader }, actor) {
       const r = h.pinPane(reader, on, actor);

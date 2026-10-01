@@ -86,7 +86,9 @@ directions ("the draft is in the outbox below"). Look the id up and link it. `[[
   The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d`. Its rows are the canonical
   blocks, not copies: to change what's in a view, change the blocks' properties.
 - A **board** is any block with two or more view children: the **hub**. Each view is a column (a lane), in
-  order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it.
+  order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it; its
+  lanes follow the hub (a view added, renamed or taken away under it changes them as it happens). One view's
+  cards can also sit in a tile of their own on the desk (`^W o q` on the view's row, `tile.open kind=query`).
 - Moving a card patches the properties the target lane's plain clauses name (the service plans it,
   `views.planWrite`); a new card in a lane is born with them and `create`'s defaults.
 - Before placing a block into a view, ask the service what patch would make it match; don't guess the query.

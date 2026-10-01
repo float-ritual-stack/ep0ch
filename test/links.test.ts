@@ -18,6 +18,7 @@ import type { Key } from "../src/term";
 import { SCROLL_ROWS } from "../src/scroll";
 import { wrap } from "../src/text";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -109,7 +110,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     throw new Error(`"${text}" isn't drawn in ${JSON.stringify(r)}:\n${lines.slice(r.row, r.row + r.rows).map(plain).map(l => l.slice(r.col, r.col + r.cols)).join("\n")}`);
   };
   const frame = () => b.render(B().ctx).lines;
-  const rect = (region: string): Rect => { b.render(B().ctx); return B().rects.get(region); };
+  const rect = (region: string): Rect => { b.render(B().ctx); return BV.rectOf(b, region); };
   const shows = (region: string, text: string) => until(() => { try { where(frame(), text, rect(region)); return true; } catch { return false; } }, `"${text}" in ${region}`);
   /** A new board on the hub, the preview on the one Queued card (the note full of links). */
   const fresh = async () => {
@@ -165,7 +166,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
       click(where(frame(), text, rect("preview"), nth));
       await until(() => B().details[0]?.msg?.id === targets[i].id, `${kind} to open`).catch(e => { throw new Error(`${kind}: ${e.message}`); });
       expect(B().preview.msg.id).toBe(n.jobs.id);
-      expect(B().focus).toBe("detail0");
+      expect(BV.where(b)).toBe("detail0");
     }
   }, 20_000);
 
@@ -192,11 +193,11 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     key({ kind: "enter" });
     await whole(B().details[0], n.jobs.id);
     key(char("o"));
-    const f = B().floats[0];
-    await whole(f.pane, n.jobs.id);
+    const f = B().floats[0], fp = B().panes.get(f.id);
+    await whole(fp, n.jobs.id);
     await until(() => { try { where(frame(), "Stake the beans", f.rect); return true; } catch { return false; } }, "the float drawn");
     click(where(frame(), "Stake the beans", f.rect));
-    await until(() => f.pane.msg?.id === n.beans.id, "the block in the float");
+    await until(() => fp.msg?.id === n.beans.id, "the block in the float");
   }, 20_000);
 
   test("the property panel: a click picks a row, a click on a linked value follows it", async () => {
@@ -216,18 +217,18 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   test("a backlinks row opens its source in a detail, the preview follows it, and a link in that preview opens in a detail too", async () => {
     await fresh();
     key(char("b"));
-    await until(() => !!B().links?.data?.sources.length, "the backlinks");
+    await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
     // Grouped as Detail groups them (PIE-442): a note isn't an open item, so its group opens first.
     click(where(frame(), "+ Note 1", rect("backlinks")));
     click(where(frame(), "Sunday list", rect("backlinks")));
     await until(() => B().details[0]?.msg?.id === n.sunday.id, "the source in a detail");
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     await whole(B().linksPreview, n.sunday.id);
     // The backlink preview: its link opens in a detail, and the list's preview stays on its source.
-    B().focus = "backlinks";
+    BV.at(b, "backlinks");
     const pr = rect("links-preview");
-    await until(() => { try { where(frame(), "Weekend jobs", pr, 1); return true; } catch { return false; } }, "the preview drawn");
-    click(where(frame(), "Weekend jobs", pr, 1));                          // the first is the quoted snippet, not a link
+    await until(() => { try { where(frame(), "Weekend jobs", pr); return true; } catch { return false; } }, "the preview drawn");
+    click(where(frame(), "Weekend jobs", pr));
     await until(() => B().details.some((x: ReaderPane) => x.msg?.id === n.jobs.id), "the link in a detail");
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
   }, 20_000);
@@ -235,12 +236,12 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   test("only the backlinks rows drawn are clickable: not the frame, the status line, nor the spare rows under the last source", async () => {
     await fresh();
     key(char("b"));
-    await until(() => !!B().links?.data?.sources.length, "the backlinks");
-    const L = B().links, one = L.data.sources[0];
+    await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
+    const L = B().linksTile, one = L.data.sources[0];
     // More sources than fit, one line each (PIE-442), under the status line; without facets, so one flat list.
     L.data = { ...L.data, sources: Array.from({ length: 40 }, (_, i) => ({ ...one, blockId: one.blockId, facets: undefined, title: `Source ${String(i).padStart(2, "0")}`, updatedAt: `2026-01-01T00:00:${String(59 - i).padStart(2, "0")}.000Z` })) };
     L.sel = 0; L.top = 0;
-    const r = rect("backlinks"), head = B().linkHead, fit = r.rows - 2 - head;
+    const r = rect("backlinks"), head = L.head, fit = r.rows - 2 - head;
     expect(fit).toBeGreaterThan(3);
     click({ x: r.col + 3, y: r.row + r.rows - 1 });                            // the bottom border
     click({ x: r.col + 3, y: r.row + 1 });                                     // the status line's first part isn't a control
@@ -252,7 +253,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
     // A short list leaves spare rows under it: a click there does nothing.
     L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };
-    B().focus = "backlinks"; L.sel = 0; L.top = 0;
+    BV.at(b, "backlinks"); L.sel = 0; L.top = 0;
     const before = B().details.length;
     click({ x: r.col + 3, y: r.row + head + 3 });
     await Bun.sleep(50);

@@ -18,6 +18,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -73,7 +74,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
   const frame = () => b.render(B().ctx).lines;
-  const rect = (region: string): Rect => { b.render(B().ctx); return B().rects.get(region); };
+  const rect = (region: string): Rect => { b.render(B().ctx); return BV.rectOf(b, region); };
   const where = (lines: string[], text: string, r: Rect) => {
     for (let y = r.row; y < r.row + r.rows; y++) {
       const l = plain(lines[y] ?? ""), x = l.indexOf(text, r.col);
@@ -101,7 +102,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await shows("preview", "Stake the beans");                          // its links resolved to titles
     await shows("preview", "» Paint the shed");
     await shows("preview", "Turn the compost");
-    B().focus = "preview";
+    BV.at(b, "preview");
   };
   /** The jobs card in detail 1, drawn, with the keys there. */
   const detail = async () => {
@@ -113,7 +114,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await shows("detail0", "Stake the beans");
     await shows("detail0", "» Paint the shed");
     await shows("detail0", "Turn the compost");
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     return d;
   };
 
@@ -216,7 +217,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       key({ kind: "enter" });
       await until(() => B().details[0]?.msg?.id === n[target].id, `${label} in a detail`);
       expect(p.msg!.id).toBe(n.jobs.id);
-      expect(B().focus).toBe("detail0");
+      expect(BV.where(b)).toBe("detail0");
       expect(current(p)!.label.startsWith(label)).toBe(true);        // the preview keeps its place
     }
     await fresh();
@@ -235,7 +236,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(p.surface.expanded.size).toBe(0);
     // With nothing current, ⏎ opens the preview's note in a detail, as before.
     key({ kind: "esc" });
-    B().focus = "preview";
+    BV.at(b, "preview");
     key({ kind: "enter" });
     await until(() => B().details[0]?.msg?.id === n.jobs.id, "the card in a detail");
   }, 40_000);
@@ -249,7 +250,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await fresh();
     key({ kind: "enter" });                                            // detail 1 on the card
     await whole(B().details[0], n.jobs.id);
-    B().focus = "preview";
+    BV.at(b, "preview");
     stepTo(B().preview, "Garden plan");
     key({ kind: "alt-enter" });
     await until(() => B().details.length === 2 && B().details[1].msg?.id === n.plan.id, "a new detail from the preview");
@@ -308,7 +309,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     key({ kind: "mouse", action: "drag", button: 0, x: w0.x + 3, y: w0.y });
     key({ kind: "mouse", action: "up", button: 0, x: w0.x + 3, y: w0.y });
     const r = rect("preview");
-    const before = { cur: current(p), scroll: p.surface.scroll, focus: B().focus, selection: p.surface.describe().selection };
+    const before = { cur: current(p), scroll: p.surface.scroll, focus: BV.where(b), selection: p.surface.describe().selection };
     expect(before.selection).toMatchObject({ text: "First" });
     const out = await act("focus.set", { quote: "edge it with boards" }, "preview", AS) as any;
     expect(out).toMatchObject({ reader: "preview", marked: "\"edge it with boards\"", by: AS });
@@ -319,7 +320,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(ruled.some(l => l.includes("Stake the beans"))).toBe(true);         // the person's own ruler stays too
     expect(current(p)).toEqual(before.cur);
     expect(p.surface.scroll).toBe(before.scroll);                               // already in view: nothing moved
-    expect(B().focus).toBe(before.focus);
+    expect(BV.where(b)).toBe(before.focus);
     expect(p.surface.describe().selection).toEqual(before.selection);
     expect(p.surface.describe().focus).toMatchObject({ by: AS, quote: "edge it with boards" });
     // The position is the person's: an agent can't move it, and ⏎ still acts on theirs.
@@ -344,7 +345,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await act("open", { id: long.id }, "detail", AS);
     const d = B().details[0] as ReaderPane;
     await whole(d, long.id);
-    B().focus = "detail0";
+    BV.at(b, "detail0");
     stepTo(d, "Garden plan");
     expect(d.surface.scroll).toBe(0);
     await act("focus.set", { quote: "Mulch everything." }, "detail1", AS);
@@ -368,11 +369,11 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await fresh();
     key({ kind: "enter" });
     await whole(B().details[0], n.jobs.id);
-    B().focus = "preview";
+    BV.at(b, "preview");
     stepTo(B().preview, "## Beds");
     const at = current(B().preview);
     const order: string[] = [];
-    for (let i = 0; i < 3; i++) { key({ kind: "tab" }); order.push(B().focus); }
+    for (let i = 0; i < 3; i++) { key({ kind: "tab" }); order.push(BV.where(b)); }
     expect(order).toEqual(["detail0", "lanes", "preview"]);
     expect(current(B().preview)).toEqual(at);                         // Tab didn't step
   }, 20_000);

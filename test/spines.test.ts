@@ -17,6 +17,7 @@ import { drawSpine, spineImage } from "../src/spine";
 import { C, fg, RESET } from "../src/style";
 import { Term, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -88,21 +89,28 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   const message = () => (app as any).message as string;
   const frame = () => b.render(B().ctx).lines.map(plain);
   const hints = () => frame().at(-1)!;
-  const rect = (region: string) => { b.render(B().ctx); return B().rects.get(region); };
-  const spine = (region: string) => { b.render(B().ctx); return B().readerSpines.find((s: any) => s.region === region)?.rect; };
+  const rect = (region: string) => { b.render(B().ctx); return BV.rectOf(b, region); };
+  /** A pane's fold, as the desk keeps it (its tile id). */
+  const folded = (p: any) => B().collapsed.get(B().idOf(p));
+  const foldedLanes = () => B().laneIds().filter((id: number) => B().collapsed.has(id)).length;
+  const foldedReaders = () => [...B().collapsed.keys()].filter((id: number) => !B().isLane(id)).length;
+  /** A folded reader's spine: its tile, drawn three columns wide. */
+  const spine = (region: string): any => { b.render(B().ctx); const r = BV.rectOf(b, region); return r && r.cols === 3 ? r : undefined; };
   const click = (r: { col: number; row: number; cols: number; rows: number }) => {
     const at = { x: r.col, y: r.row + Math.floor(r.rows / 2) };
     key({ kind: "mouse", action: "down", button: 0, ...at }); key({ kind: "mouse", action: "up", button: 0, ...at });
   };
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), "the whole note");
   const state = () => JSON.parse(readFileSync(join(scratch.root, "door", "delivery.json"), "utf8"));
+  /** The names of the tiles saved folded in the board's layout. */
+  const savedFolds = (): string[] => { const out: string[] = []; const walk = (n: any) => { if (!n || typeof n !== "object") return; if (n.t === "leaf") { if (n.collapsed) out.push(n.name); return; } for (const k of [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b]) walk(k); }; walk(state().layout?.root); return out; };
   /** A new board on the same hub, nothing collapsed, the lanes loaded and the preview on the first Queued card. */
   const fresh = async () => {
     if ((app as any).stack.at(-1) instanceof DeliveryBoard || (app as any).stack.at(-1) instanceof Desk) app.pop();
     b = new DeliveryBoard(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
-    B().shut?.clear(); B().collapsed.clear(); B().save();
+    B().collapsed.clear(); B().save();
     await whole(B().preview);
   };
   /** The preview and one detail on another card. */
@@ -143,10 +151,9 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await withDetail();
     const before = rect("detail0").cols;
     key({ kind: "tab" });
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     key(char("c"));
-    expect(B().shut.has(B().preview)).toBe(true);
-    expect(rect("preview")).toBeUndefined();
+    expect(!!folded(B().preview)).toBe(true);
     const s = spine("preview");
     expect(s.cols).toBe(3);
     expect(before).toBeLessThan(120);
@@ -157,44 +164,44 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(col).toBe(title);
     expect(hints()).toContain("preview · collapsed");
     expect(message()).toContain("preview collapsed");
-    expect(state().collapsedReaders).toEqual(["preview"]);
+    expect(savedFolds()).toEqual(["preview"]);
     // Its own keys don't reach the hidden note: j scrolls nothing and says how to open it.
     key(char("j"));
     expect(B().preview.surface.scroll).toBe(0);
     expect(message()).toContain("preview is collapsed");
     key(char("c"));
-    expect(B().shut.has(B().preview)).toBe(false);
+    expect(!!folded(B().preview)).toBe(false);
     expect(rect("preview")).toBeDefined();
     expect(rect("detail0").cols).toBe(before);
-    expect(state().collapsedReaders).toEqual([]);
+    expect(savedFolds()).toEqual([]);
     // ⏎ on a focused spine opens it too.
     key(char("c")); key({ kind: "enter" });
-    expect(B().shut.has(B().preview)).toBe(false);
+    expect(!!folded(B().preview)).toBe(false);
   });
 
   test("a detail collapses too, and a click on its spine opens and focuses it", async () => {
     const d = await withDetail();
     key({ kind: "tab" }); key({ kind: "tab" });
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     key(char("c"));
-    expect(B().shut.has(d)).toBe(true);
+    expect(!!folded(d)).toBe(true);
     const s = spine("detail0");
     expect(s.col + s.cols).toBe(180);                                   // the preview took the width
     expect(rect("preview").cols).toBe(180 - 3);
     key({ kind: "esc" });
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     click(s);
-    expect(B().shut.has(d)).toBe(false);
-    expect(B().focus).toBe("detail0");
+    expect(!!folded(d)).toBe(false);
+    expect(BV.where(b)).toBe("detail0");
     expect(rect("detail0")).toBeDefined();
   });
 
   test("the preview's collapse is saved with the layout and restored by the next board", async () => {
     await fresh();
     key({ kind: "tab" }); key(char("c"));
-    expect(state().collapsedReaders).toEqual(["preview"]);
+    expect(savedFolds()).toEqual(["preview"]);
     const again = new DeliveryBoard(hub.id);
-    expect((again as any).shut.has((again as any).preview)).toBe(true);
+    expect((again as any).collapsed.has((again as any).idOf((again as any).preview))).toBe(true);
     key(char("c"));
   });
 
@@ -210,7 +217,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     key(char("c"));
     await Bun.sleep(50);
     expect(B().preview.session).toBeNull();
-    expect(B().shut.has(B().preview)).toBe(true);
+    expect(!!folded(B().preview)).toBe(true);
     key(char("c"));
     expect(B().preview.hint()).toContain("C comment");
     expect(B().preview.hint()).not.toContain("c comment");
@@ -221,13 +228,13 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     key(char("c"));                                                       // the Queued lane
     key({ kind: "tab" }); key(char("c"));                                 // the preview
     key({ kind: "tab" }); key(char("c"));                                 // the detail
-    expect([B().collapsed.size, B().shut.size]).toEqual([1, 2]);
+    expect([foldedLanes(), foldedReaders()]).toEqual([1, 2]);
     key({ kind: "alt", ch: "c" });
-    expect([B().collapsed.size, B().shut.size]).toEqual([0, 0]);
-    expect(B().shut.has(d)).toBe(false);
-    expect(state()).toMatchObject({ collapsed: [], collapsedReaders: [] });
+    expect([foldedLanes(), foldedReaders()]).toEqual([0, 0]);
+    expect(!!folded(d)).toBe(false);
+    expect(savedFolds()).toEqual([]);
     // Before, alt+c arrived as esc then c: to the lanes, and a lane collapsed.
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
   });
 
   test("in the person's own edit, c is typed: it never collapses the reader they're writing in", async () => {
@@ -240,7 +247,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     for (const ch of " and oil the hinge") key(char(ch));
     key(char("c"));
     expect(d.draft!.text.split("\n")[0]).toEndWith("and oil the hingec");
-    expect(B().shut.has(d)).toBe(false);
+    expect(!!folded(d)).toBe(false);
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(d.draft).toBeNull();
   });
@@ -252,9 +259,9 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(await act("edit.text", { text }, "detail1")).toMatchObject({ dirty: true });
     const draft = d.draft!;
     key({ kind: "tab" }); key({ kind: "tab" });
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     key(char("c"));                                                       // not in the agent's edit: c collapses
-    expect(B().shut.has(d)).toBe(true);
+    expect(!!folded(d)).toBe(true);
     expect(message()).toContain("keeping an agent's");
     expect(d.draft).toBe(draft);
     expect([draft.text, draft.dirty]).toEqual([text, true]);
@@ -272,7 +279,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(b.keepDrafts().some(p => readFileSync(p, "utf8").includes("Oil the hinge"))).toBe(true);
     expect((await other.get(id))!.text).toBe(was);                       // nothing was written
     key(char("c"));
-    expect(B().shut.has(d)).toBe(false);
+    expect(!!folded(d)).toBe(false);
     expect(d.draft).toBe(draft);
     expect(d.draft!.text).toBe(text);
     key(char("e"));                                                       // enters it, as before collapsing
@@ -285,30 +292,30 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
 
   test("an agent collapses and reopens readers through act, attributed, never the one the person has", async () => {
     const d = await withDetail();
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     expect(await act("reader.collapse", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: true });
-    expect(B().shut.get(d)).toMatchObject({ by: AS });
+    expect(folded(d)).toMatchObject({ by: AS });
     expect(message()).toContain(AS);
     expect(message()).toContain("collapsed detail 1");
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     const peek = (app.describe() as any).state;
     expect(peek.collapsedReaders).toEqual(["detail1"]);
     expect(peek.readers.find((r: any) => r.name === "detail1")).toMatchObject({ collapsed: true, collapsedBy: AS });
     // A note action there would change what the person can't see.
     await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*reader.expand reader=detail1/);
     expect(await act("reader.expand", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: false });
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     // The reader the person has (here, in its property panel) isn't the agent's to collapse.
     key({ kind: "tab" });
     key(char("i"));
     expect(B().preview.surface.panel).not.toBeNull();
     await expect(act("reader.collapse", {}, "preview")).rejects.toThrow(/the person is in preview/);
-    expect(B().shut.has(B().preview)).toBe(false);
+    expect(!!folded(B().preview)).toBe(false);
     key({ kind: "esc" });
     await act("reader.collapse", {}, "detail1");
     key(char("j"));                                                       // the person's keys stay theirs
     expect(await act("reader.expand", {}, "all")).toMatchObject({ reopened: ["detail1"] });
-    expect(B().shut.size).toBe(0);
+    expect(foldedReaders()).toBe(0);
     await expect(act("reader.collapse", {}, "all")).rejects.toThrow(/only reopens/);
   });
 
@@ -333,8 +340,8 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     (app as any).video = "kitty";
     try {
       const keys = b.render(B().ctx).placements!.map(p => p.key);
-      expect(keys).toContain("lane-spine:0");
-      expect(keys).toContain("reader-spine:preview");
+      expect(keys).toContain(`spine:${B().laneIds()[0]}`);
+      expect(keys).toContain(`spine:${B().idNamed("preview")}`);
     } finally { (app as any).video = "cells"; }
     key({ kind: "alt", ch: "c" });
   });

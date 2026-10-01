@@ -136,6 +136,12 @@ yourself (path 1): `/exit`, then `claude --continue`.
   backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
+- **The board** is a preset on the desk: the same `layout.get`, `tile.*` and `pane.*` work there. Its lanes are
+  query tiles named by their lane, in a `columns` container filled from the hub; its readers are `preview`,
+  `detail1`…; the outline drawer is `tree` over `tree-preview`, the backlinks drawer `backlinks` beside
+  `backlinks-preview`. Cards: `card.select` (yours is your own), `card.move lane=…`, `card.create`, `steps`,
+  `step.set`; `board.hub` lists or shows a board. On the desk, `tile.open kind=query view=<view id>` puts a
+  saved view's cards in a tile.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 
 ## When something looks wrong

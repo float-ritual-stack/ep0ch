@@ -13,6 +13,7 @@ import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { readView } from "../src/views";
 import { HERDR_VARS } from "../src/desk/pty";
+import * as BV from "./board-view";
 
 const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
@@ -44,7 +45,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     const i = laneIndex(laneName);
     const at = laneIds(laneName).indexOf(id);
     if (at < 0) throw new Error(`${id} isn't in ${laneName}: ${laneIds(laneName)}`);
-    B().focus = "lanes"; B().lane = i; B().lanes[i].sel = at;
+    BV.at(b, "lanes"); B().lane = i; B().lanes[i].sel = at;
   };
   /** The move picker by keys: m, j/k to the lane, enter. */
   const pick = (name: string) => {
@@ -234,7 +235,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     ch("x");                                                           // typed into the draft, not a board key
     expect(B().details.find((d: any) => d.editing).draft.dirty).toBe(true);
     // Keys and clicks can't reach the lanes while it's open; if focus got there anyway, the move still refuses.
-    B().focus = "lanes"; B().lane = laneIndex("Queued");
+    BV.at(b, "lanes"); B().lane = laneIndex("Queued");
     ch("m");
     expect(B().mover).toBeNull();
     ch("L"); ch("H");
@@ -243,7 +244,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     expect((await current(cards.draft.id)).revision).toBe(cards.draft.revision);
     // Close the edit (esc twice puts it aside), then the move goes through.
     // Coming back to it (focus moved away), e enters it again before its keys reach it (PIE-411).
-    B().focus = `detail${B().details.findIndex((d: any) => d.editing)}`;
+    BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);
     ch("e");
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().details.some((d: any) => d.editing)).toBe(false);
@@ -256,13 +257,13 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   test("dragging a card onto another lane moves it", async () => {
     await select("Queued", cards.drag.id);
     b.render(B().ctx);                                                  // lays out lane rectangles for the mouse
-    const from = B().laneRects.find((r: any) => r.lane === laneIndex("Queued")).rect;
-    const to = B().laneRects.find((r: any) => r.lane === laneIndex("Doing")).rect;
+    const from = BV.rectOf(b, "Queued");
+    const to = BV.rectOf(b, "Doing");
     const y = from.row + 1 + (B().lanes[laneIndex("Queued")].sel - B().lanes[laneIndex("Queued")].top) * 2;
     const mouse = (action: "down" | "drag" | "up", x: number, yy: number) => press({ kind: "mouse", action, button: 0, x, y: yy });
     mouse("down", from.col + 3, y);
     mouse("drag", to.col + 4, to.row + 3);
-    expect(B().drag.over).toBe(laneIndex("Doing"));
+    expect(B().cardDrag.over).toBe(laneIndex("Doing"));
     // The first frame over a lane asks the service what the drop would patch; the next one says it.
     expect(b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("asking the outline what a move into Doing would patch");
     await until(() => !!B().movePlans?.plans, "the service's plans");

@@ -54,6 +54,10 @@ export interface TileSpec {
   drawer?: "over" | "shut";
   /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
   state?: Record<string, unknown>;
+  /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */
+  view?: string;
+  /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
+  collapsed?: true;
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
@@ -66,7 +70,9 @@ export type OpenRule = "current";
  * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
  * (the outermost container's: `locked` there locks the whole screen, PIE-505).
  */
-export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy }
+export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy; floats?: SavedFloat[] }
+/** A float as saved (PIE-511): its tile, and its rectangle. */
+export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number } }
 
 /**
  * A layout saved before PIE-505 marks a drawer on its tile (`drawer: "over"` or `"shut"`). Each such tile (a tab
@@ -102,10 +108,10 @@ export function migrateDrawers(spec: LayoutSpec): LayoutSpec {
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
  * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
  */
-export const ID_SHAPE = /^[tsg]\d+$/;
+export const ID_SHAPE = /^[tsgdc]\d+$/;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
-  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s or g and digits are tile, split and tab set ids)`;
+  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g, d or c and digits are tile, split, tab set, drawer and columns ids)`;
   if (/^[A-Za-z][\w.-]{0,39}$/.test(name)) return null;
   return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
 }

@@ -73,6 +73,18 @@ export interface Pane {
   spec?(): Record<string, unknown>;
   /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
   dispose?(): void;
+  /** What its header says after its name, already coloured (a lane: its count), instead of its title. */
+  headLabel?(): string;
+  /** How its frame looks now, when it's its own to say (a lane a card is dragged over): its colour, its hint. */
+  frameLook?(focused: boolean): { colour?: number; hint?: string } | null;
+  /** Folded to a spine: the title it shows, and marks above it (a draft, new comments). */
+  spine?(): { title: string; marks?: string[] };
+  /** The person is typing in it (a filter): it holds their keys, as an edit does. */
+  typing?(): boolean;
+  /** The keys went elsewhere while it was typing: it keeps what was typed (a filter) and stops. */
+  blur?(): void;
+  /** Folded to a spine (true) or opened again: what it holds stays exactly as it was. */
+  folded?(on: boolean): void;
 }
 
 const SEL_ON = bg(C.blue) + fg(C.white);
@@ -190,6 +202,27 @@ export class ReaderPane implements Pane {
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }
   describe() { return { title: this.title(), held: this.held, ...this.surface.describe() }; }
+
+  // ── folded to a spine (tile.collapse): what it holds is kept; comments arriving meanwhile mark the spine ──
+
+  /** The note's comment and reply ids when it was folded (null until they're read); undefined while open. */
+  private foldSeen: Set<string> | null | undefined = undefined;
+  private commentIds(): Set<string> | null { return this.comments ? new Set(this.comments.flatMap(t => [t.id, ...t.replies.map(r => r.id)])) : null; }
+  folded(on: boolean) { this.foldSeen = on ? this.commentIds() : undefined; }
+  /** Comments or replies that arrived since it was folded. */
+  newComments(): number {
+    if (this.foldSeen === undefined) return 0;
+    const now = this.commentIds();
+    if (!now) return 0;
+    if (!this.foldSeen) { this.foldSeen = now; return 0; }       // read for the first time while folded: the baseline
+    return [...now].filter(id => !this.foldSeen!.has(id)).length;
+  }
+  /** Its spine: the note's title; what it holds (✎ an edit, ¶ a comment, ≡ properties) and new comments (■) above it. */
+  spine() {
+    const s = this.surface, hold = s.draft ? "✎" : s.session ? "¶" : s.panel ? "≡" : "";
+    const marks = [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET, ...(this.newComments() ? [fg(C.yellow) + "■" + RESET] : [])];
+    return { title: this.msg ? subject(this.msg) : this.title(), marks };
+  }
 
   /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited or commented on. */
   get readOnly(): boolean { return !!this.msg && !isOutlineNote(this.msg); }

@@ -4,7 +4,7 @@
 // at startup (src/desk/builtin-tiles.ts); an extension's kind registers the same way, and its `make` builds a
 // tile whose content the service draws (`serviceKind`, below).
 import type { Msg } from "../board";
-import type { Actor } from "../socket";
+import type { Actor, Change } from "../socket";
 import type { ActionSet } from "../surface/actions";
 import { wrap } from "../text";
 import type { Policy } from "./layout";
@@ -123,6 +123,44 @@ export function kindForKey(key: string): { kind: TileKind; key: KindKey } | null
   for (const k of registry.values()) for (const x of k.keys ?? []) if (x.key === key) return { kind: k, key: x };
   return null;
 }
+
+// ── tile sources: a container whose tiles come from data (PIE-511) ──────────────
+
+/**
+ * Where a columns container's tiles come from (its `source`, `<name>:<arg>`): the board's lanes are `hub:<id>`,
+ * one query tile per view under that hub. The desk asks the source when the screen starts and again when a
+ * change `affects` it, and keeps each tile it already has by its `key` (its cursor, its collapse), adding the new
+ * ones and closing the gone ones. The desk never knows what a hub is; the source never knows the layout.
+ */
+export interface TileSource {
+  readonly name: string;
+  /** One line: what it supplies. */
+  readonly about: string;
+  /**
+   * The tiles it supplies now for `arg`, in order: each one's spec, and `prime`, what a tile (new, or kept from
+   * before) is told of the data it stands for (a query tile, its view as read now); and a title for the screen.
+   */
+  tiles(arg: string, desk: DeskApi): Promise<{ tiles: { spec: TileSpec; prime?(p: Pane): void }[]; title?: string }>;
+  /** A change that may change what `tiles` answers (a view added under the hub, renamed, taken away). */
+  affects?(c: Change, arg: string): boolean;
+  /** Which tile is which across a refill: a tile with the same key is kept. */
+  key(spec: Partial<TileSpec>): string | null;
+}
+const sources = new Map<string, TileSource>();
+/** Register a tile source (refused under a name taken already). */
+export function registerTileSource(s: TileSource): void {
+  if (!/^[A-Za-z][\w.-]{0,39}$/.test(s.name)) throw new Error(`a tile source's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(s.name)})`);
+  if (sources.has(s.name)) throw new Error(`tile source ${s.name} is registered already`);
+  sources.set(s.name, s);
+}
+/** A columns container's `source` (`hub:<id>`), split into its registered source and its argument; null when none is registered. */
+export function tileSource(source: string | undefined): { source: TileSource; arg: string } | null {
+  if (!source) return null;
+  const at = source.indexOf(":");
+  const s = sources.get(at < 0 ? source : source.slice(0, at));
+  return s ? { source: s, arg: at < 0 ? "" : source.slice(at + 1) } : null;
+}
+export const tileSources = (): TileSource[] => [...sources.values()];
 
 // ── a kind the service draws (an extension's whole tile) ──────────────────────
 

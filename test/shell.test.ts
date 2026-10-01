@@ -88,7 +88,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       home();
       app.push(new DeliveryBoard(hub.id));
       await until(() => A().stack.at(-1).lanes?.[0]?.items, "the lanes", 10_000);
-      expect(top().focus).toBe("lanes");
+      expect(top().describe().focus).toBe("lanes");
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
     });

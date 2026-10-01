@@ -200,9 +200,14 @@ thing after someone else's change.
   agent that outlives the door (the Herdr agent) is refused, not misled, after one. Any desk
   action takes `expected=<rev>`; if the layout changed since, it's refused and nothing is done ("the layout
   changed since revision 7 …"). Pass it whenever you name something by place: a `path`, or a `#number`.
-- **The board's readers** are `preview`, `detail1`, `detail2`, `float1`…: a detail keeps its name while it
-  lives, whatever closes around it, so after `detail1` closes the other is still `detail2`. A detail floated
-  (or a float docked) gets a new name for what it now is (`float2`, `detail3`); the old one is refused.
+- **The board is a preset on the desk** (PIE-511): every tile has a name and every desk command works there.
+  Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
+  around it, so after `detail1` closes the other is still `detail2`, and floated (`pane.float`, `o`) it keeps it
+  too. Its lanes are query tiles named by their lane (`Queued`, `Waiting-on`), in a columns container
+  (`layout.get` says `columns: hub:<id>`) filled from the hub's views. The outline drawer holds `tree` over
+  `tree-preview`, the backlinks drawer `backlinks` beside `backlinks-preview`. The older names still work:
+  `reader=detail` (the one ⏎ opens into), `reader=float` (the top float), `reader=lanes` (the lane the cursor
+  is in), and for a note action `reader=tree` and `reader=backlinks` are the drawers' previews.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
     ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since
@@ -219,14 +224,17 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `layout.move` | `reader`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
 | `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id |
 | `layout.even`, `layout.swap` | `to` | |
-| `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
+| `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` | `reader` | never the person's tile, never a running program |
 | `tile.focus` | `reader` | refused while the person is typing |
 | `tile.link` | `reader`, `to` | |
-| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.collapse` | `reader`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
+| `pane.float`, `float.place` | `reader`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or docked back; never the person's tile |
+| `query.pick`, `query.reload` | `reader` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
 | `tile.drawer` | `reader`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
 | `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
-| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
+| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open drawer stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
 | `tile.preview` | `reader`, `where` | |
 | `tile.type`, `tile.restart` | `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
 | `tab.select` | `reader`, `by` | never hides the person's tab |

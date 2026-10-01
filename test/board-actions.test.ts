@@ -10,6 +10,7 @@ import { SocketBoard } from "../src/socket";
 import { traceActions } from "../src/surface/actions";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 
@@ -54,7 +55,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const r: any = await act("board.hub");
     expect(r.current).toBe(garden.id);
     expect(r.hubs.map((h: any) => h.title).sort()).toEqual(["Garden jobs", "Kitchen jobs"]);
-    expect(B().picker).toBeNull();
+    expect(B().hubPicker).toBeNull();
     const s: any = await act("board.hub", { id: kitchen.id });
     expect(s.title).toBe("Kitchen jobs");
     expect(B().hub.id).toBe(kitchen.id);
@@ -65,26 +66,26 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
 
   test("the person's g is board.hub: the picker holds the keys, and ⏎ on a board runs board.hub with its id", async () => {
     expect(ran(() => key(char("g")))).toEqual(["board.hub"]);
-    await until(() => !!B().picker, "the picker");
+    await until(() => !!B().hubPicker, "the picker");
     expect(b.holdsKeys()).toBe(true);
     // While the person picks, an agent doesn't switch the board under them.
     await expect(act("board.hub", { id: garden.id })).rejects.toThrow("typing");
-    const i = B().picker.items.findIndex((x: any) => x.hub.id === garden.id);
-    while (B().picker.sel < i) key(char("j"));
-    while (B().picker.sel > i) key(char("k"));
+    const i = B().hubPicker.items.findIndex((x: any) => x.hub.id === garden.id);
+    while (B().hubPicker.sel < i) key(char("j"));
+    while (B().hubPicker.sel > i) key(char("k"));
     expect(ran(() => key({ kind: "enter" }))).toEqual(["board.hub"]);
     await until(() => B().hub?.id === garden.id && B().lanes.every((l: any) => l.items), "the garden board");
-    expect(B().picker).toBeNull();
+    expect(B().hubPicker).toBeNull();
     // esc puts the picker away as it was (board.hub close=true), the person's own.
-    key(char("g")); await until(() => !!B().picker, "the picker");
+    key(char("g")); await until(() => !!B().hubPicker, "the picker");
     expect(ran(() => key({ kind: "esc" }))).toEqual(["board.hub"]);
-    expect(B().picker).toBeNull();
+    expect(B().hubPicker).toBeNull();
     expect(B().hub.id).toBe(garden.id);
     await expect(act("board.hub", { close: true })).rejects.toThrow("the person's");
   });
 
   test("the lane cursor is card.select: the person's keys move it; an agent's step moves only its own selection", async () => {
-    B().lane = 0; B().lanes[0].sel = 0; B().focus = "lanes";
+    B().lane = 0; B().lanes[0].sel = 0; BV.at(b, "lanes");
     expect(ran(() => key(char("j")))).toEqual(["card.select"]);
     expect(B().lanes[0].sel).toBe(1);
     expect(ran(() => key(char("l")))).toEqual(["card.select"]);
@@ -111,9 +112,9 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
   });
 
   test("the wheel over another lane moves that lane's cursor only: the current lane and the keys stay", () => {
-    B().lane = 0; B().focus = "lanes"; B().lanes[1].sel = 0;
+    B().lane = 0; BV.at(b, "lanes"); B().lanes[1].sel = 0;
     b.render(B().ctx);
-    const r = B().laneRects.find((x: any) => x.lane === 1 && !x.spine).rect;
+    const r = BV.rectOf(b, B().lanes[1].name);
     expect(ran(() => key({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 2, y: r.row + 2 }))).toEqual(["card.select"]);
     expect(B().lanes[1].sel).toBe(Math.min(1, B().lanes[1].items.length - 1));
     expect(B().lane).toBe(0);
@@ -121,7 +122,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
 
   test("d d is card.trash: the first d arms it (no confirm), the second trashes; an agent always says confirm", async () => {
     await expect(act("card.trash", {})).rejects.toThrow("confirm");
-    B().lane = 0; B().lanes[0].sel = 0; B().focus = "lanes";
+    B().lane = 0; B().lanes[0].sel = 0; BV.at(b, "lanes");
     const id = B().lanes[0].items[0].id;
     expect(ran(() => key(char("d")))).toEqual(["card.trash"]);
     await until(() => B().trashArm?.id === id, "armed");
@@ -140,10 +141,10 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(message()).toContain("opened the lane To do");
     await act("outline", { open: true });
     expect(B().treeOpen).toBe(true);
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     await act("outline", { open: false });
     expect(ran(() => key(char("t")))).toEqual(["outline"]);
-    expect(B().focus).toBe("tree");
+    expect(BV.where(b)).toBe("tree");
     await expect(act("outline", { open: false })).rejects.toThrow("the person is in the outline drawer");
     key({ kind: "esc" });
     expect(B().treeOpen).toBe(false);
@@ -154,7 +155,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const f = B().floats[0].rect, col = f.col;
     expect(ran(() => key(char("L")))).toEqual(["float.place"]);
     expect(B().floats[0].rect.col).toBe(col + 4);
-    await act("float.place", { dx: -4 }, "float1");
+    await act("float.place", { dx: -4 }, B().nameOf(B().floats[0].id));
     expect(B().floats[0].rect.col).toBe(col);
     key(char("x"));
     expect(B().floats.length).toBe(0);

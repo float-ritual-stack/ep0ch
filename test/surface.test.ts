@@ -22,6 +22,7 @@ import { editHint } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -289,7 +290,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("open, edit.text, edit.save: the same save as ctrl+s, recorded as the agent's, and said on screen", async () => {
     expect(await act("open", { id: cards.beans.id }, "preview")).toEqual({ reader: "preview", id: cards.beans.id });
     expect(B().preview.msg.id).toBe(cards.beans.id);
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     await until(() => !B().preview.msg.partial, "the whole note");
     const text = (await current(cards.beans.id)).text.replace("Canes along the fence.", "Canes along the fence, two per plant.");
     expect(await act("edit.text", { text })).toMatchObject({ reader: "preview", dirty: true });
@@ -463,7 +464,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("an agent's card.select and card.move leave the person's keys where they are", async () => {
     await settled();
     const { reader } = await openFresh("Label the seed trays\nBefore sowing.");
-    const region = B().focus;
+    const region = BV.where(b);
     expect(region).toStartWith("detail");
     // The person's lane cursor and preview, before the agent picks a card of its own.
     const was = { lane: B().lane, sels: B().lanes.map((l: any) => l.sel), preview: B().preview.msg?.id };
@@ -473,7 +474,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(pick).toBeDefined();
     const picked: any = await act("card.select", { id: pick.id });
     expect(picked).toMatchObject({ selected: pick.id });
-    expect(B().focus).toBe(region);
+    expect(BV.where(b)).toBe(region);
     expect({ lane: B().lane, sels: B().lanes.map((l: any) => l.sel), preview: B().preview.msg?.id }).toEqual(was);
     expect(message()).toContain("an agent (test-agent-7) selected");
     expect(B().describe().agentSelected).toMatchObject({ [AS]: pick.id });
@@ -481,7 +482,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(((await act("steps", {})) as any).card).toBe(pick.id);
     expect(B().selectedCardId()).toBe(mine);
     expect(await act("card.move", { lane: "Doing", card: cards.beans.id })).toMatchObject({ lane: "Doing" });
-    expect(B().focus).toBe(region);
+    expect(BV.where(b)).toBe(region);
     // Giving the keys away is only ever an explicit action, and it says so.
     expect(await act("focus", {}, "lanes")).toEqual({ focus: "lanes" });
     expect(message()).toContain("an agent (test-agent-7) gave the keys to lanes");
@@ -491,10 +492,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("an agent can't act in a drawer's reader while the drawer is shut", async () => {
     expect(B().treeOpen).toBe(false);
-    expect(B().links).toBeFalsy();
-    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree isn't on screen; open it first (t opens the outline drawer)");
-    await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks isn't on screen");
-    expect(B().treePreview.msg).toBeNull();
+    expect(B().describe().backlinks).toBeNull();
+    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen; open it first (t opens the outline drawer)");
+    await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks-preview isn't on screen");
   });
 
   test("the control socket: `actions` lists them, `act` runs them, as the agent that asked", async () => {
