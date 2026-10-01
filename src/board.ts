@@ -1,5 +1,6 @@
 // What the door needs from the outline, independent of the wire protocol.
 import { literalLines } from "./literal";
+import { printable } from "./text";
 import { withoutPropertyTokens } from "./vendor/property-grammar";
 
 export interface Msg {
@@ -80,4 +81,5 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
   const from = Math.max(0, titleLine(text).line) + 1;
   return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
 }
-export const subject = (m: Msg) => { const t = titleLine(m.text); return t.text || (t.line < 0 ? "(empty)" : "(untitled)"); };
+/** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
+export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(t.text, " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };

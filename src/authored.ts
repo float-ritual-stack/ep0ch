@@ -8,6 +8,7 @@
 // concise labels: a label that repeats its target's title or Work ID reads once.
 import { basename, dirname, extname } from "node:path";
 import type { Msg } from "./board";
+import { printable } from "./text";
 
 // ── the wire (pi-herdr-outliner src/authored-links.ts, src/resource-references.ts, src/resources.ts) ──
 
@@ -92,7 +93,7 @@ export const SHOWN_LIMIT = 40_000;
  * controls (an escape sequence in a file would reach the person's terminal), tabs as spaces, CRLF as LF.
  */
 export function readable(text: string): string {
-  return text.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+  return printable(text.replace(/\r\n?/g, "\n").replace(/\t/g, "  "), "", { lines: true });
 }
 
 /** The service read these bytes as UTF-8, but they aren't text: a NUL, or many undecodable bytes. */

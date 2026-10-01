@@ -1,7 +1,7 @@
 // A spine: a pane squeezed to a title strip. River columns, board lanes and board readers draw theirs
 // here. Under Kitty graphics the title is VGA text turned a quarter clockwise (read top to bottom);
 // in cells it stacks one letter per row. Marks (a draft, new comments) sit one per row above it.
-import { CP437_HIGH } from "./ansi";
+import { cp437Code } from "./ansi";
 import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
 import { C, fg, RESET } from "./style";
@@ -10,14 +10,13 @@ import { rasterize, rotateCW, type Rgba } from "./vga";
 /** How wide a spine is, in cells: two for the title, one for its right border. */
 export const SPINE = 3;
 
-const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 const cache = new Map<string, Rgba>();
 /** The title as rotated VGA text in `colour`, transparent around the glyphs. */
 export function spineImage(title: string, colour: number): Rgba {
   const key = `${colour}:${title}`;
   let img = cache.get(key);
   if (!img) {
-    const row = [...title].map(ch => ({ code: ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : toCp437.get(ch) ?? 63, fg: colour, bg: 0 }));
+    const row = [...title].map(ch => ({ code: cp437Code(ch), fg: colour, bg: 0 }));
     img = rotateCW(rasterize([row], 0, 0, row.length, 1, { clearBg: true }));
     cache.set(key, img);
   }

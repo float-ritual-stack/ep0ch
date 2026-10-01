@@ -54,7 +54,7 @@ describe("a component's view in the terminal", () => {
     expect(lines.join("")).toContain("\x1b[38;2;255;255;85m");                  // warn is yellow
     expect(() => primitiveLines({ type: "hologram" }, 40)).toThrow(/no primitive hologram/);
     // Text from an extension never reaches the terminal as an escape.
-    expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["a [2Jb"]);
+    expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["ab"]);
   });
 });
 
@@ -304,9 +304,9 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     await until(() => EXT_ACTIONS.has("ext.noisy.shout"), "the noisy extension", 15_000);
     const loud = await board.createBlock(null, "A loud note\nnoisy:: hello");
     const r = await app.act({ action: "ext.noisy.shout", args: { block: loud.id }, as: AS }) as any;
-    expect(r.message).toBe("loud [2Jer");
+    expect(r.message).toBe("louder");
     expect(flashes.at(-1)).not.toContain("\x1b");
-    expect(extensionList()!.extensions.find(e => e.id === "noisy")!.name).toBe("Noisy [31m");
+    expect(extensionList()!.extensions.find(e => e.id === "noisy")!.name).toBe("Noisy");
     const s2 = new NoteSurface();
     s2.show((await board.get(loud.id))!, host);
     await until(() => s2.render(100, 30, host).lines.join("\n").includes("a [2J b") || s2.render(100, 30, host).lines.join("\n").includes("a  b"), "the output", 15_000);

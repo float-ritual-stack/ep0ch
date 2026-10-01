@@ -174,7 +174,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     const chip = D().lockChip;
     mouse("down", chip.from + 1, HINT);
     expect(get().locked).toBe(false);
-    expect(message()).toContain("you unlocked the screen");
+    expect(message()).toBe("unlocked the screen");
   });
 
   test("a container's policy: accepts and draggable refuse with the reason; opens-into routes its tiles' opens", async () => {

@@ -1,6 +1,43 @@
 // Text helpers shared by the BBS screens and the desk panes.
-import { balanceStyles, balanceTags, C, fg, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { balanceStyles, balanceTags, C, fg, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { isEscapedAt, propertyTokenPattern } from "./vendor/property-grammar";
+
+// ── what may reach the terminal (PIE-510) ──
+// A note's title, an extension's name, a service error: any of them can hold bytes a terminal acts on (an OSC 52
+// clipboard write, ESC[2J). `printable` is the one place they are taken out; the canvas and the row writer
+// (term.ts rowBytes) apply it at the sink, so a source that forgets still draws nothing but text.
+/**
+ * A sequence a terminal acts on, taken out whole: a CSI (ESC [ or the 8-bit 0x9b) to its final byte; an OSC,
+ * DCS, APC, PM or SOS string (7- or 8-bit) to its terminator, or to the end when it has none; any other ESC
+ * with what it introduces.
+ */
+const ESCAPES = /(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?|(?:\x1b[\]P_^X]|[\x90\x98\x9d\x9e\x9f])[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?|\x1b[ -/]*[0-~]?/g;
+const CONTROL_RUNS = /[\x00-\x1f\x7f-\x9f]+/g;
+const LINE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]+/g;
+const HAS_CONTROL = /[\x00-\x1f\x7f-\x9f]/;
+
+/**
+ * `s` with nothing a terminal would act on: escape sequences gone whole (nothing in their place), and each run of other control
+ * characters (C0, DEL, C1) as `sub` (nothing, or a space where words would run together). `lines`: keep
+ * line breaks and tabs (a block's body; its reader lays them out).
+ */
+export function printable(s: unknown, sub = "", { lines = false } = {}): string {
+  const t = typeof s === "string" ? s : String(s ?? "");
+  if (!HAS_CONTROL.test(t)) return t;
+  return t.replace(ESCAPES, "").replace(lines ? LINE_CONTROLS : CONTROL_RUNS, sub);
+}
+
+/** The door's own styling: an SGR (colour, bold), the only sequence a drawn line keeps. */
+const SGR_PART = /(\x1b\[[\d;:]*m)/;
+const UNSAFE = /[\x00-\x1a\x1c-\x1f\x7f-\x9f]|\x1b(?!\[[\d;:]*m)/;
+/**
+ * A drawn line as it may go to the terminal: its SGR styling kept, every other escape and control taken out.
+ * The sink under every screen (term.ts rowBytes) and the canvas (canvas.ts) use it.
+ */
+export function paintable(line: string): string {
+  if (!UNSAFE.test(line)) return line;
+  return line.split(SGR_PART).map((part, i) => (i % 2 ? part : printable(part.replaceAll("\t", " ")))).join("");
+}
 
 export const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -15,19 +52,23 @@ export const bbsDate = (ms: number) => {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())}-${String(d.getFullYear()).slice(2)} (${p(d.getHours())}:${p(d.getMinutes())})`;
 };
 
-/** The first `w` visible characters of `s` (link tags ride along) and the rest. */
+/** The first `w` cells of `s` (link tags ride along) and the rest; at least one glyph, so a wrap always moves on. */
 function cut(s: string, w: number): [string, string] {
-  const chars = [...s];
+  const gs = graphemes(s);
   let n = 0, i = 0;
-  for (; i < chars.length && n < w; i++) if (!/^[\u{100000}-\u{10FFFD}\uE000-\uE008]$/u.test(chars[i]!)) n++;
-  return [chars.slice(0, i).join(""), chars.slice(i).join("")];
+  for (; i < gs.length; i++) {
+    const gw = glyphWidth(gs[i]!);
+    if (n + gw > w && n > 0) break;
+    n += gw;
+  }
+  return [gs.slice(0, i).join(""), gs.slice(i).join("")];
 }
 
-/** Visible characters: link tags and presentation marks (src/style.ts) take no room. */
-const len = (s: string) => (NO_ROOM.test(s) ? [...stripTags(s).replace(MARKS, "")] : [...s]).length;
+/** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
+const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
 const NO_ROOM = /[\uE000-\uE008\u{100000}-\u{10FFFD}]/u;
 
-/** `text` in rows of at most `w` visible characters. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
+/** `text` in rows of at most `w` cells. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
 export function wrap(text: string, w: number): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];

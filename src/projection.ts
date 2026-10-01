@@ -98,7 +98,7 @@ export const mayHaveProjections = (text: string) => (text.includes("::") && MENT
  * escapes Markdown characters, which its renderer then draws as typed; the door draws them as typed.
  */
 export function drawnInline(value: string): string {
-  return value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\[/g, "(").replace(/\]/g, ")").replace(/\(\(/g, "( (").trim();
+  return printable(value, " ").replace(/\[/g, "(").replace(/\]/g, ")").replace(/\(\(/g, "( (").trim();
 }
 
 /** Detail's `localTime`: `2026-09-20 10:00` in the reader's time zone. */

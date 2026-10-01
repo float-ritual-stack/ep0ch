@@ -273,7 +273,7 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
 }
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
-const printableBlock = (s: string) => s.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+const printableBlock = (s: string) => printable(s, "", { lines: true });
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */

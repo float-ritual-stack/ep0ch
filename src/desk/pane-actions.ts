@@ -5,6 +5,7 @@
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import type { Axis } from "./layout";
+import { kindNoun } from "./tile-kinds";
 
 /** What a pane operation did: the pane's name as `peek` shows it, and anything else worth saying. */
 export interface PaneDone { pane: string; [k: string]: unknown }
@@ -27,7 +28,8 @@ const axisOf = (s: string | undefined, action: string): Axis | undefined => {
   if (s === "row" || s === "col") return s;
   throw new ActionRefused(`${action}: axis is row (across) or col (down), not ${s}`);
 };
-const say = (h: PaneHost, actor: Actor, what: string) => h.ctx.flash(`${agentLabel(actor)} ${what}`);
+/** An agent's change, said on screen with who made it; the person's own isn't (they see it happen). */
+const say = (h: PaneHost, actor: Actor, what: string) => { if (actor.kind === "agent") h.ctx.flash(`${agentLabel(actor)} ${what}`); };
 /** Said on screen only when something changed (a pin already in place isn't news). */
 const sayIf = (h: PaneHost, actor: Actor, r: PaneDone, what: string) => { if (r.changed !== false) say(h, actor, what); };
 
@@ -45,7 +47,7 @@ export const PANE_ACTIONS = new ActionSet<{
     args: { kind: { type: "string", optional: true, about: "what the new pane shows (desk: reader, tree, thread, activity, who, art)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
     async run({ kind, dir }, { h, reader }, actor) {
       const r = await h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor);
-      say(h, actor, `opened ${r.pane}`);
+      say(h, actor, `opened ${kindNoun(kind ?? "reader")}${r.pane.replace(/-\d+$/, "") === (kind ?? "reader") ? "" : ` (${r.pane})`}`);
       return r;
     },
   },

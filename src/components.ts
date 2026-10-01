@@ -13,7 +13,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { C, fg, pad, RESET, SPARK_STEPS, width as vwidth } from "./style";
-import { wrap } from "./text";
+import { printable, wrap } from "./text";
 
 const IDENTIFIER = /^[a-z0-9][a-z0-9.-]{0,99}$/;
 const LIMIT = 32 * 1024;
@@ -124,7 +124,7 @@ export class PrimitiveUnknown extends Error {}
 const TONE: Readonly<Record<string, number>> = { default: C.white, good: C.lgreen, warn: C.yellow, bad: C.lred, dim: C.dark, accent: C.lcyan };
 const toned = (tone: unknown) => TONE[String(tone ?? "default")] ?? C.white;
 /** One line of extension text: no control characters (no escape reaches the terminal). */
-const one = (v: unknown) => String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ");
+const one = (v: unknown) => printable(v, " ");
 const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 const MAX_DEPTH = 8;
 

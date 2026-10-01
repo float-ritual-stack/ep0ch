@@ -8,6 +8,7 @@ import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { EDGE_WORD, isDir, type Dir, type Policy } from "./layout";
 import type { PaneKind } from "./panes";
+import { kindNoun } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
 const WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"];
@@ -67,7 +68,16 @@ export interface TileHost {
 }
 
 interface On { d: TileHost; reader?: string }
-const say = (d: TileHost, actor: Actor, what: string) => d.ctx.flash(`${agentLabel(actor)} ${what}`);
+/**
+ * An agent's change, said on screen with who made it. The person's own isn't (they see it happen, and "you opened
+ * pty" says nothing), unless `person`: a confirmation the screen doesn't show (a layout saved, where a drag put a tile).
+ */
+const say = (d: TileHost, actor: Actor, what: string, person = false) => {
+  if (actor.kind === "agent") d.ctx.flash(`${agentLabel(actor)} ${what}`);
+  else if (person) d.ctx.flash(what);
+};
+/** A tile as a message names it: its kind's word, and its name when that says more ("a terminal tile (editor)"). */
+const opened = (kind: string, tile: string) => `${kindNoun(kind)}${tile.replace(/-\d+$/, "") === kind ? "" : ` (${tile})`}`;
 
 const loadLayout = {
   summary: "replace the layout with the one saved by name (or the built-in daily, river, board or desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut drawer, never ended. Refused to an agent while the person is typing",
@@ -132,7 +142,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { name: { type: "string", about: "the name to save it under (daily replaces the built-in daily)" } },
     run({ name }, { d }, actor) {
       const r = d.saveLayout(name, actor);
-      say(d, actor, `saved the layout as ${name}`);
+      say(d, actor, `saved the layout as ${name}`, true);
       return r;
     },
   },
@@ -149,7 +159,7 @@ export const TILE_ACTIONS = new ActionSet<{
     run({ to, where, index }, { d, reader }, actor) {
       const r = d.moveTile(reader, to, whereOf(where, "layout.move", "right"), index, actor);
       const w = whereOf(where, "layout.move", "right");
-      say(d, actor, `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${to}`}`);
+      say(d, actor, `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${to}`}`, true);
       return r;
     },
   },
@@ -171,7 +181,7 @@ export const TILE_ACTIONS = new ActionSet<{
     },
     async run({ kind, to, where, ...t }, { d, reader }, actor) {
       const r = await d.openTile({ kind: kind as PaneKind, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
-      say(d, actor, `opened ${r.tile}`);
+      say(d, actor, `opened ${opened(kind, r.tile)}`);
       return r;
     },
   },
@@ -212,7 +222,7 @@ export const TILE_ACTIONS = new ActionSet<{
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge)) throw new ActionRefused(`tile.pin: edge is left, right, up or down, not ${edge}`);
       const r = d.pinTile(reader, on, edge as Dir | undefined, actor, container);
-      if (r.changed !== false) say(d, actor, r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`);
+      if (r.changed !== false) say(d, actor, r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`, true);
       return r;
     },
   },
@@ -246,7 +256,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { on: { type: "boolean", optional: true, about: "true locks, false unlocks; default toggles" } },
     run({ on }, { d }, actor) {
       const r = d.lockScreen(on, actor);
-      if (r.changed) say(d, actor, r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen");
+      if (r.changed) say(d, actor, r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen", true);
       return r;
     },
   },
@@ -277,7 +287,7 @@ export const TILE_ACTIONS = new ActionSet<{
       if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
       if (!Object.keys(set).length && !gone.length && node === undefined) return d.policyGet(reader);
       const r = d.setPolicy(reader, node, set, gone, actor);
-      say(d, actor, `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`);
+      say(d, actor, `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`, true);
       return r;
     },
   },
@@ -297,7 +307,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" } },
     async run({ where }, { d, reader }, actor) {
       const r = await d.previewTile(reader, whereOf(where, "tile.preview", "right"), actor);
-      say(d, actor, `opened ${r.tile}`);
+      say(d, actor, `opened ${opened("preview", r.tile)}`);
       return r;
     },
   },
