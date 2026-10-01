@@ -4,7 +4,7 @@
 // the entry; it never asks which kind a tile is.
 import { subject, type Msg } from "../board";
 import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
-import { ActivityPane, ArtPane, ReaderPane, sessionName, ThreadPane, TreePane, WhoPane, type Pane } from "./panes";
+import { ACTIVITY_ACTIONS, ART_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, THREAD_ACTIONS, ThreadPane, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
@@ -49,7 +49,7 @@ const builtins = (): TileKind[] => [
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: (p, full) => (full ? { tree: (p as TreePane).describe() } : {}),
   },
-  { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading },
+  { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading, actions: READER_ACTIONS },
   {
     kind: "detail", about: "a reader that keeps its note (note=<id>, or page=<name> to pin [[name]])", keys: [{ key: "d", label: "detail" }],
     make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; },
@@ -124,10 +124,10 @@ const builtins = (): TileKind[] => [
       return t.isNvim ? `tile:${name}` : `file:${t.file}`;
     },
   },
-  { kind: "thread", about: "the current note's children", keys: [{ key: "h", label: "thread" }], make: () => new ThreadPane() },
-  { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane() },
-  { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane() },
-  { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane() },
+  { kind: "thread", about: "the current note's children", keys: [{ key: "h", label: "thread" }], make: () => new ThreadPane(), actions: THREAD_ACTIONS },
+  { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
+  { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
+  { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
   {
     ...screen("board", "k", "the kanban board as a tile; tile.preview gives its card to a preview tile"),
     // The board's own preview strip gives its place to the preview tile (collapsed to a spine, as its `c` does).

@@ -22,7 +22,7 @@ import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { bg, C, fg, pad, RESET, width } from "../style";
 import { follow } from "../scroll";
 import type { Key } from "../term";
-import type { DeskApi, Pane, PaneView } from "./panes";
+import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
 const SEL_ON = bg(C.blue) + fg(C.white);
 const SEL_OFF = "\x1b[48;2;22;30;58m" + fg(C.white);
@@ -290,6 +290,30 @@ export class TreePane implements Pane {
     if (this.rows[this.sel]?.key.startsWith(key + SEP)) throw new ActionRefused(`the person's selection is under row ${i + 1}; an agent doesn't fold it away`);
   }
 
+  /**
+   * Open (open=true) or fold (false) row `i`, else the other way: a note's children, or a group of links. An
+   * agent never folds away the rows the person's selection is in.
+   */
+  foldRow(i: number, open: boolean | undefined, desk: DeskApi, agent = false): { row: number; open: boolean } {
+    const r = this.rows[i];
+    if (!r) throw new ActionRefused(`no row ${i + 1}; the tree has ${this.rows.length}`);
+    const isOpen = r.kind === "block" ? this.open.has(r.m.id) : r.kind === "group" ? r.open : r.kind === "kind" ? r.expanded : this.panels.has(r.key);
+    const want = open ?? !isOpen;
+    if (want === isOpen) return { row: i + 1, open: isOpen };
+    if (agent && !want) {
+      const d = r.depth;
+      for (let j = i + 1; j < this.rows.length && this.rows[j]!.depth > d; j++) if (j === this.sel) throw new ActionRefused(`the person's selection is under row ${i + 1}; an agent doesn't fold it away`);
+    }
+    if (r.kind === "block") { if (want) void this.expand(r.m, desk); else { this.open.delete(r.m.id); this.rebuild(); } }
+    else if (r.kind === "group" || r.kind === "kind") this.fold(r, want);
+    else this.toggleLinks(i, desk, want, agent);
+    desk.redraw();
+    return { row: i + 1, open: want };
+  }
+
+  /** The row above `i` that it sits under, or -1. */
+  parentRow(i: number): number { const d = this.rows[i]?.depth ?? 0; return this.rows.findLastIndex((r, j) => j < i && r.depth < d); }
+
   /** Open or fold a group row (Outlinks, Resources, Backlinks, or a backlink kind). */
   private fold(r: TreeRow, open?: boolean) {
     const p = this.panels.get(r.kind === "group" || r.kind === "kind" ? r.owner : "");
@@ -420,47 +444,31 @@ export class TreePane implements Pane {
 
   // ── keys and the mouse ─────────────────────────────────────────────────────
 
-  private run(desk: DeskApi, name: "tree.links" | "tree.pick", args: Record<string, unknown>) {
-    Promise.resolve().then(() => TREE_ACTIONS.runUntyped(name, args, { pane: this, desk }, USER))
-      .catch(e => desk.ctx.flash(e instanceof Error ? e.message : String(e)))
-      .finally(() => desk.redraw());
-  }
+  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
 
   key(k: Key, desk: DeskApi): boolean {
-    const row = this.rows[this.sel];
-    if (isUp(k)) { this.selectRow(this.sel - 1, desk); return true; }
-    if (isDown(k)) { this.selectRow(this.sel + 1, desk); return true; }
-    if (k.kind === "pgup") { this.selectRow(this.sel - 15, desk); return true; }
-    if (k.kind === "pgdn") { this.selectRow(this.sel + 15, desk); return true; }
-    if (k.kind === "home") { this.selectRow(0, desk); return true; }
-    if (k.kind === "end") { this.selectRow(this.rows.length - 1, desk); return true; }
+    const row = this.rows[this.sel], n = this.rows.length;
+    const pickTo = (i: number) => { const to = Math.max(0, Math.min(n - 1, i)); if (n && to !== this.sel) this.run(desk, "tree.pick", { n: to + 1 }); return true; };
+    if (isUp(k)) return pickTo(this.sel - 1);
+    if (isDown(k)) return pickTo(this.sel + 1);
+    if (k.kind === "pgup") return pickTo(this.sel - 15);
+    if (k.kind === "pgdn") return pickTo(this.sel + 15);
+    if (k.kind === "home") return pickTo(0);
+    if (k.kind === "end") return pickTo(n - 1);
     if (!row) return false;
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
-    if (row.kind !== "block") {
-      // A group folds; a link to a note shows its own links beneath it (one hop, as the Tree's ▸).
-      if (row.kind === "group" || row.kind === "kind") {
-        const open = row.kind === "group" ? row.open : row.expanded;
-        if (space || (right && !open) || (left && open)) { this.fold(row, space ? undefined : right); desk.redraw(); return true; }
-      } else if (rowBlock(row) && (space || (right && !this.panels.has(row.key)) || (left && this.panels.has(row.key)))) {
-        this.run(desk, "tree.links", { n: this.sel + 1, show: space ? !this.panels.has(row.key) : right }); return true;
-      }
-      if (left) { const p = this.rows.findLastIndex((r, i) => i < this.sel && r.depth < row.depth); if (p >= 0) this.selectRow(p, desk); desk.redraw(); return true; }
-      if (right || space) return true;
-      if (k.kind === "enter") { this.run(desk, "tree.pick", { n: this.sel + 1, open: true }); return true; }
-      return false;
-    }
-    if (right || space) {
-      if (this.open.has(row.m.id) && space) { this.open.delete(row.m.id); this.rebuild(); desk.redraw(); }
-      else void this.expand(row.m, desk);
+    const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
+    const open = row.kind === "block" ? this.open.has(row.m.id) : row.kind === "group" ? row.open : row.kind === "kind" ? row.expanded : this.panels.has(row.key);
+    // A note's children, a group of links, a link's own links (one hop, as the Tree's ▸): → l open, ← h fold, space either way.
+    const foldable = !linkRow || !!rowBlock(row);
+    if (foldable && (space || (right && !open) || (left && open))) {
+      if (linkRow) this.run(desk, "tree.links", { n: this.sel + 1, show: space ? !open : right });
+      else this.run(desk, "tree.fold", { n: this.sel + 1, ...(space ? {} : { open: right }) });
       return true;
     }
-    if (left) {
-      if (this.open.has(row.m.id)) { this.open.delete(row.m.id); this.rebuild(); }
-      else { const p = this.rows.findLastIndex((r, i) => i < this.sel && r.depth < row.depth); if (p >= 0) this.selectRow(p, desk); }
-      desk.redraw();
-      return true;
-    }
+    if (left) { const p = this.parentRow(this.sel); if (p >= 0) this.run(desk, "tree.pick", { n: p + 1 }); return true; }
+    if (right || space) return true;
     // ⏎ opens it: in the tile this one links to (PIE-473), else as the current note, the keys to a reader.
     if (k.kind === "enter") { this.run(desk, "tree.pick", { n: this.sel + 1, open: true }); return true; }
     return false;
@@ -475,18 +483,16 @@ export class TreePane implements Pane {
     if (!row) return;
     const onMark = x <= row.depth * 2 + 1;
     if (row.kind === "block") {
-      this.sel = i;
-      if (onMark) { if (this.open.has(row.m.id)) { this.open.delete(row.m.id); this.rebuild(); } else void this.expand(row.m, desk); }
-      this.pick(desk);
+      if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
+      if (onMark) this.run(desk, "tree.fold", { n: i + 1 });
       return;
     }
-    this.sel = i;
-    if (row.kind === "group" || row.kind === "kind") { this.fold(row); desk.redraw(); return; }
+    if (row.kind === "group" || row.kind === "kind") { if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 }); this.run(desk, "tree.fold", { n: i + 1 }); return; }
     if (onMark && rowBlock(row)) return this.run(desk, "tree.links", { n: i + 1 });
     this.run(desk, "tree.pick", { n: i + 1, open: true });
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.selectRow(this.sel + dir, desk); }
+  wheel(dir: 1 | -1, desk: DeskApi) { const to = this.sel + dir; if (to >= 0 && to < this.rows.length) this.run(desk, "tree.pick", { n: to + 1 }); }
 }
 
 /** A tree's actions: which row is picked (and opened), and the links shown under a row. */
@@ -506,7 +512,23 @@ function rowOf(pane: TreePane, n: number | undefined, id: string | undefined): n
 export const TREE_ACTIONS = new ActionSet<{
   "tree.links": { n?: number; id?: string; show?: boolean };
   "tree.pick": { n?: number; id?: string; open?: boolean };
+  "tree.fold": { n?: number; id?: string; open?: boolean };
 }, TreeOn>("tree", {
+  "tree.fold": {
+    summary: "open (open=true) or fold (open=false) a row of the outline tree, else the other way: a note's children, a group of links. n (from 1) or id, else the selected row. An agent's never folds away the rows the person's selection is in",
+    keys: "l → space h ←, click on a row's mark",
+    args: {
+      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
+      id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
+      open: { type: "boolean", optional: true, about: "true opens, false folds; left out, the other way" },
+    },
+    run({ n, id, open }, { pane, desk }, actor) {
+      const i = rowOf(pane, n, id);
+      const r = pane.foldRow(i, open, desk, actor.kind === "agent");
+      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${r.open ? "opened" : "folded"} row ${r.row} of the outline`);
+      return r;
+    },
+  },
   "tree.links": {
     summary: "show or hide the authored links under a row of the outline tree (reader=<its name>), as the outliner's Tree does: its outlinks, resources and backlinks, grouped; n (as peek's rows, from 1) or id, else the selected row; show=true or false, else the other way. Registers nothing",
     keys: "L · l → space on a link · a click on a link's mark",
@@ -524,7 +546,7 @@ export const TREE_ACTIONS = new ActionSet<{
   },
   "tree.pick": {
     summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
-    keys: "j k ↑ ↓ (pick) · ⏎ click (open)",
+    keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎ (open)",
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },

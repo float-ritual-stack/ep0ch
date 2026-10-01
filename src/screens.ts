@@ -1,4 +1,5 @@
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
+import { registerShellKey } from "./shell-keys";
 import { basename } from "node:path";
 import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
@@ -523,6 +524,9 @@ export function shellKey<K extends keyof ShellArgs & string>(name: K, args: Shel
   const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
   try { SHELL_ACTIONS.run(name, args, { ctx, here }, USER).catch(say); } catch (e) { say(e); }
 }
+
+// The desk and the showcase run q, Esc and V through this too (they can't import this module back).
+registerShellKey(shellKey);
 
 /** Drop to shell by the person's key or click (the menu's `!`, the desk's `^W !`): `screen.shell`. */
 export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", {}, here, ctx);
