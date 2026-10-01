@@ -1009,14 +1009,14 @@ export class River implements Screen {
    * has. `focus` (the person's ⏎) gives them the column; an agent's leaves their focus put. A note the river
    * already lists opens at once (the key's column is there before the next key); another is read first.
    */
-  openById(id: string, reader: string | undefined, duplicate: boolean, focus = false): { reader: string; at: string; id: string } | Promise<{ reader: string; at: string; id: string }> {
+  openById(id: string, reader: string | undefined, duplicate: boolean, focus = false, listed = true): { reader: string; at: string; id: string } | Promise<{ reader: string; at: string; id: string }> {
     const go = (m: Msg) => {
       const from = reader ? this.pick(reader).ci : this.focus;
       const at = this.open(m, duplicate, from, focus);
       if (focus) this.entered = null;
       return { ...this.named(this.cols[at]!.panes[0]!), id: m.id };
     };
-    const known = this.panes().flatMap(p => [...(p.items ?? []), ...[...p.kids.values()].flatMap(k => (Array.isArray(k) ? k : []))]).find(m => m.id === id);
+    const known = listed && this.panes().flatMap(p => [...(p.items ?? []), ...[...p.kids.values()].flatMap(k => (Array.isArray(k) ? k : []))]).find(m => m.id === id);
     if (known) return go(known);
     return this.ctx.board.get(id).then(m => { if (!m) throw new ActionRefused(`no block ${id}`); return go(m); });
   }
@@ -1220,6 +1220,8 @@ export class River implements Screen {
     // box opens its status choice); on a step, space toggles it (PIE-472). ctrl+z undoes a step change.
     const current = p && !held && p.surface.msg?.id === this.noteOf(p)?.id ? p.surface.currentKind() : null;
     const undo = k.kind === "char" && !!k.ctrl && k.ch === "z";
+    // u on a top-level note: nothing to go up to (said, and the column's surface isn't pointed at it for nothing).
+    if (p && !held && c === "u" && !this.noteOf(p)?.parentId) return ctx.flash("this note has no parent");
     if (p && !held && (c === "e" || c === "C" || c === "m" || c === "i" || c === "[" || c === "]" || c === "u" || ctrlE || undo || (current === "task" && c === " ") || ((linked || current) && (k.kind === "enter" || k.kind === "alt-enter")))) {
       // A step change's Undo isn't an edit: it works in a compressed column too.
       if (this.covers().get(this.focus) !== "full" && !undo) return ctx.flash("this column is covered; w (or a click on its header) widens it to edit or comment here");
@@ -1523,7 +1525,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
       const pick = id ?? (n !== undefined ? matches[n - 1]?.id : undefined);
       if (n !== undefined && !pick) throw new ActionRefused(`there are ${matches.length} matches for ${JSON.stringify(query ?? "")}; n is 1-${matches.length}`);
       if (!pick) return { query: query ?? "", matches: matches.slice(0, 40).map((b, i) => ({ n: i + 1, id: b.id, title: b.title })) };
-      const out = await r.openById(pick, reader, !!duplicate, actor.kind !== "agent");
+      const out = await r.openById(pick, reader, !!duplicate, actor.kind !== "agent", false);
       if (actor.kind === "agent") r.ctx.flash(`${agentLabel(actor)} jumped to a note in column ${out.at}`);
       return out;
     },
