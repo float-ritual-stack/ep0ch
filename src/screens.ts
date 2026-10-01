@@ -241,6 +241,9 @@ const ITEMS: MenuItem[] = [
   { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
 ];
 
+/** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
+export const MENU_SCREENS: [string, (ctx: Ctx) => Screen | null][] = ITEMS.map(i => [i.key, i.open]);
+
 export class MainMenu implements Screen {
   title = "main menu";
   private sel = 0;
