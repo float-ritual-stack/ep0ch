@@ -718,6 +718,12 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     return { reader: r?.name ?? where, id: m.id };
   }
 
+  /** Whether `sel` names the area that has the keys now. */
+  focusedIs(sel: string): boolean {
+    if (sel === "lanes") return this.focus === "lanes";
+    try { return this.findReader(sel).region === this.focus; } catch { return false; }
+  }
+
   /** `focus`: which area keys go to — "lanes" or a reader. */
   focusOn(sel: string): { focus: string } {
     const was = this.focus;
@@ -753,7 +759,9 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** A board action as the person; a refusal is said on the status bar. */
   private run<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
-    const say = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); return undefined; };
+    // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
+    const said = name === "card.move";
+    const say = (e: unknown) => { if (!said) this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); return undefined; };
     try { return BOARD_ACTIONS.run(name, args, { b: this, reader, ...extra }, USER).catch(say); } catch (e) { return Promise.resolve(say(e)); }
   }
   /** A pane operation (PANE_ACTIONS) as the person, on the pane named as `peek` names it. */
@@ -936,7 +944,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
     L.sel = i;
     if (open) {
       if (row.kind === "group") this.toggleLinkGroup(row.group.kind);
-      else this.enterLinkRow(!!a.fresh);
+      else { this.previewLink(); this.enterLinkRow(!!a.fresh); }
     } else this.previewLink();
     this.redraw();
     return what;
@@ -956,6 +964,8 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
 
   /** `card.move`: the selected card (or `card`) into the lane named `lane`, by the same move as H/L, m and a drag. */
   async moveCard(lane: string, card: string | undefined, actor: Actor) {
+    // Refused before the move starts: said to the person as a move's refusal is (moveTo says its own).
+    const refuse = (m: string) => { if (actor.kind !== "agent") this.ctx.flash(`not moved: ${m}`); return new ActionRefused(m); };
     if (!card && actor.kind === "agent") card = this.cardFor(undefined, actor).id;   // its own selection, else the person's
     // An agent's move names its card without selecting it: the person's lane, selection, preview and
     // keys stay where they are. (The person's own card.move, through the socket as `you`, selects it.)
@@ -964,15 +974,15 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       if (actor.kind === "agent") {
         from = this.lanes.findIndex(l => l.items?.some(m => m.id === card || (card.length >= 8 && m.id.startsWith(card))));
         c = from >= 0 ? this.lanes[from]!.items!.find(m => m.id === card || m.id.startsWith(card)) : undefined;
-        if (!c) throw new ActionRefused(`no lane on the board lists ${card}`);
-      } else if (!this.selectCard(card)) throw new ActionRefused(`no lane on the board lists ${card}`);
+        if (!c) throw refuse(`no lane on the board lists ${card}`);
+      } else if (!this.selectCard(card)) throw refuse(`no lane on the board lists ${card}`);
       else { from = this.lane; c = this.card(); }
     }
-    if (!c) throw new ActionRefused("no card is selected");
+    if (!c) throw refuse("no card is selected");
     const want = lane.toLowerCase();
     const to = this.lanes.findIndex(l => l.name.toLowerCase() === want);
-    if (to < 0) throw new ActionRefused(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
-    if (to === from) throw new ActionRefused(`the card is already in ${this.lanes[to]!.name}`);
+    if (to < 0) throw refuse(`no lane ${lane}; lanes: ${this.lanes.map(l => l.name).join(", ")}`);
+    if (to === from) throw refuse(`the card is already in ${this.lanes[to]!.name}`);
     this.lastMove = null;
     await this.moveTo(to, actor, { card: c, from });
     const r = this.lastMove as DeliveryBoard["lastMove"];
@@ -2950,7 +2960,8 @@ export const BOARD_ACTIONS = new ActionSet<{
     args: {},
     run(_, { b, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs reader=<name> (or lanes)");
-      if (actor.kind === "agent" && b.holdsKeys()) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
+      // Refused only when it would move the keys of a person who is typing; focusing where they already are leaves them in it.
+      if (actor.kind === "agent" && b.holdsKeys() && !b.focusedIs(reader)) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
       const r = b.focusOn(reader);
       if (actor.kind === "agent") b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
       return r;
