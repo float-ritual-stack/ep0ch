@@ -10,6 +10,8 @@ import { CP437_NEAREST, cp437Code, inCp437, toCp437Glyphs } from "../src/ansi";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
+import { Draft, wrapRows } from "../src/edit";
+import { renderCompletion } from "../src/surface/completer";
 import { EXT_ACTIONS } from "../src/extensions";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -74,6 +76,29 @@ describe("terminal cells, not code points", () => {
     const t = new Canvas(6, 1);
     t.text(0, 0, "東​ab");
     expect(cells(t.lines()[0]!)).toBe(6);
+  });
+
+  test("a wide glyph cut by the canvas's left edge leaves its visible half blank, not what was under it", () => {
+    const c = new Canvas(6, 1);
+    c.text(0, 0, "xxxxxx");
+    c.text(-1, 0, "会ab");
+    expect(visible(c.lines()[0]!)).toBe(" abxxx");
+  });
+
+  test("the editor wraps a draft's line by cells: a row of CJK ends where the screen does, nothing past it", () => {
+    const rows = wrapRows([..."会議メモ来週の発表"], 8, 0);
+    expect(rows.map(r => [r.start, r.end])).toEqual([[0, 4], [4, 8], [8, 9]]);
+    expect(wrapRows([..."abcdefghij"], 4, 0).map(r => r.end)).toEqual([4, 8, 10]);
+    expect(wrapRows([..."ab 会議メモ"], 6, 0).map(r => r.end)).toEqual([3, 6, 7]);
+    const d = new Draft("b-1", 1, "会議メモ：来週の発表の準備と資料のまとめ方について");
+    for (const l of d.render(12, 10)) expect(cells(l)).toBeLessThanOrEqual(12);
+  });
+
+  test("the reference popup draws a title with escapes as its words, cut by cells", () => {
+    const items = [{ label: `Omen${OSC52} list 会議メモ：来週の発表の準備`, kind: "note", context: "", insertion: "[[x]]" }];
+    const lines = renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0 } as any, 20, 4);
+    for (const l of lines) { expect(cells(l)).toBe(20); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
+    expect(visible(lines.join("\n"))).toContain("Omen list");
   });
 
   test("a hint is cut between its parts, else at a space, never mid-word; a frame's bottom edge too", () => {

@@ -5,7 +5,7 @@
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import type { Axis } from "./layout";
-import { kindNoun } from "./tile-kinds";
+import { tileNoun } from "./tile-kinds";
 
 /** What a pane operation did: the pane's name as `peek` shows it, and anything else worth saying. */
 export interface PaneDone { pane: string; [k: string]: unknown }
@@ -47,7 +47,7 @@ export const PANE_ACTIONS = new ActionSet<{
     args: { kind: { type: "string", optional: true, about: "what the new pane shows (desk: reader, tree, thread, activity, who, art)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
     async run({ kind, dir }, { h, reader }, actor) {
       const r = await h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor);
-      say(h, actor, `opened ${kindNoun(kind ?? "reader")}${r.pane.replace(/-\d+$/, "") === (kind ?? "reader") ? "" : ` (${r.pane})`}`);
+      say(h, actor, `opened ${tileNoun(kind ?? "reader", r.pane)}`);
       return r;
     },
   },

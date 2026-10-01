@@ -743,7 +743,7 @@ export class Draft {
         line += c;
       });
       const said = glow.find(g => g.last)?.label;
-      const room = w1 - r.indent - cells.length - 2;
+      const room = w1 - r.indent - Bun.stringWidth(cells.join("")) - 2;
       out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ("@" + said).slice(0, room) + RESET : ""));
     }
     return out;
@@ -785,16 +785,22 @@ export function hangOf(line: string, w: number): number {
 export function wrapRows(chars: readonly string[], w: number, hang: number): { start: number; end: number; indent: number }[] {
   const out: { start: number; end: number; indent: number }[] = [];
   const n = chars.length;
+  // Each character's cells as the row draws it (a tab or control as one space; CJK and wide emoji two, a
+  // combining mark none), so a row of wide characters wraps where the screen ends, not past it (PIE-510).
+  const cw = chars.map(c => (c.length === 1 && c < "\u0300" ? 1 : Bun.stringWidth(c)));
   let s = 0;
   for (;;) {
     const indent = out.length ? hang : 0, room = Math.max(1, w - indent);
-    if (n - s <= room) { out.push({ start: s, end: n, indent }); return out; }
+    // `e`: the first character past the row's room.
+    let e = s, used = 0;
+    while (e < n && used + cw[e]! <= room) used += cw[e++]!;
+    if (e >= n) { out.push({ start: s, end: n, indent }); return out; }
     // The space just past a full row ends it (drawn in the spare cell); else the last space inside it.
     let b = -1;
-    if (chars[s + room] === " ") b = s + room + 1;
-    else for (let i = s + room; i > s; i--) if (chars[i - 1] === " ") { b = i; break; }
-    // Never a first row of only the item's marker and indent; a word longer than a row is cut.
-    if (b < s + (out.length ? 1 : hang + 1)) b = s + room;
+    if (chars[e] === " ") b = e + 1;
+    else for (let i = e; i > s; i--) if (chars[i - 1] === " ") { b = i; break; }
+    // Never a first row of only the item's marker and indent; a word longer than a row is cut (at least one character a row).
+    if (b < s + (out.length ? 1 : hang + 1)) b = Math.max(e, s + 1);
     out.push({ start: s, end: b, indent });
     s = b;
   }

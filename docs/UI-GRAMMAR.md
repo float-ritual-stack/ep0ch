@@ -569,8 +569,8 @@ Boundary for a TUI editing component that other TUIs can use:
 - Today the frame is in `ed`, the text model in `src/edit.ts`, and completion in `note` and
   `src/comment.ts`. Moving completion into the component closes F9 and gives the board's
   composer completion for free.
-- Grapheme width stays a known limit in the editor (README: its cursor counts one cell per character); everything
-  else measures in cells (`width`, `graphemes`, PIE-510).
+- Grapheme width stays a known limit in the editor: it wraps by cells (`wrapRows`), but a click and up/down count one
+  cell per character (README); everything else measures in cells (`width`, `graphemes`, PIE-510).
 
 ---
 

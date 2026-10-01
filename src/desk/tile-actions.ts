@@ -8,7 +8,7 @@ import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { EDGE_WORD, isDir, type Dir, type Policy } from "./layout";
 import type { PaneKind } from "./panes";
-import { kindNoun } from "./tile-kinds";
+import { tileNoun } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
 const WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"];
@@ -76,8 +76,6 @@ const say = (d: TileHost, actor: Actor, what: string, person = false) => {
   if (actor.kind === "agent") d.ctx.flash(`${agentLabel(actor)} ${what}`);
   else if (person) d.ctx.flash(what);
 };
-/** A tile as a message names it: its kind's word, and its name when that says more ("a terminal tile (editor)"). */
-const opened = (kind: string, tile: string) => `${kindNoun(kind)}${tile.replace(/-\d+$/, "") === kind ? "" : ` (${tile})`}`;
 
 const loadLayout = {
   summary: "replace the layout with the one saved by name (or the built-in daily, river, board or desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut drawer, never ended. Refused to an agent while the person is typing",
@@ -181,7 +179,7 @@ export const TILE_ACTIONS = new ActionSet<{
     },
     async run({ kind, to, where, ...t }, { d, reader }, actor) {
       const r = await d.openTile({ kind: kind as PaneKind, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
-      say(d, actor, `opened ${opened(kind, r.tile)}`);
+      say(d, actor, `opened ${tileNoun(kind, r.tile)}`);
       return r;
     },
   },
@@ -307,7 +305,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" } },
     async run({ where }, { d, reader }, actor) {
       const r = await d.previewTile(reader, whereOf(where, "tile.preview", "right"), actor);
-      say(d, actor, `opened ${opened("preview", r.tile)}`);
+      say(d, actor, `opened ${tileNoun("preview", r.tile)}`);
       return r;
     },
   },

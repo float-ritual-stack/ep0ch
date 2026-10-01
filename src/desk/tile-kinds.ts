@@ -123,6 +123,8 @@ export function kindNoun(kind: string): string {
   const word = k?.keys?.[0]?.label ?? kind;
   return `${/^[aeiou]/i.test(word) ? "an" : "a"} ${word} tile`;
 }
+/** A tile as a message names it: its kind's word, and its name when that says more ("a terminal tile (editor)"). */
+export const tileNoun = (kind: string, tile: string): string => `${kindNoun(kind)}${tile.replace(/-\d+$/, "") === kind ? "" : ` (${tile})`}`;
 /** Every kind, in the order registered (the built-ins first). */
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */

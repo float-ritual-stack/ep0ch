@@ -49,6 +49,7 @@ export class Canvas {
         if (x >= end) return;
         if (x + w > end) { if (x >= 0) this.put(line, x, { ch: " ", sgr }); return; }
         if (x >= 0) { this.put(line, x, { ch: g, sgr }); if (w === 2) this.put(line, x + 1, { ch: "", sgr }); }
+        else if (x + w > 0) this.put(line, 0, { ch: " ", sgr });   // a wide glyph cut by the left edge: its visible half blank
         x += w;
       }
     }

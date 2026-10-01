@@ -13,6 +13,7 @@ import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
+import { printable } from "../text";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** At most this many candidates per lookup, as in the outliner. */
@@ -309,11 +310,9 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
 export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = []): string[] {
   rows.length = 0;
   if (h <= 0) return [];
-  // Titles come from notes: dashes and ellipses the VGA font lacks are drawn as it can.
-  const line = (text: string, colour: string, back = "") => {
-    const t = [...text.replace(/[\u2013\u2014]/g, "-").replace(/\u2026/g, "...").replace(/[\u0000-\u001f]/g, " ")];
-    return back + colour + pad(t.length > w ? t.slice(0, Math.max(0, w - 3)).join("") + "..." : t.join(""), w) + RESET;
-  };
+  // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
+  // the VGA font lacks goes as its lookalike at the sink (App, CP437_NEAREST).
+  const line = (text: string, colour: string, back = "") => back + colour + pad(printable(text, " "), w) + RESET;
   if (!s.items.length) { rows.push(null); return [line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow), bg(C.blue))]; }
   const header = h >= 3, footer = h >= 2;
   const room = Math.max(1, h - Number(header) - Number(footer) - 1);

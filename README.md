@@ -1486,5 +1486,5 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - A reconnect that missed more than 500 changes reloads everything rather than paging the feed.
 
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
-- The editor counts one cell per character, so wide (CJK, some emoji) characters misplace the cursor.
+- The editor wraps a line by cells, but a click and up/down count one cell per character, so on a line with wide (CJK, some emoji) characters they land a little off.
 - The Herdr capability check reads a config file; a lasting version should ask Herdr.
