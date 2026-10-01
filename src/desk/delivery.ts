@@ -25,7 +25,7 @@ import { ReaderPane, sessionName, sessionStart, TreePane, type Pane, type PaneKi
 import { PreviewPane } from "./preview";
 import { BacklinksPane, BACKLINKS_ACTIONS } from "./backlinks-pane";
 import { DetailPane, type LayoutSpec } from "./tiles";
-import { clone, columnsOf, drawerOf, insert, leaf, leaves, node, normalise, remove, serialize, splitOf, unwrapDrawer, visible, wrapNodeDrawer, drawerToEdge, type Columns, type Dir, type LNode } from "./layout";
+import { clone, columnsOf, drawerOf, insert, leaf, leaves, node, remove, serialize, splitOf, visible, type Columns, type Dir, type LNode } from "./layout";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { TREE_ACTIONS } from "./tree";
 import { shellKeyOf } from "../shell-keys";
@@ -180,7 +180,7 @@ export class DeliveryBoard extends Desk {
   protected override save() {
     if (!this.persist) return;
     let root: LNode | null = clone(this.root);
-    for (const id of this.detailTiles().map(d => d.id)) root = root && remove(root, id);
+    for (const id of leaves(this.root)) if (this.panes.get(id) instanceof DetailPane) root = root && remove(root, id);
     const c = root ? node(root, "lanes") : null;
     if (c?.t === "columns") c.source = this.hub ? `hub:${this.hub.id}` : c.source;
     const layout: LayoutSpec | undefined = root ? { root: serialize(root, id => this.specOf(id)) } : undefined;
@@ -246,6 +246,8 @@ export class DeliveryBoard extends Desk {
 
   override enter(ctx: Ctx) {
     const again = !!this.ctx;
+    // Lanes restored with the layout are the board's to read (once the hub fills them), not each its own.
+    if (!again) for (const id of leaves(this.lanesNode() ?? leaf(-1))) { const p = this.panes.get(id); if (p instanceof QueryPane) p.managed = true; }
     super.enter(ctx);
     if (again) return;
     void this.chooseStart();
@@ -577,6 +579,8 @@ export class DeliveryBoard extends Desk {
 
   /** A new float holding `m` (a copy of what the preview shows, or a note an agent opened as a float). */
   private floatNote(m: Msg): ReaderPane {
+    // A float is a new tile: a locked screen keeps its shape (the desk's rule for every open).
+    this.refuse(this.shapeRefusal(this.idNamed("preview")!, "floating a note"));
     const name = `detail${++this.detailCount}`;
     const pane = new BoardDetail(name);
     const id = this.put(pane, name);
@@ -726,26 +730,27 @@ export class DeliveryBoard extends Desk {
     return { lanes: this.lanes.map(l => l.name) };
   }
 
-  /** `lane.collapse`: a lane to a spine, or open again (the desk's tile.collapse on the lane's tile). */
+  /** `lane.collapse`: a lane to a spine, or open again: the desk's tile.collapse on the lane's tile (its policy, its agent rule). */
   collapseLane(name: string | undefined, on: boolean | undefined, actor: Actor) {
     const lanes = this.lanes;
     const l = name === undefined ? lanes[this.lane] : lanes.find(x => x.name.toLowerCase() === name.toLowerCase());
     if (!l) throw new ActionRefused(name === undefined ? "the board has no lanes yet" : `no lane ${name}; lanes: ${lanes.map(x => x.name).join(", ")}`);
-    const id = this.idOf(l)!;
-    const want = on ?? !this.collapsed.has(id);
-    // The person's own lane folds as any lane does: the cursor stays in it.
-    if (want) this.collapsed.set(id, actor.kind === "agent" ? { by: actor.id } : {}); else this.collapsed.delete(id);
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} ${want ? "collapsed" : "opened"} the lane ${l.name}`);
-    this.save(); this.redraw();
-    return { lane: l.name, collapsed: want };
+    const r = this.collapseTile(this.nameOf(this.idOf(l)!), on, actor);
+    if (actor.kind === "agent" && r.changed !== false) this.ctx.flash(`${agentLabel(actor)} ${r.collapsed ? "collapsed" : "opened"} the lane ${l.name}`);
+    return { lane: l.name, collapsed: !!r.collapsed };
   }
   /** A lane folded to a spine is opened (a card moved or written into it should be seen). */
-  private unfold(l: Lane) { const id = this.idOf(l); if (id !== undefined && this.collapsed.delete(id)) this.save(); }
+  private unfold(l: Lane) { const id = this.idOf(l); if (id !== undefined && this.collapsed.delete(id)) { this.save(); } }
+
+  // ── the board's drawers: the desk's drawer containers, changed by the desk's tile.pin and tile.drawer ──
+
+  /** The outline's split (the tree over its preview) and the backlinks' (the list beside its preview): their ids. */
+  private splitId(key: "outline" | "links"): string { return node(this.root, key)!.id!; }
 
   /** `outline`: the outline drawer open or shut, and on which side. */
   outlineDrawer(open: boolean | undefined, side: string | undefined, actor: Actor) {
     const agent = actor.kind === "agent";
-    const tree = this.idNamed("tree")!;
+    const tree = this.idNamed("tree")!, inIt = this.focus === tree || this.focus === this.idNamed("tree-preview");
     if (side !== undefined) {
       if (side !== "left" && side !== "right" && side !== "other") throw new ActionRefused(`side is left, right or other, not ${side}`);
       const to: Dir = side === "other" ? (this.treeSide === "left" ? "right" : "left") : side;
@@ -753,44 +758,33 @@ export class DeliveryBoard extends Desk {
       if (open === undefined) open = true;
     }
     // The person's t: shut when it's open and theirs, else open and theirs.
-    const want = open ?? (agent ? !this.treeOpen : !(this.treeOpen && this.focus === tree));
+    const want = open ?? (agent ? !this.treeOpen : !(this.treeOpen && inIt));
     if (!want) {
-      if (agent && this.focus === tree) throw new ActionRefused("the person is in the outline drawer; an agent doesn't shut it");
-      // Pinned, it goes back into its drawer, shut.
-      if (this.treePinned) this.rewrapOutline(false);
-      else { const d = drawerOf(this.root, tree)!; d.open = false; }
+      if (agent && inIt) throw new ActionRefused("the person is in the outline drawer; an agent doesn't shut it");
+      this.shutDrawer("tree", actor);
       if (this.focus === tree || this.focus === this.idNamed("tree-preview")) this.toLanes();
-    } else {
-      const d = drawerOf(this.root, tree);
-      if (d) d.open = true;
-      if (!agent && side === undefined) { this.focus = tree; this.entered.clear(); }
-    }
+    } else if (!this.treePinned) this.drawerTile("tree", true, actor);
+    if (want && !agent && side === undefined) { this.focus = tree; this.entered.clear(); }
     if (agent) this.ctx.flash(`${agentLabel(actor)} ${want ? "opened" : "shut"} the outline drawer${side ? ` on the ${this.treeSide}` : ""}`);
     this.save(); this.redraw();
     return { open: this.treeOpen, side: this.treeSide, pinned: this.treePinned };
   }
-  /** The outline's split (the tree over its preview), wherever it is. */
-  private outlineSplit() { return node(this.root, "outline"); }
-  /** The outline (pinned or not) to the other side, keeping its width. */
+  /** The outline (pinned or not) to the other side, keeping its width: tile.pin with an edge, as ^W P's edge row does. */
   private moveOutline(to: Dir, actor: Actor) {
-    const tree = this.idNamed("tree")!;
-    const d = drawerOf(this.root, tree);
-    if (d) { const next = drawerToEdge(this.root, d, to, 0.3); if (next) this.root = normalise(next); return; }
+    const id = this.splitId("outline");
+    if (!this.treePinned) { this.pinTile("tree", false, to, actor, id); return; }
     // Pinned: into a drawer at that edge, then docked there again.
-    this.rewrapOutline(true, to);
-    const nd = drawerOf(this.root, tree);
-    if (nd) this.root = normalise(unwrapDrawer(this.root, nd));
-    void actor;
+    this.pinTile("tree", false, to, actor, id);
+    this.pinTile("tree", true, undefined, actor);
   }
-  /** The outline's split back in a drawer (open or shut), at `edge` or where it is. */
-  private rewrapOutline(open: boolean, edge?: Dir) {
-    const s = this.outlineSplit();
-    if (!s) return;
-    const next = wrapNodeDrawer(this.root, s, edge ?? this.treeSide, open, 0.3);
-    if (next) { this.root = normalise(next); const d = drawerOf(this.root, this.idNamed("tree")!); if (d) d.policy = { min: 28 }; }
+  /** One of the board's drawers shut (pinned, it goes back into its drawer first), by the desk's tile.pin and tile.drawer. */
+  private shutDrawer(which: "tree" | "backlinks", actor: Actor) {
+    if (which === "tree" ? this.treePinned : this.linksPinned) this.pinTile(which, false, which === "tree" ? this.treeSide : "down", actor, this.splitId(which === "tree" ? "outline" : "links"));
+    const d = drawerOf(this.root, this.idNamed(which)!);
+    if (d?.open) this.drawerTile(which, false, actor);
   }
 
-  /** `B`, `T`: a drawer of the board's (the outline, the backlinks) pinned into the layout, or sliding over again. */
+  /** `B`, `T`: a drawer of the board's (the outline, the backlinks) docked into the layout, or sliding over again. */
   override pinPane(sel: string | undefined, on: boolean | undefined, actor: Actor): PaneDone {
     const which = !sel || sel === "focused" ? (this.focus === this.idNamed("tree") || this.focus === this.idNamed("tree-preview") ? "tree" : this.focus === this.idNamed("backlinks") || this.focus === this.idNamed("backlinks-preview") ? "backlinks" : undefined) : sel.replace(/-preview$/, "");
     if (which !== "tree" && which !== "backlinks") return super.pinPane(sel, on, actor);
@@ -798,15 +792,11 @@ export class DeliveryBoard extends Desk {
     const want = on ?? !pinned;
     if (want !== pinned) {
       if (which === "backlinks" && !this.linksOpen && actor.kind === "agent") throw new ActionRefused("the backlinks drawer isn't open; b opens it on a reader's note");
-      const id = this.idNamed(which)!;
-      this.refuse(this.shapeRefusal(id, `${want ? "pinning" : "unpinning"} the ${which === "tree" ? "outline" : "backlinks"} drawer`));
-      if (want) { const d = drawerOf(this.root, id)!; d.open = true; this.root = normalise(unwrapDrawer(this.root, d)); }
-      else if (which === "tree") this.rewrapOutline(true);
-      else {
-        this.rewrapLinks(true);
-      }
+      // The whole container goes (the list with its preview), back to the edge it slides from.
+      if (want) this.pinTile(which, true, undefined, actor);
+      else this.pinTile(which, false, which === "tree" ? this.treeSide : "down", actor, this.splitId(which === "tree" ? "outline" : "links"));
       // Pinned with nothing in it yet, the backlinks are the focused reader's.
-      if (which === "backlinks" && want && !this.linksTile.target) this.aimLinks(this.readerForKeys(), false);
+      if (which === "backlinks" && want && !this.linksTile.target) void this.aimLinks(this.readerForKeys(), false);
       this.save(); this.redraw();
     }
     return { pane: which, pinned: want, changed: want !== pinned };
@@ -824,25 +814,16 @@ export class DeliveryBoard extends Desk {
   private aimLinks(reader: ReaderPane, focus = true, m?: Msg): Promise<void> {
     const L = this.linksTile, id = this.idOf(reader);
     if (id !== undefined) L.source = this.nameOf(id);
-    const d = drawerOf(this.root, this.idNamed("backlinks")!);
-    if (d) d.open = true;
+    if (!this.linksPinned && !this.linksOpen) { const keep = this.focus; this.drawerTile("backlinks", true, USER); if (!focus) this.focus = keep; }
     if (focus) { this.focus = this.idNamed("backlinks")!; this.entered.clear(); }
     const note = m ?? reader.msg;
     const asked = note ? L.show(note, this) : Promise.resolve();
     this.redraw();
     return asked.then(() => { if (focus) this.panes.get(this.idNamed("backlinks")!)?.focused?.(this, USER); this.redraw(); });
   }
-  /** The backlinks' split back in its drawer at the bottom, staying open while the keys go elsewhere. */
-  private rewrapLinks(open: boolean) {
-    const s = node(this.root, "links");
-    const next = s ? wrapNodeDrawer(this.root, s, "down", open, 0.36) : null;
-    if (next) { this.root = normalise(next); const d = drawerOf(this.root, this.idNamed("backlinks")!); if (d) d.policy = { stays: true }; }
-  }
   /** The backlinks drawer shut (it keeps what it listed). */
-  private shutLinks() {
-    const d = drawerOf(this.root, this.idNamed("backlinks")!);
-    if (d) d.open = false;
-    else this.rewrapLinks(false);
+  private shutLinks(actor: Actor = USER) {
+    this.shutDrawer("backlinks", actor);
     if (this.focus === this.idNamed("backlinks") || this.focus === this.idNamed("backlinks-preview")) this.toLanes();
   }
 
@@ -1002,7 +983,15 @@ export class DeliveryBoard extends Desk {
     const keep = this.personIn();
     let details = this.detailTiles();
     // A detail holding an edit, a comment or the panel is never reused or dropped, nor the one the person is in.
-    if (fresh || !details.length || details[this.active]?.pane.holdsKeys) {
+    const wantNew = fresh || !details.length || details[this.active]?.pane.holdsKeys;
+    // A locked screen keeps its shape: no detail is added; the note opens in a detail free to take it, else the preview.
+    const locked = wantNew && this.shapeRefusal(this.idNamed("preview")!, "opening a detail");
+    if (locked) {
+      const free = details.findIndex(d => !d.pane.holdsKeys && d.pane !== keep);
+      this.ctx.flash(`${locked} · opened in ${free >= 0 ? this.labelOf(details[free]!.pane) : "the preview"}`);
+      if (free < 0) { this.preview.surface.track(() => this.preview.show(m, this)); this.redraw(); return false; }
+      this.active = free;
+    } else if (wantNew) {
       if (details.length >= 2) {
         const free = (d: ReaderPane) => !d.holdsKeys && d !== keep;
         const mine = this.panes.get(this.focus);
@@ -1027,7 +1016,8 @@ export class DeliveryBoard extends Desk {
     // that reader, wherever the row moved it. An agent's never moves it.
     if (!quiet) this.focus = keep ? this.idOf(keep) ?? this.focus : d.id;
     if (!this.has(this.focus)) this.focus = d.id;
-    if (!this.treePinned) { const t = drawerOf(this.root, this.idNamed("tree")!); if (t) t.open = false; }
+    // The outline sliding over shuts as the note opens (the desk's tile.drawer); a person's own only.
+    if (!quiet && !this.treePinned && this.treeOpen) { try { this.drawerTile("tree", false, USER); } catch { /* it stays open (collapsible off) */ } }
     this.redraw();
     return true;
   }
@@ -1124,18 +1114,28 @@ export class DeliveryBoard extends Desk {
   /** A detail's share of the readers row as it opens: three to the preview's four. */
   private detailWeight(): number { const row = node(this.root, "readers"); return (row?.weights[0] ?? 4) * 0.75; }
 
+  /**
+   * `tile.close` (`^W x`) on the board: the tiles the board is made of stay (the lanes, the preview, the
+   * drawers' lists and previews: a drawer shuts instead, `x`'s rule); any other tile closes as on the desk.
+   */
+  override closeTile(sel: string | undefined, actor: Actor) {
+    const t = this.tile(this.alias(sel));
+    if (this.isLane(t.id) || (FIXED as readonly string[]).includes(t.name)) return { tile: t.name, ...this.closePane(t.name, actor) };
+    return super.closeTile(t.name, actor);
+  }
+
   /** Close a detail or a float (`x`), the drawers shut; the lanes and the preview stay (they collapse). */
   override closePane(sel: string | undefined, actor: Actor): PaneDone {
     const s = this.alias(sel ?? (this.onLanes ? "lanes" : this.nameOf(this.focus)));
     if (sel === "lanes" || (s && this.isLane(this.tileNamed(s, false)?.id ?? -1)) || s === "preview") throw new ActionRefused(`the ${s === "preview" ? "preview stays" : "lanes stay"} on the board; c collapses ${s === "preview" ? "the preview" : "a lane"} to a spine`);
     const t = this.tile(s);
     if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't close it`);
-    if (t.name.startsWith("tree")) { const d = drawerOf(this.root, this.idNamed("tree")!); if (d) d.open = false; else this.rewrapOutline(false); if (this.focus === t.id) this.toLanes(); this.save(); this.redraw(); return { pane: "tree" }; }
-    if (t.name.startsWith("backlinks")) { const keep = this.focus; this.shutLinks(); if (keep !== this.idNamed("backlinks")) this.focus = keep; this.save(); this.redraw(); return { pane: "backlinks" }; }
+    if (t.name.startsWith("tree")) { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { pane: "tree" }; }
+    if (t.name.startsWith("backlinks")) { const keep = this.focus; this.shutLinks(actor); if (keep !== this.idNamed("backlinks") && keep !== this.idNamed("backlinks-preview")) this.focus = keep; this.save(); this.redraw(); return { pane: "backlinks" }; }
     const rd = this.panes.get(t.id);
     if (rd instanceof ReaderPane && rd.editing) throw new ActionRefused(`not closed: ${t.name} holds ${sessionName(rd)}`);
     const wasFocus = this.focus;
-    this.closeTile(t.name, actor);
+    super.closeTile(t.name, actor);
     // The person's focus goes to the detail left (or the lanes); an agent's leaves it.
     if (actor.kind !== "agent" && wasFocus === t.id) {
       const ds = this.detailTiles();

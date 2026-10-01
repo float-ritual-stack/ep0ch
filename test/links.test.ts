@@ -227,8 +227,8 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     // The backlink preview: its link opens in a detail, and the list's preview stays on its source.
     BV.at(b, "backlinks");
     const pr = rect("links-preview");
-    await until(() => { try { where(frame(), "Weekend jobs", pr); return true; } catch { return false; } }, "the preview drawn");
-    click(where(frame(), "Weekend jobs", pr));
+    await until(() => { try { where(frame(), "Weekend jobs", pr, 1); return true; } catch { return false; } }, "the preview drawn");
+    click(where(frame(), "Weekend jobs", pr, 1));                          // the first is the quoted snippet in its title, not a link
     await until(() => B().details.some((x: ReaderPane) => x.msg?.id === n.jobs.id), "the link in a detail");
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
   }, 20_000);

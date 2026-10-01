@@ -311,6 +311,84 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await act("card.move", { lane: "Doing", card });
     await until(() => B().lanes[1].items?.some((m: any) => m.id === card), "the card in Doing");
   });
+
+  test("review: a delivery.json whose layout is broken, of the wrong type or missing pieces gives the board as it first opens", async () => {
+    for (const layout of [{ root: { t: "split", dir: "row", kids: "x", weights: null } }, { root: { t: "leaf", kind: "tree", name: "tree" } }, "wide", { root: null }]) {
+      writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({ hubs: {}, layout }));
+      await fresh(true);
+      expect(shape(tree())).toMatchObject({ split: "row", kids: [{ drawer: "left" }, { key: "board", kids: [{ key: "lanes" }, { key: "readers" }, { drawer: "down" }] }] });
+      for (const r of ["preview", "Doing"].map(rect)) for (const v of Object.values(r)) expect(Number.isFinite(v) && v >= 0).toBe(true);
+    }
+  });
+
+  test("review: a click inside a sliding drawer is the drawer's, even over a border hidden under it", async () => {
+    await withDetails();
+    key(char("t"));                                                    // the outline slides over the lanes' border
+    const tr = rect("tree"), border = rect("preview").row;
+    expect(border).toBeLessThan(tr.row + tr.rows - 1);
+    const before = shape(tree());
+    b.render(B().ctx);
+    mouse("down", tr.col + 5, border); mouse("drag", tr.col + 5, border + 4); mouse("up", tr.col + 5, border + 4);
+    expect(shape(tree())).toEqual(before);                            // not the lanes' border under it
+    expect(focus()).toBe("tree");
+    key({ kind: "esc" });
+  });
+
+  test("review: the sliding backlinks drawer drags only by its own top edge: the row above it is still the reader's", async () => {
+    await fresh();
+    key({ kind: "tab" }); key(char("b"));
+    await until(() => !!B().linksTile.data, "the backlinks");
+    const top = rect("backlinks").row, x = rect("backlinks").col + rect("backlinks").cols - 4;
+    drag(x, top - 1, x, top - 5);                                      // the preview's own row: nothing moves
+    expect(rect("backlinks").row).toBe(top);
+    drag(x, top, x, top - 4);                                          // its own top edge
+    expect(rect("backlinks").row).toBe(top - 4);
+    while (focus() !== "backlinks") key({ kind: "tab" });
+    key({ kind: "esc" });
+  });
+
+  test("review: ^W x and tile.close leave the board's own tiles: a lane and the preview stay, a drawer's list shuts its drawer", async () => {
+    await fresh();
+    const W = () => key({ kind: "char", ch: "w", ctrl: true } as Key);
+    W(); key(char("x"));                                                // on a lane
+    expect(B().lanes.length).toBe(2);
+    expect(message()).toContain("lanes stay");
+    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays/);
+    key(char("t"));
+    W(); key(char("x"));                                                // in the outline: it shuts
+    expect(B().describe().tree.open).toBe(false);
+    expect(B().idNamed("tree")).toBeDefined();
+    b.render(B().ctx);                                                  // and the board still draws
+  });
+
+  test("review: a query tile the person drops into the lanes stays through a refill; a detail moved anywhere isn't saved", async () => {
+    await fresh();
+    const other = await create(null, "Odd jobs [type::virtual-branch] [query::stage=someday]");   // a view under no hub
+    await act("tile.open", { kind: "query", view: other.id, name: "odd", to: "Queued", where: "right" });
+    await B().fillColumns();
+    expect(panesIn(lanesNode())).toEqual(["Doing", "Queued", "odd"]);
+    key({ kind: "enter" }); key({ kind: "esc" });                       // a detail
+    await act("layout.move", { to: "Doing", where: "edge-right" }, "detail1");
+    b.render(B().ctx);
+    expect(JSON.stringify(state().layout)).not.toContain(`"kind":"detail"`);
+    await act("tile.close", {}, "odd");
+  });
+
+  test("review: tile.collapse folds only a tile side by side with others, where policy lets it, never the person's tile for an agent", async () => {
+    await withDetails();
+    await expect(act("tile.collapse", {}, "lanes")).rejects.toThrow(/has the person's keys/);
+    expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ tile: "detail2", collapsed: true });
+    await act("tile.collapse", { on: false }, "detail2");
+    await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/isn't side by side/);
+    const cid = B().lanesNode().id;
+    await act("layout.policy", { node: cid, collapsible: false });
+    await expect(act("lane.collapse", { lane: "Queued" })).rejects.toThrow(/collapsible off/);
+    await act("layout.policy", { node: cid, clear: "collapsible" });
+    // stays: the backlinks drawer's, set and read as any policy field.
+    expect(await act("layout.policy", {}, "backlinks")).toMatchObject({ effective: expect.any(Object) });
+    const d = B().layoutGet().tree.kids[1].kids[2];
+    expect(d).toMatchObject({ drawer: "down", policy: { stays: true } });
+  });
 });
 
 describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline", () => {
@@ -403,6 +481,21 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     D().focusTile("1", { kind: "person" } as any);
     await act("tile.close", {}, "shed-card"); await act("tile.close", {}, "shed");
   }, 20_000);
+
+  test("^W c folds the tile to a spine and opens it; ^W f floats it and docks it: the keys run tile.collapse and pane.float", async () => {
+    const W = () => key({ kind: "char", ch: "w", ctrl: true } as Key);
+    const me = () => D().describe().panes.find((p: any) => p.focused);
+    D().focusTile("1", { kind: "person" } as any);
+    W(); key(char("c"));
+    expect(me()).toMatchObject({ collapsed: true });
+    expect(D().layoutGet().tree).toBeTruthy();
+    key({ kind: "enter" });                                            // ⏎ on a spine opens it
+    expect(me().collapsed).toBeUndefined();
+    W(); key(char("f"));
+    expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: me().name })]);
+    W(); key(char("f"));
+    expect(D().layoutGet().floats).toEqual([]);
+  });
 
   test("^W x closes by the same path as pane.close: down to the last pane, which stays", async () => {
     while (D().describe().panes.length > 1) { key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x")); }

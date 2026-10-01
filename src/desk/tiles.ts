@@ -108,10 +108,10 @@ export function migrateDrawers(spec: LayoutSpec): LayoutSpec {
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
  * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
  */
-export const ID_SHAPE = /^[tsgdc]\d+$/;
+export const ID_SHAPE = /^[tsg]\d+$/;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
-  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g, d or c and digits are tile, split, tab set, drawer and columns ids)`;
+  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s or g and digits are tile, split and tab set ids)`;
   if (/^[A-Za-z][\w.-]{0,39}$/.test(name)) return null;
   return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
 }
