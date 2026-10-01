@@ -47,12 +47,28 @@ export function parseReport(seq: string): (KeyReport & { length: number }) | nul
 const SHIFT = 1, ALT = 2, CTRL = 4;
 
 /**
+ * The keypad's private-use codes (sent under flag 1 for keys that type no text, and some terminals send them
+ * for all keypad keys): the key each one stands for, as the codepoint of its text or the key itself.
+ */
+const KEYPAD: Record<number, number | Key> = {
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [57399 + i, 48 + i])),
+  57409: 46, 57410: 47, 57411: 42, 57412: 45, 57413: 43, 57414: 13, 57415: 61, 57416: 44,
+  57417: { kind: "left" }, 57418: { kind: "right" }, 57419: { kind: "up" }, 57420: { kind: "down" },
+  57421: { kind: "pgup" }, 57422: { kind: "pgdn" }, 57423: { kind: "home" }, 57424: { kind: "end" }, 57426: { kind: "delete" },
+};
+/** Keypad Insert: no key of the door's, but a program gets its legacy bytes. */
+const KP_INSERT = 57425;
+
+/**
  * A report as the door's key. Shift+Enter is Enter with `shift` (Enter wherever nothing binds it; a plain line
  * break in a draft); ctrl+[ i m j h keep their legacy meanings (esc, tab, enter, backspace), which the door has
  * always read them as. A release, a lone modifier or a key the door has no name for is null.
  */
 export function reportKey(r: KeyReport): Key | null {
   if (r.event === 3) return null;
+  const kp = KEYPAD[r.code];
+  if (typeof kp === "object") return kp;
+  if (typeof kp === "number") r = { ...r, code: kp, shifted: undefined };
   const m = r.mods & 15, shift = !!(m & SHIFT), alt = !!(m & ALT), ctrl = !!(m & CTRL);
   switch (r.code) {
     case 13: return alt ? { kind: "alt-enter" } : { kind: "enter", ...(shift ? { shift: true as const } : {}), ...(ctrl ? { ctrl: true as const } : {}) };
@@ -63,7 +79,8 @@ export function reportKey(r: KeyReport): Key | null {
   if (r.code < 32 || (r.code >= 0xe000 && r.code <= 0xf8ff) || r.code > 0x10ffff) return null;   // PUA: keypad and modifier keys
   const plain = String.fromCodePoint(r.code);
   if (ctrl) {
-    const c = plain.toLowerCase();
+    // A letter is its lowercase, as legacy ctrl was; punctuation is what shift made of it (ctrl+_ is ctrl+shift+-).
+    const c = /^[a-z]$/i.test(plain) ? plain.toLowerCase() : shift && r.shifted ? String.fromCodePoint(r.shifted) : plain;
     if (!alt) {
       if (c === "[") return { kind: "esc" };
       if (c === "i") return { kind: "tab" };
@@ -99,6 +116,7 @@ export function kittyBytes(r: KeyReport, flags: number): string {
 /** The report as a legacy terminal sends it (to a program that didn't ask for the protocol). */
 export function legacyBytes(r: KeyReport): string {
   if (r.event === 3) return "";
+  if (r.code === KP_INSERT) return "\x1b[2~";
   const alt = !!(r.mods & ALT);
   const k = reportKey({ ...r, mods: r.mods & ~ALT });
   const s = k ? keyBytes(k) : null;
@@ -111,6 +129,12 @@ export function translateReports(s: string, flags: number): string {
   if (!s.includes("\x1b[")) return s;
   return s.replace(REPORTS, seq => { const r = parseReport(seq); return !r ? seq : flags ? kittyBytes(r, flags) : legacyBytes(r); });
 }
+
+/** Legacy ctrl with a key that isn't a letter, as xterm sends it (ctrl+/ and ctrl+_ are both 0x1f, ctrl+2 is NUL). */
+const CTRL_BYTES: Record<string, string> = {
+  "@": "\x00", " ": "\x00", "2": "\x00", "[": "\x1b", "3": "\x1b", "\\": "\x1c", "4": "\x1c", "]": "\x1d", "5": "\x1d",
+  "^": "\x1e", "6": "\x1e", "_": "\x1f", "/": "\x1f", "-": "\x1f", "7": "\x1f", "?": "\x7f", "8": "\x7f",
+};
 
 /**
  * The bytes a terminal sends for `k` (null: none) to a program whose protocol flags are `flags`. Application
@@ -126,7 +150,7 @@ export function keyBytes(k: Key, appCursor = false, flags = 0): string | null {
       if (kitty) return `\x1b[${k.ch.toLowerCase().codePointAt(0)};5u`;
       const c = k.ch.toLowerCase();
       if (c >= "a" && c <= "z") return String.fromCharCode(c.charCodeAt(0) - 96);
-      return ({ "@": "\x00", " ": "\x00", "[": "\x1b", "\\": "\x1c", "]": "\x1d", "^": "\x1e", "_": "\x1f" } as Record<string, string>)[k.ch] ?? null;
+      return CTRL_BYTES[k.ch] ?? null;
     }
     case "alt": {
       if (!kitty) return `\x1b${k.ch}`;

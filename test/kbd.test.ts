@@ -32,6 +32,9 @@ describe("reading key reports", () => {
     expect(key("\x1b[97;4u")).toEqual({ kind: "alt", ch: "A" });
     expect(key("\x1b[49:33;4u")).toEqual({ kind: "alt", ch: "!" });             // alternate keys: what shift typed
     expect(key("\x1b[97;1:3u")).toBeNull();                                     // a release
+    expect(key("\x1b[57414u")).toEqual({ kind: "enter" });                    // keypad Enter
+    expect(key("\x1b[57422u")).toEqual({ kind: "pgdn" });                     // keypad PgDn, Num Lock off
+    expect(key("\x1b[45:95;6u")).toEqual({ kind: "char", ch: "_", ctrl: true });
     expect(key("\x1b[57441;2u")).toBeNull();                                    // a lone modifier (private use)
     expect(key("\x1b[?5u")).toBeNull();                                         // the query's answer isn't a key
   });
@@ -173,6 +176,8 @@ describe("a terminal tile's program", () => {
     expect(translateReports("a\x1b[27ub\x1b[99;5u\x1b[97;3u\x1b[13;3u\x1b[1;3D", 0)).toBe("a\x1bb\x03\x1ba\x1b\r\x1b[1;3D");
     expect(legacyBytes(parseReport("\x1b[97;1:3u")!)).toBe("");               // a release: nothing
     expect(legacyBytes(parseReport("\x1b[120;7u")!)).toBe("\x1b\x18");        // ctrl+alt+x
+    expect(translateReports("\x1b[45:95;6u\x1b[47;5u\x1b[50;5u", 0)).toBe("\x1f\x1f\x00");   // ctrl+_ ctrl+/ ctrl+2
+    expect(translateReports("\x1b[57414u\x1b[57419u\x1b[57425u\x1b[57401u", 0)).toBe("\r\x1b[A\x1b[2~2");  // the keypad
   });
 
   test("with the protocol, only what the program asked for: no alternate keys unless flag 4", () => {
