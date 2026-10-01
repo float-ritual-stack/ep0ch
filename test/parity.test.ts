@@ -106,8 +106,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
     return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: !!top?.holdsKeys?.() || !!top?.rawKeys?.() || app.dockHoldsKeys(), video: app.video };
   };
-  /** The same screen shown the same way, on two builds of it (another instance of the same class). */
-  const alike = (a: Snap, b: Snap) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  /** The same screen shown the same way (`about`: and described the same; two builds differ in ids and revisions). */
+  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
   const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
@@ -300,7 +300,9 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
       if (tries) { m = await fresh(label, make, [...setup, k1]); push(k2); await settle(); }
       const ended = snap(m);
       await fresh(label, make, setup);
-      if (alike(snap(m), ended)) return null;
+      const again = snap(m);
+      if (alike(again, ended, false)) return null;
+      if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(k1)} ${named(k2)}: ${again.about === ended.about ? "" : "describe differs; "}${again.lines.map((l, i) => (l === ended.lines[i] ? "" : `row ${i}: ${plain(l).trim().slice(0, 100)} | ${plain(ended.lines[i] ?? "").trim().slice(0, 100)}`)).filter(Boolean).join("\n  ")}\n`);
     }
     if (!(await bare(label, make, [...setup, k1], k2))) return null;
     return "ended an input state with a change and no action";
