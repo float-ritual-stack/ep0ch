@@ -132,8 +132,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
-      await Bun.sleep(30); await settle();
-      const a = snap(new Set()), b = (await Bun.sleep(60), await settle(), snap(new Set()));
+      await Bun.sleep(80); await settle();
+      const a = snap(new Set()), b = (await Bun.sleep(150), await settle(), snap(new Set()));
       mask = new Set<number>();
       a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask!.add(i); });
       if (a.about !== b.about) mask.add(-1);
@@ -172,6 +172,26 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   };
 
   /**
+   * A change with no action, checked once more before it's a finding: the screen built again, the rows that
+   * change by themselves in the meantime (a terminal's prompt arriving, a section opening its panel) masked
+   * from then on, and the key pressed again. True when it still changes the screen without an action.
+   */
+  async function bare(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k: Key): Promise<boolean> {
+    let mask = await fresh(label, make, setup);
+    const a = snap(mask);
+    await Bun.sleep(150); await settle();
+    const b = snap(mask);
+    a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask.add(i); });
+    if (a.about !== b.about) mask.add(-1);
+    const base = snap(mask);
+    const runs: ActionRun[] = [];
+    const stop = traceActions(r => runs.push(r));
+    try { push(k); await settle(); } finally { stop(); }
+    const after = snap(mask);
+    return !same(base, after) && !runs.length && !(after.holds && after.top === base.top);
+  }
+
+  /**
    * Press every key, and click across the screen, as it opens; then, from each key that left it holding the
    * keys (an input state), every key again.
    */
@@ -198,6 +218,7 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
         continue;
       }
       if (after.holds && after.top === base.top) { if (k.kind !== "mouse") states.push(k); continue; }
+      if (!(await bare(label, make, setup, k))) continue;
       findings.push({ screen: label, keys: named(k), problem: after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action" });
     }
     if (log) require("node:fs").appendFileSync(log, `# ${label}: input states ${states.map(named).join(" ")}\n`);
@@ -225,6 +246,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
         }
         if (after.holds && after.top === mid.top) continue;   // still typing, or another input state
         if (rest && same(rest, after)) continue;             // cancelled: back as it was
+        dirty = true;
+        if (!(await bare(label, make, [...setup, k1], k2))) continue;
         findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem: "ended an input state with a change and no action" });
       }
     }
