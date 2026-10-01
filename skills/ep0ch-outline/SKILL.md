@@ -144,8 +144,9 @@ Everything an extension writes is attributed `author: agent`, `actorId: ext:<id>
 An extension is a folder: in the outline's own `extensions/<id>/` (it travels with that outline), or the
 service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
 the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
-<id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira), `outliner ext act <id>
-<action> --block <id>` runs an action. The contract and worked examples are pi-herdr-outliner
+<id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira) into the user folder, or with
+`--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (both apply
+without a restart), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are pi-herdr-outliner
 `docs/extensions/README.md`. Test one against a scratch service, never their live folder. For a need, pick the
 smallest kind that serves it, copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
 
