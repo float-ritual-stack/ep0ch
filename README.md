@@ -315,6 +315,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
+| `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
@@ -369,6 +370,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
 | `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
+| in a terminal tile: `shift+⏎` | a newline in Claude Code and most line editors: `CSI 13;2u` to a program that asked for the Kitty keyboard protocol (Claude Code does), `ESC CR` (as `alt+⏎`) to one that didn't; plain `⏎` is always `CR`. The door reads Shift only from a terminal with that protocol: it asks for it at start (Ghostty, kitty, WezTerm, foot have it; so does Herdr 0.9 for its panes, over ssh too) and gives it back on exit, `$EDITOR` and drop to shell. `EP0CH_KEYBOARD=legacy` doesn't ask. Elsewhere `shift+⏎` is `⏎`; in a draft it's a plain line break, as `alt+⏎` |
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
 | `q` / `Esc` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |

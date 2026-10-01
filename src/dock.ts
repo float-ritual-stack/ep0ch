@@ -31,6 +31,7 @@ import { alive } from "./state";
 import { controlPath } from "./control";
 import type { DeskApi } from "./desk/panes";
 import { ESCAPE_CHORD, isEscapeChord, PtyPane } from "./desk/pty";
+import { rawKey } from "./kbd";
 import { dailyAgent, type SharedAgent } from "./desk/tiles";
 import { readState, writeState } from "./state";
 import { agentMayMove } from "./screens";
@@ -383,8 +384,10 @@ export class AgentDock implements SharedAgent {
     const p = this.p;
     if (!this.shown || !this.entered || !p?.running) return null;
     return (s: string) => {
-      if (s === "\x1ba") return run("agent.toggle", { open: false });
-      if (s === "\x1bA") return run("agent.height", { share: nextStep(this.share) });
+      // As legacy ESC-and-a-letter or as a Kitty keyboard report (src/kbd.ts).
+      const k = rawKey(s);
+      if (k?.kind === "alt" && k.ch === "a") return run("agent.toggle", { open: false });
+      if (k?.kind === "alt" && k.ch === "A") return run("agent.height", { share: nextStep(this.share) });
       p.inputRaw(s);
     };
   }

@@ -75,6 +75,10 @@ describe("Enter keeps the list going", () => {
   test("alt+enter, a pasted line break and a paste are plain: pasted text is never reformatted", () => {
     const d = at_end("- item");
     d.key({ kind: "alt-enter" }); expect(d.lines).toEqual(["- item", ""]);
+    const sh = at_end("- item");                                      // shift+enter (Kitty keyboard protocol) is alt+enter's break
+    sh.key({ kind: "enter", shift: true }); expect(sh.lines).toEqual(["- item", ""]);
+    const ct = at_end("- item");                                      // ctrl+enter is Enter
+    ct.key({ kind: "enter", ctrl: true }); expect(ct.lines).toEqual(["- item", "- "]);
     const p = at_end("- item");
     p.key({ kind: "enter", pasted: true }); p.key({ kind: "tab", pasted: true }); type(p, "x");
     expect(p.lines).toEqual(["- item", "\tx"]);
