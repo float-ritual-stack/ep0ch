@@ -137,7 +137,9 @@ function wordKeys(w: string): string[] | null {
 export function declaredKeys(text: string | undefined): Set<string> {
   const out = new Set<string>();
   if (!text) return out;
-  const words = text.split(/[\s,;()·:]+/).filter(Boolean);
+  // Words are split on spaces only, so `,` `;` `(` `)` can be keys themselves; a word's own trailing comma or
+  // semicolon, and parentheses around it, are punctuation.
+  const words = text.split(/\s+/).filter(w => w && w !== "·").map(w => ([...w].length === 1 ? w : w.replace(/^\(+/, "").replace(/[,;:)]+$/, "")));
   for (let i = 0; i < words.length; i++) {
     const ks = wordKeys(words[i]!);
     if (!ks) continue;
