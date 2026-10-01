@@ -50,10 +50,6 @@ export function agentVars(env: Record<string, string | undefined>, at: AgentAt):
   return out;
 }
 
-/** The agent variables in `env`, the same keys whichever way it was started. */
-export const agentVarsOf = (env: Record<string, string | undefined>): Record<string, string> =>
-  Object.fromEntries([...AGENT_VARS, ...CARRIED_VARS].flatMap(k => (env[k] ? [[k, env[k]!]] : [])));
-
 // ── restarting: the conversation is kept ──
 
 const CONTINUES = new Set(["-c", "--continue", "-r", "--resume"]);

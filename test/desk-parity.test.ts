@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     const other = get().tiles.find((t: any) => t.kind === "reader" || t.kind === "tree").name;
     await D().act({ action: "tile.focus", args: {}, reader: other }, { kind: "user" });
     // The person's keys are on neither terminal: which one would be a guess, so the agent names it.
-    await expect(act("tile.type", { text: "x" })).rejects.toThrow(/tile\.type needs reader=<tile>: .*shell, shell2/);
+    await expect(act("tile.type", { text: "x" })).rejects.toThrow(/tile\.type needs tile=<tile>: .*shell, shell2/);
     expect((await act("tile.type", { text: "echo named\\n" }, "shell2") as any).tile).toBe("shell2");
     await D().act({ action: "tile.close", args: { confirm: true }, reader: "shell2" }, { kind: "user" }).catch(() => {});
   });

@@ -241,14 +241,6 @@ const linkText = (l: Link, text: string, src: Source | null) => l.block
   : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
 /**
- * The body a reader draws: the note without its subject line and without the lines that only hold block
- * metadata (those are in the summary and the property panel), links as they read.
- */
-export function readableBody(m: Msg, embeds: boolean, src: Source | null, sink?: Link[]): string {
-  return presentLinks(readableSource(m, src).text, embeds, src, m.text, sink);
-}
-
-/**
  * The readable body before its links are presented, line for line: `lines[i]` is the note line (from 0,
  * the subject) body line i comes from, `anchors[i]` the fragment anchor read mode hid from it. Matched
  * literal-region markers (PIE-422) are hidden, as Detail hides them; `literal` holds the body lines inside
@@ -3267,8 +3259,6 @@ export interface NoteActionArgs extends DraftActionArgs {
   "elements": Record<string, never>;
   "element.select": { n?: number; by?: number };
   "element.open": { n?: number; fresh?: boolean };
-  "focus.set": FocusSpec;
-  "focus.clear": Record<string, never>;
   "block.tint": FocusSpec;
   "block.untint": Record<string, never>;
   "link.follow": { n?: number; fresh?: boolean };
@@ -3704,10 +3694,9 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   },
   // A tint (PIE-423's focus mark): "focus" is the person's keys only, so the tint is block.tint; focus.set and
   // focus.clear are its older names, kept for callers that use them.
-  "block.tint": TINT,
-  "block.untint": UNTINT,
-  "focus.set": { ...TINT, summary: `the older name of block.tint. ${TINT.summary}` },
-  "focus.clear": { ...UNTINT, summary: `the older name of block.untint. ${UNTINT.summary}` },
+  // focus.set and focus.clear are their older names (PIE-423's focus mark), declared as aliases.
+  "block.tint": { ...TINT, aliases: ["focus.set"] },
+  "block.untint": { ...UNTINT, aliases: ["focus.clear"] },
   "projection.refresh": {
     summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line, and every @name request not answered yet). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
     args: {

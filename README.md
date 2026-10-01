@@ -26,7 +26,7 @@ is (`ep0ch where`). It is the person's only: an agent's `screen.shell` is refuse
 terminal. For a shell that stays alongside the door instead, `^W o s` on the desk opens one in a tile (a
 terminal tile's program gets `EP0CH_IN_DOOR=1` too, so that shell doesn't open a door inside the door either).
 
-The words used here for screens, panes, readers and actions are defined in the
+The words used here for screens, tiles, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
 [AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
@@ -356,6 +356,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `alt+l`, then click a tile | this tile's opens land there (a link followed, the tree's `⏎`); click the tile itself to unlink; `h j k l` or a number work too |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
 | click a drawer's handle (`⇤ tree`, hint row) | slide it open |
+| click the `⧉` before a float's title | dock it back (`tile.float`, as `^W f` and the board's `o`) |
 | drag a tile's header onto a drawer's handle | the tile goes into that drawer (`layout.move where=tabs`); dropped beside a tile inside an open drawer, it lives in the drawer too |
 | click `□ lock` / `▣ locked` (hint row) | lock or unlock the screen (`layout.lock`) |
 | a refused drop or border (locked, a container that takes no drops or other kinds, a fixed size) | the ghost turns red and says why; the release does nothing and the status bar says the same words |
@@ -400,7 +401,7 @@ following its card) and `desk`. Loading keeps tiles with the same name (a runnin
 running programs or unsaved edits the new layout has no place for go in one shut drawer on the right, never ended.
 
 **Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and drawers. A
-drawer slides out from an edge (`act tile.pin reader=tree edge=left`, or the policy panel's edge row) and takes
+drawer slides out from an edge (`act tile.pin tile=tree edge=left`, or the policy panel's edge row) and takes
 anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
 carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `draggable`, `droppable`,
 `accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a drawer's `collapsible`, `overlay` and edge, and
@@ -572,8 +573,8 @@ The last board per workspace is remembered.
   A collapsed reader keeps its edit, comment or property panel exactly: nothing is saved, sent or dropped,
   `Ctrl+C` still asks twice, and opening it returns to it (`e` enters it again). Its own keys don't reach
   it while collapsed. A note opened into a collapsed reader (`⏎`, `open`) opens it. Floats don't collapse.
-- **Agents** collapse and open readers with `reader.collapse reader=detail1` and `reader.expand`
-  (`reader=all` is `alt+c`). Both are flashed with the agent's id and shown by `peek` (`collapsedBy`). An
+- **Agents** collapse and open readers with `tile.collapse tile=detail1` (`on=true` folds, `on=false` opens;
+  `reader.collapse` and `reader.expand` are its older names), and `tile=all on=false` is `alt+c`. It's flashed with the agent's id and shown by `peek` (`collapsedBy`). An
   agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
   a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
@@ -587,9 +588,10 @@ The last board per workspace is remembered.
   off), takes only query tiles and opens into the preview: `^W P` changes it, and a lane let go can be dragged
   anywhere, still a lane. Every desk key works here too (`^W` splits, tabs, zoom, lock, `/` search), and a desk
   tile can sit beside the lanes (`^W o`). `peek` and `layout.get` show the tree; agents change it with the
-  `pane.*` and `tile.*` actions, which never close or float the tile that has your keys.
+  `tile.*` and `layout.*` actions, which never close or float the tile that has your keys.
 - **`o`** pops the focused reader out as a float (the preview floats a copy): drag its title to move, drag
-  `◢` to resize, `H J K L` to nudge, `o` again to dock it back as a detail, `x` to close.
+  `◢` to resize, `H J K L` to nudge, `o` again or a click on the `⧉` before its title to dock it back as a
+  detail, `x` to close. `x` on the preview says why it stays (the readers row's policy: it collapses with `c`).
 - **`t`** outline drawer with its own preview underneath; slides over unless pinned (`T`, or a click on
   `⇤ drawer` in its header: pinned, it becomes part of the layout); `S` moves it to the other side so it
   doesn't cover the preview. Shut, it's a handle at the end of the hint row (`⇤ outline`): a click opens it.
@@ -753,8 +755,8 @@ The board's new-card composer is the same control too.
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
 | `Ctrl+Z` | take back the last edit an agent patched into the draft (below), as one unit |
-| `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why |
-| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]` |
+| `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
+| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -862,7 +864,7 @@ in the lanes comments in the preview.
   takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
   An agent's comments and replies (below) are `author: agent` with the agent's actor id, and so is one
   you and an agent both wrote (see "Who a write is recorded as").
-- The reader's header counts open comments; the desk's thread pane lists them and refreshes on outline events.
+- The reader's header counts open comments; the desk's thread tile lists them and refreshes on outline events.
 
 ### Threads inline (PIE-420)
 
@@ -1166,19 +1168,19 @@ Bodies render with `src/doc.ts`:
 - **Placement (niri):** `⏎` inserts a column right after its source, or jumps to it if that note is already a column. `alt+⏎` forces a duplicate.
 - **Focus is not the layout:** a click in a column, `h` `l` and `tab` give it the keys and nothing else moves. `w` (or a click on a column's header, its top border, or anywhere on a spine) widens it: the layout is built around that column, and the one you were reading stays full beside it when there's room. ⏎ and a followed link add the column after its source and shift only if the new one wouldn't show full; the source stays full. A click opens a card only in the column that already has the keys.
 - **Compression (Andy's notes):** columns get full, peek or spine width by distance from the wide column; docked (`p`) columns resist. A peek draws its whole note at reading width, covered by its right-hand neighbour like a drawer (`▒` on the edge) and dimmed; only the far columns become spines. Spine titles are rotated VGA text (Kitty) or stacked letters (cells), drawn by the same spine part as the board's lanes and readers (`src/spine.ts`).
-- **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked pane in the same column; `tab` moves between stacked panes.
-- **Per-pane filters:** `f`, then `type:hub -status:done author:codex word`.
+- **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked tile in the same column; `tab` moves between stacked tiles.
+- **Per-tile filters:** `f`, then `type:hub -status:done author:codex word`.
 - **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
 - **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
 - **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `C` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. Back and forward (alt+← alt+→, backspace, the mouse's side buttons, or the `← back` row under the title) go between the columns: to the one this was opened from, and back again. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
 - **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `widen`, `close`, `column.scroll`, `filter`, `tag`, `jump`, `back`, `forward`, `copy`) and every note action it doesn't shadow. Every river key and click runs one of them (PIE-506). `focus` moves only the person's keys; `widen` moves only the layout (and says so on screen). `filter query=` filters a column without opening the person's filter line, `tag key= [value=]` opens a `#` column, and `jump query=` lists matches (`id=` or `n=` opens one beside); none moves the person's focus. `back` and `forward` are the person's (an agent opens beside); an agent's `copy` gets the text back and leaves the clipboard alone.
-  - `reader=` is a pane id (`r7`: stable while the pane is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked pane), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
-  - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the pane holding it: addressed by a number that now names another pane, it's refused with the pane's id.
-  - A block id prefers the pane holding the agent's own edit or comment on the note, then a full-width column opened on it, then any pane editing it, then a list selecting it.
+  - `reader=` (or `tile=`) is a tile id (`r7`: stable while the tile is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked tile), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
+  - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the tile holding it: addressed by a number that now names another tile, it's refused with the tile's id.
+  - A block id prefers the tile holding the agent's own edit or comment on the note, then a full-width column opened on it, then any tile editing it, then a list selecting it.
   - An agent never moves the person's focus: `open`, `split`, `up` and `link.follow` open beside and leave the keys where they are (`focus` is the explicit handover).
   - Starting a note action in a compressed column is refused; `widen` or `pin` (dock) widens it without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
 - **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
-- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that pane, or, in a pane you aren't in, on your first action after 30 seconds on screen.
+- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that tile, or, in a tile you aren't in, on your first action after 30 seconds on screen.
 - **Back:** `q`, or `Esc` once no link is selected, goes back to the menu (PIE-489: `q` used to be the quote flash).
 - **Quote** (a new note quoting this one) isn't here yet; `"` says so, and `C` comments on a passage instead.
 
@@ -1231,7 +1233,7 @@ the door runs without a socket and says why.
                                       # the focused tile's opens land; river: a column; elsewhere a message reader). --as names you
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
-    bun src/main.ts act <action> [reader=<reader>] [key=value…] [--as <actor-id>]
+    bun src/main.ts act <action> [tile=<tile>] [key=value…] [--as <actor-id>]   # reader= is tile='s older name (both, naming two tiles, is refused)
 
 `snap` comes from a mirror that receives every byte written to the terminal (`src/mirror.ts`, the same
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
@@ -1252,7 +1254,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, `R`, a click on `R refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
-| `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
+| `open` | `id`, `tile=detail\|new-detail\|preview\|float` (board), `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the overlay, and its `⏎` runs `open` | `/` |
 | `tile.enter`, `tile.leave` | `send=` (enter: a key to pass on, the second `ctrl+]`): type in a terminal tile, or leave it. The person's only: an agent uses `tile.type` | `e`, `⏎` or a click on a terminal tile; `ctrl+]` |
@@ -1262,12 +1264,12 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `section.try` | `name=`: the showcase's part, given the keys. The person's only (`section` is the agent's) | `⏎ → l Tab`, a click into the stage |
 | `agent.enter`, `agent.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
-| `tree.links`, `tree.pick` | `reader=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
+| `tree.links`, `tree.pick` | `tile=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
 | `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
 | `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `reader=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
 | `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
-| `backlinks.pick`, `backlinks.view` | `reader=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
-| `focus` | `reader=<reader>` or `reader=lanes`. An agent's is refused while you're typing | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |
+| `backlinks.pick`, `backlinks.view` | `tile=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
+| `focus` | `tile=<tile>` or `tile=lanes`. An agent's is refused while you're typing. On the desk it is `tile.focus` | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |
 | `card.select`, `card.move` | `id`, or `lane` and `by` (steps; `lanes=` steps lanes; `focus=false` leaves the current lane, as the wheel over another lane does); `lane`, `card` (default the selected card; an agent's own `card.select` first, which never moves your cursor) | `h l j k ↑↓ ← → PgUp PgDn`, a click, the wheel; `H L`, `m` then `⏎`, drag |
 | `board.hub` | `id` (a board's block id): show that board; none: the boards there are (yours opens the picker, an agent's only lists them); `close=true` puts the picker away (yours) | `g`, then `j k ⏎` or a click; `esc` `q` |
 | `lane.collapse` | `lane` (default the lit one), `on=true\|false` (default toggles) | `c` on the lanes, `⏎`/`space` on a collapsed lane, a click on its spine |
@@ -1279,10 +1281,11 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
-| `reader.collapse`, `reader.expand` | `reader=preview\|detail1\|detail2` (the focused one by default); `reader=all` expands everything (board) | `c`, `⏎` or a click on a spine, `alt+c` |
-| `pane.resize` | `reader=<pane>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
-| `pane.close`, `pane.float`, `pane.pin` | `reader=<pane>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer, `float` pops a reader out or docks a float, `pin` is for `tree` and `backlinks`. An agent can't close or float the pane that has your keys | board `x`, `esc`, `o`, `T`, `B`; desk `^W x` |
-| `pane.split`, `pane.zoom` | `kind=reader\|tree\|thread\|activity\|who\|art`, `dir=row\|col`; `on=true\|false`. Desk only for now: the board's details open with a note (`open reader=new-detail`) and it has no zoom yet (PIE-428). An agent zooms only the pane that has your keys | desk `^W o`, `^W z` |
+| `tile.collapse` (`reader.collapse`, `reader.expand`) | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles; `reader.collapse` is `on=true`, `reader.expand` `on=false`); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c` |
+| `tile.resize` (`pane.resize`) | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
+| `tile.close`, `tile.float`, `tile.pin` (`pane.close`, `pane.float`, `pane.pin`) | `tile=<tile>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer's tile (it shuts the drawer); the lanes and the preview stay and say why. `float` pops a reader out or docks a float, `pin` on the board's `tree` and `backlinks` docks or slides the whole drawer. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
+| `tile.zoom` (`pane.zoom`) | `tile=<tile>`, `on=true\|false` (default toggles). The desk and every screen on it, the board too. An agent zooms only the tile that has your keys | `^W z` |
+| `pane.split` | `kind=` any tile kind (`actions` lists them: reader, tree, detail, preview, thread, activity, who, art, an extension's, …), `dir=row\|col` (default along the longer side): `tile.open` with its own arguments. On the board a detail opens with a note (`open tile=new-detail`) | desk `^W o` |
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: hand the draft to `$EDITOR`, the person's only) | `e`, typing or `Ctrl+E` (`$EDITOR`), `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
@@ -1317,12 +1320,12 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
 keeps its name while it lives: close `detail1` and the other is still `detail2`), by tile name, id (`t4`) or
 number (`#2`) on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
-and `message.thread`); `reader=focused`, or a block id (the reader showing it) work too, and no reader means
+and `message.thread`); `tile=focused` (`reader=` is its older name), or a block id (the reader showing it) work too, and no reader means
 the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
 stdin. For example:
 
     export EP0CH_AGENT=claude-7                       # or --as claude-7 on each call
-    bun src/main.ts act open id=<card> reader=preview
+    bun src/main.ts act open id=<card> tile=preview
     bun src/main.ts act edit.text text=@draft.md      # replaces the draft; opens the edit if needed
     bun src/main.ts act edit.save                     # a property change is reported first; act edit.save again saves
     bun src/main.ts act complete text="see [[HOME-0"  # the candidates the popup would offer
@@ -1440,7 +1443,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     bun run check
     bun scripts/snap.ts           # drives the real door against the live outline and writes out/snap-kitty-*.png
     bun scripts/snap.ts cells     # same, cells mode
-    bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a pane, dock, search
+    bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a tile, dock, search
     bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer

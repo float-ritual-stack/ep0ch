@@ -355,7 +355,7 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
     },
   },
   "backlinks.pick": {
-    summary: "pick a row of a backlinks tile (reader=<its name>): n (as peek's rows, from 1) or id; the source shows where the tile's selection goes; open=true as ⏎, fresh=true as alt+⏎. An agent's never moves the person's keys",
+    summary: "pick a row of a backlinks tile (tile=<its name>): n (as peek's rows, from 1) or id; the source shows where the tile's selection goes; open=true as ⏎, fresh=true as alt+⏎. An agent's never moves the person's keys",
     keys: "j k ↑ ↓ Home End wheel (show) · ⏎ click (open) · alt+⏎ ctrl-click alt-click (fresh)",
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },

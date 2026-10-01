@@ -522,7 +522,7 @@ export class Welcome extends Desk {
   }
 
   protected override screenHint(): string {
-    return `|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 panes · |15L|08 logo · |15q|08 menu`;
+    return `|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 tiles · |15L|08 logo · |15q|08 menu`;
   }
 
   override key(k: Key, ctx: Ctx) {

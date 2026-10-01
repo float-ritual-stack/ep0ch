@@ -35,7 +35,7 @@ one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
-| `{"cmd":"act","action":"…","args":{…},"reader":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … reader=<tile> [--as id]` |
+| `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` (`"reader"` is `"tile"`'s older name) | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`reader=`, `--tile`, `--reader` work too) |
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`; the older `{"cmd":"open","id":…,"as":…}` runs the same action) |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
 
@@ -116,9 +116,9 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | Action | Gives |
 |---|---|
 | `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each drawer with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<drawer's>.0`), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `drawer` (`open`, `shut`) with its `edge` and `container`, the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
-| `layout.policy reader=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
-| `view.get` (`reader=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
-| `tile.info reader=<tile>` | one tile as `layout.get` gives it |
+| `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
+| `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
+| `tile.info tile=<tile>` | one tile as `layout.get` gives it |
 | `marks.list` | every mark, and the tiles showing it |
 | `layout.list` | the layouts that can be loaded, saved or built in |
 | `actions` | everything the screen can do |
@@ -169,7 +169,7 @@ Also on every screen but the logon: the agent drawer, the App's one agent tile, 
 | `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: a new `door-claude` pane). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
 
 Its program is told `EP0CH_TILE_ID=dock.agent` and `EP0CH_TILE=claude`, and its nest layer is
-`door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr reader=dock.agent` reaches the App on any
+`door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr tile=dock.agent` reaches the App on any
 screen. `ep0ch where` names the drawer as the tile (`the agent drawer`), and says when the person is typing in it.
 
 ## Naming tiles and splits (PIE-491)
@@ -192,7 +192,8 @@ thing after someone else's change.
   `desk.json` saved from the `daily` layout before ids, or a `daily` saved in `layouts.json` then, gets the
   links that layout has gained since (the claude tile's, to `middle`), on tiles that have none.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
-- **`reader=<tile>`** takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
+- **`tile=<tile>`** (or `reader=`, its older name: both are resolved in one place, `parseActArgs` and the
+  control socket) takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
   place.
 - **The revision.** `layout.get` gives `rev`, a number that changes whenever the tree's shape does: a split,
   tab set or tile added, taken away or moved. A resize or showing another tab doesn't change it. It only goes
@@ -202,12 +203,12 @@ thing after someone else's change.
   changed since revision 7 …"). Pass it whenever you name something by place: a `path`, or a `#number`.
 - **The board is a preset on the desk** (PIE-511): every tile has a name and every desk command works there.
   Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
-  around it, so after `detail1` closes the other is still `detail2`, and floated (`pane.float`, `o`) it keeps it
+  around it, so after `detail1` closes the other is still `detail2`, and floated (`tile.float`, `o`) it keeps it
   too. Its lanes are query tiles named by their lane (`Queued`, `Waiting-on`), in a columns container
   (`layout.get` says `columns: hub:<id>`) filled from the hub's views. The outline drawer holds `tree` over
   `tree-preview`, the backlinks drawer `backlinks` beside `backlinks-preview`. The older names still work:
-  `reader=detail` (the one ⏎ opens into), `reader=float` (the top float), `reader=lanes` (the lane the cursor
-  is in), and for a note action `reader=tree` and `reader=backlinks` are the drawers' previews.
+  `tile=detail` (the one ⏎ opens into), `tile=float` (the top float), `tile=lanes` (the lane the cursor
+  is in), and for a note action `tile=tree` and `tile=backlinks` are the drawers' previews.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
     ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since
@@ -215,47 +216,49 @@ thing after someone else's change.
 
 ## Commands
 
-The desk's commands, by what they change. `reader=<tile>` names a tile as above. Each is also a key or a mouse
+The desk's commands, by what they change. `tile=<tile>` names a tile as above (written `tile` in the Args column).
+A name in brackets is an alias: the same action (one def), listed once with it by `actions`. Each is also a key or a mouse
 gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 
 | Command | Args | Agent rules |
 |---|---|---|
 | `layout.load` (`layout.restore`), `layout.save` | `name` | load is refused while the person is typing; running programs are never ended |
-| `layout.move` | `reader`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
+| `layout.move` | `tile`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
 | `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id |
 | `layout.even`, `layout.swap` | `to` | |
 | `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
-| `tile.close` | `reader` | never the person's tile, never a running program |
-| `tile.focus` | `reader` | refused while the person is typing |
-| `tile.link` | `reader`, `to` | |
-| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
-| `tile.collapse` | `reader`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
-| `pane.float`, `float.place` | `reader`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or docked back; never the person's tile |
-| `query.pick`, `query.reload` | `reader` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
-| `tile.drawer` | `reader`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
+| `tile.close` (`pane.close`) | `tile` | never the person's tile, never a running program |
+| `tile.focus` (`focus`) | `tile` | refused while the person is typing |
+| `tile.link` | `tile`, `to` | |
+| `tile.pin` (`pane.pin`) | `tile`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.collapse` (`reader.collapse`: `on=true`; `reader.expand`: `on=false`) | `tile`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
+| `tile.float` (`pane.float`), `float.place` | `tile`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or docked back; never the person's tile |
+| `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
+| `tile.drawer` | `tile`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
 | `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
-| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `closable` (off: its tiles stay; `tile.close` is refused with the reason), `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open drawer stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
-| `tile.preview` | `reader`, `where` | |
-| `tile.type`, `tile.restart` | `reader` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
-| `tab.select` | `reader`, `by` | never hides the person's tab |
+| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `tile`), `draggable`, `droppable`, `closable` (off: its tiles stay; `tile.close` is refused with the reason), `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open drawer stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
+| `tile.preview` | `tile`, `where` | |
+| `tile.type`, `tile.restart` | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
+| `tab.select` | `tile`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where an agent's open naming neither puts it: where the focused tile's opens land, never a reader the person types in). The board takes `from` too (unlinked, its detail). A program in a tile passes `from=$EP0CH_TILE` and never names a reader. `ep0ch open <id>` is this action. The person's own open gives the tile the keys, an agent's never does. On the welcome and the brief (desks) an agent's lands their own way (the welcome's preview, the brief's step). A screen with no `open` of its own (the menu, a list, a message reader) has the shell's: a message reader opens over it once the person is idle, as for any screen change |
-| `tile.herdr` | `reader`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits |
-| `view.scrollTo` | `reader`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
-| `block.mark` | `id` (default: the note `reader` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
+| `tile.herdr` | `tile`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits |
+| `view.scrollTo` | `tile`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
+| `block.mark` | `id` (default: the note `tile` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
 | `marks.next` | | refused while the person is typing |
-| `pane.*` | `split`, `close`, `resize`, `zoom`, `float`, `pin` | as before (PIE-412) |
-| `tree.links` | `reader` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
-| `tree.pick` | `reader`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys |
-| `projection.refresh` | `reader`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
-| `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `reader=<the tile>`; `block` defaults to the tile's own; a block action a tile lists (`ext.tarot.keep`) runs on any screen with `block=` too. Who asked goes with it, recorded as the change feed's `requestedBy`. Bound and unbound as the service's extensions change |
+| `tile.resize` (`pane.resize`), `tile.zoom` (`pane.zoom`) | `tile`; `by`, `axis`; `on` | resize by steps; an agent zooms only the person's tile, never one that hides it |
+| `pane.split` | `tile`, `kind`, `dir` (row, col) | `tile.open` along the longer side, with its own arguments; focus stays |
+| `tree.links` | `tile` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
+| `tree.pick` | `tile`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys |
+| `projection.refresh` | `tile`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
+| `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `tile=<the tile>`; `block` defaults to the tile's own; a block action a tile lists (`ext.tarot.keep`) runs on any screen with `block=` too. Who asked goes with it, recorded as the change feed's `requestedBy`. Bound and unbound as the service's extensions change |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark; `focus.set` is its older name), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
 Example: bring the person's attention to a decision, from an agent running in a tile.
 
     ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers reader=middle (the tile's link)
-    ep0ch act view.scrollTo text="needs a decision" reader=middle --as claude-7
-    ep0ch act block.mark reason="needs your call" reader=middle --as claude-7
+    ep0ch act view.scrollTo text="needs a decision" tile=middle --as claude-7
+    ep0ch act block.mark reason="needs your call" tile=middle --as claude-7
 
 ## nvim tiles
 
@@ -270,7 +273,7 @@ An agent uses nvim's own RPC on that socket (msgpack-rpc; `nvim --server <socket
 - read the person's cursor and view: `nvim_win_get_cursor(0)`, `line('w0')`, `line('w$')`;
 - edit other lines without moving their cursor: `nvim_buf_set_lines(0, start, end, false, lines)`, then
   `:write` if it should reach the file;
-- a mark on a line: `ep0ch act block.mark line=<n> reason=… reader=<tile>` sets an extmark with virtual
+- a mark on a line: `ep0ch act block.mark line=<n> reason=… tile=<tile>` sets an extmark with virtual
   text (namespace `ep0ch_marks`), and `block.unmark n=<n>` takes it away.
 
 ## Agent paths that could touch the person's keys
@@ -293,9 +296,9 @@ at, and what it does while they're typing:
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
 | `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut drawer opens it | the typing tile refused |
 | `tile.pin` | no; a drawer around their tile (or its tab set) starts open | allowed |
-| `tile.close`, `pane.close` (the same code) | never the focused tile, never a running program | refused for those |
+| `tile.close` (`pane.close`, its alias) | never the focused tile, never a running program | refused for those |
 | `tab.select` | never hides the person's tab | refused for that |
-| `pane.zoom` | only the focused tile, never one that hides it | refused otherwise |
+| `tile.zoom` (`pane.zoom`) | only the focused tile, never one that hides it | refused otherwise |
 | `tile.type` | no | refused for the terminal they're in |
 | `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
@@ -385,7 +388,7 @@ the person does:
   runs a line again or asks an `@name` agent again.
 - **Tiles.** `act tile.open kind=<extension kind> note=<block>` opens one (its block is `note`, or the note a
   reader or detail shows where it's opened: never the tree's row or a root, so opened from the tree with no
-  `note=` it keeps nothing until given one); its actions are its kind's (`act ext.tarot.keep reader=<tile>`),
+  `note=` it keeps nothing until given one); its actions are its kind's (`act ext.tarot.keep tile=<tile>`),
   and a block action (`ext.tarot.keep block=<id>`) works without the tile too. The program in
   it gets the service's `OUTLINER_SOCKET_PATH`, `OUTLINER_OUTLINE` and `OUTLINER_EXTENSION`, plus the door's
   own `EP0CH_CONTROL`, and its args as `--name=value`. `layout.get` shows its `args`; a tile whose kind went

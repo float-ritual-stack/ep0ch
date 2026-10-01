@@ -530,7 +530,7 @@ export const TREE_ACTIONS = new ActionSet<{
     },
   },
   "tree.links": {
-    summary: "show or hide the authored links under a row of the outline tree (reader=<its name>), as the outliner's Tree does: its outlinks, resources and backlinks, grouped; n (as peek's rows, from 1) or id, else the selected row; show=true or false, else the other way. Registers nothing",
+    summary: "show or hide the authored links under a row of the outline tree (tile=<its name>), as the outliner's Tree does: its outlinks, resources and backlinks, grouped; n (as peek's rows, from 1) or id, else the selected row; show=true or false, else the other way. Registers nothing",
     keys: "L · l → space on a link · a click on a link's mark",
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },

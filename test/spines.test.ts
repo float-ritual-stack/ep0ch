@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
+import { TILE_ACTIONS } from "../src/desk/tile-actions";
 import { BOARD_ACTIONS, DeliveryBoard } from "../src/desk/delivery";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
@@ -71,10 +72,14 @@ describe("alt+c", () => {
   });
 });
 
-test("the board's collapse and expand are actions with keys", () => {
-  const names = BOARD_ACTIONS.list().map(a => a.name);
-  expect(names).toContain("reader.collapse");
-  expect(names).toContain("reader.expand");
+test("the board's collapse and expand are tile.collapse, by their older names too, with the board's keys", () => {
+  const collapse = TILE_ACTIONS.list().find(a => a.name === "tile.collapse")!;
+  expect(collapse.aliases).toEqual(["reader.collapse", "reader.expand"]);
+  expect(collapse.keys).toContain("board c on a reader");
+  expect(collapse.keys).toContain("alt+c");
+  expect(BOARD_ACTIONS.has("reader.collapse")).toBe(false);
+  expect(TILE_ACTIONS.has("reader.expand")).toBe(true);
+  expect(TILE_ACTIONS.canonical("reader.expand")).toBe("tile.collapse");
 });
 
 describe.skipIf(!outliner)("board readers collapse to spines, against a scratch outline", () => {
@@ -296,14 +301,18 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(await act("reader.collapse", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: true });
     expect(folded(d)).toMatchObject({ by: AS });
     expect(message()).toContain(AS);
-    expect(message()).toContain("collapsed detail 1");
+    expect(message()).toContain("folded detail1");
     expect(BV.where(b)).toBe("lanes");
     const peek = (app.describe() as any).state;
     expect(peek.collapsedReaders).toEqual(["detail1"]);
     expect(peek.readers.find((r: any) => r.name === "detail1")).toMatchObject({ collapsed: true, collapsedBy: AS });
     // A note action there would change what the person can't see.
-    await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*reader.expand reader=detail1/);
+    await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*tile.collapse on=false tile=detail1/);
     expect(await act("reader.expand", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: false });
+    expect(BV.where(b)).toBe("lanes");
+    // No tile named, the person on the lanes: the preview following them, as reader.collapse always took it (not a lane).
+    expect(await act("reader.collapse", {})).toMatchObject({ reader: "preview", collapsed: true });
+    expect(await act("reader.expand", {})).toMatchObject({ reader: "preview", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
     // The reader the person has (here, in its property panel) isn't the agent's to collapse.
     key({ kind: "tab" });

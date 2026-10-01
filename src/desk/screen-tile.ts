@@ -35,7 +35,7 @@ export class ScreenTile implements Pane {
   async ownPreview(on: boolean, actor: Actor = USER) {
     this.preview = on;
     const s = this.framed?.first;
-    if (this.kind === "board" && s?.act) await s.act({ action: on ? "reader.expand" : "reader.collapse", reader: "preview", args: {} }, actor).catch(() => {});
+    if (this.kind === "board" && s?.act) await s.act({ action: "tile.collapse", reader: "preview", args: { on: !on } }, actor).catch(() => {});
   }
   spec() { return this.preview ? {} : { preview: false }; }
 
@@ -93,7 +93,7 @@ export class ScreenTile implements Pane {
   dispose() { this.framed?.dispose(); }
   holdsKeys() { return !!this.framed?.top.holdsKeys?.(); }
 
-  /** Its screen's actions, for `act reader=<this tile>`. */
+  /** Its screen's actions, for `act tile=<this tile>`. */
   actions() { return this.framed?.top.actions?.() ?? null; }
   act(req: ActRequest, actor: Actor): Promise<unknown> {
     const s = this.framed?.top;

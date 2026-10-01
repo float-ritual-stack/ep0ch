@@ -20,7 +20,6 @@ export const NEST_SEP = " › ";
 export const NEST_MAX = 480;
 const LAYER_MAX = 120;
 
-export type LayerKind = "ssh" | "herdr" | "door" | "shell" | "other";
 export type Layer =
   | { kind: "ssh"; raw: string; tty: string | null; from: string | null }
   | { kind: "herdr"; raw: string; pane: string }

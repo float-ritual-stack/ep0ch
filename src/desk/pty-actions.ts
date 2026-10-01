@@ -1,5 +1,5 @@
 // A terminal tile's own actions (PIE-510, A2): the terminal kind's ActionSet, as the tree's tree.* are the tree
-// kind's. `act` routes them to reader=<tile> when it's a terminal (a program an extension names is one too), else
+// kind's. `act` routes them to tile=<tile> when it's a terminal (a program an extension names is one too), else
 // the focused terminal, else the first; the desk's keys (⏎, e, a click, ctrl+]) run the same actions through the
 // kind's `press` hook. What they change on the desk (whose keys go where) the desk does, through TerminalHost.
 import type { Actor } from "../socket";
@@ -34,7 +34,7 @@ export const PTY_ACTIONS = new ActionSet<{
   "tile.herdr": { pane?: string; on?: boolean };
 }, On>("terminal", {
   "tile.type": {
-    summary: "send text=<text> to the program in terminal tile reader=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
+    summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
     run({ text }, { pane, desk, tile }, actor) {
       const r = host(desk).typeTerminal(tile, pane, text, actor);
@@ -43,7 +43,7 @@ export const PTY_ACTIONS = new ActionSet<{
     },
   },
   "tile.restart": {
-    summary: "run the program in terminal tile reader=<tile> again (after it exited)",
+    summary: "run the program in terminal tile=<tile> again (after it exited)",
     keys: "⏎ on an exited terminal",
     args: {},
     run(_, { pane, desk, tile }, actor) {
@@ -53,7 +53,7 @@ export const PTY_ACTIONS = new ActionSet<{
     },
   },
   "tile.enter": {
-    summary: "type in terminal tile reader=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
+    summary: "type in terminal tile=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
     keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
     args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
     run({ send }, { pane, desk, tile }, actor) { return host(desk).enterTerminal(tile, pane, send, actor); },
@@ -65,7 +65,7 @@ export const PTY_ACTIONS = new ActionSet<{
     run(_, { desk }, actor) { return host(desk).leaveTerminal(actor); },
   },
   "tile.herdr": {
-    summary: "terminal tile reader=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
+    summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
     run({ pane: label, on }, { pane, desk, tile }, actor) {
       const r = host(desk).herdrTerminal(tile, pane, label, on, actor);

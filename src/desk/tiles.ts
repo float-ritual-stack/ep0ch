@@ -24,7 +24,7 @@ export interface TileSpec {
   t: "leaf";
   /** Its kind: a name in the tile-kind registry (an extension's too). */
   kind: TileKindName;
-  /** The tile's name: what links, previews, `act reader=` and `peek` call it. See `tileNameProblem`. */
+  /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. Absent before PIE-491. */
   id?: string;
@@ -325,7 +325,6 @@ export function layoutNames(): { name: string; saved: boolean; builtin: boolean 
   const saved = Object.keys(savedLayouts());
   return [...new Set([...BUILTIN, ...saved])].map(name => ({ name, saved: saved.includes(name), builtin: (BUILTIN as readonly string[]).includes(name) }));
 }
-export const isScreenKind = (k: string): k is ScreenKind => (SCREEN_KINDS as readonly string[]).includes(k);
 
 // The built-in kinds register as the door starts (an extension's join the same registry later).
 registerBuiltinTiles();

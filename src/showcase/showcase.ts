@@ -20,6 +20,8 @@ import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActionInfo, typ
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
 import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
+import { TILE_ACTIONS } from "../desk/tile-actions";
+import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -94,7 +96,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "panes", need: "open, split, zoom, close panes; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); pane.* layout.* tile.* actions; tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
+    key: "panes", need: "open, split, zoom, close tiles; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is a preset on this engine since PIE-511`,
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
@@ -148,11 +150,11 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "spine", need: "squeeze a pane to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
+    key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
     stage(n) { return new DeliveryBoard(n.hub?.id, false); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread pane; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
     aside: "the tree's L (tree.links): a row's outlinks, resources and backlinks as the outliner's Tree shows them (blocks.authored-links); ⏎ on a resource shows what the service stores for it · backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442)",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane();
@@ -424,6 +426,8 @@ const SETS: { name: string; file: string; list: () => ActionInfo[] }[] = [
   // The note set forwards the draft's actions (draft.*); they're listed once, as the draft's own.
   { name: "NOTE_ACTIONS", file: "src/surface/note.ts", list: () => NOTE_ACTIONS.list().filter(a => !DRAFT_ACTIONS.has(a.name)) },
   { name: "DESK_ACTIONS", file: "src/desk/desk.ts", list: () => DESK_ACTIONS.list() },
+  { name: "TILE_ACTIONS", file: "src/desk/tile-actions.ts", list: () => TILE_ACTIONS.list() },
+  { name: "PANE_ACTIONS", file: "src/desk/pane-actions.ts", list: () => PANE_ACTIONS.list() },
   { name: "DRAFT_ACTIONS", file: "src/edit.ts", list: () => DRAFT_ACTIONS.list() },
   { name: "BOARD_ACTIONS", file: "src/desk/delivery.ts", list: () => BOARD_ACTIONS.list() },
   { name: "RIVER_ACTIONS", file: "src/river/river.ts", list: () => RIVER_ACTIONS.list() },
@@ -465,7 +469,7 @@ export class ActionsPane implements Pane {
     const cur = this.rows[this.sel];
     if (cur && "a" in cur) {
       const args = Object.entries(cur.a.args).map(([k, s]) => `${k}${s.optional ? "?" : ""}: ${s.type}`).join(", ") || "no arguments";
-      lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}`, w) + RESET);
+      lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}${cur.a.aliases?.length ? ` · also ${cur.a.aliases.join(", ")}` : ""}`, w) + RESET);
     }
     return { lines, scroll: { top: this.top, room, total: this.rows.length } };
   }

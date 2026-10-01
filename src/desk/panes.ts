@@ -16,11 +16,9 @@ import { NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKi
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
 import type { TileKindName } from "./tile-kinds";
+import { withoutPropertyTokens } from "../vendor/property-grammar";
 
-/** A tile's kind: a name in the tile-kind registry (src/desk/tile-kinds.ts), built-in or an extension's. */
-export type PaneKind = TileKindName;
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 
 export interface DeskApi {
@@ -28,7 +26,7 @@ export interface DeskApi {
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;
-  focusKind(kind: PaneKind): void;
+  focusKind(kind: TileKindName): void;
   redraw(): void;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
@@ -46,7 +44,7 @@ export interface DeskApi {
 
 export interface Pane {
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a view brings to a preset desk (the showcase's), never saved to desk.json. */
-  readonly kind: PaneKind;
+  readonly kind: TileKindName;
   title(): string;
   hint(): string;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
@@ -78,7 +76,7 @@ export interface Pane {
   headLabel?(): string;
   /**
    * The name its header shows, when that isn't its tile name: a lane is named for its view ("Reading now"),
-   * while the tile is `Reading-now` for `reader=`.
+   * while the tile is `Reading-now` for `tile=`.
    */
   headName?(): string | undefined;
   /** How its frame looks now, when it's its own to say (a lane a card is dragged over): its colour, its hint. */
@@ -494,7 +492,7 @@ export class ArtPane implements Pane {
     const t = desk.ctx.t;
     if (!desk.ctx.graphics) return { lines: artLines(art.rows, 0, this.scroll, Math.min(w, art.width), h) };
     const img = whole(art.rows, art.width);
-    if (!img) return { lines: [dim("piece too tall for a pane")] };
+    if (!img) return { lines: [dim("piece too tall for a tile")] };
     // Fit the width; if the piece is taller than the pane, show a window of it.
     let cols = w;
     let fullRows = (cols * t.cellW * img.height) / img.width / t.cellH;
@@ -531,7 +529,7 @@ const agentOpens = { reveal: false, agent: true } as const;
 
 export const THREAD_ACTIONS = new ActionSet<{ "thread.pick": { n?: number; open?: boolean }; "thread.up": Record<string, never> }, { pane: ThreadPane; desk: DeskApi }>("thread", {
   "thread.pick": {
-    summary: "pick a reply in a thread tile (reader=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
+    summary: "pick a reply in a thread tile (tile=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
     keys: "j k ↑ ↓ click, ⏎ (open)",
     args: { n: { type: "number", optional: true, about: "the reply, from 1" }, open: { type: "boolean", optional: true, about: "make it the current note, as ⏎ does" } },
     run({ n, open }, { pane, desk }, actor) {
@@ -579,7 +577,7 @@ export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; o
 
 export const READER_ACTIONS = new ActionSet<{ "reader.hold": { on?: boolean } }, { pane: ReaderPane; desk: DeskApi }>("reader", {
   "reader.hold": {
-    summary: "hold a desk reader (reader=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
+    summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
     keys: "p",
     args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
     run({ on }, { pane, desk }, actor) {

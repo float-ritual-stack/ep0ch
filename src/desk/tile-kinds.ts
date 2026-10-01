@@ -43,7 +43,7 @@ export interface TileKind {
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */
   make(spec: Partial<TileSpec> & { kind: TileKindName }): Pane;
-  /** Its own actions (the tree's `tree.*`): `act` routes them to a tile of this kind, reader=<tile>, the focused one, or the first. */
+  /** Its own actions (the tree's `tree.*`): `act` routes them to a tile of this kind, tile=<tile>, the focused one, or the first. */
   readonly actions?: ActionSet<any, KindHost>;
   /** Action sets it shares with the kind it's built on (a program an extension names runs in a terminal: tile.type, tile.enter…). */
   readonly inherits?: readonly ActionSet<any, KindHost>[];
@@ -204,7 +204,6 @@ export function tileSource(source: string | undefined): { source: TileSource; ar
   const s = sources.get(at < 0 ? source : source.slice(0, at));
   return s ? { source: s, arg: at < 0 ? "" : source.slice(at + 1) } : null;
 }
-export const tileSources = (): TileSource[] => [...sources.values()];
 
 // ── a kind the service draws (an extension's whole tile) ──────────────────────
 

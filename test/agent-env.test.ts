@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { startControl } from "../src/control";
-import { AGENT_VARS, agentVarsOf, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, lineWithContinue, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
+import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, lineWithContinue, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
 import { agentConfig, findOrCreate, herdrRunner, runLine } from "../src/desk/herdr-agent";
 import { PtyPane, tileEnv } from "../src/desk/pty";
 import { DOCK_TILE_ID } from "../src/dock";
@@ -16,6 +16,10 @@ import { doorAgentChecks } from "../src/setup/doctor";
 import type { Facts } from "../src/setup/model";
 import type { Key } from "../src/term";
 import { until } from "./scratch";
+
+/** The agent variables in `env`, the same keys whichever way it was started (only these tests compare them). */
+const agentVarsOf = (env: Record<string, string | undefined>): Record<string, string> =>
+  Object.fromEntries([...AGENT_VARS, ...CARRIED_VARS].flatMap(k => (env[k] ? [[k, env[k]!]] : [])));
 
 const ALT = (ch: string): Key => ({ kind: "alt", ch });
 let dir = "";
