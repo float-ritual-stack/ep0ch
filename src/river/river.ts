@@ -12,7 +12,7 @@
 // was opened on, or the selected one in the Library and a #tag column. Reading keeps the river's own
 // cards; editing, quoting and comment threads draw the surface in the column, with the same keys and
 // the same named actions as the board. Peek and spine columns stay read-only views.
-import { wheelRows } from "../term";
+import { scrolled, wheelRows } from "../scroll";
 import type { Ctx, Frame, Screen } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
@@ -49,6 +49,8 @@ interface PaneS {
   shownElem?: string | null;
   /** The column's height when last drawn, for paging. */
   height?: number;
+  /** The last top that still fills the column, when last drawn (the wheel stops there). */
+  maxTop?: number;
   filter: Clause[];
   error?: string;
   /** The note surface for this pane's note: editing, quoting, comment threads, links. */
@@ -494,7 +496,8 @@ export class River implements Screen {
       if (first < p.top) p.top = Math.max(0, first - (p.source.kind === "block" && p.sel === 0 ? first : 0));
       if (last >= p.top + r.rows) p.top = last - r.rows + 1;
     }
-    p.top = Math.max(0, Math.min(p.top, Math.max(0, all.length - r.rows)));
+    p.maxTop = Math.max(0, all.length - r.rows);
+    p.top = scrolled(p.top, 0, p.maxTop);
     this.keepRows(p, all.map(l => l.text), w);
     const view = all.slice(p.top, p.top + r.rows);
     return { lines: view.map((l, i) => this.paintSel(p, l.text, p.top + i)), rows: view.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history })) };
@@ -513,8 +516,8 @@ export class River implements Screen {
     return dg;
   }
 
-  /** Scroll a column by lines; the next draw keeps it within the column's content. */
-  private scroll(p: PaneS, by: number) { p.top = Math.max(0, p.top + by); }
+  /** Scroll a column by lines, within its content as last drawn (the next draw keeps it there too). */
+  private scroll(p: PaneS, by: number) { p.top = scrolled(p.top, by, p.maxTop); }
 
   /** How a pane was last drawn: full, peek or spine (a pane not drawn yet counts as full). */
   private coverOf(p: PaneS): Cover {
@@ -1316,7 +1319,7 @@ export class River implements Screen {
       if (p.surface.editing) { if (this.isEntered(p)) p.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.hostFor(p)); return; }
       this.seen(p);
       // The wheel scrolls a column by lines, like the desk reader, a peek under its neighbour too; nothing else moves.
-      this.scroll(p, k.action === "wheel-down" ? wheelRows : -wheelRows);
+      this.scroll(p, wheelRows(k.action === "wheel-down" ? 1 : -1));
       p.surface.clearLink();
       this.ctx.redraw();
     }

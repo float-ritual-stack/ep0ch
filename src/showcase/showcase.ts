@@ -5,7 +5,6 @@
 //
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
-import { wheelRows } from "../term";
 import type { Ctx, Frame, Screen } from "../app";
 import type { Msg } from "../board";
 import { subject } from "../board";
@@ -431,7 +430,7 @@ export class ActionsPane implements Pane {
     if (again) this.runSelected(desk);
     desk.redraw();
   }
-  wheel(dir: 1 | -1, desk: DeskApi) { for (let i = 0; i < wheelRows; i++) this.step(dir); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.step(dir); desk.redraw(); }
 }
 
 const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression", "references.backlinks.facets", "views.planWrite", "query.matches", "ping.propertyGrammar"];

@@ -385,7 +385,7 @@ describe("long comments in the thread list", () => {
     s.key({ kind: "down" }, {} as any);
     out = s.render(80, 20, "Garden").map(plain);
     expect(out.some(l => l.includes("more lines"))).toBe(false);
-    for (let i = 0; i < 12; i++) s.wheel(1);
+    for (let i = 0; i < 36; i++) s.wheel(1);
     out = s.render(80, 20, "Garden").map(plain);
     expect(out.some(l => l.includes("line 30 of"))).toBe(true);
     s.key({ kind: "pgup" }, {} as any);

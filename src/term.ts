@@ -77,25 +77,6 @@ function terminalGuard(): { dismiss(): void } | null {
   } catch { return null; }
 }
 
-/**
- * Rows one wheel report scrolls. A report on its own (a mouse wheel's notch) scrolls 3. Reports that come
- * in a burst scroll 1 each: a trackpad sends one per row of finger travel, and some terminals send a notch
- * as three, so 3 each scrolled three times too far and kept going after the fingers stopped. A burst is two
- * reports in one read or within 25ms; it lasts while they keep coming within 150ms (a trackpad's glide
- * slows down at its end without jumping to 3). Set while each wheel report is handled; the panes that
- * scroll by rows read it. A terminal tile's program gets every report as it came.
- */
-export let wheelRows = 3;
-const BURST_GAP = 25, BURST_HOLD = 150;
-
-/** Whether a wheel report `at` ms, given the last one, is part of a burst: see `wheelRows`. */
-export function inBurst(at: number, last: { at: number; dir: number; burst: boolean } | null, dir: number, sameRead: boolean): boolean {
-  if (sameRead) return true;
-  if (!last || last.dir !== dir) return false;
-  const gap = at - last.at;
-  return gap < BURST_GAP || (last.burst && gap < BURST_HOLD);
-}
-
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
 export class Term {
@@ -219,14 +200,7 @@ export class Term {
     // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
     if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); return; }
     const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
-    if (b & 64) {
-      const at = performance.now(), dir = b & 1 ? 1 : -1;
-      const burst = inBurst(at, this.lastWheel, dir, this.wheelsInRead > 1);
-      this.lastWheel = { at, dir, burst };
-      wheelRows = burst ? 1 : 3;
-    }
-    try { this.keyHandler({ kind: "mouse", action, button: b & 3, x, y, ...(b & 28 ? { mods: b & 28 } : {}) }); }
-    finally { wheelRows = 3; }              // a wheel that didn't come from the terminal (an agent's, a test's) scrolls 3
+    this.keyHandler({ kind: "mouse", action, button: b & 3, x, y, ...(b & 28 ? { mods: b & 28 } : {}) });
   }
 
   /** Raw bytes to `sink` up to the next mouse report or escape chord; false when it must wait for more. */
@@ -251,12 +225,7 @@ export class Term {
     return true;
   }
 
-  /** The last wheel report (time, direction, in a burst) and whether this read holds more than one. */
-  private lastWheel: { at: number; dir: number; burst: boolean } | null = null;
-  private wheelsInRead = 0;
-
   private feed(s: string) {
-    this.wheelsInRead = (s.match(/\x1b\[<\d+;\d+;\d+M/g) ?? []).filter(r => Number(r.slice(3, r.indexOf(";"))) & 64).length;
     this.pending += s;
     while (this.pending.length) {
       const sink = this.rawSink?.();

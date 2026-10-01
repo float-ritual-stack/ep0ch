@@ -4,7 +4,7 @@
 // Drawers slide over; nothing reflows unless it is pinned. Every border can be dragged.
 // All of it is one layout tree (src/desk/layout.ts, PIE-412): the lanes pane over the readers row,
 // the backlinks drawer under the readers, the outline drawer beside everything.
-import { wheelRows } from "../term";
+import { wheelRows } from "../scroll";
 import type { Ctx, Frame, Screen } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, overflows, scrollPct, type Rect } from "../canvas";
@@ -2312,7 +2312,7 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
       // The wheel scrolls it, a click places the cursor, a drag selects. A click outside it puts it aside as
       // unsent (composer.leave: never created, n brings it back) and does what it does on the board.
       const d = this.composer.draft, r = this.composerAt;
-      if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: k.action === "wheel-down" ? wheelRows : -wheelRows }, d, USER); return this.redraw(); }
+      if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1) }, d, USER); return this.redraw(); }
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
       if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) return this.redraw();

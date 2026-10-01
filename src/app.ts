@@ -8,6 +8,7 @@ import { osc52 } from "./surface/selection";
 import { bg, C, fg, pad, RESET, width } from "./style";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
 import { crtUnderlay } from "./crt";
+import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
 import { invalidatePropertyErrors } from "./props";
@@ -435,6 +436,7 @@ export class App implements Ctx {
 
   private key(typed: Key) {
     this.lastInput = Date.now();
+    if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     try { this.dispatch(k); }
@@ -518,12 +520,15 @@ export class App implements Ctx {
    * than that to render (a long note) still leaves the door time to read what came in meanwhile.
    *
    * While a chunk of input is being read (`batched`), a redraw is only noted, and the chunk ends with one
-   * paint: a trackpad sends wheel reports by the hundred, and a paint for each (then one for each report
-   * that arrived during that paint) kept the screen scrolling for seconds after the fingers stopped.
+   * paint, at once: a trackpad sends wheel reports by the hundred, and a paint for each (then one for each
+   * report that arrived during that paint) kept the screen scrolling for seconds after the fingers stopped.
+   * What comes in during a paint is read as one chunk after it, so input paints as fast as the screen
+   * renders and no faster.
    */
   redraw() {
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.batching) { this.wanted = true; return; }
+    this.changed = true;
     if (this.paintTimer) return;
     const since = Date.now() - this.lastPaint;
     if (since >= 16) return this.paint();
@@ -534,17 +539,28 @@ export class App implements Ctx {
   private batching = 0;
   private closed = false;
   private wanted = false;
+  /** Something other than the wheel happened since the last paint (a key, a click, a redraw asked from outside input). */
+  private changed = true;
 
   /** Read a chunk of input (Term's onBatch): every key in it is handled, then the screen is painted once. */
   private batched(run: () => void) {
     this.batching++;
     try { run(); }
-    finally { if (--this.batching === 0 && this.wanted) { this.wanted = false; this.redraw(); } }
+    finally {
+      if (--this.batching === 0 && this.wanted && !this.closed) {
+        this.wanted = false;
+        if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; }
+        this.paint();
+      }
+    }
   }
 
   private paint() {
     if (this.away) return;                 // another program has the terminal; resume repaints
-    try { this.drawFrame(); } finally { this.lastPaint = Date.now(); }
+    // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
+    paintingScroll(!this.changed);
+    this.changed = false;
+    try { this.drawFrame(); } finally { paintingScroll(false); this.lastPaint = Date.now(); }
   }
 
   private drawFrame() {

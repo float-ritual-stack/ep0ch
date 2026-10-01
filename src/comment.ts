@@ -2,7 +2,7 @@
 // a thread, resolve or reopen one. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
-import { wheelRows } from "./term";
+import { scrolled, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import { Draft } from "./edit";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
@@ -211,6 +211,8 @@ export class CommentSession {
   /** The person scrolled the list themselves (wheel, PgUp/PgDn): the view stops following the selection until j or k. */
   private free = false;
   private room = 10;
+  /** The last top that still fills the list (from the last render). */
+  private maxTop = Infinity;
   /** Where Esc from the composer goes back to. */
   private back: CommentMode = "threads";
   /** The mode the session opened in; Esc there closes it. */
@@ -242,7 +244,7 @@ export class CommentSession {
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
   wheel(dir: 1 | -1) {
     if (this.mode !== "threads") return;
-    this.top = Math.max(0, this.top + dir * wheelRows); this.free = true;
+    this.top = scrolled(this.top, wheelRows(dir), this.maxTop); this.free = true;
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
@@ -274,7 +276,7 @@ export class CommentSession {
     const c = ch(k), n = this.threads.length;
     this.error = null;
     if (k.kind === "esc") return "close";
-    if (k.kind === "pgdn" || k.kind === "pgup") { this.top = Math.max(0, this.top + (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1)); this.free = true; return "keep"; }
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.top = scrolled(this.top, (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1), this.maxTop); this.free = true; return "keep"; }
     if (k.kind === "down" || c === "j") { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.free = false; }
     else if (k.kind === "up" || c === "k") { this.sel = Math.max(0, this.sel - 1); this.free = false; }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
@@ -490,7 +492,8 @@ export class CommentSession {
       if (selAt < this.top) this.top = selAt;
       if (selEnd >= this.top + room) this.top = Math.min(selAt, selEnd - room + 1);
     }
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, lines.length - room)));
+    this.maxTop = Math.max(0, lines.length - room);
+    this.top = scrolled(this.top, 0, this.maxTop);
     return [...head, ...lines.slice(this.top, this.top + room)];
   }
 

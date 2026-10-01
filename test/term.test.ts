@@ -2,8 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Mirror } from "../src/mirror";
 import { App } from "../src/app";
-import { inBurst, rowBytes, Term } from "../src/term";
-import * as term_ from "../src/term";
+import { rowBytes, Term } from "../src/term";
 
 const SYNC_ON = "\x1b[?2026h", SYNC_OFF = "\x1b[?2026l";
 let written: string[] = [];
@@ -115,27 +114,6 @@ describe("reading keys", () => {
 });
 
 describe("a trackpad's wheel reports", () => {
-  test("a report on its own scrolls 3 rows; reports in one read, or close together, 1 each", () => {
-    const t = new Term();
-    const rows: number[] = [];
-    t.onKey(k => { if (k.kind === "mouse") rows.push(term_.wheelRows); });
-    (t as any).feed("\x1b[<65;10;5M");
-    expect(rows).toEqual([3]);
-    rows.length = 0;
-    (t as any).feed("\x1b[<65;10;5M\x1b[<65;10;5M\x1b[<65;10;5M");  // a notch sent as three, or a burst read at once
-    expect(rows).toEqual([1, 1, 1]);
-  });
-
-  test("a burst starts with two reports within 25ms and lasts while they come within 150ms, the same way", () => {
-    expect(inBurst(1000, null, 1, false)).toBe(false);
-    expect(inBurst(1010, { at: 1000, dir: 1, burst: false }, 1, false)).toBe(true);
-    expect(inBurst(1040, { at: 1000, dir: 1, burst: false }, 1, false)).toBe(false);   // a wheel's notches, one by one
-    expect(inBurst(1100, { at: 1000, dir: 1, burst: true }, 1, false)).toBe(true);     // a glide slowing down
-    expect(inBurst(1200, { at: 1000, dir: 1, burst: true }, 1, false)).toBe(false);    // the fingers stopped
-    expect(inBurst(1010, { at: 1000, dir: 1, burst: true }, -1, false)).toBe(false);   // turned around
-    expect(inBurst(5000, null, -1, true)).toBe(true);                                  // more than one in this read
-  });
-
   test("the door paints once for a chunk of input, however many wheel reports are in it, even when a paint is slow", () => {
     let batch: (run: () => void) => void = run => run();
     let key: (k: any) => void = () => {};

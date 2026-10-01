@@ -15,6 +15,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { extractLinks, LINK_END, linkTag, pad, width } from "../src/style";
 import type { Key } from "../src/term";
+import { SCROLL_ROWS } from "../src/scroll";
 import { wrap } from "../src/text";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -298,7 +299,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
       const was = where(desk.render((desk as any).ctx).lines, "Garden plan", r());
       key({ kind: "mouse", action: "wheel-down", button: 0, x: was.x, y: was.y });
       const now = where(desk.render((desk as any).ctx).lines, "Garden plan", r());
-      expect(now.y).toBe(was.y - 3);
+      expect(now.y).toBe(was.y - SCROLL_ROWS);
       click(was);
       await Bun.sleep(100);
       expect(reader()[1].msg?.id).toBe(n.long.id);
