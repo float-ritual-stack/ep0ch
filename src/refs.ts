@@ -156,7 +156,12 @@ export interface LinkView { text: string; missing: boolean }
 export type LinkTarget = {
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
-  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task"; reason?: string;
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control"; reason?: string;
+  /**
+   * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
+   * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
+   */
+  proposal?: { id: string; op?: "apply" | "dismiss" };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */

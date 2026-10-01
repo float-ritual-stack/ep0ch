@@ -12,7 +12,7 @@ import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
-import { embedRegion, embedsLoading, embedStepChanged, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedStepChanged, isOpenProposal, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { projectionRegion, projectionsOf, projectionsServed, resourceChanged, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
@@ -24,7 +24,7 @@ import { agentMay, Draft, DRAFT_ACTIONS, PATCH_FLASH_MS, sameParty, tidy, unsent
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type PropertyRecord } from "../socket";
-import { C, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
+import { C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
@@ -184,6 +184,7 @@ interface Element {
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
+  : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -431,13 +432,14 @@ export class NoteSurface {
     const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
     if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
+    // A proposal's keys go first: in a narrow tile the hint is cut from the end.
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? "A apply anyway · X dismiss · " : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway.
-    const proposal = this.msg && isOpenProposal(this.msg) ? "A apply anyway · " : "";
+    const proposal = this.msg && isOpenProposal(this.msg) ? "A apply anyway · X dismiss · " : "";
     return `${extra}${proposal}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
@@ -540,6 +542,9 @@ export class NoteSurface {
     const own = host?.header?.(m, w, this.headerInfo(m, count));
     const summaryRow = own ? own.length : 1;
     const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
+    // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
+    const proposalTags: Link[] = [];
+    const proposalHead = isOpenProposal(m) ? { row: own ? own.length + summaryRows.length : 3 + summaryRows.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m.id, proposalTags) + fg(C.dark) + " · A apply anyway · X dismiss", w) + RESET]) } : null;
     const head = [
       ...(own ? [...own, ...summaryRows] : [
         fg(C.white) + pad(subject(m), w) + RESET,
@@ -547,6 +552,7 @@ export class NoteSurface {
         pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
         fg(C.cyan) + pad(this.crumbs, w) + RESET,
       ]),
+      ...(proposalHead ? proposalHead.lines : []),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
       ...unsentLines(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),
@@ -572,6 +578,15 @@ export class NoteSurface {
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
     this.elems = laid.elems;
+    // An opened proposal's [apply] [dismiss] (in the header, so not part of the kept layout): elements and click targets.
+    if (proposalHead) {
+      const own: Element[] = proposalHead.ranges.map(r => {
+        const l = proposalTags[r.n]!, key = `control:proposal:${l.proposal!.op}:${m.id}#0`;
+        this.hits.push({ row: proposalHead.row, from: r.from, to: r.to, link: l, elem: key });
+        return { key, kind: "control", row: proposalHead.row, from: r.from, to: r.to, ruler: [proposalHead.row, proposalHead.row + 1], label: `[${l.proposal!.op}] this proposal`, link: l };
+      });
+      this.elems = [...laid.elems, ...own].sort((a, b) => a.row - b.row || a.from - b.from);
+    }
     this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - top);
@@ -1323,7 +1338,9 @@ export class NoteSurface {
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     if (c === "m" && this.msg) { void this.comment(host, "threads"); return true; }
     // A: apply anyway (PIE-501), on a proposal an agent's patch left, or the embed of one.
-    if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentEmbed())) { void NOTE_ACTIONS.run("proposal.apply", {}, { surface: this, host }, USER).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); return true; }
+    if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentProposal() || this.currentEmbed())) { void this.proposalControl("apply", undefined, host); return true; }
+    // X: dismiss it (the proposal shown, or the one whose embed or control is the current element).
+    if (c === "X" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("dismiss", undefined, host); return true; }
     if (c === "e" && this.msg) { void this.edit(host); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.edit(host, true); return true; }
     // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
@@ -1652,6 +1669,7 @@ export class NoteSurface {
     }
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
     if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
+    if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
     if (e.kind === "control") return this.useControl(e, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
@@ -1776,7 +1794,7 @@ export class NoteSurface {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
-      const id = kind === "task" && l.task ? taskBase(l.task) : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
+      const id = kind === "task" && l.task ? taskBase(l.task) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       return `${id}#${n}`;
@@ -1881,6 +1899,7 @@ export class NoteSurface {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
       ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media ?? e.link.url } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
+      ...(e.link?.proposal?.op ? { control: e.link.proposal.op, proposal: e.link.proposal.id } : {}),
     }));
   }
 
@@ -1949,6 +1968,9 @@ export class NoteSurface {
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
     const e = h.elem ? this.elems.find(e => e.key === h.elem) : undefined;
+    // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
+    const pc = h.link.proposal;
+    if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472).
     if (e?.kind === "task") { void this.enterElement(e, host); host.redraw(); return true; }
     if (e) this.setElem(e);
@@ -1967,6 +1989,7 @@ export class NoteSurface {
   open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | null> {
     // A step's box opens its status choice; a row of an open choice chooses it (PIE-472).
     if (l.role === "task" && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
+    if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.role === "task" && l.task) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.task && taskBase(x.task) === taskBase(l.task!));
       if (e) { this.openPicker(e); host.redraw(); }
@@ -2709,6 +2732,17 @@ export class NoteSurface {
     return now;
   }
 
+  /** The open proposal (PIE-501) whose embed or `[apply]` `[dismiss]` control is the current element while it's in view, if one is. */
+  currentProposal(): string | undefined {
+    return this.inView()?.link?.proposal?.id;
+  }
+
+  /** The person's `A`, `X`, or a click or ⏎ on a proposal's control: `proposal.apply` or `proposal.dismiss`, its refusal flashed. */
+  private proposalControl(op: "apply" | "dismiss", id: string | undefined, host: SurfaceHost): Promise<unknown> {
+    return NOTE_ACTIONS.run(op === "apply" ? "proposal.apply" : "proposal.dismiss", id ? { id } : {}, { surface: this, host }, USER)
+      .catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e)); return null; });
+  }
+
   /** The block of the embed that is the current element while it's in view, if one is. */
   currentEmbed(): string | undefined {
     const e = this.inView();
@@ -2974,7 +3008,22 @@ function keepOthers(d: Draft, actor: Actor, copy: () => string): { at: string; w
 }
 
 /** A proposal an agent's draft.patch left that hasn't been applied (PIE-501). */
-const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open";
+
+/** Who proposed it (PIE-501): the actor its patch names, else the block's author. */
+function proposalOwner(m: Msg): string | null {
+  const x = /\[draft-patch::([A-Za-z0-9_-]+)\]/.exec(m.text);
+  try {
+    const id = x ? JSON.parse(Buffer.from(x[1]!, "base64url").toString("utf8"))?.actor?.actorId : undefined;
+    if (typeof id === "string" && id) return id;
+  } catch { /* not a payload this door reads: the author says */ }
+  return m.author;
+}
+
+/** `text` without the embed of block `id`: a line that is only the embed goes, an inline one leaves its text. */
+export function withoutEmbed(text: string, id: string): string {
+  const embed = `!((${id}))`;
+  return text.split("\n").filter(l => l.trim() !== embed).map(l => (l.includes(embed) ? l.split(embed).join("").replace(/[ \t]+$/, "") : l)).join("\n");
+}
 
 /** Who a patch the service passes on is by: an agent by its actor id, else the person. */
 const patchActor = (m: { author: string; actorId?: string }): Actor => (m.author === "agent" ? { kind: "agent", id: m.actorId || "agent" } : USER);
@@ -3048,6 +3097,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "task.link": StepArgs;
   "task.menu": StepArgs;
   "proposal.apply": { id?: string };
+  "proposal.dismiss": { id?: string };
 }
 interface StepArgs { n?: number; id?: string; block?: string }
 
@@ -3380,6 +3430,11 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // A step's box opens the person's status choice; an agent sets the status itself.
       if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
+      // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
+      if (e.kind === "control" && e.link?.proposal?.op) {
+        const r = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
+        return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
+      }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
       if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on an expanded thread; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
@@ -3774,19 +3829,55 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "proposal.apply": {
-    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal shown, the embed of one that is the current element, or id", keys: "A",
+    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal shown, the embed of one that is the current element, or id", keys: "A, a click on [apply]",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the embed that is the current element, else the note shown)" } },
     async run({ id }, { surface, host }, actor) {
-      const e = surface.currentEmbed();
+      const e = surface.currentProposal() ?? surface.currentEmbed();
       const target = id ?? e ?? surface.requireNote().id;
       try {
         const r = await host.ctx.board.applyProposal(target, actor);
+        // Its embeds and the notes it changed are drawn again now, not when the outline's event comes.
+        outlineChanged([target, ...r.edits.map(x => x.blockId)]);
         host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}`);
         surface.noteAgent(actor, "applied a proposal anyway");
         return r;
       } catch (err) {
         throw new ActionRefused(err instanceof Error ? err.message : String(err));
       } finally { host.redraw(); }
+    },
+  },
+  "proposal.dismiss": {
+    summary: "dismiss a proposal (PIE-501) without applying it: its embed line comes out of the note it was proposed on (and the note shown) as a revision-checked edit, then the proposal goes to Trash, both recorded as whoever runs this. An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
+    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
+    async run({ id }, { surface, host }, actor) {
+      const shown = surface.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
+      const target = id ?? surface.currentProposal() ?? shown;
+      if (!target) throw new ActionRefused("say which proposal: id=, or put [ ] on a proposal's embed");
+      const b = host.ctx.board;
+      const p = await b.get(target);
+      if (!p || p.props.type !== "draft-proposal") throw new ActionRefused(`${target.slice(0, 8)} isn't a proposal`);
+      if (p.deleted) throw new ActionRefused("that proposal is already in Trash");
+      const owner = proposalOwner(p);
+      if (actor.kind === "agent" && owner !== actorIdOf(actor)) throw new ActionRefused(`that proposal is ${owner ? `@${owner}'s` : "someone else's"}; an agent dismisses only its own (the person can dismiss any)`);
+      // Its embed line, wherever it's drawn from: the note it was proposed on, and the note shown.
+      const removedFrom: string[] = [];
+      for (const hostId of new Set([p.parentId, surface.msg?.id].filter((x): x is string => !!x && x !== p.id))) {
+        const m = await b.get(hostId);
+        if (!m || m.deleted || m.revision === undefined) continue;
+        const text = withoutEmbed(m.text, p.id);
+        if (text === m.text) continue;
+        if (b.holdsDraft?.(hostId)) throw new ActionRefused(`${subject(m)} is being edited here, and its embed line is in that draft: save or close the edit first (or delete the line in it); nothing was dismissed`);
+        try { await b.update(hostId, text, m.revision, actor); } catch (err) {
+          throw new ActionRefused(`couldn't take its embed line out of ${subject(m)}: ${err instanceof Error ? err.message : String(err)}; nothing was dismissed`);
+        }
+        removedFrom.push(hostId);
+      }
+      await b.trash(p.id, actor);
+      outlineChanged([p.id, ...removedFrom]);
+      surface.noteAgent(actor, "dismissed a proposal");
+      host.ctx.flash(`dismissed the proposal${removedFrom.length ? " · its embed line is out of the note" : ""}${actor.kind === "agent" ? ` · by ${agentLabel(actor)}` : ""}`);
+      host.redraw();
+      return { dismissed: p.id, removedFrom };
     },
   },
   "select.clear": {
