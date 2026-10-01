@@ -642,6 +642,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `^W P` | the policy panel: the containers over the focused tile and what each allows; `j k` rows, `h l` container, `⏎`/space or a click changes a row, `+ -` a size, `esc` closes (PIE-505) | none: `^W` bound no `P` (only `p`); the BBS message reader's `P` (previous message) is its own screen, never the desk's `^W`; a terminal tile takes `^W` itself | new, under `^W` |
 | `alt+k` | lock or unlock the screen (`layout.lock`, PIE-505): the shape is fixed, the contents live | none on any screen, the surface, a draft, the board, the river or the dock (alt keys in use: `alt+a alt+A alt+R`, `alt+b alt+f`, `alt+c`, `alt+l alt+d alt+n alt+p alt+m alt+x`); Option+k (`˚`) reads as `alt+k` on a US keyboard, as the other Option keys do | new; inside a terminal tile the person is typing in, it's the program's (`ctrl+]` first); on a preset desk (the welcome, the brief) it locks that screen for the session (not saved) |
 | a click on `□ lock` / `▣ locked` (the hint row's end) | lock or unlock the screen (`layout.lock`) | none: the hint row's end held only the drawer handles | new, after the handles |
+| `?` on the desk and the screens built on it (the board, the brief, Waiting), a click on `? more` | when the hint row was too long for the screen it ends `? more`: `?` shows every part in a box above it (`keys.more`, PIE-509); the next key puts it away (`Esc` only that). A `^W` chord's row (`^W`, `^W o`, `^W O`) shows its box at once and ends `…` | none on the desk or the board (the river's `?` is its own key list; the menu's is help); typed as text in a draft, a filter, the search, the composer and a terminal, where it is never taken | new |
 | a header dragged onto a drawer's handle | the tile goes into that drawer (`layout.move where=tabs` into what it shows; `handleDrop` in `src/desk/drop.ts`) | none: the hint row took no drops | new |
 | a drag or border the policy refuses | the ghost turns red and says why (`Drop.refused`); a refused border says why on the press and doesn't follow the pointer | none | new |
 | `^W r` / `^W w` | load / save a layout by name | none | new |
@@ -690,6 +691,7 @@ desk's.
 | `tile.drawer` | `open` | `^W d`, a handle's click, `Esc` in an open drawer; it shuts when the keys leave |
 | `layout.lock` | `on` | `alt+k`, a click on the hint row's lock chip; the policy panel's locked row on the screen |
 | `layout.policy` | `node`, the policy's fields, `clear`; nothing: a read | `^W P`, `⏎` or a click on a row |
+| `keys.more` | none (the person's view; an agent's is refused) | `?`, a click on the hint row's `? more` |
 | `tile.preview` | `where` | `^W v` |
 | `tile.type`, `tile.restart` | `text` | typing in the tile, `⏎` on an exited one |
 | `tab.select` | `by` (1, -1) | a click on a tab, `alt+n alt+p`, `^W [ ]` |

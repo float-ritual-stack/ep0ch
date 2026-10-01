@@ -6,7 +6,7 @@
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import { isDir, type Dir, type Policy } from "./layout";
+import { EDGE_WORD, isDir, type Dir, type Policy } from "./layout";
 import type { PaneKind } from "./panes";
 
 export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
@@ -212,7 +212,7 @@ export const TILE_ACTIONS = new ActionSet<{
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge)) throw new ActionRefused(`tile.pin: edge is left, right, up or down, not ${edge}`);
       const r = d.pinTile(reader, on, edge as Dir | undefined, actor, container);
-      if (r.changed !== false) say(d, actor, r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${r.edge}`);
+      if (r.changed !== false) say(d, actor, r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`);
       return r;
     },
   },
