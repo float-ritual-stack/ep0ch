@@ -334,7 +334,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(tiles().find(t => t.name === "cards").unregistered).toBeUndefined();
   }, 40_000);
 
-  test("tarot opened from the tree at the start keeps nothing until it's given a block: never the tree's row, never a root (F3)", async () => {
+  test("tarot opened from the tree at the start keeps nothing until it's given a block: never the tree's row (F3)", async () => {
     const tiles = () => D().layoutGet().tiles as any[];
     let tree = tiles().find(t => t.kind === "tree");
     if (!tree) { await app.act({ action: "tile.open", args: { kind: "tree", name: "outline" } }); tree = tiles().find(t => t.kind === "tree"); }
@@ -347,14 +347,14 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const fresh = tiles().find(t => t.kind === "tarot.reading" && !before.has(t.name));
     expect(fresh.args ?? {}).toEqual({});
     await expect(app.act({ action: "ext.tarot.keep", args: {}, reader: fresh.name, as: AS })).rejects.toThrow(/opened on none/);
-    // A reader showing a root gives none either.
+    // A reader the person reads in gives its note, even a top-level one (an outline may have several roots).
     const reader = D().namedReaders()[0];
     reader.pane.hold?.(note, desk);
     D().focus = [...D().names].find(([, v]: any) => v === reader.name)![0];
     const now = new Set(tiles().map(t => t.name));
     keyIn(ctrl("w")); keyIn(char("o")); keyIn(char("T"));
     await until(() => tiles().some(t => t.kind === "tarot.reading" && !now.has(t.name)), "a tarot tile from a root");
-    expect(tiles().find(t => t.kind === "tarot.reading" && !now.has(t.name)).args ?? {}).toEqual({});
+    expect(Object.values(tiles().find(t => t.kind === "tarot.reading" && !now.has(t.name)).args ?? {})).toEqual([note.id]);
   }, 30_000);
 
   test("an extension's words never reach the terminal as escapes: its action's message, its name, its output", async () => {
