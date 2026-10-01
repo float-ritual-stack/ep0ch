@@ -163,9 +163,11 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   const checkHint = (label: string) => {
     const top = A().stack.at(-1) as Screen | undefined;
     if (!top) return;
-    const hint = plain(top.render(app).lines.at(-1) ?? "");
     const acts = [...(top.actions?.().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()];
     const declared = new Set(acts.flatMap(a => [...declaredKeys(a.keys)]));
+    // The hint row, and the hint each tile draws in its frame when it has the keys (the desk and its views).
+    const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
+    for (const hint of [plain(top.render(app).lines.at(-1) ?? ""), ...tiles.map(t => plain(t.hint?.() ?? ""))])
     for (const k of hintKeys(hint)) if (!declared.has(k) && k !== "click" && k !== "drag" && k !== "wheel") hintFindings.push({ screen: `${label} (${top.title})`, keys: k, problem: `the hint names ${k}, which no action here declares: ${hint.trim().slice(0, 140)}` });
   };
 
