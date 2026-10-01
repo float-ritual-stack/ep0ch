@@ -27,7 +27,7 @@ import { actorIdOf, EditConflict, mutationFor, Offline, recordedActorId, Refused
 import { C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, asActor, type ActionDef } from "./actions";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
 import { completerFor, completerOf, completionKey, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
@@ -1394,8 +1394,7 @@ export class NoteSurface {
    * happened: the draft's own note, the session's error, a flash of its own).
    */
   runKey<K extends keyof NoteActionArgs & string>(name: K, args: NoteActionArgs[K], host: SurfaceHost, quiet = false): Promise<unknown> {
-    const say = (e: unknown) => { if (!quiet) host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); return undefined; };
-    try { return NOTE_ACTIONS.run(name, args, { surface: this, host }, USER).catch(say); } catch (e) { return Promise.resolve(say(e)); }
+    return runAsPerson(NOTE_ACTIONS, name, args, { surface: this, host }, msg => { if (!quiet) host.ctx.flash(msg); host.redraw(); });
   }
 
   /** The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note. */

@@ -36,7 +36,7 @@ import { dailyAgent, type SharedAgent } from "./desk/tiles";
 import { readState, writeState } from "./state";
 import { agentMayMove } from "./screens";
 import { USER, type Actor } from "./socket";
-import { ActionRefused, ActionSet, agentLabel } from "./surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "./surface/actions";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
 
@@ -598,8 +598,7 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
 /** A person's key or click: the action as `you`; a refusal is said, not thrown. */
 export function dockRunner(dock: AgentDock, ctx: Ctx, here: () => Screen | undefined): DockRun {
   return (name, args) => {
-    const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-    try { DOCK_ACTIONS.runUntyped(name, args, { dock, ctx, here: here() }, USER).catch(say); } catch (e) { say(e); }
+    void runAsPerson(DOCK_ACTIONS, name as never, args as never, { dock, ctx, here: here() }, msg => ctx.flash(msg));
   };
 }
 

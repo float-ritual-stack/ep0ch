@@ -22,7 +22,7 @@ import { Welcome } from "./hub/welcome";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
-import { ActionRefused, ActionSet, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
 import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -333,8 +333,7 @@ export class MainMenu implements Screen {
   /** The person's arrows, Tab and press on an item: the menu's own actions, as `you`. */
   private run<K extends keyof MenuArgs & string>(name: K, args: MenuArgs[K], ctx: Ctx) {
     this.ctx = ctx;
-    const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-    try { MENU_ACTIONS.run(name, args, { menu: this, ctx }, USER).catch(say); } catch (e) { say(e); }
+    void runAsPerson(MENU_ACTIONS, name, args, { menu: this, ctx }, msg => ctx.flash(msg));
   }
   /** The lit item (0-based), for MENU_ACTIONS. */
   get selected() { return this.sel; }
@@ -525,8 +524,7 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
 
 /** A person's key or click: the shell's action, as `you`; a refusal is said on the status bar. Any screen's q, Esc and V run these. */
 export function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
-  const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-  try { SHELL_ACTIONS.run(name, args, { ctx, here }, USER).catch(say); } catch (e) { say(e); }
+  void runAsPerson(SHELL_ACTIONS, name, args, { ctx, here }, msg => ctx.flash(msg));
 }
 
 // The desk and the showcase run q, Esc and V through this too (they can't import this module back).
@@ -629,8 +627,7 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
 
 /** A list's keys and clicks: the same actions, as `you`. */
 function listKey<K extends keyof ListArgs & string>(list: BbsList, name: K, args: ListArgs[K], ctx: Ctx) {
-  const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-  try { LIST_ACTIONS.run(name, args, { list, ctx }, USER).catch(say); } catch (e) { say(e); }
+  void runAsPerson(LIST_ACTIONS, name, args, { list, ctx }, msg => ctx.flash(msg));
 }
 
 /** A list's keys: q Esc back, ⏎ open, the movement keys select. False when the key isn't one of these. */
@@ -1068,8 +1065,7 @@ export class WhoOnline implements Screen {
     if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
     if (isBack(k) || k.kind === "enter") back(this, ctx);
     else if (k.kind === "char" && !k.ctrl && (k.ch === "r" || k.ch === "R")) {
-      const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-      try { WHO_ACTIONS.run("who.refresh", {}, { pane: this.host(ctx) }, USER).catch(say); } catch (e) { say(e); }
+      void runAsPerson(WHO_ACTIONS, "who.refresh", {}, { pane: this.host(ctx) }, msg => ctx.flash(msg));
     }
   }
   /** Who's online as the who actions' host (src/who-actions.ts): r asks the service again. */
@@ -1244,10 +1240,7 @@ export class ArtViewer implements Screen {
     this.ctx = ctx;
     if (isBack(k)) return back(this, ctx);
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => {
-      const say = (e: unknown) => ctx.flash(e instanceof Error ? e.message : String(e));
-      try { ART_ACTIONS.run(name, args, this.on(ctx), USER).catch(say); } catch (e) { say(e); }
-    };
+    const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => void runAsPerson(ART_ACTIONS, name, args, this.on(ctx), msg => ctx.flash(msg));
     if (c === "." || c === ">" || k.kind === "right") return run("art.step", { by: 1 });
     if (c === "," || c === "<" || k.kind === "left") return run("art.step", { by: -1 });
     if (c === "i") return run("art.ice", {});

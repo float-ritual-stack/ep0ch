@@ -9,7 +9,7 @@ import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { USER, type Activity, type Actor, type Comment } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "../surface/actions";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../surface/note";
@@ -87,8 +87,7 @@ const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
  * that tile. A refusal is said, not thrown.
  */
 export function runOwn<On>(set: ActionSet<any, On>, name: string, args: Record<string, unknown>, on: On & { desk: { ctx: { flash(msg: string): void }; redraw(): void } }) {
-  const say = (e: unknown) => { on.desk.ctx.flash(e instanceof Error ? e.message : String(e)); on.desk.redraw(); };
-  try { set.run(name as never, args as never, on, USER).then(() => on.desk.redraw(), say); } catch (e) { say(e); }
+  void runAsPerson(set, name as never, args as never, on, msg => on.desk.ctx.flash(msg)).then(() => on.desk.redraw());
 }
 
 /** Row `n` (from 1) of `count`, or why not. */

@@ -16,7 +16,7 @@ import { USER, type Actor, type Capability, type OutlineEvent } from "../socket"
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
 import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
@@ -295,8 +295,7 @@ export class Showcase implements Screen {
 
   /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
   private run(name: "section" | "section.try", args: { name?: string }) {
-    const say = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.ctx.redraw(); };
-    try { SHOWCASE_ACTIONS.run(name, args as { name: string }, this, USER).then(() => this.ctx.redraw(), say); } catch (e) { say(e); }
+    void runAsPerson(SHOWCASE_ACTIONS, name, args as { name: string }, this, msg => this.ctx.flash(msg)).then(() => this.ctx.redraw());
   }
   /** The shell's q, Esc and V (src/shell-keys.ts: screens.ts imports this module). */
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }

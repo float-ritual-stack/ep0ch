@@ -21,7 +21,7 @@ import type { Draft } from "../edit";
 import type { CommentSession } from "../comment";
 import { shellKeyOf } from "../shell-keys";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
 import { historyKey, historyRow, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
@@ -350,7 +350,7 @@ export class River implements Screen {
   }
 
   /** The person's w or header click: the `widen` action, as an agent would call it. */
-  private shift(ci: number) { void RIVER_ACTIONS.run("widen", {}, { r: this, reader: String(ci + 1) }, USER).catch(e => this.ctx.flash(e instanceof Error ? e.message : String(e))); }
+  private shift(ci: number) { void runAsPerson(RIVER_ACTIONS, "widen", {}, { r: this, reader: String(ci + 1) }, msg => this.ctx.flash(msg)); }
 
   /** Focus moved by key to a column the strip doesn't show at all: the wide place steps toward it until it's on screen. */
   private reveal(ci: number) {
@@ -1086,8 +1086,7 @@ export class River implements Screen {
 
   /** A person's key or click: the river's action, as `you`, on their pane; a refusal is said on the status bar. */
   private run<K extends keyof RiverArgs & string>(name: K, args: RiverArgs[K], reader?: string, refused?: (why: string) => string | null) {
-    const say = (e: unknown) => { const m = e instanceof Error ? e.message : String(e); const s = refused ? refused(m) : m; if (s) this.ctx.flash(s); this.ctx.redraw(); };
-    try { RIVER_ACTIONS.run(name, args, { r: this, reader }, USER).then(() => this.ctx.redraw(), say); } catch (e) { say(e); }
+    void runAsPerson(RIVER_ACTIONS, name, args, { r: this, reader }, m => { const s = refused ? refused(m) : m; if (s) this.ctx.flash(s); }).then(() => this.ctx.redraw());
   }
 
   /** The explicit shift: the column takes the wide place; the person's keys stay where they are. */

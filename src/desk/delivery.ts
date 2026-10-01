@@ -16,7 +16,7 @@ import {
   DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkSource, type BacklinkView, type BacklinkViewOptions,
 } from "../backlinks";
-import { ActionRefused, ActionSet, agentLabel, asActor, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, runAsPerson, agentLabel, asActor, type ActRequest } from "../surface/actions";
 import { drawSpine, SPINE } from "../spine";
 import { draftPreview, leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
@@ -761,13 +761,11 @@ export class DeliveryBoard implements Screen, DeskApi, PaneHost {
   private run<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
     // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
     const said = name === "card.move";
-    const say = (e: unknown) => { if (!said) this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); return undefined; };
-    try { return BOARD_ACTIONS.run(name, args, { b: this, reader, ...extra }, USER).catch(say); } catch (e) { return Promise.resolve(say(e)); }
+    return runAsPerson(BOARD_ACTIONS, name, args, { b: this, reader, ...extra }, msg => { if (!said) this.ctx.flash(msg); this.redraw(); });
   }
   /** A pane operation (PANE_ACTIONS) as the person, on the pane named as `peek` names it. */
   private pane<K extends Parameters<typeof PANE_ACTIONS.run>[0]>(name: K, args: Parameters<typeof PANE_ACTIONS.run<K>>[1], reader: string) {
-    const say = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); };
-    try { PANE_ACTIONS.run(name, args, { h: this, reader }, USER).catch(say); } catch (e) { say(e); }
+    void runAsPerson(PANE_ACTIONS, name, args, { h: this, reader }, msg => { this.ctx.flash(msg); this.redraw(); });
   }
   /** The shell's action (screen.back, video.cycle), as on every screen. */
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
