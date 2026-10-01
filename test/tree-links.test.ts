@@ -19,7 +19,11 @@ import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, until as untilQuick } from "./scratch";
+
+// Under a parallel test run the scratch service and the door share the CPU with every other suite: a wait that
+// takes 100 ms alone can take seconds (PIE-509 saw these time out). Every wait here allows 15 s, every test 60 s.
+const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const span = { start: 0, end: 1 };
@@ -176,7 +180,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => rows().length > 0, "the tree's top level", 8000);
     await tree().reveal(n.plan, desk);
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
-  }, 40_000);
+  }, 60_000);
 
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
@@ -198,7 +202,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => !rows().some(r => r.text.startsWith("→ outlinks")), "the groups hidden");
     ch("L");
     await until(() => rows().some(r => r.text.startsWith("→ outlinks (2)")), "shown again");
-  }, 20_000);
+  }, 60_000);
 
   test("space and h fold a group; l opens it; a click on a group folds it too", async () => {
     selectRow("→ outlinks");
@@ -210,7 +214,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => !rows().some(r => r.text.startsWith("soil-test")), "folded by h");
     clickTree("→ outlinks");
     await until(() => rows().some(r => r.text.startsWith("soil-test")), "opened by a click");
-  });
+  }, 60_000);
 
   test("⏎ on an outlink opens its note in the reader and gives it the keys; a click on one opens it too", async () => {
     selectRow("soil-test → Soil test results");
@@ -220,7 +224,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
     clickTree("the shed list → Tool shed");
     await shows(n.shed.id);
-  });
+  }, 60_000);
 
   test("l on a link to a note shows that note's links beneath it, one hop (A → B → A by hand); h hides them", async () => {
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
@@ -234,7 +238,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     selectRow("the shed list → Tool shed");
     ch("h");
     await until(() => rows().filter(r => r.text === "→ outlinks (2)").length === 1, "the nested links hidden");
-  }, 20_000);
+  }, 60_000);
 
   test("⏎ on a file resource registers it (one step) and shows its stored text; the next ⏎ doesn't register again", async () => {
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
@@ -261,7 +265,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     press({ kind: "enter" });
     await until(() => board.sent.slice(again).includes("resources.describe"), "read again");
     expect(board.sent.slice(again)).not.toContain("resources.follow-authored");
-  }, 20_000);
+  }, 60_000);
 
   test("⏎ on a made-up ticket registers it through its Source, fetches it once, and shows it", async () => {
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
@@ -271,7 +275,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => reader().msg?.text.startsWith("ACME-12 · Rollout checklist for the vendor switch") ?? false, "the ticket in the reader", 10_000);
     expect(board.sent.slice(before)).toEqual(expect.arrayContaining(["resources.follow-authored", "resources.describe", "resources.refresh"]));
     expect(reader().msg!.text).toContain("status In progress");
-  }, 20_000);
+  }, 60_000);
 
   test("a ticket page's ♦ row opens the ticket block the Jira extension keeps (PIE-445), not a copy of the Resource", async () => {
     const page = n.printer;
@@ -292,7 +296,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     expect(reader().msg!.text.split("\n")[0]).toBe("Label printer drops the last line");
     // Opened as a note: its header is the service's projection read; nothing registered, described or fetched.
     expect(board.sent.slice(before).filter(a => a.startsWith("resources.") && a !== "resources.projection.read")).toEqual([]);
-  }, 25_000);
+  }, 60_000);
 
   test("a file that can't be read says why; nothing opens", async () => {
     rmSync(join(scratch.workspace, "notes", "gone.md"));
@@ -302,7 +306,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     press({ kind: "enter" });
     await until(() => message().startsWith("couldn't show"), "the refusal", 8000);
     expect(reader().msg?.id).toBe(was);
-  }, 15_000);
+  }, 60_000);
 
   test("an agent's tree.links and tree.pick never move the person's selection or keys, and are said on screen", async () => {
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "reader")![0];
@@ -323,7 +327,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     // Refusals say why: a group has no links, a row past the end isn't there.
     await expect(app.act({ action: "tree.links", args: { n: rowOf("♦ resources").n }, as: "walker-7" })).rejects.toThrow("only a note has links to show");
     await expect(app.act({ action: "tree.pick", args: { n: 999 }, as: "walker-7" })).rejects.toThrow("no row 999");
-  }, 20_000);
+  }, 60_000);
 
   test("in a reader, a resource token the service names is a link: a click shows the Resource", async () => {
     await app.act({ action: "open", args: { id: n.plan.id }, as: "walker-7" });
@@ -336,7 +340,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     press({ kind: "mouse", action: "up", button: 0, x: at.x, y: at.y });
     await until(() => reader().msg?.id.startsWith("resource:") ?? false, "the resource from the token", 8000);
     expect(reader().msg!.text).toContain("Compost rota");
-  }, 20_000);
+  }, 60_000);
   test("the short-lived Detail client is dropped after every read: a success, a refusal, a missing Resource", async () => {
     const detailsNow = async () => (await board.callers()).filter(c => c.id.includes("-resource-")).length;
     expect(await detailsNow()).toBe(0);
@@ -347,7 +351,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     let left = -1;
     for (let t = Date.now(); Date.now() - t < 5000 && left !== 0; await Bun.sleep(50)) left = await detailsNow();
     expect(left).toBe(0);
-  }, 15_000);
+  }, 60_000);
 
   test("a registered file that goes missing says it can't be read, not that nothing is stored", async () => {
     const path = join(scratch.workspace, "notes", "fleeting.md");
@@ -356,7 +360,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     rmSync(path);
     const d = await board.describeResource(reg.id, true);
     expect(resourceNote(d).text).toContain("The file can't be read now");
-  }, 15_000);
+  }, 60_000);
 
   test("an agent never folds away the rows the person's selection is in", async () => {
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
@@ -373,5 +377,5 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     tree().selectRow(plan().n - 1, desk, false);
     ch("L");
     await until(() => rows()[plan().n]?.kind === "block", "the plan's links hidden");
-  }, 15_000);
+  }, 60_000);
 });

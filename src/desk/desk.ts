@@ -17,9 +17,11 @@ import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surfac
 import { leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
-import { bg, C, fg, pad, paint, RESET, visible as visibleText, width } from "../style";
+import { bg, C, fg, INPUT_CURSOR, pad, paint, RESET, visible as visibleText, width } from "../style";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
+import { emphasis } from "../inline";
+import { presentLinks } from "../refs";
 import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import { activate, besideSlot, chainOf, EDGE_GLYPH, isLine, parentNode as parentNodeOf, parentOf, cycle, describeTree, dividerAt, drawerOf, drawers, drawerToEdge, dragShare, edge, effective, even, forgetIds, has, kidsOf, leaf, leaves, move, neighbour, nodeById, normalise, pair, placeScreen, policyOf, remove, resize, revive, serialize, shown, splitOf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer, POLICY_KEYS, type Axis, type Columns, type Container, type Dir, type Divider, type Drawer, type Effective, type Float, type Grab, type Line, type LNode, type Place, type Placed, type PlacedDrawer, type PlaceOpts, type Policy } from "./layout";
 import { drawSpine, SPINE } from "../spine";
@@ -666,7 +668,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !p.msg?.id.startsWith("file:"));
     // After a reconnect that couldn't catch up, every reader re-reads its note (a draft is only marked).
     const stale = e.action === "reset" ? readers.map(r => r.msg?.id).filter((x): x is string => !!x)
-      : id && readers.some(r => r.msg?.id === id && !(e.change?.revision !== undefined && r.msg.revision === e.change.revision && !r.msg.partial)) ? [id] : [];
+      : id && readers.some(r => r.msg?.id === id && !(e.change?.revision !== undefined && r.msg.revision === e.change.revision && !r.msg.partial && !trashOrRestore(e.change))) ? [id] : [];
     for (const x of new Set(stale)) this.ctx.board.get(x).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
   }
@@ -1055,7 +1057,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       this.putMarks(id, put, xNow, r.row);
       put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
       return this.headerTail(id, put, xNow, r.row);
-    } else put(`${this.numLabel(id)}${this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
+    } else put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
     // A tile that says what follows its name (a lane: its count) says it; a file shown read-only (a preview of
@@ -1963,7 +1965,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
       return { overlay: true, query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
-    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)));
+    const hits = rankHits(q, await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30))));
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
   }
 
@@ -2589,6 +2591,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
 }
 
+/** A change that trashed or restored a block: its revision stays the same, but a reader showing it must say so. */
+const trashOrRestore = (c: { kind: string }) => c.kind === "delete" || c.kind === "restore" || c.kind === "purge";
 /** How to unlock a locked screen, said with every refusal it causes. */
 const UNLOCK = "alt+k or a click on ▣ locked unlocks it";
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
@@ -2661,7 +2665,7 @@ class LayoutPicker {
     const r: Rect = { col: Math.floor((cols - w) / 2), row: Math.floor((rows - h) / 3), cols: w, rows: h };
     canvas.clear(r, bg(C.black));
     canvas.box(r, fg(C.yellow), `${fg(C.yellow)}${this.mode === "load" ? "load a layout" : "save the layout as"}`, fg(C.dark) + (this.mode === "load" ? "↑↓ pick · ⏎ load · esc" : "⏎ save · esc"));
-    if (this.mode === "save") { canvas.text(r.col + 2, r.row + 1, this.prefilled ? `${bg(C.blue)}${fg(C.white)}${this.text}${RESET}${paint("|07▁ |08⏎ keeps it, typing replaces it")}` : paint(`|15${this.text}|07▁`), w - 4); return; }
+    if (this.mode === "save") { canvas.text(r.col + 2, r.row + 1, this.prefilled ? `${bg(C.blue)}${fg(C.white)}${this.text}${RESET}${paint(`|07${INPUT_CURSOR} |08⏎ keeps it, typing replaces it`)}` : paint(`|15${this.text}|07${INPUT_CURSOR}`), w - 4); return; }
     this.items.forEach((it, i) => {
       const label = `${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`;
       canvas.text(r.col + 1, r.row + 1 + i, (i === this.sel ? bg(C.blue) + fg(C.white) : fg(C.grey)) + pad(` ${label}`, w - 2) + RESET, w - 2);
@@ -2758,13 +2762,13 @@ class SearchOverlay {
     this.timer = setTimeout(() => {
       const n = ++this.seq;
       this.busy = true; desk.redraw();
-      desk.ctx.board.search(q, 30).then(h => { if (n === this.seq) { this.hits = h; this.sel = 0; this.busy = false; desk.redraw(); } }, () => { this.busy = false; });
+      desk.ctx.board.search(q, 30).then(h => { if (n === this.seq) { this.hits = rankHits(q, h); this.sel = 0; this.busy = false; desk.redraw(); } }, () => { this.busy = false; });
     }, 250);
   }
 
   render(w: number, h: number): string[] {
     const listW = Math.floor(w * 0.42);
-    const lines = [paint(`|14/ |15${this.q}|07▁ ${this.busy ? "|08searching…" : `|08${this.hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET];
+    const lines = [paint(`|14/ |15${this.q}|07${INPUT_CURSOR} ${this.busy ? "|08searching…" : `|08${this.hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET];
     const m = this.hits[this.sel];
     const preview = m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [];
     for (let i = 0; i < h - 2; i++) {
@@ -2817,11 +2821,25 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string 
   },
 });
 
+/**
+ * Search hits in the order a person expects: a note whose title is the words first, then titles that start with
+ * them, then titles that hold them, then the rest (a mention in a body). The service's order (newest first)
+ * stays within each.
+ */
+export function rankHits(q: string, hits: Msg[]): Msg[] {
+  const w = q.trim().toLowerCase();
+  if (!w) return hits;
+  const rank = (m: Msg) => { const t = subject(m).toLowerCase(); return t === w ? 0 : t.startsWith(w) ? 1 : t.includes(w) ? 2 : 3; };
+  return hits.map((m, i) => ({ m, i, r: rank(m) })).sort((a, b) => a.r - b.r || a.i - b.i).map(x => x.m);
+}
+
 /** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
 function previewLines(m: Msg, w: number): string[] {
   // A draft proposal's hidden patch (`[draft-patch::…]`, PIE-501) is machine data, never shown.
   const body = bodyLinesOf(m.text).filter(l => !/^\s*\[draft-patch::[A-Za-z0-9_-]*\]\s*$/.test(l.text));
   while (body.length && !body[0]!.text.trim()) body.shift();
   while (body.length && !body.at(-1)!.text.trim()) body.pop();
-  return body.flatMap(l => (l.text ? wrap(l.text, w) : [""]).map(x => colourBody(x, l.literal)));
+  // Links read as their labels and **bold** as bold, as the reader draws them (no ((uuid|…)) or ** in a preview).
+  return body.flatMap(l => (l.text ? wrap(l.literal ? l.text : emphasis(presentLinks(l.text, false, null, m.text)), w) : [""]).map(x => colourBody(x, l.literal)));
 }
+export { previewLines as searchPreviewLines };

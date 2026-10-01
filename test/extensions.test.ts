@@ -44,7 +44,7 @@ describe("a component's view in the terminal", () => {
     const text = lines.map(plain);
     expect(text[0]).toBe("▌ Plot 4  [busy]");
     expect(text[1]).toBe("▌ two beds still to dig");
-    expect(text[2]).toMatch(/^ {2}Beds {2}6 of 8 +Rain {2}▁▅▃█$/);
+    expect(text[2]).toMatch(/^ {2}Beds {2}6 of 8 +Rain {2}_▒░█$/);
     expect(text[3]).toMatch(/^ {2}Dug {2}█+░+ {2}6\/8/);
     expect(text.slice(4, 6)).toEqual(["  [x] dig the leek bed", "  [ ] net the brassicas"]);
     expect(text.slice(6, 10).map(l => l.trimEnd())).toEqual(["  Bed  Crop", "  ───  ─────", "  1    leeks", "  2    kale"]);
@@ -69,7 +69,7 @@ describe.skipIf(!outliner)("the door draws what the service's terminal target dr
       { type: "checklist", items: [{ label: "oil the chain", done: false }] },
       { type: "table", columns: ["Bike", "Tyre"], rows: [["red", "flat"], ["blue", 32]] },
     ] };
-    const words = (t: string) => new Set(t.split(/[\s│┌┐└┘─▌\[\]]+/).filter(w => w && !/^[█░▁▂▃▄▅▆▇]+$/.test(w)));
+    const words = (t: string) => new Set(t.split(/[\s│┌┐└┘─▌\[\]]+/).filter(w => w && !/^[█░▒▓_▄▁▂▃▅▆▇]+$/.test(w)));
     const theirs = words(renderComponent({ data: {}, view }, "terminal").body);
     const mine = words(primitiveLines(view, 100).map(plain).join("\n"));
     expect([...theirs].filter(w => !mine.has(w))).toEqual([]);

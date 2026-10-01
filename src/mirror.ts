@@ -11,7 +11,16 @@ import { encodePng, GLYPH_H, GLYPH_W } from "./vga";
 const font = new Uint8Array(readFileSync(new URL("../assets/vga9x16.bin", import.meta.url)));
 const toCp437 = new Map<string, number>([...CP437_HIGH].map((c, i) => [c, 128 + i]));
 // The VGA font's low glyphs: arrows and triangles the door draws (a tile's link →, the tree's ▸ ▾, a drawer's ⇤, the agent chip's ⟳ as ☼).
-for (const [c, n] of [["☺", 1], ["♦", 4], ["◆", 4], ["•", 7], ["►", 16], ["▸", 16], ["◄", 17], ["◂", 17], ["↕", 18], ["‼", 19], ["↑", 24], ["↓", 25], ["→", 26], ["←", 27], ["↔", 29], ["▲", 30], ["▼", 31], ["▾", 31], ["⇤", 27], ["⇐", 27], ["⇒", 26], ["⇓", 25], ["⠿", 254], ["▭", 254], ["⌖", 15], ["⟳", 15]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
+for (const [c, n] of [["☺", 1], ["♦", 4], ["◆", 4], ["•", 7], ["►", 16], ["▸", 16], ["◄", 17], ["◂", 17], ["↕", 18], ["‼", 19], ["↑", 24], ["↓", 25], ["→", 26], ["←", 27], ["↔", 29], ["▲", 30], ["▼", 31], ["▾", 31], ["⇤", 27], ["⇐", 27], ["⇒", 26], ["⇓", 25], ["⠿", 254], ["▭", 254], ["⌖", 15], ["⟳", 15],
+  // And the door's other glyphs a VGA font lacks, each as the nearest one it has (PIE-509: they drew as ?): Enter
+  // as ◄, a dash as ─, ✓ as √, the lock chip's □ ▣ as ○ ◙, a float's ⧉ as ◘ and its ◢ corner as ┘, the other
+  // drawer handles' arrows, an ellipsis as ·, an old sparkline's steps as _ ▄ █.
+  ["⏎", 17], ["—", 196], ["–", 45], ["−", 45], ["✓", 251], ["✗", 120], ["□", 9], ["▣", 10], ["⧉", 8], ["◢", 217],
+  ["⇥", 26], ["⤒", 24], ["⤓", 25], ["…", 250], ["›", 62], ["“", 34], ["”", 34], ["✎", 42], ["●", 7], ["✦", 15], ["⚠", 19],
+  ["┊", 179], ["▁", 95], ["▂", 220], ["▃", 220], ["▅", 219], ["▆", 219], ["▇", 219]] as const) if (!toCp437.has(c)) toCp437.set(c, n);
+
+/** The VGA font's glyph for `ch`: its CP437 code, a lookalike's, or 63 (?) when it has none. */
+export const vgaCode = (ch: string): number => (ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : toCp437.get(ch) ?? 63);
 
 interface TCell { ch: string; fg: number[]; bg: number[] | null }
 export class Mirror {
@@ -118,7 +127,7 @@ export class Mirror {
     drawImages(z => z >= -1073741824 && z < 0);                // over backgrounds, under text
     this.cells.forEach((row, r) => row.forEach((c, k) => {
       if (c.ch === " " || c.ch === "\u200b") return;
-      const code = c.ch.charCodeAt(0) < 128 ? c.ch.charCodeAt(0) : toCp437.get(c.ch) ?? 63;
+      const code = vgaCode(c.ch);
       for (let gy = 0; gy < GLYPH_H; gy++) for (let gx = 0; gx < GLYPH_W; gx++) {
         const bit = (code * GLYPH_H + gy) * GLYPH_W + gx;
         if (((font[bit >> 3]! >> (7 - (bit & 7))) & 1) === 0) continue;

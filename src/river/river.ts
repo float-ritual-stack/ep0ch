@@ -26,7 +26,7 @@ import { historyKey, historyRow, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
-import { bg, C, extractLinks, fg, pad, paint, RESET, visible } from "../style";
+import { bg, C, extractLinks, fg, INPUT_CURSOR, pad, paint, RESET, visible } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
 import { drawSpine, SPINE } from "../spine";
@@ -69,6 +69,8 @@ interface PaneS {
 interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean; from?: number; ahead?: number }
 type Cover = "full" | "peek" | "spine";
 interface Row { m: Msg; depth: number }
+/** "1 reply", "3 replies". */
+const repliesWord = (n: number) => `${n} repl${n === 1 ? "y" : "ies"}`;
 /** A row of a pane as drawn: its card, whether it's the replies toggle, and the links on it (PIE-415). */
 type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[] };
 interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[]; cover: Cover }
@@ -465,7 +467,7 @@ export class River implements Screen {
         p.shownElem = dg.key;
         if (dg.current !== null) { const row = at + dg.current; if (row < p.top) p.top = Math.max(0, row - 1); else if (row >= p.top + r.rows) p.top = row - r.rows + 2; }
       }
-      const label = `── ${p.items ? this.listed(p) : "…"} replies `;
+      const label = `── ${p.items ? repliesWord(this.listed(p)) : "… replies"} `;
       push(fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET);
     }
     const rows = this.flat(p);
@@ -483,7 +485,7 @@ export class River implements Screen {
       for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
       const count = this.idx.count(m.id) ?? (Array.isArray(p.kids.get(m.id)) ? (p.kids.get(m.id) as Msg[]).length : undefined);
       if (p.kids.get(m.id) === "loading") push(rail + " " + fg(C.dark) + "» loading replies…" + RESET, n, true);
-      else if (count) push(rail + " " + fg(C.cyan) + (p.open.has(m.id) ? `▾ ${count} replies · hide` : `» ${count} replies`) + RESET, n, true);
+      else if (count) push(rail + " " + fg(C.cyan) + (p.open.has(m.id) ? `▾ ${repliesWord(count)} · hide` : `» ${repliesWord(count)}`) + RESET, n, true);
       push(rail, n);
     });
     if (!p.items && !p.error) push(fg(C.dark) + "dialing…" + RESET);
@@ -597,7 +599,7 @@ export class River implements Screen {
     if (!this.mode && s) return pad(` ${fg(C.grey)}${selectionHint(s.s, [...s.s.text(rowsOf(s.p.drawn?.lines ?? []))].length).replace(" · Y source", "")}${RESET}`, W);
     if (!this.mode && sp && sp.surface.editing && !sp.surface.panel && !this.isEntered(sp)) return pad(paint(`|15 e ⏎|08 enter ${this.whose(sp)} (${sp.surface.state()}) · |07h l|08 columns · |07tab|08 panes · |15?|08 keys`), W);
     if (!this.mode && sp && (sp.surface.editing || this.linked(sp))) return pad(` ${fg(C.grey)}${sp.surface.hint()}${RESET}`, W);
-    if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07▁ |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
+    if (this.mode === "filter") return pad(paint(`|14filter this pane: |15${this.input}|07${INPUT_CURSOR} |08 type:hub -status:done author:codex word · ⏎ apply · esc cancel`), W);
     const meter = this.indexing !== null ? ` · |14indexing ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.indexing) / 1000).toFixed(0)}s` : this.idx.loaded ? ` · |08${this.idx.byId.size} indexed` : "";
     return pad(paint(`|08 h l columns · |15w|08 widen · j k notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 jump · |15?|08 keys · |15q|08 menu${meter}`), W);
   }
@@ -611,7 +613,7 @@ export class River implements Screen {
 
   private drawPalette(canvas: Canvas, W: number, rows: number) {
     const r = this.overlay(canvas, W, rows, 0.6, 0.6, `jump · ${this.idx.loaded ? `${this.idx.byId.size} notes, local` : "index loading…"}`);
-    canvas.text(r.col, r.row, paint(`|14/ |15${this.input}|07▁`), r.cols);
+    canvas.text(r.col, r.row, paint(`|14/ |15${this.input}|07${INPUT_CURSOR}`), r.cols);
     this.matches.slice(0, r.rows - 2).forEach((b, i) => {
       const parent = b.parentId ? this.idx.byId.get(b.parentId)?.title ?? "" : "top level";
       const line = `${pad(`${b.props["work-id"] && !b.title.startsWith(b.props["work-id"]) ? b.props["work-id"] + " " : ""}${b.title}`, Math.floor(r.cols * 0.6))} ${fg(C.dark)}${parent}`;

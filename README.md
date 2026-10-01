@@ -902,6 +902,8 @@ element is current, and `esc` lets go of the element or selection first, then go
   kept in `properties.json` in the door's state), `OUTLINER_PROPERTY_SUMMARY_KEYS` (Detail's variable;
   empty hides the line), then `status,work-stage,priority,track`. As in Detail, `work-stage` reads
   `stage`, repeated values are joined (`track soil, tools`), and a roadmap item's `status` is left out.
+  A board lane's cards show the same keys after their Work ID and priority (a reading list's `author`);
+  a lane whose view names none shows what its cards carry (track, or an outbox's to, channel, waiting on).
 - **Which lines are metadata** is the service's call: `properties.preview` (PIE-401) says which tokens
   are block-scope metadata lines. Bare `key:: value` lines (line scope) and inline tokens stay in the body.
   An older service gets the documented rule (the first run of property-only lines after the subject).

@@ -241,7 +241,8 @@ const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.sl
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
 
 /** An agent's proposal that hasn't been applied (PIE-501): `A`, `X` and its `[apply]` `[dismiss]` controls act on it. */
-export const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open";
+/** A proposal still waiting: open, and not in the Trash (dismissing one trashes it). */
+export const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open" && !m.deleted;
 
 /** A proposal's controls, as its embed's source line and an opened proposal's header draw them. */
 export const PROPOSAL_OPS = ["apply", "dismiss"] as const;
