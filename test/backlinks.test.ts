@@ -421,9 +421,9 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
       const flat = await board.backlinks(target.id);
       expect(flat.sources.some(s => s.blockId === target.id)).toBe(false);          // today's rule: never the note itself
       key({ kind: "esc" }); ch("b");
-      await until(() => !!B().linksTile.data && !!B().describe().backlinks, "the backlinks");
+      // The drawer read again (the list from before esc, grouped, is shown until the new answer comes).
+      await until(() => !!B().linksTile.data && peek()?.faceted === false, "the backlinks without facets");
       const p = peek();
-      expect(p.faceted).toBe(false);
       expect(p.status).toBe("9 of 9 match · not grouped: this service sends no facets · Sort: Updated ↓");
       expect(p.rows.every((r: any) => r.id)).toBe(true);
       expect(drawer()[0]).toBe(p.status);

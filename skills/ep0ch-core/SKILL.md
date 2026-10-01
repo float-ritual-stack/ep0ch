@@ -40,7 +40,7 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   (`src/vendor/`), never a local copy of the rule.
 - **Every action is an action.** Define it once as an `ActionDef` in an `ActionSet`
   (`src/surface/actions.ts`); the key, the click or drag and `act` all call it. A UI change that isn't an
-  action is a bug, and `test/parity.test.ts` catches it: it presses every key and clicks every row on every
+  action is a bug, and `test/parity.ts` (run by `test/parity-*.test.ts`) catches it: it presses every key and clicks every row on every
   screen and fails on a change no action named that key ran. Mouse is first-class: every feature states its
   mouse path and its key path.
 - **Agents are first-class, and never take the person's cursor.** An agent can do what the person can, with

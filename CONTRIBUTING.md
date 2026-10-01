@@ -10,6 +10,8 @@ Before a PR claims a change works:
 1. `bun run check` passes.
 2. The full suite passes once the change is stable:
    `EP0CH_OUTLINER=<pi-herdr-outliner checkout> bun test`. Focused tests are fine while developing.
+   `bun run test:parallel` (`bun test --parallel`, a worker per core, each file isolated) runs the same suite
+   in under half the time; the parity test is three files (`test/parity-*.test.ts`) so it spreads too.
 3. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` writes PNGs to `out/`;
    open them. A snapshot nobody looked at is not evidence.
 4. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch

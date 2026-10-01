@@ -1,0 +1,30 @@
+// The scratch helpers themselves: a killed run's temp dirs are cleared by the next one, and nothing else is.
+import { expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { scratchDir } from "./scratch";
+
+test("scratchDir removes its prefix's dirs whose test process is gone, and keeps live, unmarked and other dirs", async () => {
+  const prefix = `ep0ch-prune-check-${process.pid}-`;
+  const gone = Bun.spawn(["true"]);
+  await gone.exited;
+  const live = Bun.spawn(["sleep", "30"]);
+  const mk = (pid: number | null, p = prefix) => {
+    const d = mkdtempSync(join(tmpdir(), p));
+    if (pid !== null) writeFileSync(join(d, "pid"), String(pid));
+    return d;
+  };
+  const dead = mk(gone.pid), running = mk(live.pid), mine = mk(process.pid), unmarked = mk(null);
+  const other = mk(gone.pid, `ep0ch-prune-other-${process.pid}-`);
+  try {
+    const made = scratchDir(prefix);
+    expect(existsSync(dead)).toBe(false);
+    for (const d of [running, mine, unmarked, other, made]) expect(existsSync(d)).toBe(true);
+    expect(await Bun.file(join(made, "pid")).text()).toBe(String(process.pid));
+    rmSync(made, { recursive: true, force: true });
+  } finally {
+    live.kill();
+    for (const d of [dead, running, mine, unmarked, other]) rmSync(d, { recursive: true, force: true });
+  }
+});

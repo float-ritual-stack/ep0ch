@@ -1,7 +1,7 @@
 // A throwaway outliner service for tests: its own state, workspace and config dirs, background agents
 // off, Herdr unset. Never a real outline. `restart()` stops it and starts it again on the same state,
 // the way a deploy would. `seedShowcase()` writes the showcase outline (src/showcase/seed.ts) into it.
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
@@ -15,13 +15,40 @@ export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
 };
 
+/** Whether a process with this id runs (EPERM: it does, as another user's). */
+const alive = (pid: number) => {
+  try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === "EPERM"; }
+};
+
+/**
+ * A temp dir for a scratch service, named `prefix…`, with the id of the test process that owns it in its `pid`
+ * file. The dirs a killed run left (their `pid` names a process that's gone) are removed first: only this
+ * prefix's, only this user's, never one whose process runs or that has no `pid` file.
+ */
+export function scratchDir(prefix: string): string {
+  const uid = process.getuid?.();
+  for (const name of readdirSync(tmpdir())) {
+    if (!name.startsWith(prefix)) continue;
+    const dir = join(tmpdir(), name);
+    try {
+      const st = lstatSync(dir);
+      if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue;
+      const pid = Number(readFileSync(join(dir, "pid"), "utf8").trim());
+      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(dir, { recursive: true, force: true });
+    } catch { /* no pid file, or gone already: left alone */ }
+  }
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  writeFileSync(join(dir, "pid"), String(process.pid));
+  return dir;
+}
+
 export class Scratch {
   readonly root: string;
   sock = "";
   private proc: Subprocess | null = null;
   /** `root`: serve that directory's ws/state/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
   constructor(root?: string) {
-    this.root = root ?? mkdtempSync(join(tmpdir(), "ep0ch-scratch-"));
+    this.root = root ?? scratchDir("ep0ch-scratch-");
     for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
   }
   get workspace() { return join(this.root, "ws"); }
@@ -105,7 +132,7 @@ export class ScratchHost {
   readonly root: string;
   private proc: Subprocess | null = null;
   constructor() {
-    this.root = mkdtempSync(join(tmpdir(), "ep0ch-host-"));
+    this.root = scratchDir("ep0ch-host-");
     for (const d of ["state", "config", "door", "folders"]) mkdirSync(join(this.root, d), { recursive: true });
   }
   get state() { return join(this.root, "state"); }

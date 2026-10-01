@@ -449,7 +449,7 @@ rule now holds by test, not by review:
   person's own cursor or view, an agent's either moves its own (the board's `card.select`) or is refused with
   the agent's way named (`view.scrollTo`, `tree.pick`, `list.read`).
 
-`test/parity.test.ts` keeps it so. It builds every screen the menu opens against a scratch outline, and
+`test/parity.ts` (run by `test/parity-*.test.ts`) keeps it so. It builds every screen the menu opens against a scratch outline, and
 more states of the board, the river, the desk and the reader, then presses every key a person can press and
 clicks across the screen, one at a time from where it opens, and from each input state a second key. Every
 action run is traced (`traceActions`). A key or click that changed the screen (its rows, `describe()`, the

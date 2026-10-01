@@ -34,7 +34,7 @@
     "service track": "the decision log's service track: tree.search as the one search, outlines.resolve, shared marks"
   },
   "findings": [
-    { "id": "A-F1", "line": 52, "title": "Outside the desk, keys and drags bypass the action registry", "status": "resolved", "by": "#96", "note": "every key and click on every screen runs an ActionDef, kept by test/parity.test.ts" },
+    { "id": "A-F1", "line": 52, "title": "Outside the desk, keys and drags bypass the action registry", "status": "resolved", "by": "#96", "note": "every key and click on every screen runs an ActionDef, kept by test/parity.ts" },
     { "id": "A-F2", "line": 78, "title": "Five hand-written act() routers and four ways to name a reader", "status": "open", "route": "PIE-492" },
     { "id": "A-F3", "line": 94, "title": "An agent can't leave the main menu, or act on any BBS list screen", "status": "resolved", "by": "#59" },
     { "id": "A-F4", "line": 106, "title": "The river is a second layout engine; the board's lanes a third weight model", "status": "partial", "by": "#98", "note": "the board is a desk preset: its lanes are query tiles in a columns container on the one tree; the river is still its own engine", "route": "PIE-493" },
@@ -322,7 +322,7 @@
     },
     {
       "id": "door.keys", "name": "Key dispatch", "group": "door", "chapter": "actions", "ladder": "accidental", "dependsOn": ["kept.terminal"],
-      "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.test.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
+      "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in river.ts), each screen with its own priority order.",
       "refs": [
         { "r": "door", "p": "src/desk/delivery.ts", "l": 1998, "m": "if (c === \"m\") { this.openMover(); return true; }" },

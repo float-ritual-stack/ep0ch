@@ -10,6 +10,7 @@
     "start": "bun src/main.ts",
     "check": "tsc --noEmit",
     "test": "bun test",
+    "test:parallel": "bun test --parallel",
     "render": "bun scripts/render.ts"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
 // needs), add a note under a card, check off checklist steps, trash and restore, and move cards into
 // lanes whose query has an OR / NOT group. Each by keys and through the control socket, against a
 // throwaway outliner service it starts itself (never a real outline). Pure planning is tested anywhere.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { App } from "../src/app";
@@ -21,6 +21,10 @@ const card = (props: Record<string, string>, over: Partial<Msg> = {}): Msg => ({
   id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
   properties: Object.entries(props).map(([key, value]) => ({ key, value })), ...over,
 });
+
+// Its waits allow 8 s (a loaded machine, --parallel): a test's own limit is longer, so a slow wait fails as
+// itself, not as bun's timeout, which also kills the scratch service and fails every test after it.
+setDefaultTimeout(20_000);
 
 const ALL_WORK = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
 
@@ -286,8 +290,15 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.draft.text).toBe("Paint the railings");
     // A click outside it leaves it as unsent (never created: creating is ctrl+s), and n brings it back.
     const before = (await board.children(queue.id)).length;
-    press({ kind: "mouse", action: "down", button: 0, x: 5, y: 5 });
-    press({ kind: "mouse", action: "up", button: 0, x: 5, y: 5 });
+    // A cell of another lane, outside the composer, as drawn now. A click finds what the last paint placed, and
+    // the outline drawer the last test shut by key stays there until a paint (16 ms away, later on a loaded
+    // machine): a fixed (5,5) sometimes landed on it.
+    b.render(B().ctx);
+    const away = BV.rectOf(b, "Queued"), box = B().composerAt;
+    const at = { x: away.col + 2, y: away.row + 1 };
+    while (at.y < away.row + away.rows - 1 && at.x >= box.col && at.x < box.col + box.cols && at.y >= box.row && at.y < box.row + box.rows) at.y++;
+    press({ kind: "mouse", action: "down", button: 0, ...at });
+    press({ kind: "mouse", action: "up", button: 0, ...at });
     expect(B().composer).toBeNull();
     expect(message()).toBe("the new card in Doing was kept as unsent, not created · n in Doing brings it back");
     expect((await board.children(queue.id)).length).toBe(before);
