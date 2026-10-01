@@ -12,7 +12,7 @@ import { USER, type Activity, type Actor, type Comment } from "../socket";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "../surface/actions";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
-import { NoteSurface, propertyChange, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
@@ -263,13 +263,7 @@ export class ReaderPane implements Pane {
 
 // ── which reader session the person is in (PIE-411) ──────────────────────────
 
-export type { SessionKind };
-/** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses); each runs its note action (SESSION_ACTIONS). */
-export function sessionStart(k: Key): SessionKind | null {
-  if (k.kind !== "char") return null;
-  if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
-}
+export { sessionStart, type SessionKind };
 
 /**
  * Start a session by the person's key, through its note action (PIE-510), as `act` does. An edit or a comment

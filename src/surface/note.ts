@@ -1446,17 +1446,19 @@ export class NoteSurface {
     if (xe && xa) { void this.runExt(xa.name, xe, host); return true; }
     // Selecting text (PIE-419): v starts the keyboard mode, y Y copy, esc lets go; the rest read on.
     if ((c === "v" || c === "y" || c === "Y" || this.selection) && this.msg && this.selectKey(k, host)) return true;
-    if ((c === "i" || c === "I") && this.msg) { void this.runKey("props", c === "I" ? { full: true } : {}, host); return true; }
-    if (c === "C" && this.msg) { void this.runKey("passage.select", {}, host, true); return true; }
+    // e ctrl+e C m i I start a session: the note's action for that key (SESSION_ACTIONS), as the desk and the river run it.
+    const starts = this.msg ? sessionStart(k) : null;
+    if (starts) {
+      // The edit and the comment say their own refusals (a flash, the draft's note); the panel's are said here.
+      void this.startAsPerson(starts, host).catch(e => { if (starts === "props" || starts === "props-full") host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
+      return true;
+    }
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
-    if (c === "m" && this.msg) { void this.runKey("threads", {}, host, true); return true; }
     // A: apply anyway (PIE-501), on the proposal shown, or the one whose embed or control is the current element.
     if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("apply", undefined, host); return true; }
     // X: dismiss it (the proposal shown, or the one whose embed or control is the current element).
     if (c === "X" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("dismiss", undefined, host); return true; }
-    if (c === "e" && this.msg) { void this.runKey("edit", {}, host, true); return true; }
-    if (k.kind === "char" && k.ctrl && k.ch === "e" && this.msg) { void this.runKey("edit", { external: true }, host, true); return true; }
     // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
     // u), so ⏎ has its usual meaning again (in the board's preview: open the note in a detail). Then esc
     // lets go of a focus mark someone set here.
@@ -2931,9 +2933,9 @@ export class NoteSurface {
   async ensureDraft(host: SurfaceHost): Promise<Draft> {
     if (this.session) throw new ActionRefused("this reader is commenting; finish or close the comment first (comment.close)");
     if (!this.draft) {
-      this.requireNote();
+      const was = this.requireNote().id;
       const why = await this.edit(host, false, host.still);
-      if (!this.draft) throw new ActionRefused(movedOn(host) ?? (why || "the note couldn't be opened for editing (its revision is unknown)"));
+      if (!this.draft) throw new ActionRefused(movedOn(host, this, was) ?? (why || "the note couldn't be opened for editing (its revision is unknown)"));
     }
     return this.draft;
   }
@@ -3215,22 +3217,34 @@ export type LeaveResult =
  */
 export const leaveSaid = (r: unknown): string | null => (r && typeof r === "object" && "said" in r && typeof r.said === "string" ? r.said : null);
 
-/** The person moved on (esc, another tile) while the note was read for their edit or comment: nothing opened. */
-const movedOn = (host: SurfaceHost) => (host.still && !host.still() ? "not opened: you moved on while the note was read" : null);
+/**
+ * The person moved on (esc, another tile) while the note was read for their edit or comment, or the reader went
+ * to another note meanwhile: nothing opened, and that's the reason (not an unknown revision).
+ */
+const movedOn = (host: SurfaceHost, surface: NoteSurface, was: string) =>
+  host.still && !host.still() ? "not opened: you moved on while the note was read"
+  : surface.msg?.id !== was ? "not opened: this reader went to another note while it was read"
+  : null;
 
 /**
  * The person's C or m: the comment session opens from their selection (and their put-aside comment), once the
  * note is read; refused, with the reason already said, when it didn't open.
  */
 async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "select" | "threads"): Promise<CommentSession> {
-  surface.requireNote();
+  const was = surface.requireNote().id;
   const why = await surface.comment(host, mode, host.still);
-  if (!surface.session) throw new ActionRefused(movedOn(host) ?? (why || "the note couldn't be opened for commenting"));
+  if (!surface.session) throw new ActionRefused(movedOn(host, surface, was) ?? (why || "the note couldn't be opened for commenting"));
   return surface.session;
 }
 
 /** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote, m threads, i / I properties. */
 export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
+/** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses), or null: one table for every reader. */
+export function sessionStart(k: Key): SessionKind | null {
+  if (k.kind !== "char") return null;
+  if (k.ctrl) return k.ch === "e" ? "external" : null;
+  return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+}
 /** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
 export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "threads" | "props"; args: Record<string, unknown> }> = {
   edit: { name: "edit", args: {} },

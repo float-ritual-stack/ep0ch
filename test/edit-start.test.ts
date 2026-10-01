@@ -125,6 +125,61 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
     } finally { desk.dispose?.(); }
   }, 60_000);
 
+  test("a put-aside edit comes back on the person's e (desk and river); an agent's edit leaves it and takes no keys", async () => {
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    const desk = new Desk() as any;
+    app.push(desk);
+    const typeAndPutAside = async (s: any, words: string) => {
+      await until(() => !!s.draft, "the edit opened");
+      key({ kind: "down" }); key({ kind: "end" });
+      for (const c of words) key(char(c));
+      key({ kind: "esc" }); key({ kind: "esc" });
+      expect(s.draft).toBeNull();
+    };
+    try {
+      desk.render(desk.ctx);
+      await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
+      await app.act({ action: "open", args: { id: notes.hedge.id }, as: "edit-start-test" });
+      const rd = [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === notes.hedge.id) as any;
+      const id = [...desk.panes].find(([, p]: any) => p === rd)![0];
+      desk.focus = id;
+      key(char("e"));
+      await typeAndPutAside(rd.surface, " with shears");
+      desk.entered.clear();
+      // An agent's edit on the reader the person has focused: its own draft, not the person's text, and no keys.
+      await app.act({ action: "edit", args: {}, reader: desk.nameOf(id), as: "edit-start-test" });
+      expect(rd.surface.draft.text).not.toContain("with shears");
+      expect(desk.entered.in(rd)).toBe(false);
+      expect(desk.focus).toBe(id);
+      await app.act({ action: "edit.close", args: { discard: true }, reader: desk.nameOf(id), as: "edit-start-test" });
+      key(char("e"));
+      await until(() => !!rd.surface.draft, "the person's edit");
+      expect(rd.surface.draft.text).toContain("with shears");
+      expect(rd.surface.draft.note).toContain("brought back");
+      rd.surface.closeDraftAction(true);
+      desk.dispose?.();
+      app.pop();
+      // The river's e brings back what was put aside in a column the same way.
+      const river = new River() as any;
+      app.push(river);
+      await until(() => !!river.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await app.act({ action: "open", args: { id: notes.hedge.id }, as: "edit-start-test" });
+      key(char("l"));
+      const p = river.paneS;
+      await until(() => p.surface.msg?.id === notes.hedge.id, "the column's note");
+      key(char("e"));
+      await typeAndPutAside(p.surface, " and the gate");
+      river.entered = null;
+      key(char("e"));
+      await until(() => !!p.surface.draft, "the column's edit");
+      expect(p.surface.draft.text).toContain("and the gate");
+      p.surface.closeDraftAction(true);
+      river.dispose?.();
+    } finally { desk.dispose?.(); }
+  }, 60_000);
+
   test("the river: e ctrl+e C m in the focused column run the note's actions", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
