@@ -23,7 +23,7 @@ import { shellKeyOf } from "../shell-keys";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
 import { historyKey, historyRow, IN_TRASH, leaveSaid, NOTE_ACTIONS, NoteSurface, sessionStart, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
-import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
+import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
 import { bg, C, extractLinks, fg, INPUT_CURSOR, pad, paint, RESET, visible } from "../style";
@@ -568,7 +568,8 @@ export class River implements Screen {
 
   /** v, y, Y, and while there's a selection esc and the keyboard mode's keys. True when the key was the selection's. */
   private selectKey(k: Key, p: PaneS | undefined): boolean {
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    // cmd+c is y: the same copy.
+    const c = isCopyKey(k) ? "y" : k.kind === "char" && !k.ctrl ? k.ch : "";
     const sel = this.sel;
     if (!sel) {
       if (c === "y" || c === "Y") { this.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
@@ -1353,6 +1354,8 @@ export class River implements Screen {
       const d = this.down, r = this.gesture.release(k.x, k.y);
       this.down = null;
       if (d && r.click) this.clickPane(d);
+      // A drag, a double or a triple click copies what it selected (copy on select, selection.ts), as y does.
+      else if (d && r.copy && this.sel?.p === d.p && this.sel.s.text(rowsOf(d.p.drawn?.lines ?? [])).trim()) this.run("copy", {});
       return this.ctx.redraw();
     }
     if (k.action === "down") {
@@ -1564,7 +1567,7 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     run: (_, { r, reader }, actor) => r.travel(reader, 1, actor),
   },
   "copy": {
-    summary: "copy the text selected in a column (drawn rows; drag, or v and move): the person's goes to their clipboard; an agent's is given back, the clipboard left alone", keys: "y",
+    summary: "copy the text selected in a column (drawn rows; drag, or v and move): the person's goes to their clipboard, and one they select with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is given back, the clipboard left alone", keys: "y, cmd+c, the release of a drag (or a double or triple click)",
     args: {},
     run: (_, { r }, actor) => r.copySelection(actor),
   },

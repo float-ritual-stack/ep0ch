@@ -2,8 +2,16 @@
 // can't select for the person; the reader does. One model for every reader: rows of rendered text,
 // addressed by content row (so scrolling moves the highlight with the text), a highlight painted over
 // the drawn line, a mouse gesture (press, drag, release, double and triple click), the keyboard mode's
-// movement keys, and the OSC 52 clipboard write. A selection never copies by itself: only `y`, `Y` or
-// the copy control do.
+// movement keys, and the OSC 52 clipboard write.
+//
+// Copy on select (Evan's call, Oct 1, reversing the old rule that only `y` copied): a selection made with
+// the mouse (a drag, a double click's word, a triple click's row) is copied when the button comes up, by
+// the same copy action `y` runs, so cmd+c and a drag behave alike in every reader and in a terminal tile
+// running Claude Code. It matches Herdr's `ui.copy_on_select` (on by default). `EP0CH_COPY_ON_SELECT=0`
+// turns it off, as Herdr's setting does: the selection stays, and `y`, cmd+c (super+c) or the copy control
+// copies it. A plain click selects nothing and copies nothing; a selection made by keys (`v`) is copied by
+// `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
+// over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import type { Key } from "../term";
 import { RESET } from "../style";
 
@@ -141,6 +149,18 @@ export function paintRange(line: string, from: number, to: number, style: string
 /** `ESC ] 52 ; c ; <base64> BEL`: the terminal's clipboard, which works over SSH and through Herdr. */
 export const osc52 = (text: string) => `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`;
 
+/**
+ * Whether a mouse selection copies when the button comes up: on unless `EP0CH_COPY_ON_SELECT` is 0, off, no or
+ * false (Herdr's `ui.copy_on_select`). Read at each release, so a door started either way can be told apart.
+ */
+export function copyOnSelect(env: Record<string, string | undefined> = process.env): boolean {
+  const v = env.EP0CH_COPY_ON_SELECT?.trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "no" || v === "false");
+}
+
+/** The copy key besides `y`: cmd+c (super+c, as the Kitty keyboard protocol reports it). */
+export const isCopyKey = (k: Key): boolean => k.kind === "super" && k.ch === "c";
+
 /** A double or triple click is the next press on the same cell within this long. */
 const MULTI_MS = 450;
 
@@ -172,12 +192,16 @@ export class Gesture {
     return d.moved;
   }
 
-  /** The release: a click when it's where the press was, nothing dragged, and not a double or triple click. */
-  release(x: number, y: number): { click: boolean; moved: boolean; n: number } {
+  /**
+   * The release: a click when it's where the press was, nothing dragged, and not a double or triple click.
+   * `copy`: it ended a selection made with the mouse (a drag, a double or triple click) and copy on select is
+   * on, so the reader copies what it selected, through its copy action. Never for a plain click.
+   */
+  release(x: number, y: number): { click: boolean; moved: boolean; n: number; copy: boolean } {
     const d = this.down;
     this.down = null;
-    if (!d) return { click: false, moved: false, n: 0 };
-    return { click: !d.moved && d.n === 1 && x === d.x && y === d.y, moved: d.moved, n: d.n };
+    if (!d) return { click: false, moved: false, n: 0, copy: false };
+    return { click: !d.moved && d.n === 1 && x === d.x && y === d.y, moved: d.moved, n: d.n, copy: (d.moved || d.n > 1) && copyOnSelect() };
   }
 
   cancel() { this.down = null; }
@@ -191,11 +215,11 @@ export type ModeKey = "moved" | "copy" | "source" | "done" | null;
 
 /**
  * The keyboard mode's keys (after `v`): h l ← → a cell, j k ↑ ↓ a row, PgUp PgDn a page, Home End the
- * row's ends move the head; y copies, Y copies the source, v and esc leave. Null: not one of its keys.
+ * row's ends move the head; y or cmd+c copies, Y copies the source, v and esc leave. Null: not one of its keys.
  */
 export function modeKey(k: Key, s: Selection, rows: SelectRows, page: number): ModeKey {
   const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-  if (c === "y") return "copy";
+  if (c === "y" || isCopyKey(k)) return "copy";
   if (c === "Y") return "source";
   if (c === "v" || k.kind === "esc") return "done";
   const h = s.head, last = Math.max(0, rows.count - 1);
@@ -222,6 +246,6 @@ export function modeKey(k: Key, s: Selection, rows: SelectRows, page: number): M
 /** The hint while a selection exists. */
 export function selectionHint(s: Selection, chars: number): string {
   return s.keys
-    ? `selecting ${chars} chars · h j k l move · y copy · Y source · esc done`
-    : `selected ${chars} chars · y copy · Y source · v keys · esc clear`;
+    ? `selecting ${chars} chars · h j k l move · y cmd+c copy · Y source · esc done`
+    : `selected ${chars} chars · y cmd+c copy · Y source · v keys · esc clear`;
 }

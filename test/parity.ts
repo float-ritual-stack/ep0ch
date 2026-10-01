@@ -35,6 +35,8 @@ export const PROBE_KEYS: Key[] = [
   { kind: "char", ch: " " },
   ..."abdefghijklmnopqrstuvwxyz".split("").map((ch): Key => ({ kind: "char", ch, ctrl: true })),
   { kind: "char", ch: "]", ctrl: true },
+  // cmd+c (super+c): the copy, wherever a selection is.
+  { kind: "super", ch: "c" },
   ..."abcdefghijklmnopqrstuvwxyzACDLRX".split("").map((ch): Key => ({ kind: "alt", ch })),
   ...(["up", "down", "left", "right", "alt-enter", "esc", "backspace", "tab", "backtab", "pgup", "pgdn", "home", "end", "delete", "alt-left", "alt-right"] as const).map((kind) => ({ kind }) as Key),
   { kind: "enter" },

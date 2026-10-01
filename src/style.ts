@@ -195,6 +195,28 @@ export function headOf(s: string, n: number): string {
 }
 
 /**
+ * A styled string after its first `n` cells: the colours in effect at the cut are set again first, and a wide
+ * glyph the cut goes through leaves a space. `headOf(s, n) + other + tailFrom(s, n + w)` lays `other`
+ * (`w` cells) over `s`.
+ */
+export function tailFrom(s: string, n: number): string {
+  let out = "", seen = 0, state = "";
+  for (const part of s.split(/(\x1b\[[\d;?]*[A-Za-z])/)) {
+    if (part.startsWith("\x1b[")) {
+      if (seen >= n) out += part;
+      else if (part.endsWith("m")) state = part === RESET || part === "\x1b[m" ? "" : state + part;
+      continue;
+    }
+    for (const g of graphemes(part)) {
+      if (seen >= n) { out += g; continue; }
+      seen += glyphWidth(g);
+      if (seen > n) out += " ".repeat(seen - n);
+    }
+  }
+  return state + out;
+}
+
+/**
  * A hint (a row of key parts joined by " · ") cut to `w` cells: between parts, never inside a key's, ending
  * with `more` (a "? more" chip, or a plain " …"). When even the first part is too wide it's cut at its last
  * space that fits. `at`: the cell where `more` starts, so a click on it can be found. Short enough: as it is.

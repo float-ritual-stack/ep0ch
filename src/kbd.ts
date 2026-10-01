@@ -44,7 +44,7 @@ export function parseReport(seq: string): (KeyReport & { length: number }) | nul
   return { code: Number(m[1]), shifted: num(m[2]), base: num(m[3]), mods: Math.max(0, (num(m[4]) ?? 1) - 1), event: num(m[5]) ?? 1, length: m[0].length };
 }
 
-const SHIFT = 1, ALT = 2, CTRL = 4;
+const SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8;
 
 /**
  * The keypad's private-use codes (sent under flag 1 for keys that type no text, and some terminals send them
@@ -62,7 +62,8 @@ const KP_INSERT = 57425;
 /**
  * A report as the door's key. Shift+Enter is Enter with `shift` (Enter wherever nothing binds it; a plain line
  * break in a draft); ctrl+[ i m j h keep their legacy meanings (esc, tab, enter, backspace), which the door has
- * always read them as. A release, a lone modifier or a key the door has no name for is null.
+ * always read them as. Super (cmd) with a printable key is its own kind, whatever else is held: cmd+c is the
+ * door's copy, never a `c` typed. A release, a lone modifier or a key the door has no name for is null.
  */
 export function reportKey(r: KeyReport): Key | null {
   if (r.event === 3) return null;
@@ -78,6 +79,7 @@ export function reportKey(r: KeyReport): Key | null {
   }
   if (r.code < 32 || (r.code >= 0xe000 && r.code <= 0xf8ff) || r.code > 0x10ffff) return null;   // PUA: keypad and modifier keys
   const plain = String.fromCodePoint(r.code);
+  if (m & SUPER) return { kind: "super", ch: shift ? (r.shifted ? String.fromCodePoint(r.shifted) : plain.toUpperCase()) : plain.toLowerCase() };
   if (ctrl) {
     // A letter is its lowercase, as legacy ctrl was; punctuation is what shift made of it (ctrl+_ is ctrl+shift+-).
     const c = /^[a-z]$/i.test(plain) ? plain.toLowerCase() : shift && r.shifted ? String.fromCodePoint(r.shifted) : plain;
@@ -113,7 +115,10 @@ export function kittyBytes(r: KeyReport, flags: number): string {
   return `${s}u`;
 }
 
-/** The report as a legacy terminal sends it (to a program that didn't ask for the protocol). */
+/**
+ * The report as a legacy terminal sends it (to a program that didn't ask for the protocol). Super (cmd) keys have
+ * no legacy bytes, as a legacy terminal sends none for them: cmd+c never reaches such a program as a typed `c`.
+ */
 export function legacyBytes(r: KeyReport): string {
   if (r.event === 3) return "";
   if (r.code === KP_INSERT) return "\x1b[2~";
@@ -162,6 +167,12 @@ export function keyBytes(k: Key, appCursor = false, flags = 0): string | null {
       const shift = "shift" in k && k.shift, ctrl = "ctrl" in k && k.ctrl;
       if (kitty) return `\x1b[13;${1 + (shift ? SHIFT : 0) + (ctrl ? CTRL : 0)}u`;
       return shift ? "\x1b\r" : "\r";
+    }
+    case "super": {
+      // A program with the protocol gets cmd+c as the terminal reported it; a legacy one nothing, as from a legacy terminal.
+      if (!kitty) return null;
+      const lower = k.ch.toLowerCase(), upper = lower !== k.ch;
+      return `\x1b[${lower.codePointAt(0)}${upper && flags & 4 ? `:${k.ch.codePointAt(0)}` : ""};${upper ? 10 : 9}u`;
     }
     case "alt-enter": return kitty ? "\x1b[13;3u" : "\x1b\r";
     case "esc": return kitty ? "\x1b[27u" : "\x1b";

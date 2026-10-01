@@ -111,14 +111,15 @@ describe("Markdown links", () => {
   const shed = note("Bike shed\nThree bikes.");
   const TEXT = "Allotment notes\nAsk [the society](https://example.org/allotments) or see [the shed](pi-outliner://page/Bike%20shed), not ![a photo](plot.png).";
 
-  test("read as their text; an image stays as typed; y copies what's drawn", () => {
+  test("read as their text; an image stays as typed; a drag (and y) copies what's drawn", () => {
     const { s, h, copies, draw, at } = setup(TEXT);
     const row = plain(draw()[at("Ask").y]!).trim();
     expect(row).toBe("Ask the society or see the shed, not ![a photo](plot.png).");
     const a = at("Ask"), z = at("shed,");
     s.press(a.x, a.y, h); s.drag(z.x + 5, z.y, h); s.release(z.x + 5, z.y, h);
+    expect(copies).toEqual(["Ask the society or see the shed,"]);   // copy on select
     s.key(char("y"), h);
-    expect(copies).toEqual(["Ask the society or see the shed,"]);
+    expect(copies).toEqual(["Ask the society or see the shed,", "Ask the society or see the shed,"]);
   });
 
   test("[ ] stops on each in reading order, and ⏎ opens a web page in the browser", () => {
