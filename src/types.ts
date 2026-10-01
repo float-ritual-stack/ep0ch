@@ -1705,6 +1705,8 @@ export const OUTLINER_CAPABILITIES = [
   "draft.patch",
   /** `draft.proposal.apply`: apply a proposal's patch anyway, as an ordinary edit. */
   "draft.proposal.apply",
+  /** `draft.patch` takes `current`: a saved note's spans and mark are compared as it is now, not by revision. */
+  "draft.patch.current",
   /** `ping` reports `draftPatchCompare`: the version of src/draft-patch-compare.ts, which the door copies. */
   "ping.draftPatchCompare",
   /** `blocks.authored-links`: a block's outlinks and resources with their spans (PIE-324); records name their block. */
@@ -1743,6 +1745,12 @@ export const OUTLINER_CAPABILITIES = [
   "extensions.render",
   /** `extensions.act`: run an extension's action (or the built-in `keep`); its writes are attributed `ext:<id>`. */
   "extensions.act",
+  /**
+   * Agents addressed while you write (PIE-501): a person's `@name …` line runs the agent an extension declares;
+   * its edit applies through `draft.patch` (`edit` policy), or its reply shows under the line. Projections of
+   * kind `agent`; `resources.projection.refresh` on the line asks again.
+   */
+  "extensions.agents",
 ] as const;
 
 /**
