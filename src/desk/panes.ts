@@ -1,5 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
-import { wheelRows } from "../term";
+import { follow, RowView, wheelRows } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -76,12 +76,6 @@ const dim = (s: string) => fg(C.dark) + s + RESET;
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
-
-function follow(sel: number, top: number, h: number): number {
-  if (sel < top) return sel;
-  if (sel >= top + h) return sel - h + 1;
-  return top;
-}
 
 // ── outline tree: src/desk/tree.ts ─────────────────────────────────────────────
 
@@ -251,13 +245,13 @@ export class ThreadPane implements Pane {
   private kids: Msg[] | null = null;
   private comments: Comment[] | null = null;
   private sel = 0;
-  private top = 0;
+  private view = new RowView();
   private kidLine: number[] = [];
   title() { return this.kids ? `thread · ${this.kids.length} repl${this.kids.length === 1 ? "y" : "ies"} · ${this.comments?.length ?? "…"} comment${this.comments?.length === 1 ? "" : "s"}` : "thread"; }
   hint() { return "⏎ open reply · u up · comment from a reader: c, m"; }
 
   select(m: Msg | null, desk: DeskApi) {
-    this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.top = 0;
+    this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.view.reset();
     if (!m) return;
     // Comment and reply blocks live under the note too; they show below as comments, not as replies.
     desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k.filter(x => !isAnnotation(x)); desk.redraw(); } }, () => { this.kids = []; });
@@ -295,8 +289,8 @@ export class ThreadPane implements Pane {
       for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  └ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
     }
     const selLine = this.kidLine[this.sel] ?? 0;
-    this.top = follow(selLine, this.top, h - 1);
-    return { lines: lines.slice(this.top, this.top + h) };
+    const top = this.view.place(selLine, lines.length, h);
+    return { lines: lines.slice(top, top + h) };
   }
 
   key(k: Key, desk: DeskApi): boolean {
@@ -312,11 +306,11 @@ export class ThreadPane implements Pane {
   }
 
   click(_x: number, y: number, desk: DeskApi) {
-    const i = this.kidLine.indexOf(this.top + y);
+    const i = this.kidLine.indexOf(this.view.top + y);
     if (i >= 0) { this.sel = i; desk.redraw(); }
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.top = Math.max(0, this.top + dir * wheelRows); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.view.scroll(wheelRows(dir)); desk.redraw(); }
 }
 
 // ── activity (last callers, live) and who's online ───────────────────────────
@@ -354,7 +348,7 @@ export class ActivityPane implements Pane {
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) { this.sel = this.top + y; desk.redraw(); }
-  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, this.sel + dir * wheelRows); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.sel = Math.max(0, Math.min((this.rows?.length ?? 1) - 1, this.sel + dir)); desk.redraw(); }
 }
 
 export class WhoPane implements Pane {

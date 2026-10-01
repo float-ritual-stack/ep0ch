@@ -305,7 +305,7 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
     s.draft!.place(29, 3);
     s.render(40, 12, h);
     const at = [s.draft!.row, s.draft!.col];
-    s.wheel(-1, h); s.wheel(-1, h);
+    for (let i = 0; i < 6; i++) s.wheel(-1, h);
     const shown = text(s.render(40, 12, h).lines);
     expect(shown.some(l => l.includes("step 30"))).toBe(false);
     expect([s.draft!.row, s.draft!.col]).toEqual(at);

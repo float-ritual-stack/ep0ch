@@ -23,19 +23,24 @@ function cut(s: string, w: number): [string, string] {
   return [chars.slice(0, i).join(""), chars.slice(i).join("")];
 }
 
+/** Visible characters: link tags and presentation marks (src/style.ts) take no room. */
+const len = (s: string) => (NO_ROOM.test(s) ? [...stripTags(s).replace(MARKS, "")] : [...s]).length;
+const NO_ROOM = /[\uE000-\uE008\u{100000}-\u{10FFFD}]/u;
+
 /** `text` in rows of at most `w` visible characters. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
 export function wrap(text: string, w: number): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];
   for (const raw of text.split("\n")) {
     if (!raw.length) { out.push(""); continue; }
-    let line = "";
-    // Link tags and presentation marks (src/style.ts) take no room.
-    const len = (s: string) => [...stripTags(s).replace(MARKS, "")].length;
+    // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
+    // long paragraph's wrap quadratic).
+    let line = "", n = 0;
     for (const word of raw.split(/(\s+)/)) {
-      if (len(line) + len(word) > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); }
-      else line += word;
-      while (len(line) > w) { const [head, tail] = cut(line, w); out.push(head); line = tail; }
+      const wl = len(word);
+      if (n + wl > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); n = len(line); }
+      else { line += word; n += wl; }
+      while (n > w) { const [head, tail] = cut(line, w); out.push(head); line = tail; n = len(line); }
     }
     out.push(line);
   }

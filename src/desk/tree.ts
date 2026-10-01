@@ -20,7 +20,8 @@ import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { bg, C, fg, pad, RESET, width } from "../style";
-import { wheelRows, type Key } from "../term";
+import { follow } from "../scroll";
+import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 
 const SEL_ON = bg(C.blue) + fg(C.white);
@@ -29,12 +30,6 @@ const dim = (s: string) => fg(C.dark) + s + RESET;
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
-
-function follow(sel: number, top: number, h: number): number {
-  if (sel < top) return sel;
-  if (sel >= top + h) return sel - h + 1;
-  return top;
-}
 
 export type LinkGroupName = "outlinks" | "resources" | "backlinks";
 /** The Tree's groups in its order, each with the glyph the door draws. */
@@ -491,7 +486,7 @@ export class TreePane implements Pane {
     this.run(desk, "tree.pick", { n: i + 1, open: true });
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.selectRow(this.sel + dir * wheelRows, desk); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.selectRow(this.sel + dir, desk); }
 }
 
 /** A tree's actions: which row is picked (and opened), and the links shown under a row. */

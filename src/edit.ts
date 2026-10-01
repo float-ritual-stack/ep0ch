@@ -9,6 +9,7 @@ import { ActionRefused, ActionSet } from "./surface/actions";
 import { SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, fg, RESET } from "./style";
+import { scrolled } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "./vendor/draft-patch-compare";
 
@@ -681,7 +682,7 @@ export class Draft {
   /** The wheel: the view moves `by` rows; the cursor stays where it is (typing brings it back). */
   scrollBy(by: number) {
     const max = Math.max(0, this.shown.rows.length - this.shown.h);
-    this.top = Math.max(0, Math.min(max, this.top + by));
+    this.top = scrolled(this.top, by, max);
     this.follow = false;
   }
 

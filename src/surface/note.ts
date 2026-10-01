@@ -6,7 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
-import { wheelRows } from "../term";
+import { onlyScrolled, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
@@ -139,6 +139,12 @@ export interface HeaderInfo {
   properties: number;
 }
 
+/** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
+interface Laid {
+  m: Msg; key: string; doc: Doc; drawn: Link[]; picks: { at: number; lines: number; rows: number[] } | null;
+  controls: Control[]; body: string[]; marks: Mark[]; lines: number[]; elems: Element[];
+}
+
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
@@ -267,6 +273,8 @@ export class NoteSurface {
   scroll = 0;
   /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
   private maxScroll = Infinity;
+  /** The last layout, reused by a frame that only scrolled. */
+  private laid: Laid | null = null;
   private crumbs = "";
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
   notice = "";
@@ -560,70 +568,10 @@ export class NoteSurface {
       panelHits();
     }
     head.push(rule(w));
-    const t = host?.ctx.t;
-    // Component renderers are resolved once per note shown, as Detail resolves them once per load.
-    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
-    const env: DocEnv = {
-      width: Math.max(1, w - 1), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!host?.ctx.graphics,
-      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold, components: this.components.catalog,
-    };
-    const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
-    // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
-    const keys = new Set(points.map(p => p.key));
-    for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
-    if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
-    // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
-    const drawn: Link[] = [];
-    // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
-    // page's, on the subject or its preamble, above the first), its age painted now.
-    // A Resource or a file shown as a note isn't a block: nothing the outline keeps for blocks is asked for it.
-    const outline = isOutlineNote(m);
-    const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines);
-    const now = Date.now(), bodyText = source.split("\n");
-    // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
-    const tokens = resourceTokensOf(m, src);
-    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
-      ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
-      // A component's labels and values: links in them are links like the body's.
-      present: text => presentLinks(text, false, src, m.text, drawn, tokens),
-      folds: { points, folded: this.folded, selected: this.foldSel },
-      literal,
-      // A live figure's rows that stand for notes are links too (PIE-441).
-      link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
-      ...(regions.size ? {
-        after: (line: number, width: number) => {
-          const ps = regions.get(line);
-          if (!ps) return [];
-          const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
-          const tag = (to: LinkTarget, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
-          // A ticket kept as a block (PIE-445) is drawn from that block: on a page, all of it under its line;
-          // on the ticket block itself, its header on top and its comments after the body.
-          return ps.flatMap(({ p, part }) => p.record
-            ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
-            : projectionRegion([p], width, indent, now, tag));
-        },
-      } : {}),
-    });
-    // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
-    // choice (PIE-472) under its step.
-    const threads = this.threadPanels(m, rendered, noteLines, Math.max(1, w - 1));
-    const { doc, picks } = this.pickerRows(threads.doc, drawn, Math.max(1, w - 1));
-    const controls = threads.controls.map(c => ({ ...c, row: c.row + (picks && c.row >= picks.at ? picks.lines : 0) }));
-    // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
-    // section aren't drawn, so they aren't links until it's unfolded.
-    const mediaLinks = doc.media.map(x => ({ media: x.path }));
-    if (this.links.filter(l => l.media).map(l => l.media).join("\n") !== mediaLinks.map(l => l.media).join("\n")) {
-      const sel = this.links[this.link];
-      this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
-      this.link = sel ? this.links.findIndex(l => (sel.media ? l.media === sel.media : l === sel)) : -1;
-    }
-    // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
-    const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
     const top = head.length;
-    // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
-    const marks = this.commentMarks(m, doc, noteLines);
-    for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
-    this.elems = this.elementsOf(doc, drawn, marks, controls, summary ? summaryLinks : [], points, top, head, summaryRow);
+    const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
+    const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
+    this.elems = laid.elems;
     this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
     const room = Math.max(0, h - top);
@@ -696,6 +644,81 @@ export class NoteSurface {
       for (const x of foot.hits) this.hits.push({ row: h, from: x.from, to: x.to, history: x.dir });
     }
     return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
+  }
+
+  /**
+   * The note laid out at this width: its rows, links, elements and comment marks, everything but where it's
+   * scrolled to. A frame in which only scrolling happened (onlyScrolled: the wheel and nothing else since the
+   * last paint) reuses the last layout when the note and the pane's size are the same, so scrolling a long
+   * note costs a slice, not a layout. Every other frame lays it out again.
+   */
+  private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string }[], host: SurfaceHost | undefined, src: Source | null): Laid {
+    const top = head.length, t = host?.ctx.t;
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
+    if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
+    // Component renderers are resolved once per note shown, as Detail resolves them once per load.
+    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
+    const env: DocEnv = {
+      width: Math.max(1, w - 1), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!host?.ctx.graphics,
+      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold, components: this.components.catalog,
+    };
+    const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
+    // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
+    const keys = new Set(points.map(p => p.key));
+    for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
+    if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
+    // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
+    const drawn: Link[] = [];
+    // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
+    // page's, on the subject or its preamble, above the first), its age painted now.
+    // A Resource or a file shown as a note isn't a block: nothing the outline keeps for blocks is asked for it.
+    const outline = isOutlineNote(m);
+    const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines);
+    const now = Date.now(), bodyText = source.split("\n");
+    // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
+    const tokens = resourceTokensOf(m, src);
+    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
+      ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
+      // A component's labels and values: links in them are links like the body's.
+      present: text => presentLinks(text, false, src, m.text, drawn, tokens),
+      folds: { points, folded: this.folded, selected: this.foldSel },
+      literal,
+      // A live figure's rows that stand for notes are links too (PIE-441).
+      link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
+      ...(regions.size ? {
+        after: (line: number, width: number) => {
+          const ps = regions.get(line);
+          if (!ps) return [];
+          const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
+          const tag = (to: LinkTarget, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
+          // A ticket kept as a block (PIE-445) is drawn from that block: on a page, all of it under its line;
+          // on the ticket block itself, its header on top and its comments after the body.
+          return ps.flatMap(({ p, part }) => p.record
+            ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
+            : projectionRegion([p], width, indent, now, tag));
+        },
+      } : {}),
+    });
+    // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
+    // choice (PIE-472) under its step.
+    const threads = this.threadPanels(m, rendered, noteLines, Math.max(1, w - 1));
+    const { doc, picks } = this.pickerRows(threads.doc, drawn, Math.max(1, w - 1));
+    const controls = threads.controls.map(c => ({ ...c, row: c.row + (picks && c.row >= picks.at ? picks.lines : 0) }));
+    // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
+    // section aren't drawn, so they aren't links until it's unfolded.
+    const mediaLinks = doc.media.map(x => ({ media: x.path }));
+    if (this.links.filter(l => l.media).map(l => l.media).join("\n") !== mediaLinks.map(l => l.media).join("\n")) {
+      const sel = this.links[this.link];
+      this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
+      this.link = sel ? this.links.findIndex(l => (sel.media ? l.media === sel.media : l === sel)) : -1;
+    }
+    // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
+    const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
+    // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
+    const marks = this.commentMarks(m, doc, noteLines);
+    for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
+    const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow);
+    return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
   }
 
   /**
@@ -930,7 +953,7 @@ export class NoteSurface {
     const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
     if (page) {
       if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + page * 15)); P.note = ""; }
-      else this.scroll = Math.max(0, this.scroll + page * 15);
+      else this.scroll = scrolled(this.scroll, page * 15, this.maxScroll);
       host.redraw();
       return true;
     }
@@ -1308,14 +1331,12 @@ export class NoteSurface {
     // lets go of a focus mark someone set here.
     if (k.kind === "esc" && (this.cur || this.link >= 0)) { this.letGo(); host.redraw(); return true; }
     if (k.kind === "esc" && this.focusMark) { host.ctx.flash(`let go of the focus mark ${agentLabel(this.focusMark.by)} set`); this.focusMark = null; host.redraw(); return true; }
-    if (isUp(k)) { this.letGo(); this.scroll = Math.max(0, this.scroll - 1); host.redraw(); return true; }
-    if (isDown(k)) { this.letGo(); this.scroll++; host.redraw(); return true; }
+    if (isUp(k) || isDown(k)) { this.scrollBy(isUp(k) ? -1 : 1); host.redraw(); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.changeStep(e.task, e.task.step.status === "done" ? "todo" : "done", host, USER).catch(() => {}); return true; } }
     if (k.kind === "char" && k.ctrl && k.ch === "z") { void this.undoStep(host, USER).catch(() => {}); return true; }
-    if (k.kind === "pgdn" || c === " ") { this.letGo(); this.scroll += 15; host.redraw(); return true; }
-    if (k.kind === "pgup") { this.letGo(); this.scroll = Math.max(0, this.scroll - 15); host.redraw(); return true; }
+    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { this.scrollBy(k.kind === "pgup" ? -15 : 15); host.redraw(); return true; }
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
     if (c === "]" || c === "[") { if (!this.step(c === "]" ? 1 : -1)) host.ctx.flash("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments"); host.redraw(); return true; }
     if (c === "z") { this.unfold = !this.unfold; host.redraw(); return true; }
@@ -1384,12 +1405,15 @@ export class NoteSurface {
     const pop = this.writing();
     if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
     // A draft's view scrolls; its cursor stays where it is (typing brings it back).
-    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: dir * wheelRows }, pop, USER); }
+    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir) }, pop, USER); }
     else if (this.session) this.session.wheel(dir);
-    else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + dir * wheelRows)); }
-    else { this.letGo(); this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + dir * wheelRows)); }
+    else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = scrolled(P.sel, dir, n - 1); }
+    else this.scrollBy(wheelRows(dir));
     host.redraw();
   }
+
+  /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
+  private scrollBy(by: number) { this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
 
   /** The draft or comment being written here, if any (for the draft's actions). */
   writingDraft(): Draft | null { return this.writing(); }
@@ -1410,8 +1434,7 @@ export class NoteSurface {
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : k.kind === "home" ? -1e9 : k.kind === "end" ? 1e9 : 0;
     if (!by) return false;
-    this.letGo();
-    this.scroll = Math.max(0, Math.min(this.maxScroll, this.scroll + by));
+    this.scrollBy(by);
     host.redraw();
     return true;
   }

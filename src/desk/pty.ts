@@ -9,7 +9,7 @@
 // Keys go to the program while the person is in the tile (clicking in it, or e / ⏎ on it); ctrl+] hands
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
-import { wheelRows } from "../term";
+import { scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { unlink } from "node:fs/promises";
@@ -347,7 +347,7 @@ export class PtyPane implements Pane {
     }
     if (k.action === "wheel-up" || k.action === "wheel-down") {
       const max = this.term?.buffer.active.baseY ?? 0;
-      this.back = Math.max(0, Math.min(max, this.back + (k.action === "wheel-up" ? wheelRows : -wheelRows)));
+      this.back = scrolled(this.back, wheelRows(k.action === "wheel-up" ? 1 : -1), max);
       this.desk?.redraw();
       return true;
     }

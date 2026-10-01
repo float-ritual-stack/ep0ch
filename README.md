@@ -126,7 +126,7 @@ A journey to try, whichever service it is:
 
 opens the showcase (PIE-439): the shared door parts, live, in fourteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
-elements and reading-ruler row (PIE-441) has no section yet. The newest parts are in their rows' sections:
+scrolling row and its elements and reading-ruler row (PIE-441) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
 (`L`) in `entity`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
@@ -317,6 +317,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
+| `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
 | `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |

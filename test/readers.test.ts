@@ -12,6 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { DeliveryBoard } from "../src/desk/delivery";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
+import { SCROLL_ROWS } from "../src/scroll";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -107,14 +108,14 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       expect(message()).toStartWith(`detail 1 · ${k === "m" ? "comments" : "quoting"}`);
       // The wheel over the preview scrolls the preview, not the session's reader.
       wheel(rect("preview"));
-      expect(scrollOf(B().preview)).toBe(3);
+      expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
       key({ kind: "esc" }); if (d.session) key({ kind: "esc" });
       expect(d.session).toBeNull();
       // Reading again: j, PgDn, space and the wheel scroll the detail.
       key({ kind: "down" }); key({ kind: "pgdn" }); key(char(" "));
       expect(scrollOf(d)).toBe(31);
       wheel(rect("detail0"));
-      expect(scrollOf(d)).toBe(34);
+      expect(scrollOf(d)).toBe(31 + SCROLL_ROWS);
     }
   });
 
@@ -332,7 +333,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "tab" });
     expect(B().focus).toBe("lanes");                                           // tab went round, not into the thread list
     wheel(rect("preview"));
-    expect(scrollOf(B().preview)).toBe(3);
+    expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
     await act("comment.close", {}, "detail1");
   });
 
@@ -345,7 +346,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await until(() => !!d.draft, "the draft");
     await Bun.sleep(20);
     wheel(rect("preview"));
-    expect(scrollOf(B().preview)).toBe(3);
+    expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
     expect(B().focus).toBe("detail0");
     expect(d.draft).not.toBeNull();
     // A click elsewhere leaves the edit (unchanged: it just closes) and focuses what was clicked.
@@ -367,7 +368,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     b.render(B().ctx);
     expect(scrollOf(p)).toBe(30);
     wheel(rect("preview"));
-    expect(scrollOf(p)).toBe(33);
+    expect(scrollOf(p)).toBe(30 + SCROLL_ROWS);
     key({ kind: "esc" });
     expect(p.surface.panel).toBeNull();
   });
@@ -450,7 +451,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       desk.render(D.ctx);
       const r = D.placed.rects.get(readerId);
       wheel(r);
-      expect(scrollOf(rd)).toBe(18);
+      expect(scrollOf(rd)).toBe(15 + SCROLL_ROWS);
       expect(plain(desk.render(D.ctx).lines[r.row]!)).toMatch(/\d+%/);
       // An agent opens an edit there: the person's tab still moves focus, their j doesn't type.
       await act("edit");
