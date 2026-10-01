@@ -659,12 +659,22 @@ export class River implements Screen {
    * The person's ⏎ moves focus there; an agent's open (`focus` false) leaves the person's focus where it
    * is, on the same column even when the new one is inserted before it. Returns the column's index.
    */
+  /**
+   * The person's keys go to column `ci`. The column they leave is the one they were reading (`readUid`): a
+   * widen keeps it full beside the wide one. `was`: that column's uid, read before columns were inserted.
+   */
+  private give(ci: number, was = this.cols[this.focus]?.uid) {
+    if (ci !== this.focus || this.cols[ci]?.uid !== was) { if (was !== undefined && this.cols.some(c => c.uid === was) && this.cols[ci]?.uid !== was) this.readUid = was; }
+    this.focus = ci;
+  }
+
   private open(m: Msg, duplicate: boolean, from = this.focus, focus = true): number {
+    const was = this.cols[this.focus]?.uid;
     if (!duplicate) {
       const at = this.cols.findIndex(c => c.panes[0]!.source.kind === "block" && (c.panes[0]!.source as { id: string }).id === m.id);
       if (at >= 0) {
         // The person's open finds the column: back from there returns to where they opened it from.
-        if (focus) { if (at !== from && this.cols[from]) this.cols[at]!.from = this.cols[from]!.uid; this.focus = at; this.place(at, from); }
+        if (focus) { if (at !== from && this.cols[from]) this.cols[at]!.from = this.cols[from]!.uid; this.give(at, was); this.place(at, from); }
         this.save(); this.ctx.redraw(); return at;
       }
     }
@@ -672,7 +682,7 @@ export class River implements Screen {
     p.root = m;
     const at = Math.min(from + 1, this.cols.length);
     this.cols.splice(at, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false, from: this.cols[from]?.uid });
-    if (focus) { this.focus = at; this.place(at, at - 1); }
+    if (focus) { this.give(at, was); this.place(at, at - 1); }
     else if (at <= this.focus) this.focus += 1;
     this.load(p);
     this.save();
@@ -682,10 +692,11 @@ export class River implements Screen {
 
   /** A #value column right after column `from`; `focus` (the person's) gives them it, else their focus stays on the same column. */
   private openTag(key: string, value: string, from = this.focus, focus = true): PaneS {
+    const was = this.cols[this.focus]?.uid;
     const p = this.pane({ kind: "tag", key, value });
     const at = from + 1;
     this.cols.splice(at, 0, { uid: this.uid++, panes: [p], pane: 0, pinned: false, from: this.cols[from]?.uid });
-    if (focus) { this.focus = at; this.place(at, from); this.entered = null; }
+    if (focus) { this.give(at, was); this.place(at, from); this.entered = null; }
     else if (at <= this.focus) this.focus += 1;
     this.load(p); this.save(); this.ctx.redraw();
     return p;
@@ -772,7 +783,7 @@ export class River implements Screen {
       navigate: (m, how) => {
         const at = this.cols.findIndex(c => c.panes.includes(p));
         if (actor?.kind === "agent" || how?.agent) { this.open(m, !!how?.fresh, at >= 0 ? at : this.focus, false); return; }
-        if (at >= 0) this.focus = at;
+        if (at >= 0) this.give(at);
         this.open(m, !!how?.fresh);
       },
       history: this.historyOf(p),
@@ -1025,8 +1036,10 @@ export class River implements Screen {
   search(q: string): IndexBlock[] { return this.idx.search(q); }
 
   /** `column.scroll`: the column's view moves; what it lists, its selection and the keys stay. */
-  scrollIn(sel: string | undefined, by: number): { reader: string; at: string; top: number } {
+  scrollIn(sel: string | undefined, by: number, actor: Actor = USER): { reader: string; at: string; top: number } {
     const t = this.pick(sel);
+    this.notTheirs(t, actor, "scroll what they're reading", "peek reads the column whole");
+    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} scrolled column ${t.at}`);
     this.scroll(t.p, by);
     t.p.surface.clearLink();
     this.ctx.redraw();
@@ -1034,8 +1047,9 @@ export class River implements Screen {
   }
 
   /** `filter`: what the pane lists, by the river's own filter grammar; the selection goes back to the top. */
-  filterIn(sel: string | undefined, query: string): { reader: string; at: string; filter: string; listed: number } {
+  filterIn(sel: string | undefined, query: string, actor: Actor = USER): { reader: string; at: string; filter: string; listed: number } {
     const t = this.pick(sel);
+    this.notTheirs(t, actor, "change what it lists under them (a filter goes back to the top)", "jump query= finds notes; open or tag puts a column of your own beside");
     t.p.filter = parseFilter(query); t.p.sel = 0; t.p.top = 0;
     this.save(); this.ctx.redraw();
     return { reader: t.name, at: t.at, filter: filterText(t.p.filter), listed: this.listed(t.p) };
@@ -1087,7 +1101,7 @@ export class River implements Screen {
   focusOn(sel: string): { focus: string; at: string } {
     const t = this.pick(sel);
     const moved = this.focus !== t.ci || this.cols[t.ci]!.pane !== t.pi;
-    this.focus = t.ci; this.cols[t.ci]!.pane = t.pi;
+    this.give(t.ci); this.cols[t.ci]!.pane = t.pi;
     this.reveal(t.ci);                         // as h l: a column off the strip altogether is brought on, nothing else moves
     if (moved) this.entered = null;          // the person comes back to an edit by moving: they enter it again
     this.save(); this.ctx.redraw();
@@ -1095,9 +1109,11 @@ export class River implements Screen {
   }
 
   /** Select a note in the pane's list, as j k would (a block column's note stays its own): by id, nth row, or rows from the selected one. */
-  selectIn(to: { id?: string; n?: number; by?: number }, sel?: string): { reader: string; at: string; selected: string } {
+  selectIn(to: { id?: string; n?: number; by?: number; scroll?: boolean }, sel?: string, actor: Actor = USER): { reader: string; at: string; selected: string } {
     const t = this.pick(sel);
     const rows = this.flat(t.p), { id, n, by } = to;
+    // id= is how an agent picks the note its note actions act on (as it always was); a move by row is the cursor's.
+    if (id === undefined) this.notTheirs(t, actor, "move their cursor", "select id= picks a note for your note actions; peek reads the column");
     if (!rows.length) throw new ActionRefused(`column ${t.at} lists nothing${t.p.filter.length ? " (it's filtered)" : ""}`);
     const i = id !== undefined ? rows.findIndex(r => r.m.id === id || (id.length >= 8 && r.m.id.startsWith(id)))
       : n !== undefined ? (Number.isInteger(n) && n >= 1 && n <= rows.length ? n - 1 : -2)
@@ -1107,9 +1123,19 @@ export class River implements Screen {
     if (i === -2) throw new ActionRefused(`column ${t.at} lists ${rows.length}; n is 1-${rows.length}`);
     if (i < 0) throw new ActionRefused(`column ${t.at} doesn't list ${id}${t.p.filter.length ? " (it's filtered)" : ""}`);
     t.p.sel = i;
+    if (to.scroll === false) t.p.shownSel = i;               // already in view (a click): nothing scrolls
     if (!t.p.surface.editing) t.p.surface.clearLink();
+    if (actor.kind === "agent" && id === undefined) this.ctx.flash(`${agentLabel(actor)} selected row ${i + 1} in column ${t.at}`);
     this.save(); this.ctx.redraw();
     return { reader: t.name, at: t.at, selected: this.flat(t.p)[i]!.m.id };
+  }
+
+  /**
+   * The column the person has the keys in is theirs: an agent's move of its cursor, its scroll or its filter is
+   * refused there, with the agent's own way named. On any other column it runs, said on the status bar.
+   */
+  private notTheirs(t: { p: PaneS; at: string }, actor: Actor, what: string, way: string) {
+    if (actor.kind === "agent" && t.p === this.paneS) throw new ActionRefused(`the person has the keys in column ${t.at}; an agent's wouldn't ${what} there · ${way}, or act on another column`);
   }
 
   /** Show or hide a listed note's replies in place (space). */
@@ -1182,12 +1208,7 @@ export class River implements Screen {
     }
   }
 
-  key(k: Key, ctx: Ctx) {
-    const was = this.cols[this.focus]?.uid ?? null;
-    this.keyIn(k, ctx);
-    const now = this.cols[this.focus]?.uid ?? null;
-    if (now !== was && was !== null && this.cols.some(c => c.uid === was)) this.readUid = was;
-  }
+  key(k: Key, ctx: Ctx) { this.keyIn(k, ctx); }
 
   private keyIn(k: Key, ctx: Ctx) {
     if (this.mode) return this.modal(k);
@@ -1350,10 +1371,7 @@ export class River implements Screen {
       // Each of these is the river's action (focus, widen, select), run as the person (PIE-506).
       if (cr) {
         const c = this.cols[cr.col]!, target = h && h.col === cr.col ? c.panes[h.pane]! : c.panes[c.pane]!;
-        if (target !== this.paneS) {
-          if (cr.col !== this.focus && this.cols[this.focus]) this.readUid = this.cols[this.focus]!.uid;
-          this.run("focus", {}, this.readerId(target));
-        }
+        if (target !== this.paneS) this.run("focus", {}, this.readerId(target));
         if (k.y === cr.rect.row || cr.cover === "spine") this.shift(cr.col);
       }
       this.down = null;
@@ -1369,10 +1387,9 @@ export class River implements Screen {
         const link = row?.links?.find(l => k.x - h.rect.col >= l.from && k.x - h.rect.col < l.to);
         const same = wasIn && !!row && row.card >= 0 && p.sel === row.card;
         if (row && row.card >= 0 && !(link && !p.surface.editing)) {
-          if (p.sel !== row.card) this.run("select", { n: row.card + 1 }, this.readerId(p));
-          p.shownSel = row.card;                            // it's where the pointer is: already in view, so nothing scrolls
-          // The clicked card is what ⏎ opens now, not a link selected in the note before.
-          if (!p.surface.editing) p.surface.clearLink();
+          // It's where the pointer is: already in view, so nothing scrolls (scroll=false). The clicked card is
+          // what ⏎ opens now, not a link selected in the note before (select lets go of it).
+          this.run("select", { n: row.card + 1, scroll: false }, this.readerId(p));
         }
         // What the click does (open a link or the card, show replies) waits for the release: a drag selects instead.
         this.down = { p, rect: h.rect, row, link: link && !p.surface.editing ? link.link : undefined, same, dragging: false };
@@ -1412,7 +1429,7 @@ interface RiverOn { r: River; reader?: string }
 type RiverArgs = {
   "open": { id: string; duplicate?: boolean };
   "focus": Record<string, never>;
-  "select": { id?: string; n?: number; by?: number };
+  "select": { id?: string; n?: number; by?: number; scroll?: boolean };
   "replies": { id?: string; open?: boolean };
   "split": Record<string, never>;
   "pin": { docked?: boolean };
@@ -1452,13 +1469,14 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     },
   },
   "select": {
-    summary: "select a note listed in the column (in the Library and a #tag column, that's the note e and c act on): id=, the nth listed (n=, from 1), or by= rows from the selected one (j k: 1 -1)", keys: "j k ↑↓, PgUp PgDn and Home End in a spine, click",
+    summary: "select a note listed in the column (in the Library and a #tag column, that's the note e and c act on): id=, the nth listed (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's n= or by= is refused on the column the person has the keys in (that's their cursor); id= works as it always did", keys: "j k ↑↓, PgUp PgDn and Home End in a spine, click",
     args: {
       id: { type: "string", optional: true, about: "the note's block id (or its first 8+ characters)" },
       n: { type: "number", optional: true, about: "the nth row listed, from 1 (replies shown in place count)" },
       by: { type: "number", optional: true, about: "rows from the selected one: 1 next, -1 previous" },
+      scroll: { type: "boolean", optional: true, about: "false leaves the column's scroll as it is (a click on a card in view); default brings the card into view" },
     },
-    run: ({ id, n, by }, { r, reader }) => r.selectIn({ id, n, by }, reader),
+    run: ({ id, n, by, scroll }, { r, reader }, actor) => r.selectIn({ id, n, by, scroll }, reader, actor),
   },
   "replies": {
     summary: "show or hide a listed note's replies in place (the selected one, or id=)", keys: "space, click on » replies",
@@ -1490,15 +1508,15 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     run: (_, { r, reader }) => r.closeIn(reader),
   },
   "column.scroll": {
-    summary: "scroll reader='s column by= rows (a page is its height less two); what it lists, its selection and the person's keys stay", keys: "PgUp PgDn in a full column, wheel",
+    summary: "scroll reader='s column by= rows (a page is its height less two); what it lists, its selection and the person's keys stay. An agent's is refused on the column the person has the keys in, and said on the status bar elsewhere", keys: "PgUp PgDn in a full column, wheel",
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
-    run: ({ by }, { r, reader }) => r.scrollIn(reader, by),
+    run: ({ by }, { r, reader }, actor) => r.scrollIn(reader, by, actor),
   },
   "filter": {
-    summary: "filter what reader='s pane lists: type:hub -status:done author:codex word (query= empty clears it). The person's f, typing, ⏎; an agent's is said on the status bar", keys: "f then typing, ⏎ (or alt+⏎)",
+    summary: "filter what reader='s pane lists: type:hub -status:done author:codex word (query= empty clears it). The person's f, typing, ⏎; an agent's is refused on the column the person has the keys in, and said on the status bar elsewhere", keys: "f then typing, ⏎ (or alt+⏎)",
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     run({ query }, { r, reader }, actor) {
-      const out = r.filterIn(reader, query);
+      const out = r.filterIn(reader, query, actor);
       if (actor.kind === "agent") r.ctx.flash(`${agentLabel(actor)} filtered column ${out.at}${out.filter ? ` by ${out.filter}` : " (cleared)"}`);
       return out;
     },
