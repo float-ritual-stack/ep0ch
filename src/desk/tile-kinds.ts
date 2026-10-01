@@ -49,6 +49,13 @@ export interface TileKind {
   check?(spec: Partial<TileSpec>): string | null;
   /** What a new one opened beside tile `at` starts with when tile.open didn't say (a preview follows `at`). */
   defaults?(spec: Partial<TileSpec>, at: { name: string; pane: Pane }): Partial<TileSpec>;
+  /**
+   * It shows what its source picks (a tile's selection, a file): a link may send it a note, but an open that
+   * names no tile (an agent's `open <id>`) never lands in it.
+   */
+  readonly follower?: boolean;
+  /** Take a note opened into it (its link's target): null when it did, else why not ("holds an edit"). */
+  take?(p: Pane, m: Msg, desk: DeskApi): string | null;
   /** The tile it follows (a preview's `source=tile:<name>`): what that tile shows, this one shows. */
   follows?(p: Pane): string | null;
   /** It holds work closing would lose (a running program, an unsaved edit): a new layout keeps it in a drawer. */

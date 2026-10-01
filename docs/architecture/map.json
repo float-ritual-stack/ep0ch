@@ -385,18 +385,18 @@
       "built": "The ids live on the LNode tree; the desk gives them and bumps rev on a change of shape; layout.resize takes split=<id>.",
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 52, "m": "id?: string" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 198, "m": "private checkRev" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 200, "m": "private checkRev" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 294, "m": "\"layout.resize\"" }
       ]
     },
     {
       "id": "door.desk", "name": "The desk (tree host)", "group": "door", "chapter": "layout", "ladder": "recognised", "dependsOn": ["door.layout", "door.identity", "door.actions", "door.tilekinds"],
       "does": "The one full host of the layout tree: focus, frames, headers, drag, tabs, drawers, zoom. Every key and drag goes through cmd() to an action.",
-      "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry (47 instanceof checks left in desk.ts, by capability: a terminal's keys, a reader's surface, a screen tile's own keys). Every shape change asks the policy first and says why it refuses (intoRefusal, dragRefusal, resizeRefusal); layout.lock and layout.policy set it.",
+      "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry (45 instanceof checks left in desk.ts, by capability: a terminal's keys, a reader's surface, a screen tile's own keys). Every shape change asks the policy first and says why it refuses (intoRefusal, dragRefusal, resizeRefusal); layout.lock and layout.policy set it.",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 55, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 568, "m": "private cmd(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1247, "m": "private intoRefusal" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 572, "m": "private cmd(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1251, "m": "private intoRefusal" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 79, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 210, "m": "\"layout.lock\": {" }
       ],
@@ -408,9 +408,9 @@
       "built": "An open registry (PIE-505): one TileKind entry per kind (make, ^W o keys, actions, default policy, accepts, save, revive, holdsWork, shows, follows, start, describe, view, previewSource). The built-ins register at startup; serviceKind makes an entry whose tile the service draws. The desk never switches on a kind's name.",
       "refs": [
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 30, "m": "export interface TileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 71, "m": "export function registerTileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 123, "m": "export function serviceKind" },
-        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 140, "m": "export function registerBuiltinTiles" }
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 78, "m": "export function registerTileKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 130, "m": "export function serviceKind" },
+        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 150, "m": "export function registerBuiltinTiles" }
       ],
       "questions": [
         { "text": "The tile layer and the protocol import features.", "finding": "A-F16", "route": "PIE-493" },
@@ -423,7 +423,7 @@
       "built": "Five shapes of one idea: LayoutSpec, SavedDesk, DeskPreset (code), the board's delivery.json fields, river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
       "refs": [
         { "r": "door", "p": "src/desk/tiles.ts", "l": 69, "m": "export interface LayoutSpec" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 170, "m": "export function withDailyAgent" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 168, "m": "export function withDailyAgent" },
         { "r": "door", "p": "src/desk/delivery.ts", "l": 61, "m": "interface Layout" },
         { "r": "door", "p": "src/river/river.ts", "l": 204, "m": "river.json" }
       ],
@@ -446,7 +446,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 192, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 366, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 371, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -496,7 +496,7 @@
         { "r": "door", "p": "src/desk/pty.ts", "l": 127, "m": "herdr: { pane: string } | null" },
         { "r": "door", "p": "src/dock.ts", "l": 69, "m": "export class AgentDock" },
         { "r": "door", "p": "src/dock.ts", "l": 389, "m": "export const DOCK_ACTIONS" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 224, "m": "export function shareAgent" }
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 222, "m": "export function shareAgent" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -598,7 +598,7 @@
       "does": "Find a note: the desk's /, the river's palette, the board's picker. The BBS Search screen is never constructed.",
       "built": "Four implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2153, "m": "class SearchOverlay" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2172, "m": "class SearchOverlay" },
         { "r": "door", "p": "src/river/river.ts", "l": 123, "m": "function parseFilter" },
         { "r": "door", "p": "src/screens.ts", "l": 901, "m": "export class Search" }
       ],

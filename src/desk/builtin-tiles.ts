@@ -4,7 +4,7 @@
 // the entry; it never asks which kind a tile is.
 import { subject, type Msg } from "../board";
 import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
-import { ActivityPane, ArtPane, ReaderPane, ThreadPane, TreePane, WhoPane, type Pane } from "./panes";
+import { ActivityPane, ArtPane, ReaderPane, sessionName, ThreadPane, TreePane, WhoPane, type Pane } from "./panes";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
@@ -13,8 +13,15 @@ import { DetailPane, dailyDraft, editor, sharedAgent, shell, words } from "./til
 import { TREE_ACTIONS } from "./tree";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
-const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view"> = {
+const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take"> = {
   accepts: { notes: true },
+  // A note opened into it is held, and kept in its history (PIE-453): back returns to what it showed.
+  take: (p, m, desk) => {
+    const r = p as ReaderPane;
+    if (r.holdsKeys || r.editing) return `holds ${sessionName(r)}`;
+    r.surface.track(() => r.hold(m, desk));
+    return null;
+  },
   holdsWork: p => (p as ReaderPane).unsaved() || (p as ReaderPane).editing,
   shows: p => (p as ReaderPane).msg,
   view: p => {
@@ -64,6 +71,9 @@ const builtins = (): TileKind[] => [
     keys: [{ key: "p", label: "preview", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })),
     ...reading,
+    follower: true,
+    // It follows the note sent to it, as it follows its source.
+    take: (p, m, desk) => { (p as PreviewPane).follow(m, desk); return null; },
     check: s => (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
     defaults: (s, at) => (s.source ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),
     follows: p => { const s = (p as PreviewPane).source; return "tile" in s ? s.tile : null; },

@@ -41,7 +41,7 @@ export interface TileHost {
   lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean };
   setPolicy(sel: string | undefined, node: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy };
   policyGet(sel: string | undefined): unknown;
-  drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor): TileDone;
+  drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string): TileDone;
   previewTile(sel: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
   typeTile(sel: string | undefined, text: string, actor: Actor): TileDone;
   restartTile(sel: string | undefined, actor: Actor): TileDone;
@@ -90,7 +90,7 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.pin": { on?: boolean; edge?: string };
   "layout.lock": { on?: boolean };
   "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; locked?: boolean; opensInto?: string; clear?: string };
-  "tile.drawer": { open?: boolean };
+  "tile.drawer": { open?: boolean; container?: string };
   "tile.preview": { where?: string };
   "tile.info": Record<string, never>;
   "tile.type": { text: string };
@@ -250,9 +250,9 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.drawer": {
     summary: "slide the drawer holding reader=<tile> open (open=true) or shut (open=false); default toggles. A shut drawer is a handle at the end of the hint row; a tile dragged onto the handle goes into the drawer. Refused when its policy says it isn't collapsible",
     keys: "^W d; a click on its handle; a drawer slides shut when the keys go elsewhere",
-    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" } },
-    run({ open }, { d, reader }, actor) {
-      const r = d.drawerTile(reader, open, actor);
+    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the drawer's id (d<n>), when it isn't the innermost one holding reader=" } },
+    run({ open, container }, { d, reader }, actor) {
+      const r = d.drawerTile(reader, open, actor, container);
       say(d, actor, `${r.open ? "opened" : "shut"} drawer ${r.tile}`);
       return r;
     },

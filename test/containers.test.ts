@@ -253,6 +253,47 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     const spec = JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot;
     writeFileSync(join(state(), "layouts.json"), JSON.stringify({ plot: spec }));
     await mine("layout.load", { name: "plot" });
-    expect(tile("plot.beds").kind).toBe("reader");
+    expect(tile("plot.beds")).toMatchObject({ kind: "reader", unregistered: "plot.beds" });
+    // Saved again, its spec is as it was: it comes back as itself once its kind registers.
+    await mine("layout.save", { name: "plot" });
+    expect(JSON.stringify(JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot)).toContain(`"kind":"plot.beds"`);
+  });
+
+  test("review: a drawer's border sizes only it; an agent's drawer or move never hides the person's tile; a drawer's own resizable", async () => {
+    await mine("layout.load", { name: "desk" });                    // row(tree, row(reader, col(thread, activity)))
+    await mine("tile.pin", { edge: "left" }, "thread");
+    const g = get(); const root = g.tree;
+    expect(root.kids[0].drawer).toBe("left");
+    const shares = () => get().tree.kids.slice(1).map((k: any) => k.share);
+    const before = shares(), ratio = before[0] / before[1];
+    const r = await mine("layout.resize", { split: root.id, border: 0, share: 0.5 }) as any;
+    expect(r.split).toBe(root.id);
+    const after = shares();
+    expect(after[0]).not.toBe(before[0]);   // the docked tiles grew together (the drawer took less)
+    expect(after[0] / after[1]).toBeCloseTo(ratio, 1);            // the docked tiles keep their shares
+    // A drawer whose own policy keeps its size: its border is refused.
+    await act("layout.policy", { node: root.kids[0].id, resizable: false });
+    await expect(mine("layout.resize", { split: root.id, border: 0, share: 0.3 })).rejects.toThrow(/keeps its size \(resizable off\)/);
+    await act("layout.policy", { node: root.kids[0].id, clear: "resizable" });
+    // The person's focused tile, moved by an agent beside a tile in a shut drawer: the drawer opens, it stays in view.
+    await mine("tile.focus", {}, "reader");
+    await mine("tile.drawer", { open: false }, "thread");
+    await act("layout.move", { to: "thread", where: "down" }, "reader");
+    expect(tile("reader").drawer).toBe("open");
+    expect(tile("reader").shown).toBe(true);
+    // An agent pinning a tab beside the person's tab: the drawer it makes starts open, holding their tile.
+    await mine("layout.load", { name: "desk" });
+    await mine("layout.move", { to: "activity", where: "tabs" }, "thread");
+    await mine("tile.focus", {}, "activity");
+    await act("tile.pin", { on: false }, "thread");
+    expect(tile("activity").drawer).toBe("open");
+    // A tile dropped beside a tab set isn't refused by the tab set's own policy (it doesn't join it).
+    const set = get().tiles.find((t: any) => t.name === "activity");
+    const gid = JSON.stringify(get().tree).match(/"tabs":\["(?:thread|activity)","(?:thread|activity)"\],"id":"(g\d+)"/)![1];
+    await act("tile.pin", { on: true }, "thread");
+    await act("layout.policy", { node: gid, droppable: false });
+    await mine("layout.move", { to: "activity", where: "left" }, "tree");
+    await expect(mine("layout.move", { to: "activity", where: "tabs" }, "reader")).rejects.toThrow(/takes no drops/);
+    void set;
   });
 });

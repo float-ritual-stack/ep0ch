@@ -223,10 +223,10 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.close` | `reader` | never the person's tile, never a running program |
 | `tile.focus` | `reader` | refused while the person is typing |
 | `tile.link` | `reader`, `to` | |
-| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge) | an agent's new drawer starts shut, unless it holds the person's keys |
-| `tile.drawer` | `reader`, `open` | see below |
-| `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike |
-| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
+| `tile.pin` | `reader`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.drawer` | `reader`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
+| `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
+| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `screen`; default the innermost container over `reader`), `draggable`, `droppable`, `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
 | `tile.preview` | `reader`, `where` | |
 | `tile.type`, `tile.restart` | `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the agent drawer) |
 | `tab.select` | `reader`, `by` | never hides the person's tab |
@@ -282,7 +282,8 @@ at, and what it does while they're typing:
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
-| `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |
+| `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut drawer opens it | the typing tile refused |
+| `tile.pin` | no; a drawer around their tile (or its tab set) starts open | allowed |
 | `tile.close`, `pane.close` (the same code) | never the focused tile, never a running program | refused for those |
 | `tab.select` | never hides the person's tab | refused for that |
 | `pane.zoom` | only the focused tile, never one that hides it | refused otherwise |

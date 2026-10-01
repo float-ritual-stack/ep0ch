@@ -691,7 +691,8 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
     const k = normalise(n.kid, min, false);
     // A drawer with nothing over which to slide (the whole layout) is just what it holds.
     if (top) return k;
-    return { ...n, kid: k.t === "drawer" ? k.kid : k };
+    // A drawer straight inside a drawer is one drawer (the outer's edge and state; a policy from either).
+    return k.t === "drawer" ? { ...n, kid: k.kid, ...(n.policy || k.policy ? { policy: n.policy ?? k.policy } : {}) } : { ...n, kid: k };
   }
   if (n.t === "tabs") {
     const ids = [...new Set(n.ids)];
@@ -711,7 +712,12 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
     } else { kids.push(k); weights.push(w); }
   });
   // A split left with one kid gives way to it; its policy goes with it when the kid is a container without one.
-  if (kids.length === 1 && !n.key) { const only = kids[0]!; return n.policy && only.t !== "leaf" && !only.policy ? { ...only, policy: n.policy } : top && only.t === "drawer" ? only.kid : only; }
+  if (kids.length === 1 && !n.key) {
+    let only = kids[0]!;
+    // At the top a lone drawer has nothing to slide over: it's what it holds (which keeps a policy given it).
+    if (top && only.t === "drawer") only = only.kid;
+    return n.policy && only.t !== "leaf" && !only.policy ? { ...only, policy: n.policy } : only;
+  }
   if (!kids.length) return { ...n, kids, weights };
   const sum = weights.reduce((a, x) => a + x, 0) || 1;
   weights = weights.map(w => Math.max(min, w / sum));

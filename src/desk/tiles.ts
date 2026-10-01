@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
-import { isDir, leaf, policyOf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./layout";
+import { leaf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./layout";
 import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
@@ -94,9 +94,7 @@ export function migrateDrawers(spec: LayoutSpec): LayoutSpec {
   // A whole layout that was one drawer has nothing to slide over: it's just its tiles.
   return { ...spec, root: fix(spec.root) };
 }
-/** The screen policy as saved (a hand-edited save's strays dropped); none when empty. */
-export const screenPolicyOf = (x: unknown): Policy => policyOf(x);
-export { isDir };
+
 
 /**
  * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the

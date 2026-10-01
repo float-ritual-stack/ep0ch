@@ -293,4 +293,14 @@ describe("drawer containers and policy (PIE-505)", () => {
     const t = tree();
     expect(chainOf(t, "claude").map(c => c.t)).toEqual(["split", "drawer", "split"]);
   });
+
+  test("review: a lone drawer at the top is what it holds, keeping a policy; a drawer inside a drawer is one", () => {
+    const t = { ...splitOf("row", [{ t: "drawer", kid: splitOf("col", [leaf("a"), leaf("b")]), edge: "left", open: true } as LNode<string>]), policy: { locked: true } } as LNode<string>;
+    const n = normalise(t) as any;
+    expect(n.t).toBe("split");
+    expect(n.policy).toEqual({ locked: true });
+    const nested = splitOf("row", [{ t: "drawer", kid: { t: "drawer", kid: leaf("a"), edge: "up", open: false, policy: { overlay: false } }, edge: "left", open: true } as LNode<string>, leaf("b")]);
+    const m = normalise(nested) as any;
+    expect(m.kids[0]).toMatchObject({ t: "drawer", edge: "left", open: true, policy: { overlay: false }, kid: { t: "leaf", id: "a" } });
+  });
 });
