@@ -22,7 +22,7 @@ import type { CommentSession } from "../comment";
 import { shellKeyOf } from "../shell-keys";
 import { USER, type Actor, type IndexBlock, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
-import { historyKey, historyRow, IN_TRASH, leaveSaid, NOTE_ACTIONS, NoteSurface, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
+import { historyKey, historyRow, IN_TRASH, leaveSaid, NOTE_ACTIONS, NoteSurface, sessionStart, type Link, type ReaderHistory, type SurfaceHost } from "../surface/note";
 import { Gesture, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
@@ -1253,7 +1253,8 @@ export class River implements Screen {
       try {
         const s = this.ready(p), host = this.hostFor(p);
         // Starting an edit or a comment by key: the person is in it once it opens.
-        const start = c === "e" || ctrlE ? s.edit(host, ctrlE) : c === "C" ? s.comment(host, "select") : c === "m" ? s.comment(host, "threads") : null;
+        // e ctrl+e C m run the note's action (PIE-510), as `act` does; i and the rest are the surface's own keys.
+        const kind = sessionStart(k), start = kind && kind !== "props" && kind !== "props-full" ? s.startAsPerson(kind, host) : null;
         if (start) start.then(() => { const now = this.sessionOf(p); if (now && this.paneS === p) this.entered = { p, of: now }; ctx.redraw(); }, e => ctx.flash(e instanceof Error ? e.message : String(e)));
         else if (!s.key(k, host)) ctx.flash(c === "u" ? "this note has no parent" : "nothing to do");
       } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }

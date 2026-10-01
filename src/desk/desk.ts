@@ -1276,9 +1276,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       this.redraw();
     };
     const r = startSession(rd, kind, this, still);
-    // A thread list whose comments are already read opens at once: the next key is already its.
-    if (r === true || rd.sessionOf()) opened(true);
-    else r.then(opened, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
+    const said = (e: unknown) => this.ctx.flash(e instanceof Error ? e.message : String(e));
+    // The property panel, or a thread list whose comments are already read, opens at once: the next key is already its.
+    if (rd.sessionOf()) { opened(true); r.catch(said); }
+    else r.then(opened, said);
   }
 
   key(k: Key, ctx: Ctx): void {
