@@ -290,7 +290,7 @@ at, and what it does while they're typing:
 | `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
 | `tile.herdr` | no | allowed |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
-| an agent's `draft.patch` on the service (below) | no: it lands in the draft only above the mark and never around the cursor; the cursor, selection and view shift with it | allowed, compared against the text as typed |
+| an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
@@ -309,9 +309,10 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   proposal and nothing is written to the saved note under the draft. When two doors hold drafts of one
   note, a patch goes to neither. `drafts.read` gives the note as the draft has it now.
 - **The door runs the compare** (`Draft.applyPatch`, with the service's own `src/draft-patch-compare.ts`,
-  vendored): the observed text at or near its range, the draft on the revision read, every span above the
-  mark (without one, or when the cursor is above the mark, above the block the cursor is in), none around
-  the cursor. Then the cursor, the
+  vendored): the observed text at or near its range, the draft on the revision read, none around the
+  cursor, and with a mark every span above it (above the block the cursor is in when the cursor is above
+  the mark). Without a mark the only limit is the block being typed in: an agent's ordinary edit lands
+  anywhere else, above or below. Then the cursor, the
   selection and the view shift by the change (the cursor's row stays where it was on screen), the change is
   lit for a moment (`@tidy · just now`) and is one undo unit (`draft.undo`, ctrl+z). The draft's writers
   gain the agent, so the person's save names it. `peek` shows it: `editing.held`, `editing.cursor`,
