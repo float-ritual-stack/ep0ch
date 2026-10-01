@@ -123,7 +123,10 @@ source evidence or distinguish authored glyphs from controls.
   runs data, output and component handlers by `effects`, keeps their results
   (the store's `extension_outputs`), answers their projections in the
   `resources.projection.read` slot, renders targets and runs actions (writes
-  kept inside the block, attributed `ext:<id>`). `src/component-primitives.ts`
+  kept inside the block, attributed `ext:<id>` with who asked as `requestedBy`; an
+  update goes through `draft.patch`'s `edit` policy like an `@agent`'s, never its own
+  write path). `ext:<id>` actor ids are the runtime's alone: `server.ts` refuses a
+  client request that names one. `src/component-primitives.ts`
   owns the shared primitive catalogue and the render targets with their
   fallback chain; a client draws those primitives, never a component by name.
   `src/agent-requests.ts` owns `@name` request lines (PIE-501): which lines
@@ -133,8 +136,10 @@ source evidence or distinguish authored glyphs from controls.
   `src/extension-install.ts` is `outliner ext ls|add|remove|act`. The four kinds
   and their contracts: [docs/extensions/README.md](docs/extensions/README.md).
 - `src/door-control.ts` is a client of ep0ch-door's control socket (the door's
-  `docs/AGENT-INTERFACE.md`). The door owns what its actions do; the Claude mod's
-  `show` only asks it for an agent's `open` when Claude runs in a door tile.
+  `docs/AGENT-INTERFACE.md`). The door owns what its actions do; this only asks
+  for an agent's `open` (`openInDoor`). The CLI's `door-open` wraps it, and the
+  Claude mod's reference clicks, `show` and `door_open` all go through
+  `door-open` when Claude runs in a door tile.
 - `src/publish.ts` is the read-only publisher (`outliner publish serve`): a
   client that finds `[publish::…]` blocks with `blocks.query`, resolves `[[page]]`
   links with `pages.resolve`, reads attached `[file::…]` content with
