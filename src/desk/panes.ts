@@ -192,6 +192,8 @@ export class ReaderPane implements Pane {
 
   select(m: Msg | null, desk: DeskApi) { if (!this.held) this.show(m, desk); }
   refresh(m: Msg) { this.surface.refresh(m); }
+  /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
+  reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView { return this.surface.render(w, h, desk && this.host(desk)); }

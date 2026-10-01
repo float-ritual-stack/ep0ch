@@ -387,7 +387,7 @@ export class DeliveryBoard extends Desk {
       return;
     }
     if (!e.change) return this.legacyEvent(e);
-    this.changed(e.change);
+    this.changed(e.change, e);
   }
 
   /** A service without a change feed: the board reloads every lane shortly after any change. */
@@ -426,7 +426,7 @@ export class DeliveryBoard extends Desk {
    *   - a moved, trashed or restored block can take a subtree with it, and `other` has no one block:
    *     every lane.
    */
-  private changed(c: Change) {
+  private changed(c: Change, e: OutlineEvent) {
     const id = c.blockId;
     // An open steps overlay shows the note's checklist: a change to that note reads it again.
     const S = this.steps;
@@ -439,14 +439,10 @@ export class DeliveryBoard extends Desk {
     for (const r of this.readers()) {
       const m = r.msg;
       if (!m) continue;
-      if (id && m.id === id) {
-        // The door's own save: the text is current, but its comments below still need their new offsets.
-        if (c.revision !== undefined && m.revision === c.revision && !m.partial) this.refreshes.skipped++;
-        else {
-          this.refreshes.readers++;
-          this.ctx.board.get(id).then(n => { if (n) { r.refresh(n); this.redraw(); } }, () => {});
-        }
-      }
+      // A change it hasn't seen, or a trash, restore or purge (its own card's, or an ancestor's): NoteSurface.staleOn,
+      // as every reader asks. The door's own save is current: only its comments below need their new offsets.
+      if (r.surface.staleOn(e)) { this.refreshes.readers++; r.reread(this); }
+      else if (id && m.id === id) this.refreshes.skipped++;
       const thread = (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
       if (c.kind === "annotate" && (m.id === c.parentId || thread)) r.onEvent(this);
       else if (id && m.id === id && c.kind === "edit") r.onEvent(this);   // an edit can move or drop a quoted passage

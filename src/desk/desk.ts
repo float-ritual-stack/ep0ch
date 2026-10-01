@@ -664,12 +664,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
   onEvent(e: OutlineEvent) {
     this.hear(e);
-    const id = e.blockId;
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !p.msg?.id.startsWith("file:"));
-    // After a reconnect that couldn't catch up, every reader re-reads its note (a draft is only marked).
-    const stale = e.action === "reset" ? readers.map(r => r.msg?.id).filter((x): x is string => !!x)
-      : id && readers.some(r => r.msg?.id === id && !(e.change?.revision !== undefined && r.msg.revision === e.change.revision && !r.msg.partial && !trashOrRestore(e.change))) ? [id] : [];
-    for (const x of new Set(stale)) this.ctx.board.get(x).then(m => { if (m) { readers.forEach(r => r.refresh(m)); this.redraw(); } }, () => {});
+    // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
+    for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
   }
 
@@ -2673,8 +2670,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
 }
 
-/** A change that trashed or restored a block: its revision stays the same, but a reader showing it must say so. */
-const trashOrRestore = (c: { kind: string }) => c.kind === "delete" || c.kind === "restore" || c.kind === "purge";
 /** How to unlock a locked screen, said with every refusal it causes. */
 const UNLOCK = "alt+k or a click on ▣ locked unlocks it";
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */

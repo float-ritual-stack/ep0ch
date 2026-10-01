@@ -466,7 +466,8 @@ export class Draft {
    * the block being typed in (the cursor's paragraph, list item or heading): an agent's ordinary edit of a
    * note the person has open lands anywhere else, above or below. Then the text changes, the cursor, selection and view move with it so nothing on screen
    * jumps, and the change is one undo unit, lit for a moment with who made it. `force`: "apply anyway",
-   * the person's own choice, placed as well as it can be and not held to the mark.
+   * the person's own choice, placed by its passage wherever it is now, with no revision or cursor check, but
+   * still above the mark when the draft has it (the service sends a proposal's mark with it, PIE-510).
    */
   applyPatch(p: DraftPatchRequest, by: Actor): DraftPatchAnswer {
     const no = (reason: string): DraftPatchAnswer => ({ applied: false, reason });
@@ -475,6 +476,11 @@ export class Draft {
     const text = this.text;
     const located = locateSpans(text, p.patches, !!p.force);
     if (!located.ok) return no(located.reason);
+    if (p.force && p.mark !== undefined) {
+      // A mark line the person took out holds nothing back: the passage is placed by its own text.
+      const mark = markStart(text, p.mark);
+      if (mark >= 0 && located.spans.some(sp => sp.end > mark)) return no("it reaches the mark or below it; a patch changes only text above the mark");
+    }
     if (!p.force) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { Msg } from "../src/board";
 import { SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { NoteSurface, NOTE_ACTIONS, withoutEmbed, type SurfaceHost } from "../src/surface/note";
+import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -16,13 +16,6 @@ const char = (ch: string): Key => ({ kind: "char", ch });
 const TIDY: Actor = { kind: "agent", id: "tidy" };
 const OTHER: Actor = { kind: "agent", id: "sweep" };
 const W = 90, H = 70;
-
-test("withoutEmbed takes out the embed line, or the embed inside a line", () => {
-  expect(withoutEmbed("Plan\n!((abcdef123456))\nnext", "abcdef123456")).toBe("Plan\nnext");
-  expect(withoutEmbed("Plan\nsee !((abcdef123456))\nnext", "abcdef123456")).toBe("Plan\nsee\nnext");
-  expect(withoutEmbed("Plan\n!((abcdef1234567))", "abcdef123456")).toBe("Plan\n!((abcdef1234567))");
-  expect(withoutEmbed("Plan  \n!((abcdef123456))", "abcdef123456")).toBe("Plan  ");                    // a hard break elsewhere stays
-});
 
 describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch service", () => {
   const scratch = new Scratch();
@@ -38,14 +31,15 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
 
   /**
    * A note embedding a note, a fragment and a view, and a proposal tidy's patch left in it: the person
-   * reworded the sentence after tidy read it, so the patch couldn't apply and was embedded as a proposal.
+   * retitled the note after tidy read it, so the patch couldn't apply and was embedded as a proposal. With
+   * `gone`, the person reworded the very sentence instead: the proposal can't be applied, only dismissed.
    */
-  async function proposed() {
+  async function proposed(gone = false) {
     flashes.length = 0;
     const id = await create(`Weekend plan\nThe peas   climb  the net.\n\n!((${shed}))\n\n!((${beds}^north))\n\n!((${view}))\n`);
     const read = (await board.get(id))!;
     const observed = "The peas   climb  the net.", start = read.text.indexOf(observed);
-    await board.update(id, read.text.replace(observed, "The peas sugar   climb  the net."), read.revision!);
+    await board.update(id, gone ? read.text.replace(observed, "The peas sugar   climb  the net.") : read.text.replace("Weekend plan", "Weekend plan, revised"), read.revision!);
     const r = await agent.request<any>("draft.patch", {
       blockId: id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
@@ -103,7 +97,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
       "embed » a proposal by @tidy",
       "control [apply]",
       "control [dismiss]",
-      "link Weekend plan",
+      "link Weekend plan, revised",
     ]);
     expect(s.describeElements().filter(e => e.control).map(e => [e.control, e.proposal])).toEqual([["apply", proposal], ["dismiss", proposal]]);
     // On the proposal's source line the hint leads with its keys.
@@ -156,8 +150,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect((await board.get(proposal))!.deleted).toBe(true);
     const note = (await board.get(id))!;
     expect(note.text).not.toContain(`!((${proposal}))`);
-    expect(note.text).toContain("The peas sugar   climb  the net.");                 // nothing applied
-    expect(await lastChange(id)).toMatchObject({ action: "update", actor: { author: "user" } });
+    expect(note.text).toContain("The peas   climb  the net.");                         // nothing applied
+    expect(await lastChange(id)).toMatchObject({ kind: "edit", actor: { author: "user" } });
     expect(await lastChange(proposal)).toMatchObject({ kind: "delete", actor: { author: "user" } });
   }, 30_000);
 
@@ -177,7 +171,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     await expect(NOTE_ACTIONS.run("proposal.dismiss", { id: proposal }, { surface: s, host: h }, OTHER)).rejects.toThrow("an agent dismisses only its own");
     expect((await board.get(proposal))!.deleted).toBeFalsy();
     const r = await NOTE_ACTIONS.run("proposal.dismiss", { id: proposal }, { surface: s, host: h }, TIDY);
-    expect(r).toMatchObject({ dismissed: proposal, removedFrom: [id] });
+    expect(r).toMatchObject({ outcome: "dismissed", proposalId: proposal, embedRemoved: "saved" });
     expect((await board.get(proposal))!.deleted).toBe(true);
     expect(flashes.at(-1)).toContain("by an agent (tidy)");
     expect(await lastChange(id)).toMatchObject({ actor: { author: "agent", actorId: "tidy" } });
@@ -205,6 +199,70 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(s.click(p.x + 1, p.y, h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("applied the proposal"), "the apply");
     expect((await board.get(id))!.text).toContain("The peas climb the net.");
+  }, 30_000);
+
+  test("against a service without draft.proposal.dismiss, X says which capability is missing and changes nothing", async () => {
+    const { id, proposal } = await proposed();
+    const old = new SocketBoard(board.path);
+    await old.info();
+    old.capabilities = new Set([...(old.capabilities ?? [])].filter(c => c !== "draft.proposal.dismiss"));
+    const s = new NoteSurface(), oh: SurfaceHost = { ...host(), ctx: { ...host().ctx, board: old } as any };
+    try {
+      s.show((await old.get(proposal))!, oh);
+      flashes.length = 0;
+      expect(s.key(char("X"), oh)).toBe(true);
+      await until(() => flashes.length > 0, "X's refusal");
+      expect(flashes.at(-1)).toContain("it has no draft.proposal.dismiss");
+      expect((await board.get(proposal))!).toMatchObject({ props: { "proposal-status": "open" } });
+      expect((await board.get(proposal))!.deleted).toBeFalsy();
+      expect((await board.get(id))!.text).toContain(`!((${proposal}))`);
+    } finally { old.close(); }
+  }, 30_000);
+
+  test("A on an ordinary embed isn't taken: it's apply anyway only on a proposal (PIE-510)", async () => {
+    const { id } = await proposed();
+    const { s, h, frame } = await reading(id);
+    while (current(s)?.target !== shed) { s.key(char("]"), h); frame(); }
+    flashes.length = 0;
+    expect(s.key(char("A"), h)).toBe(false);
+    await Bun.sleep(100);
+    expect(flashes.filter(f => /draft proposal|isn't a proposal/.test(f))).toEqual([]);
+    expect(s.hint()).not.toContain("apply anyway");
+  }, 30_000);
+
+  test("a proposal whose passage was already gone offers only [dismiss]: A says why, a click on [dismiss] dismisses it", async () => {
+    const { id, proposal } = await proposed(true);
+    expect((await board.get(proposal))!.props["proposal-applies"]).toBe("no");
+    const { s, h, frame } = await reading(id);
+    const lines = frame();
+    expect(lines.join("\n")).not.toContain("[apply]");
+    expect(s.describeElements().filter(e => e.control).map(e => e.control)).toEqual(["dismiss"]);
+    while (current(s)?.target !== proposal) { s.key(char("]"), h); frame(); }
+    expect(s.hint()).toContain("X dismiss");
+    expect(s.hint()).not.toContain("A apply");
+    expect(s.key(char("A"), h)).toBe(true);
+    await until(() => flashes.some(f => f.includes("can't be applied")), "A's refusal");
+    await expect(NOTE_ACTIONS.run("proposal.apply", { id: proposal }, { surface: s, host: h }, TIDY)).rejects.toThrow("can't be applied");
+    expect((await board.get(proposal))!.props["proposal-status"]).toBe("open");
+    const p = at(frame(), "[dismiss]");
+    expect(s.click(p.x + 1, p.y, h)).toBe(true);
+    await until(() => !!flashes.at(-1)?.startsWith("dismissed the proposal"), "the dismiss");
+    expect((await board.get(proposal))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
+    expect((await board.get(id))!.text).not.toContain(`!((${proposal}))`);
+    // Opened, it says so in its header too.
+    const opened = new NoteSurface();
+    opened.show((await board.get(proposal))!, h);
+    expect(opened.render(W, H, h).lines.map(visible).join("\n")).not.toContain("[dismiss]");   // dismissed: no controls left
+  }, 30_000);
+
+  test("an opened proposal that can't be applied has only [dismiss] in its header", async () => {
+    const { proposal } = await proposed(true);
+    const s = new NoteSurface(), h = host();
+    s.show((await board.get(proposal))!, h);
+    const head = s.render(W, H, h).lines.map(visible).slice(0, 8).join("\n");
+    expect(head).toContain("proposal · [dismiss]");
+    expect(head).toContain("it can't be applied");
+    expect(head).not.toContain("[apply]");
   }, 30_000);
 
   test("the [ ] position stays on the proposal while an agent rewrites the note around it", async () => {

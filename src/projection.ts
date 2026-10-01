@@ -34,7 +34,7 @@ export interface ExtensionOutput {
   component?: { data: unknown; view: unknown };
   inputsChanged?: true; versionChanged?: true;
 }
-/** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed… */
+/** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed, and, once its proposal is settled, applied or dismissed (PIE-510)… drawn as the service words it. */
 export interface AgentRequestState { name: string; status: string; message?: string; proposalId?: string; requestedBy?: string }
 
 /** One projection, as `resources.projection.read` sends it (pi-herdr-outliner src/resource-projection.ts). */
