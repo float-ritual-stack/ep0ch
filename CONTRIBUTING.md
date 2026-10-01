@@ -30,7 +30,11 @@ Every review goes through these sections in order.
   [Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)? Cite the row.
 - **No parallel implementation:** does it add a second reader, body renderer, pane model, search,
   editor, completion, presence view or action path next to an existing one?
-- **One grammar:** do keys, pane operations and terms match the glossary and the other screens?
+- **One grammar:** do keys, layout operations and terms match the glossary and the other screens? For
+  layout, the words are block, tile, container and screen ([Layout](docs/UI-GRAMMAR.md#layout-block-tile-container-screen)).
+- **Did you really?** List each shared part the brief or PR said it would use, and check the diff
+  actually uses it. Name any place where it built its own instead (a second drawer, a screen-only
+  layout, a key with no action, a switch on a tile kind's name). Expect at least one; fix it or say why not.
 - **Service meaning:** does it re-derive what the service owns (view membership, property parsing,
   query evaluation, backlinks, what changed) instead of asking it?
 - **The map:** does a new or changed shared part need a row in the reuse map, and with it a
