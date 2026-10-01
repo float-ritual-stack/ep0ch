@@ -64,11 +64,12 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     await scratch.seedShowcase();
     notes = await board.changedSince(0, 20);
     // Settled means no request to the service is waiting for its answer.
-    const request = board.request.bind(board);
-    (board as any).request = (action: string, params?: Record<string, unknown>) => {
+    // Every connection's: the river's index reads on a lane of its own (SocketBoard.index).
+    const request = SocketBoard.prototype.request;
+    SocketBoard.prototype.request = function (this: SocketBoard, action: string, params?: Record<string, unknown>) {
       inflight++;
-      return request(action, params).finally(() => { inflight--; });
-    };
+      return request.call(this, action, params).finally(() => { inflight--; });
+    } as typeof request;
     newApp();
     board.subscribe(e => app.event(e));
   }, 60_000);
@@ -131,7 +132,10 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s);
     A().lastInput = 0;
     await settle();
-    for (const k of setup) { press(k); await settle(); }
+    // Drawn before each key as the person would see it (a key can depend on the last layout, as the river's
+    // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
+    for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
+    for (let i = 0; i < 2; i++) { snap(new Set()); await settle(); }
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
@@ -287,7 +291,12 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   ];
 
   // ── the river in its other states ──
-  const RIVER: Scenario[] = [];
+  const river = () => MENU_SCREENS.find(([key]) => key === "Q")![1](app) as Screen;
+  const RIVER: Scenario[] = [
+    ["river: a column beside", river, [{ kind: "enter" }]],
+    ["river: replies shown", river, [k(" ")]],
+    ["river: a docked column and a stacked pane", river, [{ kind: "enter" }, k("p"), k("s")]],
+  ];
 
   // ── the desk and the views built on it, in their other states ──
   const DESK: Scenario[] = [];
