@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { hostConfigured, hostLive, hostSocketOf } from "../discover";
 import { outlinerPlugin } from "../skills";
+import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline, OUTLINE_CAPABILITIES } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type ServiceFacts, type UnitState } from "./model";
 import { linkCandidates } from "./plan";
@@ -270,7 +271,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const herdrPath = env.HERDR_BIN_PATH && existsSync(env.HERDR_BIN_PATH) ? env.HERDR_BIN_PATH : which("herdr", pathDirs);
   const configPath = env.HERDR_CONFIG_PATH || join(env.XDG_CONFIG_HOME || join(home, ".config"), "herdr/config.toml");
 
-  const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services, agents] = await Promise.all([
     bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null,
     herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null,
     herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null,
@@ -278,6 +279,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     inspectCheckout(doorRoot, fetch, env),
     hostFacts(base, platform, home),
     serviceFacts(base),
+    doorAgents(env).catch(() => undefined),
   ]);
 
   const found = which("ep0ch", pathDirs);
@@ -306,7 +308,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     host,
     services,
     databases: databases(base, host, services),
-    claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}) },
+    claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     expected: plugin?.capabilities ?? [...OUTLINE_CAPABILITIES],
   };
 }

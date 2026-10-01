@@ -164,6 +164,8 @@ Also on every screen but the logon: the agent drawer, the App's one agent tile, 
 |---|---|---|---|
 | `agent.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
 | `agent.height` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
+| `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
+| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: a new `door-claude` pane). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
 
 Its program is told `EP0CH_TILE_ID=dock.agent` and `EP0CH_TILE=claude`, and its nest layer is
 `door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr reader=dock.agent` reaches the App on any
@@ -273,6 +275,7 @@ at, and what it does while they're typing:
 | `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
 | `agent.toggle open=true` | no: the drawer comes up over the screen, the keys stay where they were | refused, and within 2s of their last key |
 | `agent.toggle open=false`, `agent.height` | no | refused while they're typing in the drawer |
+| `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
 | `layout.move`, `layout.swap` | no; never the tile they're typing in | the typing tile refused |

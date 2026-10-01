@@ -44,7 +44,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const cfg = (more: Partial<AgentConfig> = {}): AgentConfig => ({
   pane: "door-claude", name: "door", workspace: "door", cwd: "/tmp/garden", cmd: "door-claude",
-  env: { EP0CH_TILE: "claude", EP0CH_CONTROL: join(dir, "agent.sock") }, link: join(dir, "agent.sock"), lock: join(dir, "agent.sock.lock"), ...more,
+  env: { EP0CH_TILE: "claude", EP0CH_CONTROL: join(dir, "agent.sock") }, unset: [], link: join(dir, "agent.sock"), lock: join(dir, "agent.sock.lock"), ...more,
 });
 
 describe("the agent's pane", () => {
