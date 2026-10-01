@@ -1,8 +1,10 @@
 # UI grammar and glossary
 
-One vocabulary for the door's screens, checked against the code on `feature/door-writes`
-(PIE-433). Use it to name things in code, READMEs and roadmap items, and to judge whether a
-new screen reuses the grammar or invents its own.
+One vocabulary for the door's screens. It was first checked against the code on `feature/door-writes`
+(PIE-433) and is kept current with main: a PR that adds or changes a shared part updates its row here.
+The line numbers in the citations below are from that first audit and drift; the
+[architecture map](architecture/map.json) is the checked index. Use this page to name things in code,
+READMEs and roadmap items, and to judge whether a new screen reuses the grammar or invents its own.
 
 ## Before adding a feature
 

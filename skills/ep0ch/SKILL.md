@@ -1,6 +1,6 @@
 ---
 name: ep0ch
-description: Use when an agent needs to see or act in an ep0ch door (the BBS-style terminal client for a pi-herdr-outliner outline) — reading what the person sees, opening a note in front of them, editing, commenting, moving cards or pointing at a block — or when running a door of its own to test changes. Covers the ep0ch command, the control socket, attribution and the rules that keep the person's door, focus and drafts safe.
+description: Use when an agent needs to see or act in an ep0ch door (the BBS-style terminal client for a pi-herdr-outliner outline) — reading what the person sees, opening a note in front of them, editing, commenting, moving cards or pointing at a block — or when running a door of its own. Covers the ep0ch command, the control socket, attribution and the rules that keep the person's door, focus and drafts safe. For writing in the outline itself use ep0ch-outline; for changing the door's or outliner's code, ep0ch-core.
 ---
 
 # ep0ch: working in a door
@@ -8,6 +8,9 @@ description: Use when an agent needs to see or act in an ep0ch door (the BBS-sty
 ep0ch is a terminal door into an Outliner workspace: the board (kanban), desk, river and BBS screens, all
 built on one note surface. Everything the person can do there, an agent can do through the door's control
 socket, with the same checks (revisions, property warnings, duplicate-safe comments) and honest attribution.
+
+Two sibling skills: `ep0ch-outline` for working in the outline for the person (notes, properties, views,
+pages, publishing, extensions), and `ep0ch-core` for changing this code (including the real-pane test recipe).
 
 ## Commands
 
@@ -72,7 +75,8 @@ person asked for it.
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
   it with `ep0ch try … --copy` or against a scratch service, and pass the same `EP0CH_CONTROL` to every
-  command.
+  command. Keep that directory short and mode 700 (`mktemp -d /tmp/…`): a long socket path fails, and the
+  door serves no socket in a folder others can reach. `ep0ch-core` has the whole recipe, mouse included.
 - Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act`. The door records and shows it.
 
 ## Door tools in Claude
@@ -109,7 +113,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **`door_open {id}`** takes an id, `((id))`, `[[page]]` or Work ID, and opens it where your tile's opens
   land (`from=$EP0CH_TILE`). It never moves the person's focus.
 - To read or write notes, use the mod's `outline_*` tools (`outline_read`, `outline_edit`, `outline_patch`,
-  `outline_comment`…). They work in any session, not just a door tile.
+  `outline_comment`…). They work in any session, not just a door tile. Which to use when, and how the
+  person writes, is the `ep0ch-outline` skill.
 
 ## Rules the door enforces, and you should expect
 

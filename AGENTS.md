@@ -1,7 +1,9 @@
 # Agent workflow
 
 Rules for any agent working in this repository. [CONTRIBUTING.md](CONTRIBUTING.md) has the
-verification steps and the review checklist.
+verification steps and the review checklist. The `ep0ch-core` skill ([skills/ep0ch-core](skills/ep0ch-core/SKILL.md))
+is the short map across this repo and pi-herdr-outliner, with the real-pane test recipe; `ep0ch-outline` is
+for working in an outline for someone, and `ep0ch` for driving a door.
 
 ## Before you build
 
