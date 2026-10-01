@@ -1253,7 +1253,8 @@ export class River implements Screen {
       try {
         const s = this.ready(p), host = this.hostFor(p);
         // Starting an edit or a comment by key: the person is in it once it opens.
-        const start = c === "e" || ctrlE ? s.edit(host, ctrlE) : c === "C" ? s.comment(host, "select") : c === "m" ? s.comment(host, "threads") : null;
+        // e ctrl+e C m run the note's action (PIE-510), as `act` does; i and the rest are the surface's own keys.
+        const start = c === "e" || ctrlE ? s.startAsPerson(ctrlE ? "external" : "edit", host) : c === "C" ? s.startAsPerson("select", host) : c === "m" ? s.startAsPerson("threads", host) : null;
         if (start) start.then(() => { const now = this.sessionOf(p); if (now && this.paneS === p) this.entered = { p, of: now }; ctx.redraw(); }, e => ctx.flash(e instanceof Error ? e.message : String(e)));
         else if (!s.key(k, host)) ctx.flash(c === "u" ? "this note has no parent" : "nothing to do");
       } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }

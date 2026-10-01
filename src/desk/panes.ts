@@ -12,7 +12,7 @@ import { USER, type Activity, type Actor, type Comment } from "../socket";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "../surface/actions";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
-import { NoteSurface, propertyChange, type OpenHow, type SurfaceHost } from "../surface/note";
+import { NoteSurface, propertyChange, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
@@ -198,11 +198,9 @@ export class ReaderPane implements Pane {
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView { return this.surface.render(w, h, desk && this.host(desk)); }
-  edit(desk: DeskApi, external = false, still?: () => boolean) { return this.surface.edit(this.host(desk), external, still); }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
   onEvent(desk: DeskApi) { this.surface.onEvent(this.host(desk)); }
-  comment(desk: DeskApi, mode: "select" | "threads", still?: () => boolean) { return this.surface.comment(this.host(desk), mode, still); }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
   sessionOf() { return this.surface.sessionOf(); }
   /** j k, arrows, PgUp PgDn, space, Home End scroll the note while it is shown (not under a draft or a comment; see NoteSurface.scrollKey). */
@@ -265,8 +263,8 @@ export class ReaderPane implements Pane {
 
 // ── which reader session the person is in (PIE-411) ──────────────────────────
 
-/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote (c collapses), m threads, i / I properties. */
-export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
+export type { SessionKind };
+/** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses); each runs its note action (SESSION_ACTIONS). */
 export function sessionStart(k: Key): SessionKind | null {
   if (k.kind !== "char") return null;
   if (k.ctrl) return k.ch === "e" ? "external" : null;
@@ -274,15 +272,16 @@ export function sessionStart(k: Key): SessionKind | null {
 }
 
 /**
- * Start a session by the person's key. An edit or a comment reads the note first; `still` says, once it
- * has, whether they still want it (they may have pressed esc or moved to another area meanwhile), and if
- * not nothing opens. True (at once for the panel, or once read) when the reader holds a session.
+ * Start a session by the person's key, through its note action (PIE-510), as `act` does. An edit or a comment
+ * reads the note first; `still` says, once it has, whether they still want it (they may have pressed esc or
+ * moved to another area meanwhile), and if not nothing opens. The property panel opens at once, so the next
+ * key is already its. True once the reader holds a session; a refusal rejects, unless they moved on.
  */
-export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi, still: () => boolean): true | Promise<boolean> {
-  // The property panel opens at once, so the next key is already its.
-  if (kind === "props" || kind === "props-full") { pane.surface.openPanel(kind === "props-full"); desk.redraw(); return true; }
-  const opening = kind === "edit" || kind === "external" ? pane.edit(desk, kind === "external", still) : pane.comment(desk, kind, still);
-  return opening.then(() => pane.sessionOf() !== null);
+export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi, still: () => boolean): Promise<boolean> {
+  return pane.surface.startAsPerson(kind, pane.host(desk), still).then(() => pane.sessionOf() !== null, e => {
+    if (!still()) return false;
+    throw e;
+  });
 }
 
 /** "the edit", "an agent's (claude-7) edit", "the comment", "the property panel": for hints and flashes. */

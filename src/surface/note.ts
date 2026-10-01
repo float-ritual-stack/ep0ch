@@ -72,6 +72,11 @@ export interface SurfaceHost {
   /** Whose action runs through this host: an agent's (NoteSurface.act sets it), else the person's. */
   actor?: Actor;
   /**
+   * The person's key started this and they may move on while the note is read (esc, another tile): once it
+   * has been read, whether they still want the edit, comment or thread list. Without it, it opens anyway.
+   */
+  still?: () => boolean;
+  /**
    * The keys the host binds itself, before or after the surface (the BBS reader's `n p t`, a following
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
@@ -1380,7 +1385,7 @@ export class NoteSurface {
    * `mine`: the person's own keys, so the text they selected is where the passage starts (an agent's
    * comment never takes the person's selection).
    */
-  async comment(host: SurfaceHost, mode: "select" | "threads", still?: () => boolean, mine = true): Promise<void> {
+  async comment(host: SurfaceHost, mode: "select" | "threads", still?: () => boolean, mine = true): Promise<string | void> {
     const m = this.msg;
     // A Reply control (PIE-420) asked for this: the list opens with the reply started, and goes when it's done.
     const replyOn = mine && mode === "threads" ? this.replyOn : null;
@@ -1390,7 +1395,7 @@ export class NoteSurface {
     const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
     const fresh = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
     if (still && !still()) return;
-    if (!fresh || fresh.revision === undefined) { host.ctx.flash("can't comment: the outline didn't say which revision this note is at"); return; }
+    if (!fresh || fresh.revision === undefined) { const why = "can't comment: the outline didn't say which revision this note is at"; host.ctx.flash(why); return why; }
     if (this.msg?.id !== m.id || this.editing) return;
     this.msg = fresh;
     if (this.commentsFor !== m.id) await this.loadComments(host);
@@ -1813,7 +1818,7 @@ export class NoteSurface {
   /** The thread list, on the current comment mark's thread, as the person's `m` opens it (their session). */
   private openThread(host: SurfaceHost) {
     if (host.startSession) host.startSession("threads");
-    else void this.comment(host, "threads");
+    else void this.runKey("threads", {}, host, true);
   }
 
   // ── comment threads expanded inline (PIE-420) ─────────────────────────────
@@ -2843,6 +2848,16 @@ export class NoteSurface {
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
   }
 
+  /**
+   * The person's key that starts an edit, a comment or the property panel (e, ctrl+e, C, m, i, I), as the note
+   * action it is (PIE-510), with `still` the host's say once the note is read. A refusal rejects, for the host
+   * to say or let go (one the action said already, or the person moved on).
+   */
+  startAsPerson(kind: SessionKind, host: SurfaceHost, still?: () => boolean): Promise<unknown> {
+    const a = SESSION_ACTIONS[kind];
+    return this.act(a.name, a.args, still ? { ...host, still } : host, USER);
+  }
+
   /** What the surface is doing, for `peek`. */
   describe() {
     const d = this.draft;
@@ -2917,8 +2932,8 @@ export class NoteSurface {
     if (this.session) throw new ActionRefused("this reader is commenting; finish or close the comment first (comment.close)");
     if (!this.draft) {
       this.requireNote();
-      const why = await this.edit(host);
-      if (!this.draft) throw new ActionRefused(why || "the note couldn't be opened for editing (its revision is unknown)");
+      const why = await this.edit(host, false, host.still);
+      if (!this.draft) throw new ActionRefused(movedOn(host) ?? (why || "the note couldn't be opened for editing (its revision is unknown)"));
     }
     return this.draft;
   }
@@ -3199,6 +3214,32 @@ export type LeaveResult =
  * after the leave's): the kept-as-unsent line, so it isn't lost under it.
  */
 export const leaveSaid = (r: unknown): string | null => (r && typeof r === "object" && "said" in r && typeof r.said === "string" ? r.said : null);
+
+/** The person moved on (esc, another tile) while the note was read for their edit or comment: nothing opened. */
+const movedOn = (host: SurfaceHost) => (host.still && !host.still() ? "not opened: you moved on while the note was read" : null);
+
+/**
+ * The person's C or m: the comment session opens from their selection (and their put-aside comment), once the
+ * note is read; refused, with the reason already said, when it didn't open.
+ */
+async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "select" | "threads"): Promise<CommentSession> {
+  surface.requireNote();
+  const why = await surface.comment(host, mode, host.still);
+  if (!surface.session) throw new ActionRefused(movedOn(host) ?? (why || "the note couldn't be opened for commenting"));
+  return surface.session;
+}
+
+/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote, m threads, i / I properties. */
+export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
+/** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
+export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "threads" | "props"; args: Record<string, unknown> }> = {
+  edit: { name: "edit", args: {} },
+  external: { name: "edit", args: { external: true } },
+  select: { name: "passage.select", args: {} },
+  threads: { name: "threads", args: {} },
+  props: { name: "props", args: {} },
+  "props-full": { name: "props", args: { full: true } },
+};
 
 /** Each action's arguments. */
 export interface NoteActionArgs extends DraftActionArgs {
@@ -3697,8 +3738,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
     async run({ quote, near }, { surface, host }, actor) {
       // The person's C starts from their selected text (the quote) and their put-aside comment; an agent's never.
-      if (actor.kind === "user" && !surface.session && !surface.draft) { surface.requireNote(); await surface.comment(host, "select"); }
-      const s = await surface.ensureSession(host, "select");
+      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select");
       // Picking reads the note again; when that fails the session stays where it was, with the reason.
       const p = s.mode === "select" ? s.passage : null;
       if (!p) throw new ActionRefused(s.error ?? "the passage couldn't be picked: the note's current text wasn't read");
@@ -3772,8 +3812,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     summary: "show the note's comment threads (the person's opens on the comment mark the [ ] position is on); in the list, j k move and PgUp PgDn and the wheel scroll it", keys: "m; j k PgUp PgDn wheel in the list",
     args: {},
     async run(_, { surface, host }, actor) {
-      if (actor.kind === "user" && !surface.session && !surface.draft) { surface.requireNote(); await surface.comment(host, "threads"); }
-      const s = await surface.ensureSession(host, "threads");
+      // The person's opens as it was asked for: on a comment mark's thread, or with a Reply control's reply started.
+      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "threads") : await surface.ensureSession(host, "threads");
       host.redraw();
       return { threads: s.threads.map(t => ({ id: t.id, open: t.open, author: t.author, quote: t.quote, body: t.body, replies: t.replies.length })) };
     },
