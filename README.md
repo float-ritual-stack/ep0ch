@@ -51,8 +51,8 @@ One walk through the door, in the order you meet things. Each step has its own s
    menu; only `G` logs off.
 3. **The desk.** `D`, then `alt+d` loads the `daily` layout: the agent's terminal, the outline, the "now" page,
    an editor and details. Drag a tile's header to move it (onto another header it becomes a tab), `^W o` and a
-   kind opens a tile, `^W p` makes one a drawer, `^W w` and `^W r` save and load layouts by name
-   ([The desk](#the-desk)).
+   kind opens a tile, `^W p` puts one in a drawer (anything dropped on its handle joins it), `alt+k` locks the
+   shape for a task, `^W w` and `^W r` save and load layouts by name ([The desk](#the-desk)).
 4. **The agent drawer.** `alt+a` or a click on the status bar's `▲ claude` chip pulls the daily agent up over
    any screen, with your keys in it. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once you're out,
    puts it away ([The agent drawer](#the-agent-drawer-pie-498)).
@@ -126,11 +126,11 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in fourteen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in fifteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row and its elements and reading-ruler row (PIE-441) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
-(`L`) in `entity`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the tile-kind registry listed by a service-drawn tile in `kinds`, and quiet embeds (a dim `»` source line) in `note`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -157,7 +157,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-14|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-15|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -350,7 +350,10 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | drag a border | resize |
 | `alt+l`, then click a tile | this tile's opens land there (a link followed, the tree's `⏎`); click the tile itself to unlink; `h j k l` or a number work too |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
-| click a drawer's `▸ name` (hint row) | slide it open |
+| click a drawer's handle (`⇤ tree`, hint row) | slide it open |
+| drag a tile's header onto a drawer's handle | the tile goes into that drawer (`layout.move where=tabs`); dropped beside a tile inside an open drawer, it lives in the drawer too |
+| click `□ lock` / `▣ locked` (hint row) | lock or unlock the screen (`layout.lock`) |
+| a refused drop or border (locked, a container that takes no drops or other kinds, a fixed size) | the ghost turns red and says why; the release does nothing and the status bar says the same words |
 
 | Keys | Action |
 |---|---|
@@ -358,6 +361,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
+| `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, drawers in or out, links, layout loads), its contents stay live (reading, editing, terminals, drawers sliding, tabs, zoom) |
 | `Ctrl+W` then `h j k l` | focus by direction |
 | `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |
 | `Ctrl+W` then `t` + `h j k l` | move into the tabs of the tile that way |
@@ -369,7 +373,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile |
 | `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
-| `Ctrl+W` then `p` / `d` | pin or unpin (a drawer slides over the others without moving them) / slide drawers open or shut |
+| `Ctrl+W` then `p` / `d` | put this tile (its tab set, as one) in a drawer where it is, or take its drawer away / slide the drawer open or shut. A drawer slides over the others without moving them, shuts when the keys leave it, and holds anything moved into it |
+| `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a drawer's collapsible, overlay and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
 | `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
@@ -384,7 +389,16 @@ terminal over the "now" detail; the outline over its preview, above the middle d
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
 (the River screen in a tile, a preview following its card), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
-a running program or an unsaved edit the new layout has no place for becomes a shut drawer, never ended.
+running programs or unsaved edits the new layout has no place for go in one shut drawer on the right, never ended.
+
+**Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and drawers. A
+drawer slides out from an edge (`act tile.pin reader=tree edge=left`, or the policy panel's edge row) and takes
+anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
+carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `draggable`, `droppable`,
+`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a drawer's `collapsible`, `overlay` and edge, and
+`opensInto` (where its tiles' opens land when they have no link). A locked screen comes back locked after a restart.
+Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an
+extension's kind registers the same way.
 `EP0CH_DAILY_AGENT` (default `claude`), `EP0CH_DAILY_CWD` (the folder it starts in; default the door's own) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 The agent tile is marked in the saved layout (`agent`), so a restored desk or a loaded layout runs what
@@ -399,7 +413,7 @@ the mark counts its `claude` tile as the agent when its command is the plain `cl
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
-| loading a layout | a tile with the same name keeps its program; one the layout has no place for becomes a shut drawer |
+| loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut drawer on the right |
 | quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
 | SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
 | `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |

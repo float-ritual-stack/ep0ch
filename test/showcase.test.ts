@@ -31,7 +31,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -269,6 +269,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6", "parallel version, to consolidate: the board's composer"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
+    kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
@@ -303,8 +304,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 7 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 7 * 2 });
-    expect(S().sel).toBe(7);
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 8 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 8 * 2 });
+    expect(S().sel).toBe(8);                                       // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -340,9 +341,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 13, key: "selection" });
+    expect(r).toEqual({ section: 14, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 13");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 14");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");

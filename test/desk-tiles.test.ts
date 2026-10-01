@@ -56,7 +56,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => key({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
   const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
   /** The tree as a short string, as the unit tests write it. */
-  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : `${n.split}(${n.kids.map(s).join(",")})`);
+  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.drawer ? `drawer(${s(n.kid)})` : `${n.split}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);
   let notes: Record<string, any> = {};
   const draft = () => join(scratch.root, "door", "draft.md");
@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await until(() => tile("middle").showing?.id === notes.shed.id, "the tree's ⏎ in middle");
     expect(get().focus).toBe("tree");
     // An agent links, and a link to a terminal is refused with the reason.
-    await expect(act("tile.link", { to: "claude" }, "now")).rejects.toThrow(/opens land in a reader/);
+    await expect(act("tile.link", { to: "claude" }, "now")).rejects.toThrow(/opens land in a tile that takes notes/);
     expect(await act("tile.link", {}, "now")).toMatchObject({ link: null });
   }, 30_000);
 
@@ -272,7 +272,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await act("tile.drawer", { open: false }, "now");
     await mine("layout.save", { name: "garden" });
     const saved = JSON.parse(readFileSync(join(scratch.root, "door", "layouts.json"), "utf8")).garden;
-    expect(JSON.stringify(saved)).toContain(`"drawer":"shut"`);
+    expect(JSON.stringify(saved)).toContain(`"t":"drawer","edge":"down","open":false`);   // a drawer container, shut
     expect(JSON.stringify(saved)).toContain(`"link":"middle"`);
     expect(JSON.stringify(saved)).toContain(`"source":"tile:tree"`);
     const pid = tile("claude").terminal.pid;
@@ -289,7 +289,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
 
   test("the river layout is the River screen in a tile (one river, its own columns), a card preview following it", async () => {
     await mine("layout.load", { name: "river" });
-    expect(shape()).toBe("row(river,card,claude,draft)");               // the running programs, kept as shut drawers
+    expect(shape()).toBe("row(river,card,drawer(tabs(*claude,draft)))");  // the running programs, kept in a shut drawer
     expect([tile("claude").drawer, tile("draft").drawer]).toEqual(["shut", "shut"]);
     expect(tile("river").kind).toBe("river");
     expect(tile("card").source).toBe("tile:river");

@@ -7,14 +7,23 @@
 // Zones are worked out from the rectangles just placed, on every pointer event, never kept from the start
 // of the drag: floatty's ghost divider (a resize handle left where a split used to be after a drop) came
 // from geometry measured once. Pure; the desk draws the ghost and applies the drop.
+//
+// A drop also answers to policy (PIE-505): the view says why a place won't take the tile (`refuse`: a locked
+// screen, a container that takes no drops or only other kinds), and the drop carries that reason, so the
+// ghost and the hint row say it before the release, and the release's `layout.move` refuses with the same words.
+// A shut drawer's handle on the hint row is a drop zone too: the tile goes into the drawer.
 import type { Rect } from "../canvas";
-import type { Dir, Place } from "./layout";
+import { EDGE_GLYPH, type Dir, type Place } from "./layout";
 
 /** A tile as the drag sees it: where it is, and when it's a tab set, which cells each tab's label takes. */
 export interface DropTile<I> { id: I; rect: Rect; tabs?: { id: I; from: number; to: number }[]; alone?: boolean }
 
-/** A drop: where the tile goes, the outline drawn while it's held there, and what the ghost says. */
-export type Drop<I> = Place<I> & { ghost: Rect; label: string };
+/** A drop: where the tile goes, the outline drawn while it's held there, what the ghost says, and why policy refuses it. */
+export type Drop<I> = Place<I> & { ghost: Rect; label: string; refused?: string };
+/** Why the view's policy refuses the dragged tile at a place, or null (PIE-505). */
+export type Refuse<I> = (to: Place<I>) => string | null;
+/** With the reason policy gives, when it gives one. */
+const judged = <I>(d: Drop<I> | null, refuse?: Refuse<I>): Drop<I> | null => { const why = d && refuse?.(d); return d && why ? { ...d, refused: why } : d; };
 
 /** The outer strips: two cells in from the left and right, the last row at the bottom. */
 export const EDGE_COLS = 2;
@@ -27,7 +36,10 @@ const inside = (r: Rect, x: number, y: number) => x >= r.col && x < r.col + r.co
  * The drop under (x, y) while `src` is dragged, or null (nowhere, or onto itself where that means nothing).
  * `area` is the whole layout. `many`: there's more than one tile, so an outer edge means something.
  */
-export function dropAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number, src: I, many = tiles.length > 1): Drop<I> | null {
+export function dropAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number, src: I, many = tiles.length > 1, refuse?: Refuse<I>): Drop<I> | null {
+  return judged(zoneAt(tiles, area, x, y, src, many), refuse);
+}
+function zoneAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number, src: I, many: boolean): Drop<I> | null {
   if (!inside(area, x, y)) return null;
   const w = Math.max(3, Math.round(area.cols * 0.3)), h = Math.max(3, Math.round(area.rows * 0.3));
   if (many) {
@@ -56,6 +68,21 @@ export function dropAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number
   if (self && Math.abs(dx) <= CENTRE && Math.abs(dy) <= CENTRE) return null;
   const dir: Dir = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
   return { kind: "split", target: t.id, dir, ghost: half(r, dir), label: ARROW[dir] };
+}
+
+/** A shut drawer's handle on the hint row (`row`), and the tile it shows: what a tile dropped on it joins as a tab. */
+export interface DrawerHandle<I> { from: number; to: number; row: number; shows: I; edge: Dir }
+
+/**
+ * A drop on a shut drawer's handle: the tile goes into that drawer, into the tabs of what it shows
+ * (`layout.move where=tabs`). The ghost is drawn over the handle, within `area`, wide enough for its words.
+ */
+export function handleDrop<I>(handles: DrawerHandle<I>[], area: Rect, x: number, y: number, src: I, refuse?: Refuse<I>): Drop<I> | null {
+  const h = handles.find(h => y === h.row && x >= h.from && x < h.to);
+  if (!h || h.shows === src) return null;
+  const label = `${EDGE_GLYPH[h.edge]} into the drawer`;
+  const cols = Math.min(area.cols, Math.max(h.to - h.from, label.length + 6));
+  return judged({ kind: "tabs", target: h.shows, ghost: { col: Math.max(area.col, Math.min(h.from, area.col + area.cols - cols)), row: Math.max(area.row, h.row - 3), cols, rows: 3 }, label }, refuse);
 }
 
 const ARROW: Record<Dir, string> = { left: "← split left", right: "→ split right", up: "↑ split above", down: "↓ split below" };
