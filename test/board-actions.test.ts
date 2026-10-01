@@ -80,6 +80,17 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(message()).toContain(`an agent (${AS})`);
   });
 
+  test("an agent's open naming no reader (`ep0ch open <id>`) lands in a detail and leaves the person's keys where they are", async () => {
+    const card = B().lanes[0].items[0];
+    B().focus = B().idNamed("preview");
+    const focus = B().focus;
+    const r = await act("open", { id: card.id }) as any;
+    expect(r.id).toBe(card.id);
+    expect(r.reader).toMatch(/^detail/);
+    expect(B().focus).toBe(focus);
+    expect(message()).toContain(`an agent (${AS})`);
+  });
+
   test("the person's g is board.hub: the picker holds the keys, and ⏎ on a board runs board.hub with its id", async () => {
     expect(ran(() => key(char("g")))).toEqual(["board.hub"]);
     await until(() => !!B().hubPicker, "the picker");

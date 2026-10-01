@@ -408,6 +408,10 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(r).toMatchObject({ id: m!.id, opened: m!.id });
       expect(top()).toBeInstanceOf(MessageReader);
       expect(message()).toContain(`an agent (${AS})`);
+      // A message reader's own open pushes a screen too: the same idle wait.
+      A().lastInput = Date.now();
+      await expect(act("open", { id: m!.id })).rejects.toThrow(/at the keys/);
+      expect(titles()).toHaveLength(2);
       key(char("q"));
       home(); A().lastInput = Date.now();
       await expect(act("open", { id: m!.id })).rejects.toThrow(/at the keys/);

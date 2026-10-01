@@ -618,15 +618,15 @@ export class DeliveryBoard extends Desk {
   }
 
   /** `open`: put a note in a reader — the preview (selecting its card when a lane lists it), a detail, a new detail, or a new float. */
-  async openOnBoard(id: string, where = "detail"): Promise<{ reader: string; id: string; why?: string }> {
+  async openOnBoard(id: string, where = "detail", quiet = false): Promise<{ reader: string; id: string; why?: string }> {
     // A card the lanes list, or a note a reader shows, opens at once (the person's ⏎ on it); any other is read first.
     const known = this.lanes.flatMap(l => l.items ?? []).find(x => x.id === id) ?? this.readers().find(r => r.msg?.id === id)?.msg;
     const m = known ?? await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     this.current = m;
-    // An agent's open gives the keys to the reader it opened, unless the person is in an edit, a comment
-    // or the property panel: that keeps them.
-    const keep = !!this.personIn();
+    // An open gives the reader it opened the keys, unless the person is in an edit, a comment or the property
+    // panel (that keeps them), or it's quiet: an agent's naming no reader (`ep0ch open <id>`) never moves them.
+    const keep = quiet || !!this.personIn();
     let shown: ReaderPane | null = null;
     if (where === "preview") {
       // Selecting its card is the lanes moving; shown without one, it's an open into the preview (PIE-453).
@@ -635,7 +635,7 @@ export class DeliveryBoard extends Desk {
       if (!keep) this.focus = this.idNamed("preview")!;
       shown = this.preview;
     } else if (where === "detail" || where === "new-detail") {
-      if (!this.openDetail(m, where === "new-detail") || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
+      if (!this.openDetail(m, where === "new-detail", quiet) || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
         // A locked board (or one whose readers row was taken apart) opens no detail: the note is in the preview, said so.
         const locked = this.shapeRefusal(this.idNamed("preview")!, "opening a detail") ?? this.noReadersRow("opening a detail");
         if (locked && this.preview.msg?.id === m.id) return { reader: "preview", id: m.id, why: locked };
@@ -2189,11 +2189,14 @@ export const BOARD_ACTIONS = new ActionSet<{
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
-    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader; or, with from=<tile>, where that tile's opens land (its link, as on the desk; unlinked, the detail). A program in a tile passes from=$EP0CH_TILE", keys: "⏎, alt+⏎ (new-detail), click on the selected card, ⏎ in the outline or the backlinks",
+    summary: "open a note: reader=detail (default), new-detail, preview (selects its card), float, or a named reader; or, with from=<tile>, where that tile's opens land (its link, as on the desk; unlinked, the detail). An agent's naming neither (`ep0ch open <id>`) lands in a detail and leaves the person's keys where they are. A program in a tile passes from=$EP0CH_TILE", keys: "⏎, alt+⏎ (new-detail), click on the selected card, ⏎ in the outline or the backlinks",
     args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" } },
     async run({ id, from }, { b, reader }, actor) {
       // The desk's own open from= (Desk.openFrom): the tile's link is honoured on the board as on any desk.
-      const r = from !== undefined ? await b.openFrom(id, from, actor) : await b.openOnBoard(id, reader ?? "detail");
+      // An agent naming neither (`ep0ch open <id>`): the detail, quietly (the person's keys stay where they are,
+      // as on the desk); refused, said, when no detail is free. Naming a reader is asking for that one.
+      const r = from !== undefined ? await b.openFrom(id, from, actor)
+        : await b.openOnBoard(id, reader ?? "detail", reader === undefined && actor.kind === "agent");
       b.ctx.flash(`${agentLabel(actor)} opened a note${r.reader ? ` in ${r.reader}` : ""}`);
       return r;
     },

@@ -256,6 +256,9 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(stack()).toBe(depth);
     await expect(app.openBlock(n.kettle.id)).rejects.toThrow(/property panel/);
     key({ kind: "esc" });
+    // A message reader's open pushes a screen: like any agent's screen change, it waits until the person is idle.
+    await expect(app.openBlock(n.kettle.id)).rejects.toThrow(/at the keys/);
+    (app as any).lastInput = 0;
     await app.openBlock(n.kettle.id);
     expect(top()).toBeInstanceOf(MessageReader);
     expect(top().surface.msg.id).toBe(n.kettle.id);

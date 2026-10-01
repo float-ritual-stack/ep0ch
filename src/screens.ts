@@ -515,12 +515,15 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
     },
   },
   "open": {
-    summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere the screen shows it its own way (the welcome's preview, the brief, a message reader's next), or a message reader opens over it. An agent's never takes the person's keys, never lands over what they're typing, and is said on the status bar",
+    summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere a message reader opens over the screen (a message reader's opens another). An agent's waits until the person is idle, never takes their keys, never lands over what they're typing, and is said on the status bar",
     args: { id: { type: "string", about: "the block id" } },
     async run({ id }, { ctx, here }, actor) {
       const m = await ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
-      if (here?.openBlock) { agentMayLand(here, ctx, actor); here.openBlock(m); }
+      // The screens that reach here (a message reader, the showcase) change what's in front of the person: the
+      // idle wait and every other rule of agentMayMove, as for a screen change. (The desk, the board, the
+      // welcome, the brief and the river have an open of their own and never get here.)
+      if (here?.openBlock) { agentMayMove(here, ctx, actor); here.openBlock(m); }
       else shellOpenBlock(m, ctx, here, actor);
       ctx.flash(`opened: ${subject(m).slice(0, 60)}`);
       ctx.redraw();
@@ -549,17 +552,6 @@ export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", 
 
 /** q and Esc on a BBS screen: `screen.back`. */
 const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
-
-/**
- * An agent's open on a screen that shows the note its own way without changing screens (the welcome's
- * preview, the brief): not while the door is handed over or before logon. The screen's own openBlock refuses
- * what would land over the person's typing; the idle wait is agentMayMove's, for a screen change.
- */
-function agentMayLand(here: Screen, ctx: Ctx, actor: Actor) {
-  if (actor.kind !== "agent") return;
-  if (ctx.suspended?.()) throw new ActionRefused(`the person is in the door's ${ctx.suspended()} (the door waits under it); not opened`);
-  if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
-}
 
 /** `open <id>` on a screen with no readers of its own (the menu, a list): a message reader over it. */
 export function shellOpenBlock(m: Msg, ctx: Ctx, here: Screen | undefined, actor: Actor) {
