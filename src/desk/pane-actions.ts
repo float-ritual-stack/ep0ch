@@ -51,7 +51,7 @@ export const PANE_ACTIONS = new ActionSet<{
   },
   "pane.close": {
     summary: "close reader=<pane>: a detail or a float on the board, a drawer that slides over, a desk pane. Refused while it holds an edit or a comment, and to an agent for the pane that has the person's keys",
-    keys: "board x, esc on a drawer; desk ^W x",
+    keys: "board x, esc q on a drawer; desk ^W x",
     args: {},
     run(_, { h, reader }, actor) {
       const r = h.closePane(reader, actor);
