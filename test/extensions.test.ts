@@ -18,7 +18,7 @@ import { bindExtensions, EXT_ACTIONS, extensionList, loadExtensions, mentionsExt
 import { missingKind } from "../src/desk/tile-kinds";
 import { declaredKeys, hintKeys, traceActions } from "../src/surface/actions";
 import { writeFileSync } from "node:fs";
-import { extensionRegion, forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";
+import { askedBy, extensionRegion, forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -155,6 +155,10 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(EXT_ACTIONS.has("ext.horoscope.keep")).toBe(true);
     expect(EXT_ACTIONS.has("ext.tarot.draw")).toBe(false);              // a tile's action is its kind's own
     expect(tileKind("tarot.reading")?.actions?.has("ext.tarot.draw")).toBe(true);
+    // A block action a tile lists is on every screen too (E9), and still the tile's for its keys.
+    expect(EXT_ACTIONS.has("ext.tarot.keep")).toBe(true);
+    expect(tileKind("tarot.reading")?.actions?.has("ext.tarot.keep")).toBe(true);
+    expect(app.actions().actions.filter(a => a.name === "ext.tarot.keep")).toHaveLength(1);
     expect(kindForKey("T")?.kind.kind).toBe("tarot.reading");
     expect(app.actions().actions.map(a => a.name)).toContain("ext.fancy-horror.ward");
   });
@@ -230,26 +234,39 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => flashes.some(f => f.includes("horoscope:: virgo ran")), "the run", 15_000);
   }, 30_000);
 
+  test("r on an @name line asks again as whoever ran it: the line says who asked (C6)", async () => {
+    expect(askedBy("user")).toBe("you");
+    expect(askedBy("agent:helper-7")).toBe("an agent (helper-7)");
+    expect(askedBy("system")).toBe("the service");
+    const { NOTE_ACTIONS } = await import("../src/surface/note");
+    const line = (await board.get(note.id))!.text.split("\n").findIndex(l => l.startsWith("@tidy"));
+    await NOTE_ACTIONS.run("projection.refresh", { block: note.id, line }, { surface, host }, { kind: "agent", id: AS });
+    // A service before pi-herdr-outliner #273 says no one; one with it, the agent.
+    if (!readFileSync(join(outliner!, "src/agent-requests.ts"), "utf8").includes("agent:${actor.actorId}")) return;
+    await until(() => { forgetProjectionAnswers(); return text().includes(`asked by an agent (${AS})`); }, "who asked", 20_000);
+  }, 30_000);
+
   test("tarot: a tile kind from the service opens by ^W o and act, keeps a reading as ext:tarot, saves its block and comes back", async () => {
     desk = new Desk(undefined, { layout: "desk" });
     app.push(desk);
     desk.render(D().ctx);
-    // ^W o T from the reader, which shows the note: the tile's block is that note.
-    await D().act({ action: "open", args: { id: note.id } }, { kind: "user" }).catch(() => {});
+    // ^W o T from the reader, which shows a note: the tile's block is that note.
+    const spot = await board.createBlock(note.id, "Where readings go");
+    await D().act({ action: "open", args: { id: spot.id } }, { kind: "user" }).catch(() => {});
     const reader = D().namedReaders()[0];
     D().focus = [...D().names].find(([, v]: any) => v === reader.name)![0];
-    reader.pane.hold?.(note, desk);
+    reader.pane.hold?.(spot, desk);
     keyIn(ctrl("w")); keyIn(char("o")); keyIn(char("T"));
     const tiles = () => D().layoutGet().tiles as any[];
     await until(() => tiles().some(t => t.kind === "tarot.reading"), "the tarot tile");
     const tarot = tiles().find(t => t.kind === "tarot.reading");
-    expect(tarot.args).toEqual({ block: note.id });
+    expect(tarot.args).toEqual({ block: spot.id });
     desk.render(D().ctx);
     await until(() => tiles().find(t => t.kind === "tarot.reading")?.terminal?.running !== false, "its program");
     // Its actions are its kind's: an agent keeps the reading under the tile's block.
     const kept = await app.act({ action: "ext.tarot.keep", args: {}, reader: tarot.name, as: AS }) as any;
     expect(kept.tile).toBe(tarot.name);
-    const reading = (await board.children(note.id)).find(m => m.author === "ext:tarot");
+    const reading = (await board.children(spot.id)).find(m => m.author === "ext:tarot");
     expect(reading).toBeDefined();
     const drew = await app.act({ action: "ext.tarot.draw", args: {}, reader: tarot.name, as: AS }) as any;
     expect(drew.extension).toBe("tarot");
@@ -278,18 +295,67 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(again.disposed).toBe(true);
   }, 40_000);
 
+  test("who asked goes with an extension's action (requestedBy); a block action a tile lists runs without the tile; ext: is the service's", async () => {
+    const since = board.lastSequence ?? 0;
+    const spot = await board.createBlock(note.id, "A second spot for readings");
+    // On the main menu, with no tarot tile there: the block action runs on block= (E9).
+    app.push(new MainMenu());
+    try {
+      const r = await app.act({ action: "ext.tarot.keep", args: { block: spot.id }, as: AS }) as any;
+      expect(r.extension).toBe("tarot");
+      expect(r.written.length).toBe(1);
+      // The person's run of the same action: who asked is the person.
+      await EXT_ACTIONS.runUntyped("ext.tarot.keep", { block: spot.id }, { ctx: app as any }, { kind: "user" });
+    } finally { app.pop(); }
+    const kept = (await board.children(spot.id)).filter(m => m.author === "ext:tarot");
+    expect(kept).toHaveLength(2);
+    // The writes stay the extension's; the feed records who asked beside them.
+    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 200 })).changes as any[];
+    const asked = changes.filter(c => kept.some(k => k.id === c.blockId) && c.actor?.actorId === "ext:tarot").map(c => c.requestedBy);
+    expect(asked).toEqual([{ author: "agent", actorId: AS }, { author: "user" }]);
+    // Only the service writes as an extension: an agent can't name itself ext:<id> (E6).
+    await expect(app.act({ action: "ext.tarot.keep", args: { block: spot.id }, as: "ext:tarot" })).rejects.toThrow(/extension's actor id/);
+    await expect(app.act({ action: "screen.list", args: {}, as: "EXT:tidy" })).rejects.toThrow(/extension's actor id/);
+  }, 30_000);
+
   test("hot reload: an extension removed while the door runs goes away (its tile says why), and comes back when added", async () => {
     rmSync(join(extDir, "tarot"), { recursive: true, force: true });
     rmSync(join(extDir, "horoscope"), { recursive: true, force: true });
     await until(() => !tileKind("tarot.reading") && !EXT_ACTIONS.has("ext.horoscope.keep"), "the extensions gone", 15_000);
     const tiles = () => D().layoutGet().tiles as any[];
-    expect(tiles().find(t => t.name === "cards")).toMatchObject({ kind: "tarot.reading", unregistered: "tarot.reading" });
+    // Not started yet, it's unregistered; started (a repaint of the desk ran it), it says its kind is gone.
+    const cards = tiles().find(t => t.name === "cards");
+    expect(cards.kind).toBe("tarot.reading");
+    expect(cards.unregistered === "tarot.reading" || /its kind is gone/.test(cards.title)).toBe(true);
     expect(flashes.some(f => /extensions: .*removed/.test(f))).toBe(true);
     expect(mentionsExtension("x\nhoroscope:: leo")).toBe(false);
     install("tarot");
     await until(() => !!tileKind("tarot.reading"), "tarot back", 15_000);
     expect(tiles().find(t => t.name === "cards").unregistered).toBeUndefined();
   }, 40_000);
+
+  test("tarot opened from the tree at the start keeps nothing until it's given a block: never the tree's row (F3)", async () => {
+    const tiles = () => D().layoutGet().tiles as any[];
+    let tree = tiles().find(t => t.kind === "tree");
+    if (!tree) { await app.act({ action: "tile.open", args: { kind: "tree", name: "outline" } }); tree = tiles().find(t => t.kind === "tree"); }
+    D().focus = [...D().names].find(([, v]: any) => v === tree.name)![0];
+    const treePane = D().panes.get(D().focus);
+    expect(treePane.selected()).not.toBeNull();                         // its cursor is on a row (a root, at the start)
+    const before = new Set(tiles().map(t => t.name));
+    keyIn(ctrl("w")); keyIn(char("o")); keyIn(char("T"));
+    await until(() => tiles().some(t => t.kind === "tarot.reading" && !before.has(t.name)), "a tarot tile from the tree");
+    const fresh = tiles().find(t => t.kind === "tarot.reading" && !before.has(t.name));
+    expect(fresh.args ?? {}).toEqual({});
+    await expect(app.act({ action: "ext.tarot.keep", args: {}, reader: fresh.name, as: AS })).rejects.toThrow(/opened on none/);
+    // A reader the person reads in gives its note, even a top-level one (an outline may have several roots).
+    const reader = D().namedReaders()[0];
+    reader.pane.hold?.(note, desk);
+    D().focus = [...D().names].find(([, v]: any) => v === reader.name)![0];
+    const now = new Set(tiles().map(t => t.name));
+    keyIn(ctrl("w")); keyIn(char("o")); keyIn(char("T"));
+    await until(() => tiles().some(t => t.kind === "tarot.reading" && !now.has(t.name)), "a tarot tile from a root");
+    expect(Object.values(tiles().find(t => t.kind === "tarot.reading" && !now.has(t.name)).args ?? {})).toEqual([note.id]);
+  }, 30_000);
 
   test("an extension's words never reach the terminal as escapes: its action's message, its name, its output", async () => {
     const dir = join(extDir, "noisy");

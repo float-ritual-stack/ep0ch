@@ -7,8 +7,9 @@
 //   only says which notes may have them (`mentionsExtension`), from the keys and names the service lists;
 // - each extension action is an `ActionDef` named as the service names it (`ext.<id>.<action>`): a handler
 //   line's or a block's in EXT_ACTIONS (on every screen, as `act` and from a reader's key and click), a tile's
-//   in its tile kind's own set. Every one runs `extensions.act`; the service applies what it writes,
-//   attributed to the extension (`ext:<id>`), whoever asked;
+//   (and the block actions a tile lists, for its keys) in its tile kind's own set. Every one runs
+//   `extensions.act` with who asks (`mutation`); the service applies what it writes, attributed to the
+//   extension (`ext:<id>`), and records who asked beside it (`requestedBy`);
 // - each tile kind (`tileKinds`) registers in the tile-kind registry through `serviceKind` (src/desk/tile-kinds.ts),
 //   a program in a terminal tile on the service's host.
 //
@@ -153,7 +154,8 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);
   try {
-    const r = await ctx.board.actExtension(extension, a.id, target);
+    // Who asked goes with it (`mutation`): the writes stay the extension's, the feed records this as `requestedBy`.
+    const r = await ctx.board.actExtension(extension, a.id, target, actor);
     // The extension's own words (its message) are drawn as text, never as escapes.
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
     const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ext:${oneLine(extension)}` : ""}`;
@@ -271,11 +273,12 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   const agents = served.flatMap(e => (e.agents ?? []).map(a => escape(a.name)));
   const alts = [...(keys.length ? [`(?:${keys.join("|")})::`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
   mentions = alts.length ? new RegExp(`(?:^|\\n)[ \\t]*(?:[-*+][ \\t]+)?(?:${alts.join("|")})`, "i") : null;
-  // Actions: a tile's are its kind's own; the rest (a handler line's, a block's) are EXT_ACTIONS.
+  // Actions: a handler line's and a block's are EXT_ACTIONS, on every screen, even when a tile lists it too
+  // (tarot's keep: `k` in its tile, and act on a block=<id> without one). One on a tile (`tile:<kind>`) is
+  // that kind's own; a tile's set also holds its block actions, for its in-tile keys.
   const tiles = next?.tileKinds ?? [];
-  const ofTiles = new Set(tiles.flatMap(t => t.actions.map(a => a.name)));
   const want = new Map<string, ActionDef<ExtArgs, ExtOn>>();
-  for (const e of served) for (const a of e.actions) if (!ofTiles.has(a.name) && !(a.on ?? "block").startsWith("tile:")) want.set(a.name, lineAction(e, a));
+  for (const e of served) for (const a of e.actions) if (!(a.on ?? "block").startsWith("tile:")) want.set(a.name, lineAction(e, a));
   for (const name of boundActions) if (!want.has(name)) { EXT_ACTIONS.forget(name); boundActions.delete(name); }
   for (const [name, def] of want) { EXT_ACTIONS.define(name, def); boundActions.add(name); }
   // Tile kinds: registered through serviceKind; one whose entry changed is registered again, one gone is taken out.

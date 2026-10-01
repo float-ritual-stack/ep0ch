@@ -426,6 +426,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
 type ShellArgs = {
   "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>;
   "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
+  "open": { id: string };
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
@@ -513,6 +514,22 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       return { video: ctx.video };
     },
   },
+  "open": {
+    summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere a message reader opens over the screen (a message reader's opens another). An agent's waits until the person is idle, never takes their keys, never lands over what they're typing, and is said on the status bar",
+    args: { id: { type: "string", about: "the block id" } },
+    async run({ id }, { ctx, here }, actor) {
+      const m = await ctx.board.get(id);
+      if (!m) throw new ActionRefused(`no block ${id}`);
+      // The screens that reach here (a message reader, the showcase) change what's in front of the person: the
+      // idle wait and every other rule of agentMayMove, as for a screen change. (The desk, the board, the
+      // welcome, the brief and the river have an open of their own and never get here.)
+      if (here?.openBlock) { agentMayMove(here, ctx, actor); here.openBlock(m); }
+      else shellOpenBlock(m, ctx, here, actor);
+      ctx.flash(`opened: ${subject(m).slice(0, 60)}`);
+      ctx.redraw();
+      return { opened: m.id, id: m.id, screen: ctx.screens?.().at(-1)?.title ?? null };
+    },
+  },
   "screen.list": {
     summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first",
     args: {},
@@ -537,8 +554,8 @@ export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", 
 const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
 
 /** `open <id>` on a screen with no readers of its own (the menu, a list): a message reader over it. */
-export function shellOpenBlock(m: Msg, ctx: Ctx, here: Screen | undefined) {
-  agentMayMove(here, ctx, { kind: "agent", id: AGENT_ACTOR_ID });
+export function shellOpenBlock(m: Msg, ctx: Ctx, here: Screen | undefined, actor: Actor) {
+  agentMayMove(here, ctx, actor);
   ctx.push(new MessageReader([m], 0));
 }
 

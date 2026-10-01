@@ -177,7 +177,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
 process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? { writes: "nope" } : { markdown: "fine" } }));`);
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent", provenance: { actorId: "ext:probe" } });
+    const make = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent", provenance: { actorId: "probe-agent-510" } });
     loud = await make(`Omen${OSC52} list${CLEAR}${CSI8}\nbody`);
     wide = await make("会議メモ：来週の発表の準備と資料のまとめ方について 🌙👩‍💻");
     const term = { info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted.push(l); }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };

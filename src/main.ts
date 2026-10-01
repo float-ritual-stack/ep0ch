@@ -55,7 +55,8 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
   ep0ch clients [--ws <root> | <socket>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
-                                   drive a running door; EP0CH_CONTROL names which one
+                                   drive a running door; EP0CH_CONTROL names which one. open <id> is
+                                   act open id=<id>; --as <id> (or EP0CH_AGENT) names the agent
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one

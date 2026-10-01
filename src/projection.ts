@@ -34,6 +34,13 @@ export interface ExtensionOutput {
   component?: { data: unknown; view: unknown };
   inputsChanged?: true; versionChanged?: true;
 }
+/** Who asked an `@name` agent, as the service says it (`user`, `agent:<id>`, `system`), in the door's words. */
+export function askedBy(v: string): string {
+  if (v === "user") return "you";
+  if (v === "system") return "the service";
+  if (v.startsWith("agent:")) return `an agent (${drawnInline(v.slice(6))})`;
+  return drawnInline(v);
+}
 /** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed, and, once its proposal is settled, applied or dismissed (PIE-510)… drawn as the service words it. */
 export interface AgentRequestState { name: string; status: string; message?: string; proposalId?: string; requestedBy?: string }
 
@@ -523,7 +530,7 @@ export function extensionRegion(p: ResourceProjection, w: number, indent: number
   if (ready && p.kind === "component") for (const line of componentBody(p, inner - 2, d).lines) row(line);
   else if (ready && p.output?.markdown.trim()) for (const line of d.markdown(p.output.markdown, inner - 2)) row(line);
   else if (ready && p.kind === "data" && p.fields.length) said(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), C.brown);
-  if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${p.agent.requestedBy === "user" ? "you" : drawnInline(p.agent.requestedBy)}` : ""}`, C.dark);
+  if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${askedBy(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
   if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · r runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);

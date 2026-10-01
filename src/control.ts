@@ -2,7 +2,8 @@
 // text plus structured state (which reader shows which block, what it's editing or commenting on),
 // `snap` composites exactly what the terminal was sent into a PNG, `open` puts a block in front of you,
 // `actions` lists what the current screen can do, and `act` does one of those things as the agent.
-//   bun src/main.ts peek | snap [file.png] | open <block-id> | actions | act <action> [key=value…] [--as <actor-id>]
+//   bun src/main.ts peek | snap [file.png] | open <block-id> [--as <actor-id>] | actions | act <action> [key=value…] [--as <actor-id>]
+//   (`open <id>` is `act open id=<id>`: the one way an agent opens a note, attributed like any act)
 //   bun src/main.ts subscribe [focus.changed,viewport,cursor,layout.changed,marks.changed]   (the live feed)
 //
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
@@ -66,9 +67,10 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
     writeFileSync(path, png(), { mode: 0o600 });
     return { path, cols: d.mirror.cols, rows: d.mirror.rows };
   }
+  // The older form of `act open id=<id>` (`ep0ch open` sends that now): the same action, as `as` names.
   if (req.cmd === "open") {
     if (!req.id) throw new Error("open needs a block id");
-    return { opened: await d.app.openBlock(String(req.id)) };
+    return d.app.act({ action: "open", args: { id: String(req.id) }, as: typeof req.as === "string" ? req.as : undefined });
   }
   if (req.cmd === "actions") return d.app.actions();
   if (req.cmd === "act") {
@@ -192,11 +194,14 @@ export async function controlClient(args: string[]): Promise<number> {
   try {
     // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
     // itself writes only under its state (snapPath).
-    req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd }) : cmd === "open" ? { cmd, id: arg }
+    // `open <id> [from=<tile>] [reader=<tile>] [--as <id>]` is `act open id=<id> …`: one way to open a note.
+    if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>]");
+    req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
+      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${arg}`, ...args.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
-  // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act).
-  if (cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
+  // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).
+  if (req.cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
   const path = controlSocket();
   return new Promise(res => {
     const c = connect(path, () => c.write(JSON.stringify(req) + "\n"));

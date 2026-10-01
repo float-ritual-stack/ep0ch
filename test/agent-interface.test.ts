@@ -8,7 +8,7 @@ import { writeFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { App, type ViewEvent } from "../src/app";
-import { startControl } from "../src/control";
+import { controlClient, startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { NvimClient } from "../src/desk/nvim";
 import { Mirror } from "../src/mirror";
@@ -160,6 +160,47 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     mouse("down", h.from + 1, h.row); mouse("up", h.from + 1, h.row);
     expect((await act("marks.list") as any).marks).toEqual([]);
     f.close();
+  }, 20_000);
+
+  test("one open (E1): `ep0ch open <id>` is act open, named by --as or EP0CH_AGENT; the older {cmd:open} runs the same action", async () => {
+    const said = () => (app as any).message as string;
+    const raw = (req: Record<string, unknown>) => new Promise<any>((res, rej) => {
+      const c = connect(control.path, () => c.write(JSON.stringify(req) + "\n"));
+      let buf = "";
+      c.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) { c.end(); res(JSON.parse(buf.slice(0, i))); } });
+      c.on("error", rej);
+    });
+    const env = { control: process.env.EP0CH_CONTROL, agent: process.env.EP0CH_AGENT };
+    process.env.EP0CH_CONTROL = control.path;
+    delete process.env.EP0CH_AGENT;
+    const log = console.log, err = console.error;
+    console.log = () => {}; console.error = () => {};
+    try {
+      const focus = D().focus;
+      expect(await controlClient(["open", notes.shed.id, "--as", "opener-510"])).toBe(0);
+      expect(said()).toContain("an agent (opener-510)");
+      expect(D().focus).toBe(focus);                                // an agent's open never moves the keys
+      await until(() => (D().layoutGet().tiles as any[]).some(t => t.showing?.id === notes.shed.id), "the note shown");
+      process.env.EP0CH_AGENT = "env-opener-510";
+      expect(await controlClient(["open", notes.long.id])).toBe(0);
+      expect(said()).toContain("an agent (env-opener-510)");
+      // from= works the same way it does on act: where that tile's opens land.
+      expect(await controlClient(["open", notes.shed.id, "from=claude", "--as", "opener-510"])).toBe(0);
+      // Only the service writes as an extension.
+      expect(await controlClient(["open", notes.shed.id, "--as", "ext:tidy"])).toBe(1);
+      expect(await controlClient(["open"])).toBe(1);
+    } finally {
+      console.log = log; console.error = err;
+      for (const [k, v] of [["EP0CH_CONTROL", env.control], ["EP0CH_AGENT", env.agent]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+    // The older request is the open action too: attributed, and refused the same way.
+    const r = await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" });
+    expect(r).toMatchObject({ ok: true, result: { id: notes.shed.id } });
+    expect(said()).toContain("an agent (raw-opener-510)");
+    expect((await raw({ cmd: "open", id: notes.shed.id, as: "ext:tidy" })).error).toMatch(/extension's actor id/);
+    // One `open` in the list: the desk's (the shell's is for screens without one).
+    expect((app.actions().actions as any[]).filter(a => a.name === "open")).toHaveLength(1);
+    await act("open", { id: notes.long.id }, "middle");                // as the next test expects it
   }, 20_000);
 
   test("marks.next takes the person to a tile showing the mark; an agent's is refused while they type", async () => {

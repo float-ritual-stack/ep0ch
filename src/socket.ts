@@ -39,6 +39,8 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * `draft.proposal.dismiss` (PIE-510) dismisses one in the service: its embed line out, marked, to the Trash.
    */
   "drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "draft.proposal.dismiss", "ping.draftPatchCompare",
+  /** PIE-510: the person typed in a held draft (`drafts.touch`): an `@name` line written there runs before any save. */
+  "drafts.touch",
   /**
    * Wave A of the extension design (pi-herdr-outliner PIE-445): a ticket kept as a block the Jira extension
    * owns (`extensions.records`), fetched on save and on open (`resources.projection.materialize`), refreshed
@@ -52,9 +54,10 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * Extensions wave B (pi-herdr-outliner PIE-507): the extension folders (`extensions.list`: handlers, actions,
    * tile kinds), their handler lines' results in the projection slot (`extensions.outputs`), actions run and
    * attributed by the service (`extensions.act`), and `@name` agents a person addresses while they write
-   * (`extensions.agents`, PIE-501).
+   * (`extensions.agents`, PIE-501). PIE-510: `extensions.act` takes who asks (`extensions.act.requester`, the
+   * change feed's `requestedBy`), and only the service writes as an extension (`mutations.ext-reserved`).
    */
-  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents"] as const;
+  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved"] as const;
 /** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
 export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
 
@@ -130,7 +133,10 @@ export interface Change {
   sequence: number; changeId: number; action: string;
   kind: "create" | "edit" | "move" | "delete" | "restore" | "purge" | "annotate" | "draft" | "reorder" | "other";
   blockId?: string; parentId?: string | null; previousParentId?: string | null;
-  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string }; recordedAt: string;
+  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string };
+  /** Who asked for it when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent. */
+  requestedBy?: { author?: string; actorId?: string };
+  recordedAt: string;
 }
 /**
  * An outline event. Besides the service's own, the door makes two after a reconnect:
@@ -152,7 +158,13 @@ export type DraftRequest =
   | { kind: "embed"; requestId: string; holdId: string; blockId: string; line: string; mark?: string; mutation: { author: string; actorId?: string } };
 export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
-export interface DraftHoldHandle { revise(revision: number): void; release(): void }
+export interface DraftHoldHandle {
+  revise(revision: number): void; release(): void;
+  /** The person typed in it (never an agent's patch): told to the service a moment later (`drafts.touch`). */
+  touched?(): void;
+}
+/** How long after the person's last keystroke the service is told they typed (ms); its own quiet timer settles the line. */
+export const DRAFT_TOUCH_MS = 1000;
 /** Lease and heartbeat of a draft hold (ms): a door that dies loses its holds within the lease. */
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
@@ -347,6 +359,8 @@ export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
 export const actorIdOf = (actor: Actor): string => (actor.kind === "agent" ? actor.id : ACTOR_ID);
 /** The actor id a write records: the saver's, then anyone else who wrote part of it, joined by `+`. */
 export const recordedActorId = (actor: Actor): string => [actorIdOf(actor), ...(actor.with ?? [])].join("+");
+/** Who asks for an extension's action (`extensions.act`'s `mutation`): the person, or an agent by its own id. */
+export const requesterOf = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
 /** The `mutation` a write carries for `actor`. */
 export const mutationFor = (actor: Actor = USER) =>
   actor.kind === "agent" || actor.with?.length ? { author: actor.kind, actorId: recordedActorId(actor) } : EDIT_MUTATION;
@@ -460,9 +474,10 @@ export class SocketBoard implements Board {
    * Fetch the tickets a note shows now (`resources.projection.refresh`): a page's, or the ticket block's own.
    * Any client may; the answer is the note's projections after the fetch.
    */
-  async refreshProjections(blockId: string, line?: number): Promise<ResourceProjectionRead> {
+  async refreshProjections(blockId: string, line?: number, actor: Actor = USER): Promise<ResourceProjectionRead> {
     if (this.supports("resources.projection.refresh") !== true) throw new Refused("this outline service can't refresh a ticket from the door (it lacks resources.projection.refresh); restart it from a current checkout");
-    return this.request<ResourceProjectionRead>("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}) });
+    // Who asks (`mutation`, as on extensions.act): an `@name` line asked again records them as who asked.
+    return this.request<ResourceProjectionRead>("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}), mutation: requesterOf(actor) });
   }
 
   /**
@@ -476,11 +491,14 @@ export class SocketBoard implements Board {
   /**
    * Run an extension's action (`extensions.act`): the service runs it and applies what it writes, attributed to
    * the extension (`author: agent`, `actorId: ext:<id>`), whoever asked. `blockId` (and `line`, for a handler
-   * line's action) is what it acts on; `args` a tile's own.
+   * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
+   * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`
+   * (`extensions.act.requester`; an older service is asked without it).
    */
-  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}): Promise<ExtensionActResult> {
+  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     if (this.supports("extensions.act") === false) throw new Refused("this outline service runs no extension actions (it lacks extensions.act); restart it from a current checkout");
-    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target });
+    const mutation = this.supports("extensions.act.requester") !== false ? { mutation: requesterOf(actor) } : {};
+    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, ...mutation });
   }
 
   /**
@@ -1218,7 +1236,7 @@ export class SocketBoard implements Board {
 
   // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
 
-  private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; gone: boolean }>();
+  private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; touch: Timer | null; gone: boolean }>();
 
   /**
    * Hold a live draft of `blockId` on the service: while it's held, an agent's `draft.patch` on that note comes
@@ -1229,7 +1247,7 @@ export class SocketBoard implements Board {
     if (this.supports("drafts.hold") === false || !this.sub) return null;
     const old = this.drafts.get(blockId);
     if (old) this.letGo(old);
-    const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, gone: false };
+    const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
     this.drafts.set(blockId, h);
     void this.holdOn(h);
     h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
@@ -1237,7 +1255,24 @@ export class SocketBoard implements Board {
     return {
       revise: revision => { h.revision = revision; void this.renew(h); },
       release: () => this.letGo(h),
+      touched: () => {
+        if (this.supports("drafts.touch") === false || h.gone) return;
+        if (h.touch) clearTimeout(h.touch);
+        h.touch = setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS);
+        (h.touch as { unref?: () => void }).unref?.();
+      },
     };
+  }
+
+  /**
+   * Tell the service the person typed in a held draft (`drafts.touch`, pi-herdr-outliner PIE-510): it reads the
+   * draft back (a `draft` event of kind `read`) and runs a request line written there once quiet. A hold that
+   * lapsed is taken again, quietly; an older service is asked once.
+   */
+  private async touch(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
+    if (h.gone || !h.holdId) return;
+    try { await this.optional("drafts.touch", "drafts.touch", { holdId: h.holdId }); }
+    catch (e) { if (/expired or was released/.test(e instanceof Error ? e.message : String(e))) { h.holdId = null; await this.holdOn(h); } }
   }
 
   private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
@@ -1255,9 +1290,10 @@ export class SocketBoard implements Board {
     catch { h.holdId = null; await this.holdOn(h); }
   }
 
-  private letGo(h: { blockId: string; holdId: string | null; timer: Timer | null; gone: boolean }) {
+  private letGo(h: { blockId: string; holdId: string | null; timer: Timer | null; touch: Timer | null; gone: boolean }) {
     h.gone = true;
     if (h.timer) clearInterval(h.timer);
+    if (h.touch) clearTimeout(h.touch);
     if (this.drafts.get(h.blockId) === h) this.drafts.delete(h.blockId);
     if (h.holdId) void this.request("drafts.release", { holdId: h.holdId }).catch(() => {});
   }

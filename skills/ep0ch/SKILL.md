@@ -25,7 +25,8 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch act <action> [key=value…] [--as <agent-id>]
-    ep0ch open <block-id>            put a block in front of the person (the door says an agent did)
+    ep0ch open <block-id> [from=<tile>] [--as <agent-id>]
+                                     put a block in front of the person: the same as act open id=<block-id>
     ep0ch snap [out.png]             exactly what the terminal shows
     ep0ch try --ws <root> --copy --outliner <checkout>   your own door on a private copy of a workspace
     ep0ch --skill [<name>]           the stack's skills, or the path of one
@@ -68,8 +69,9 @@ person asked for it.
 - **Inside a door** (a terminal tile, the agent drawer, the daily agent's Herdr pane, the door's drop shell),
   `EP0CH_CONTROL` is already that door's socket, `EP0CH_TILE` your tile's name and `EP0CH_NEST` the layers
   you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
-  tile. Open notes with `ep0ch act open id=<block> from=$EP0CH_TILE`, so they land where your tile's opens
-  go; never name a reader you guessed.
+  tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE` (the same as `ep0ch act open id=<block>
+  from=$EP0CH_TILE`: there is one open), so they land where your tile's opens go, on the desk and the board
+  alike; never name a reader you guessed.
 - Otherwise the control commands talk to the door on `EP0CH_CONTROL`, or the default socket
   `~/.local/state/ep0ch-door/door.sock` — **usually the person's own door.**
 - Act on the person's door only when they asked you to (show them something, make an edit they
@@ -77,7 +79,10 @@ person asked for it.
   it with `ep0ch try … --copy` or against a scratch service, and pass the same `EP0CH_CONTROL` to every
   command. Keep that directory short and mode 700 (`mktemp -d /tmp/…`): a long socket path fails, and the
   door serves no socket in a folder others can reach. `ep0ch-core` has the whole recipe, mouse included.
-- Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act`. The door records and shows it.
+- Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act` and `open`. The door records and shows
+  it. `ext:<id>` is an extension's and is refused: only the outline service writes as an extension. To run
+  one's action, run it as yourself (`act ext.<id>.<action> block=<id>`); the change feed records you as
+  who asked (`requestedBy`) beside the extension's writes.
 
 ## Door tools in Claude
 

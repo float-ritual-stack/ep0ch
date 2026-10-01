@@ -399,5 +399,24 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
     });
+
+    test("the menu has the shell's open: act open, attributed, waits for the person to be idle (E1)", async () => {
+      home(); idle();
+      const [m] = await board.search("Seed library", 5);
+      expect(app.actions().actions.filter(a => a.name === "open")).toHaveLength(1);
+      const r = await act("open", { id: m!.id }) as any;
+      expect(r).toMatchObject({ id: m!.id, opened: m!.id });
+      expect(top()).toBeInstanceOf(MessageReader);
+      expect(message()).toContain(`an agent (${AS})`);
+      // A message reader's own open pushes a screen too: the same idle wait.
+      A().lastInput = Date.now();
+      await expect(act("open", { id: m!.id })).rejects.toThrow(/at the keys/);
+      expect(titles()).toHaveLength(2);
+      key(char("q"));
+      home(); A().lastInput = Date.now();
+      await expect(act("open", { id: m!.id })).rejects.toThrow(/at the keys/);
+      expect(titles()).toEqual(["main menu"]);
+      await expect(act("open", { id: "00000000-0000-4000-8000-000000000000" })).rejects.toThrow(/no block/);
+    });
   });
 });

@@ -711,7 +711,25 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     if (!m) throw new ActionRefused(`no block ${id}`);
     // A linked tile that takes notes its own way (an extension's kind): it takes it there.
     if (to !== undefined && this.openInto(to, m, actor.kind === "agent")) { this.redraw(); return { reader: this.nameOf(to), id: m.id }; }
-    return { reader: this.openShown(m), id: m.id };
+    return this.land(m);
+  }
+
+  /**
+   * An agent's `open id=` naming no reader and no tile (`ep0ch open <id>`): where this screen puts an agent's
+   * open (`openBlock`: the desk's focused tile's link or a following reader, the board's detail, the welcome's
+   * preview, the brief's step), never the reader the person types in.
+   */
+  async openLanding(id: string): Promise<{ reader: string | null; id: string }> {
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    return this.land(m);
+  }
+  /** `openBlock(m)`, saying which reader shows it now. */
+  private land(m: Msg): { reader: string | null; id: string } {
+    this.openBlock(m);
+    // A reader that keeps what it's given (a detail) before one that follows (a preview showing it already).
+    const showing = this.namedReaders().filter(r => r.pane.msg?.id === m.id);
+    return { reader: (showing.find(r => !kindOf(r.pane)?.follower) ?? showing[0])?.name ?? null, id: m.id };
   }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch act`) ─────────
@@ -2894,11 +2912,15 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string 
     run({ query, limit }, { d }, actor) { return d.searchNotes(query, limit, actor); },
   },
   "open": {
-    summary: "make a note the desk's current one and show it in reader=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it). A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search",
+    summary: "make a note the desk's current one and show it in reader=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it). An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search",
     args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" } },
     async run({ id, from }, { d, reader }, actor) {
-      const r = from !== undefined ? await d.openFrom(id, from, actor) : await d.openIn(id, reader, actor);
-      d.ctx.flash(`${agentLabel(actor)} opened a note in reader ${r.reader}`);
+      // An agent naming neither (`ep0ch open <id>`): where the focused tile's opens land, never the reader the
+      // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
+      const r = from !== undefined ? await d.openFrom(id, from, actor)
+        : reader === undefined && actor.kind === "agent" ? await d.openLanding(id)
+        : await d.openIn(id, reader, actor);
+      d.ctx.flash(`${agentLabel(actor)} opened a note${r.reader ? ` in reader ${r.reader}` : ""}`);
       return r;
     },
   },

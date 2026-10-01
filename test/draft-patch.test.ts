@@ -3,10 +3,10 @@
 // runs anywhere; the rest starts a scratch outliner service (never a real outline) with fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Draft } from "../src/edit";
-import { SocketBoard, type Actor } from "../src/socket";
+import { ACTOR_ID, actorIdOf, mutationFor, SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -16,6 +16,8 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const TIDY: Actor = { kind: "agent", id: "tidy" };
+/** The tidy extension's `@tidy` agent, as the service's draft.patch names it. */
+const EXT_TIDY: Actor = { kind: "agent", id: "ext:tidy" };
 const span = (text: string, observed: string, replacement: string) => {
   const start = text.indexOf(observed);
   return { observed, replacement, range: { start, end: start + observed.length }, unit: "utf16" as const };
@@ -59,6 +61,20 @@ describe("a patch in a draft being typed in", () => {
     // Who made it is lit where it landed, and the save names both of them.
     expect(d.render(60, 8).map(visible).join("\n")).toContain("@tidy · just now");
     expect(d.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["tidy"] });
+  });
+
+  test("a draft only an extension's @agent changed saves as the saver's, naming it: never as ext:<id> (PIE-510)", () => {
+    const d = typing();
+    const p = span(d.text, "The beans   go along  the fence.", "The beans go along the fence.");
+    expect(d.applyPatch({ patchId: "e1", patches: [p], revision: 3, mark: "@tidy tidy this" }, EXT_TIDY)).toEqual({ applied: true });
+    expect(d.writers).toEqual([EXT_TIDY]);
+    expect(d.recordAs({ kind: "user" })).toEqual({ kind: "user", with: ["ext:tidy"] });
+    expect(mutationFor(d.recordAs({ kind: "user" }))).toEqual({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
+    expect(d.recordAs({ kind: "agent", id: "helper-7" })).toEqual({ kind: "agent", id: "helper-7", with: ["ext:tidy"] });
+    // An agent that alone wrote is still the one a save is recorded as.
+    const a = typing();
+    a.applyPatch({ patchId: "a1", patches: [span(a.text, "The beans   go along  the fence.", "The beans go along the fence.")], revision: 3, mark: "@tidy tidy this" }, TIDY);
+    expect(a.recordAs({ kind: "user" })).toEqual(TIDY);
   });
 
   test("a line the patch adds above moves the cursor's line down in the text, but not on screen", () => {
@@ -232,7 +248,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.s.render(50, 12, e.h);
     expect(e.d.cursorRow).toBe(row);
     expect(frameRow()).toBe(was);
-    expect(e.s.render(50, 12, e.h).lines.map(visible).join("\n")).toContain("an agent (tidy) typed this");
+    // The demo's actor: `patch-demo` (pi-herdr-outliner PIE-510), `tidy` before it.
+    expect(e.s.render(50, 12, e.h).lines.map(visible).join("\n")).toMatch(/an agent \((patch-demo|tidy)\) typed this/);
     expect((await board.get(e.id))!.text).toBe(saved.text);
     // His save carries both: one write, the block keeps its id, and note A's deep links still resolve.
     const a = await create(`Note A\nsee [[morning plan]] and ((${e.id}^deep-link))`);
@@ -312,14 +329,14 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(a.s.agent?.did).toBe("edited text above your cursor");
     await NOTE_ACTIONS.run("edit.save", {}, { surface: a.s, host: a.h }, { kind: "user" });
     expect(a.s.draft).toBeNull();
-    expect(said(a.s, a.h)).not.toContain("an agent (tidy)");
+    expect(said(a.s, a.h)).not.toMatch(/an agent \((patch-demo|tidy)\)/);
     // Put aside (closed with its changes kept as unsent): said in the past, with no cursor in it.
     const b = await editing(`Bulbs\nplant   deep\n\n${tidyMark}\n`);
     await patchDemo(b.id);
     expect(b.s.agent?.did).toBe("edited text above your cursor");
     NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: b.s, host: b.h }, { kind: "user" });
     const now = said(b.s, b.h);
-    expect(now).toContain("an agent (tidy) edited the draft you put aside");
+    expect(now).toMatch(/an agent \((patch-demo|tidy)\) edited the draft you put aside/);   // patch-demo since pi-herdr-outliner PIE-510
     expect(now).not.toContain("your cursor");
   }, 30_000);
 
@@ -331,6 +348,76 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(e.d.text).not.toContain(`!((${id}))`);
     expect(e.s.agent?.did).toBe("took a dismissed proposal's line out of your draft");
   }, 30_000);
+
+  test("the person saves a draft only @tidy's extension changed: the service takes it as theirs, naming ext:tidy (PIE-510)", async () => {
+    const e = await editing(`Shed list\nthe  rake   and the hoe\n\n${tidyMark}\n`);
+    // What the service's extension runtime sends as the tidy extension's patch (a client can't name ext:tidy).
+    e.d.replace(e.d.text.replace("the  rake   and the hoe", "the rake and the hoe"), EXT_TIDY);
+    const since = board.lastSequence ?? 0;
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    expect((await board.get(e.id))!.text).toContain("the rake and the hoe");
+    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    expect(changes.find(c => c.blockId === e.id && c.kind === "edit")?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
+  }, 30_000);
+
+  test("an extension's action updates the note while the person types: it lands in the draft as ext:<id>, and their save is theirs, naming it", async () => {
+    // A fixture extension whose action tidies the note's double spaces (an `update`, applied through draft.patch).
+    const dir = join(scratch.workspace, "extensions", "spacer");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "spacer", version: 1, name: "Spacer", run: ["bun", "spacer.ts"],
+      actions: [{ id: "tidy", label: "Tidy spaces", on: "block", effects: "write" }],
+    }));
+    writeFileSync(join(dir, "spacer.ts"), `const r = await Bun.stdin.json();
+const t = r.input.target, text = r.input.context.block.text;
+process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writes: [{ op: "update", blockId: t.blockId, expectedRevision: t.revision, text: text.replace(/ {2,}/g, " ") }] } }));`);
+    const end = Date.now() + 15_000;
+    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "spacer" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    const e = await editing("Bike shed\nthe  pump   and the tubes\n\nstill to list:\n");
+    e.type("lights");
+    const since = board.lastSequence ?? 0;
+    // An agent runs it, as itself: who asked goes with it; the edit is the extension's.
+    await agent.actExtension("spacer", "tidy", { blockId: e.id }, { kind: "agent", id: "helper-510" });
+    await until(() => e.d.text.includes("the pump and the tubes"), "the tidy in the draft");
+    expect(e.d.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
+    expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    expect((await board.get(e.id))!.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
+    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
+    // Only the extension wrote it this time: still saved as the person's, naming the extension.
+    const only = await editing("Tool wall\nthe  saw  and the plane\n");
+    await agent.actExtension("spacer", "tidy", { blockId: only.id }, { kind: "user" });
+    await until(() => only.d.text.includes("the saw and the plane"), "the tidy in the second draft");
+    expect(only.d.writers).toEqual([{ kind: "agent", id: "ext:spacer" }]);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: only.s, host: only.h }, { kind: "user" });
+    expect((await board.get(only.id))!.text).toContain("Tool wall\nthe saw and the plane");
+  }, 30_000);
+
+  test("an @tidy line the person writes in a held draft runs before any save (drafts.touch), and lands in the draft (F1)", async () => {
+    const d = new Draft("note-x", 1, "Plan");
+    let touched = 0;
+    d.onPersonTyped = () => touched++;
+    d.replace("Plan\nmore", TIDY);
+    expect(touched).toBe(0);                                              // an agent's patch never touches
+    d.replace("Plan\nmore\nmine");
+    expect(touched).toBe(1);
+    if (!readFileSync(join(outliner!, "src/types.ts"), "utf8").includes('"drafts.touch"')) return;   // an outliner before #273
+    expect(board.supports("drafts.touch")).toBe(true);
+    cpSync(join(outliner!, "extensions", "tidy"), join(scratch.workspace, "extensions", "tidy"), { recursive: true });
+    const end = Date.now() + 15_000;
+    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "tidy" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    const e = await editing("Bench list\n");
+    e.type("the  vice   and the clamps");
+    e.d.newline(false); e.s.render(50, 12, e.h);
+    e.type("@tidy tidy the line above");
+    const saved = (await board.get(e.id))!.text;
+    await until(() => e.d.text.includes("the vice and the clamps"), "@tidy's answer in the draft", 20_000);
+    expect(e.d.writers.map(actorIdOf)).toContain("ext:tidy");
+    expect((await board.get(e.id))!.text).toBe(saved);                    // nothing saved yet: it waits for the person
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    expect((await board.get(e.id))!.text).toContain("the vice and the clamps\n@tidy tidy the line above");
+  }, 40_000);
 
   test("a closed draft lets go of its hold: the next patch goes to the saved note", async () => {
     const e = await editing("Compost\nturn  it   weekly");
@@ -364,7 +451,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("peek says the draft is held, where the cursor is, and which patches it can undo", async () => {
     const e = await editing(`Seeds\nsow   them\n\n${tidyMark}\n`);
     await patchDemo(e.id);
-    expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by: "tidy" }], lit: ["tidy · just now"] });
-    expect(e.s.hint()).toContain("ctrl+z undo tidy's edit");
+    const by = e.s.describe().editing!.patches[0]?.by ?? "";
+    expect(["patch-demo", "tidy"]).toContain(by);                        // `patch-demo` since pi-herdr-outliner PIE-510
+    expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by }], lit: [`${by} · just now`] });
+    expect(e.s.hint()).toContain(`ctrl+z undo ${by}'s edit`);
   }, 30_000);
 });

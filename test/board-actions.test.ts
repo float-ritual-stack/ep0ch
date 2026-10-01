@@ -64,6 +64,33 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     await expect(act("board.hub", { id: (await board.request<any>("create", { parentId: null, text: "Not a board" })).id })).rejects.toThrow("isn't a board");
   });
 
+  test("the board's open takes from= (E2): a tile's link is honoured, unlinked it lands in the detail, an unknown tile is named", async () => {
+    const card = B().lanes[0].items[0];
+    await expect(act("open", { id: card.id, from: "nowhere" })).rejects.toThrow(/no tile nowhere/);
+    const tiles = (await act("layout.get") as any).tiles as any[];
+    // A lane's opens land in the preview (its link): from= a lane, there.
+    const lane = tiles.find(t => t.kind === "query")!;
+    expect(lane.link).toBe("preview");
+    expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ reader: "preview", id: card.id });
+    // An unlinked tile (the outline drawer's tree): where the board's own open puts a note, its detail.
+    expect(tiles.find(t => t.name === "tree").link ?? null).toBeNull();
+    const unlinked = await act("open", { id: card.id, from: "tree" }) as any;
+    expect(unlinked.id).toBe(card.id);
+    expect(unlinked.reader).toMatch(/^detail/);
+    expect(message()).toContain(`an agent (${AS})`);
+  });
+
+  test("an agent's open naming no reader (`ep0ch open <id>`) lands in a detail and leaves the person's keys where they are", async () => {
+    const card = B().lanes[0].items[0];
+    B().focus = B().idNamed("preview");
+    const focus = B().focus;
+    const r = await act("open", { id: card.id }) as any;
+    expect(r.id).toBe(card.id);
+    expect(r.reader).toMatch(/^detail/);
+    expect(B().focus).toBe(focus);
+    expect(message()).toContain(`an agent (${AS})`);
+  });
+
   test("the person's g is board.hub: the picker holds the keys, and ⏎ on a board runs board.hub with its id", async () => {
     expect(ran(() => key(char("g")))).toEqual(["board.hub"]);
     await until(() => !!B().hubPicker, "the picker");
