@@ -18,6 +18,7 @@ import type { Msg } from "../src/board";
 import type { Key } from "../src/term";
 import type { Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
 import { outliner, Scratch } from "./scratch";
 
@@ -215,8 +216,12 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
       dirty = true;
       if (same(base, after)) continue;          // ran an action that changed nothing (refused): fine
       checkHint(label);
+      // A key that leaves the screen holding the keys starts an input state (a prefix, a palette, an edit,
+      // a comment, the property panel), whether or not an action opened it: its keys are probed next.
+      const opened = after.holds && !base.holds && after.top === base.top && k.kind !== "mouse";
       if (runs.length) {
         if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
+        if (opened) states.push(k);
         continue;
       }
       if (after.holds && after.top === base.top) { if (k.kind !== "mouse") states.push(k); continue; }
@@ -282,7 +287,21 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   const DESK: Scenario[] = [];
 
   // ── the reader (the note surface), the edit, the comment and the property panel ──
-  const READER: Scenario[] = [];
+  /** A seeded note by its title, read whole: what a reader scenario opens. */
+  const note = async (title: string) => {
+    const hit = (await board.search(title, 10)).find(m => m.text.startsWith(title) || m.text.split("\n")[0]!.includes(title));
+    return (hit && (await board.get(hit.id))) ?? notes[0]!;
+  };
+  const reading = (title: string) => async () => new MessageReader([await note(title)], 0);
+  const READER: Scenario[] = [
+    ["reader: notebook", reading(SEED.notebook)],
+    ["reader: notebook on an element", reading(SEED.notebook), [k("]")]],
+    ["reader: notebook with a fold picked", reading(SEED.notebook), [k(")")]],
+    ["reader: whiteboard", reading(SEED.whiteboard)],
+    ["reader: recipe", reading(SEED.recipe)],
+    ["reader: shed", reading(SEED.shed)],
+    ["reader: brief", reading(SEED.brief)],
+  ];
 
   const ALL = [...SCREENS, ...BOARD, ...RIVER, ...DESK, ...READER];
   const only = process.env.PARITY_ONLY?.split(",");
