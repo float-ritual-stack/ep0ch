@@ -104,7 +104,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   /** The hint row as composed, when it was too long for the row and was cut ("? more"); where "? more" is on it. */
   private hintFull: string | null = null;
   private moreChip: { from: number; to: number } | null = null;
-  /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click. */
+  /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
   private hintMoreOpen = false;
   /** ^W P: the policy panel over the focused tile's containers. */
   private policyPanel: PolicyPanel | null = null;
@@ -961,6 +961,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     if (this.picker) { this.picker.draw(canvas, cols, rows); placements = []; }
     if (this.policyPanel) { this.policyPanel.draw(canvas, cols, rows, this); placements = []; }
     const hint = this.hints(cols);
+    if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     return { lines: canvas.lines(), placements };
@@ -1229,11 +1230,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   }
 
   key(k: Key, ctx: Ctx): void {
-    // ? shows the whole hint row when it was cut (where nothing is typed: a draft, a filter, a terminal); the
-    // next key puts it away again, and does what it does.
-    const typing = this.inPty() || !!this.search || !!this.picker || !!this.policyPanel || this.overHint() !== null || !!this.focusedReader()?.holdsKeys || !!this.panes.get(this.focus)?.typing?.() || (this.panes.get(this.focus) instanceof ScreenTile && (this.panes.get(this.focus) as ScreenTile).holdsKeys());
-    if (k.kind === "char" && !k.ctrl && k.ch === "?" && this.hintFull && !this.prefix && !typing) { this.cmd("keys.more"); return; }
-    if (this.hintMoreOpen && k.kind !== "mouse") { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
+    // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
+    // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
+    if (k.kind === "char" && !k.ctrl && k.ch === "?" && this.hintFull && !this.personTyping()) { this.cmd("keys.more"); return; }
+    if (this.hintMoreOpen) {
+      const chip = k.kind === "mouse" && this.moreChip && k.y === this.area.row + this.area.rows && k.x >= this.moreChip.from && k.x < this.moreChip.to;
+      if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
+    }
     if (!this.screenKey(k, ctx)) this.keyIn(k, ctx);
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
@@ -2590,7 +2593,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 const UNLOCK = "alt+k or a click on ▣ locked unlocks it";
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
 const MORE = paint("|08 · |15?|08 more") + RESET;
-const MORE_WIDTH = 9;
+const MORE_WIDTH = width(MORE);
 /**
  * A hint row's parts (split at " · ") put on lines at most `w` wide, a part never split unless it's wider than a
  * line. Each line starts with the colour codes in force where its first part began.

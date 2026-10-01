@@ -90,6 +90,18 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     expect(lines().some(l => l.includes("─ keys "))).toBe(true);
     key({ kind: "mouse", action: "down", button: 0, x: at + 1, y: ROWS - 2 });
     expect(lines().some(l => l.includes("─ keys "))).toBe(false);
+    // Another key puts it away and does its own job (Tab moves the keys on); a click elsewhere puts it away too.
+    const d = screen() as any;
+    key(char("?"));
+    const was = d.focus;
+    key({ kind: "tab" });
+    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
+    expect(d.focus).not.toBe(was);
+    key(char("?"));
+    const r = d.layoutGet().tiles.find((t: any) => t.name === "now").rect;                  // a reader, not a terminal
+    key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
+    key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
+    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
     // It's the person's view: an agent is told where the keys are instead.
     await expect(app.act({ action: "keys.more", args: {}, as: "hint-agent-509" })).rejects.toThrow(/actions/);
   });
