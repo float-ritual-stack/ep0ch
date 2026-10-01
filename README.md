@@ -365,6 +365,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
+| `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it; a `^W` chord's row shows it at once |
 | `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, drawers in or out, links, layout loads), its contents stay live (reading, editing, terminals, drawers sliding, tabs, zoom) |
 | `Ctrl+W` then `h j k l` | focus by direction |
 | `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |

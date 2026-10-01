@@ -621,11 +621,17 @@ function toEdge<I>(rest: LNode<I>, d: Drawer<I>, weight: number): LNode<I> {
   }
   return before(dr.edge) ? splitOf(ax, [dr, rest], [weight, 1 - weight]) : splitOf(ax, [rest, dr], [1 - weight, weight]);
 }
-/** Move drawer `d` to outer edge `to` of the whole layout, keeping what it holds, its id and policy. */
-export function drawerToEdge<I>(root: LNode<I>, d: Drawer<I>, to: Dir, weight = 0.26): LNode<I> | null {
+/**
+ * Move drawer `d` to outer edge `to` of the whole layout, keeping what it holds, its id and policy. A drawer at an
+ * outer edge already keeps the share of the screen it slides out to (the board's outline is 0.3 of it, and `S`
+ * moving it across keeps that); one from inside the layout takes `weight`.
+ */
+export function drawerToEdge<I>(root: LNode<I>, d: Drawer<I>, to: Dir, weight?: number): LNode<I> | null {
   const rest = without(root, d);
   if (!rest) return null;
-  return toEdge(rest, { ...d, edge: to }, weight);
+  const p = parentNode(root, d);
+  const outer = p && p.parent === root && p.parent.dir === axisOf(d.edge) ? p.parent.weights[p.i]! / (p.parent.weights.reduce((a, w) => a + w, 0) || 1) : null;
+  return toEdge(rest, { ...d, edge: to }, weight ?? (outer !== null && outer > 0 && outer < 1 ? outer : 0.26));
 }
 /**
  * Put container `c` (a split of tiles, say) in a drawer where it is, sliding from the edge it sits at; with `to`,
@@ -777,6 +783,8 @@ const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.i
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** The glyph a drawer's header, its handle and a drop into it show for the edge it slides from. */
 export const EDGE_GLYPH: Record<Dir, string> = { left: "⇤", right: "⇥", up: "⤒", down: "⤓" };
+/** An edge in words, as the status bar says it: "a drawer on the top". */
+export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
 /**

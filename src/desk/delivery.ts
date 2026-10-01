@@ -1728,6 +1728,8 @@ export class DeliveryBoard extends Desk {
     return null;
   }
 
+  protected override floatHint(): string { return "drag title · drag ◢ · H J K L move · o dock · x close"; }
+
   protected override screenHint(): string {
     const rd = this.panes.get(this.focus);
     const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";

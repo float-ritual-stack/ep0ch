@@ -101,6 +101,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
   private slid: PlacedDrawer<number>[] = [];
   /** The lock chip at the end of the hint row, as last drawn. */
   private lockChip: { from: number; to: number } | null = null;
+  /** The hint row as composed, when it was too long for the row and was cut ("? more"); where "? more" is on it. */
+  private hintFull: string | null = null;
+  private moreChip: { from: number; to: number } | null = null;
+  /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click. */
+  private hintMoreOpen = false;
   /** ^W P: the policy panel over the focused tile's containers. */
   private policyPanel: PolicyPanel | null = null;
   /**
@@ -955,7 +960,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     }
     if (this.picker) { this.picker.draw(canvas, cols, rows); placements = []; }
     if (this.policyPanel) { this.policyPanel.draw(canvas, cols, rows, this); placements = []; }
-    canvas.text(0, rows - 2, this.hints(cols), cols);
+    const hint = this.hints(cols);
+    if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
+    canvas.text(0, rows - 2, hint, cols);
     return { lines: canvas.lines(), placements };
   }
 
@@ -1010,7 +1017,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, focused, float ? 2 : 0);
     const fits = Math.max(1, r.cols - 5 - width(tail));
     const title = (float && width(head) > fits ? pad(head, fits) : head) + tail;
-    const hint = own?.hint ?? (focused ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? FLOAT_HINT : pane.hint()) : "");
+    const hint = own?.hint ?? (focused ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
     canvas.box(r, fg(edgeC), title, hint, this.preset?.frame);
     const out: Placement[] = [];
     if (!view) return out;
@@ -1111,6 +1118,30 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     canvas.text(Math.max(0, Math.min(this.area.cols - label.length, d.x + 1)), Math.min(this.area.rows - 1, d.y + 1), `${bg(C.magenta)}${fg(C.white)}${label}${RESET}`);
   }
 
+  /**
+   * The whole hint row, wrapped, in a box just above it: the parts a narrow row cut (keys.more, or a ^W chord's
+   * row, which shows it at once). Each line keeps the colour its first part was written in.
+   */
+  private drawHintMore(canvas: Canvas, cols: number, rows: number) {
+    const lines = wrapHint(this.hintFull!, Math.max(10, cols - 4));
+    const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
+    const r: Rect = { col: 0, row: rows - 2 - h, cols, rows: h };
+    canvas.clear(r, bg(C.black));
+    canvas.box(r, fg(C.brown), `${fg(C.yellow)}keys`, this.prefix ? "" : fg(C.dark) + "any key closes");
+    lines.slice(0, h - 2).forEach((l, i) => canvas.text(r.col + 2, r.row + 1 + i, l, cols - 4));
+  }
+
+  /** `keys.more`: show the whole hint row above it (or put it away); refused when the row isn't cut. */
+  keysMore(): { shown: boolean } {
+    if (!this.hintFull) throw new ActionRefused("the hint row shows all its keys already");
+    this.hintMoreOpen = !this.hintMoreOpen;
+    this.redraw();
+    return { shown: this.hintMoreOpen };
+  }
+
+  /** A float's frame hint, with this screen's keys for docking and closing it (the board has its own o and x). */
+  protected floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f dock · ^W x close"; }
+
   protected hints(cols: number): string {
     const rd = this.panes.get(this.focus);
     // The drawers slid shut, as handles at the end of the row (its edge, what it holds): a click opens one, and a
@@ -1127,13 +1158,20 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     this.lockChip = chip ? { from: x, to: x + chip.length } : null;
     if (chip) tail += `${locked ? bg(C.yellow) + fg(C.black) : fg(C.dark)}${chip}${RESET} `;
     const room = Math.max(0, cols - hw);
-    // Too long for the row (drawer handles take its end): cut between its parts, never inside a key's.
+    // Too long for the row (drawer handles take its end): cut between its parts, never inside a key's, and say
+    // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
+    this.hintFull = null; this.moreChip = null;
     const fit = (s: string) => {
       if (width(s) <= room) return s;
       const plain = [...visibleText(s)];
       let cut = 0;
-      for (let i = 0; i + 2 < plain.length && i <= room; i++) if (plain[i] === " " && plain[i + 1] === "·" && plain[i + 2] === " ") cut = i;
-      return cut ? headOf(s, cut) + RESET : s;
+      for (let i = 0; i + 2 < plain.length && i <= room - MORE_WIDTH; i++) if (plain[i] === " " && plain[i + 1] === "·" && plain[i + 2] === " ") cut = i;
+      if (!cut) return s;
+      this.hintFull = s;
+      // A chord's row shows the rest at once, above it: its ? would be the chord's next key.
+      if (this.prefix) return headOf(s, cut) + RESET + paint("|08 · …") + RESET;
+      this.moreChip = { from: cut + 3, to: cut + MORE_WIDTH };
+      return headOf(s, cut) + RESET + MORE;
     };
     const line = (s: string) => pad(fit(s), room) + tail;
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
@@ -1159,7 +1197,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · |15alt+d|08 daily · |15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
+          : this.screenHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.preset ? "" : "|15alt+d|08 daily · "}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.current).slice(0, 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -1190,7 +1228,12 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
     else r.then(opened, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
   }
 
-  key(k: Key, ctx: Ctx) {
+  key(k: Key, ctx: Ctx): void {
+    // ? shows the whole hint row when it was cut (where nothing is typed: a draft, a filter, a terminal); the
+    // next key puts it away again, and does what it does.
+    const typing = this.inPty() || !!this.search || !!this.picker || !!this.policyPanel || this.overHint() !== null || !!this.focusedReader()?.holdsKeys || !!this.panes.get(this.focus)?.typing?.() || (this.panes.get(this.focus) instanceof ScreenTile && (this.panes.get(this.focus) as ScreenTile).holdsKeys());
+    if (k.kind === "char" && !k.ctrl && k.ch === "?" && this.hintFull && !this.prefix && !typing) { this.cmd("keys.more"); return; }
+    if (this.hintMoreOpen && k.kind !== "mouse") { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
     if (!this.screenKey(k, ctx)) this.keyIn(k, ctx);
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
@@ -2459,6 +2502,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
         const h = this.handles.find(h => k.x >= h.from && k.x < h.to);
         if (h) this.cmd("tile.drawer", { open: true, container: h.drawer.id }, this.nameOf(h.id));
         else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.cmd("layout.lock");
+        else if (this.moreChip && k.x >= this.moreChip.from && k.x < this.moreChip.to) this.cmd("keys.more");
         return;
       }
       if (this.linking) {
@@ -2544,6 +2588,25 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost {
 
 /** How to unlock a locked screen, said with every refusal it causes. */
 const UNLOCK = "alt+k or a click on ▣ locked unlocks it";
+/** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
+const MORE = paint("|08 · |15?|08 more") + RESET;
+const MORE_WIDTH = 9;
+/**
+ * A hint row's parts (split at " · ") put on lines at most `w` wide, a part never split unless it's wider than a
+ * line. Each line starts with the colour codes in force where its first part began.
+ */
+export function wrapHint(s: string, w: number): string[] {
+  const parts = s.replace(/^((?:\x1b\[[\d;]*m)*)\s+/, "$1").split(" · ");
+  const out: string[] = [];
+  let line = "", sgr = "", lineSgr = "";
+  for (const p of parts) {
+    if (line && width(line) + 3 + width(p) > w) { out.push(lineSgr + line + RESET); line = ""; }
+    if (!line) { lineSgr = sgr; line = p; } else line += " · " + p;
+    for (const m of p.matchAll(/\x1b\[[\d;]*m/g)) sgr = m[0] === RESET ? "" : sgr + m[0];
+  }
+  if (line) out.push(lineSgr + line + RESET);
+  return out;
+}
 /** The first `n` visible cells of a styled string, its colour codes kept. */
 function headOf(s: string, n: number): string {
   let out = "", seen = 0;
@@ -2558,7 +2621,6 @@ function headOf(s: string, n: number): string {
 const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col", "row", "cols", "rows"].every(k => typeof (r as Record<string, unknown>)[k] === "number" && Number.isFinite((r as Record<string, number>)[k]));
 /** A float's least size. */
 const FLOAT_MIN = { cols: 20, rows: 5 };
-const FLOAT_HINT = "drag title · drag ◢ · H J K L move · o dock · x close";
 const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
@@ -2714,7 +2776,16 @@ class SearchOverlay {
 interface DeskOn { d: Desk; reader?: string }
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
-export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string }; "focus": Record<string, never>; "search": { query?: string; limit?: number } }, DeskOn>("desk", {
+export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string }; "focus": Record<string, never>; "search": { query?: string; limit?: number }; "keys.more": Record<string, never> }, DeskOn>("desk", {
+  "keys.more": {
+    summary: "show the whole hint row in a box above it, when the screen is too narrow for it and it was cut (it ends \"? more\"); again, or the next key, puts it away. The person's view: an agent's is refused (peek and actions say every key already)",
+    keys: "?, a click on ? more",
+    args: {},
+    run(_, { d }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused("keys.more is the person's view of their hint row; `actions` lists every key");
+      return d.keysMore();
+    },
+  },
   "search": {
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the search overlay, ⏎ there opens the hit (`open`)",
     keys: "/",
