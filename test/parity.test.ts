@@ -55,7 +55,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
-    process.env.EP0CH_DAILY_AGENT = "sh";
+    // The daily layout's agent: a program that prints nothing, so no prompt arrives between two looks.
+    process.env.EP0CH_DAILY_AGENT = "sleep 3600";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
     process.env.VISUAL = process.env.EDITOR = "true";
     external.run = () => {};
@@ -116,7 +117,12 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
+  const stats = { fresh: 0, freshMs: 0, second: 0 };
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
+    stats.fresh++; const f0 = Date.now();
+    try { return await freshIn(label, make, setup); } finally { stats.freshMs += Date.now() - f0; }
+  };
+  const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     (Desk as any).kept = null;
     // The agent drawer is the App's, over every screen: put away, its program ended.
@@ -137,7 +143,7 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
     for (let i = 0; i < 2; i++) { snap(new Set()); await settle(); }
     // Until it holds still (a terminal's prompt arriving), at most a second.
-    for (let i = 0, was = snap(new Set()); i < 20; i++) { await Bun.sleep(25); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
+    for (let i = 0, was = snap(new Set()); i < 50; i++) { await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
@@ -238,21 +244,36 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     if (process.env.PARITY_DEPTH === "1") return;
     // The second key, from each input state: typing that keeps the state is the state's; a key that ends it
     // with a change must run an action (a cancel that puts the screen back as it was is fine).
+    // Second keys: every key that types text or is named, and every ctrl and alt key an action here declares
+    // (PARITY_FULL=1: every key, as the first key is).
+    const top = A().stack.at(-1) as Screen | undefined;
+    const declared = new Set([...(top?.actions?.().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
+    const seconds = process.env.PARITY_FULL ? PROBE_KEYS : PROBE_KEYS.filter(k => (k.kind !== "alt" && !(k.kind === "char" && k.ctrl)) || declared.has(keyName(k)!));
     for (const k1 of states) {
       dirty = true;
-      for (const k2 of PROBE_KEYS) {
-        if (dirty) { mask = await fresh(label, make, [...setup, k1]); dirty = false; }
+      let rest: Snap | null = null, entered: Snap | null = null;
+      for (const k2 of seconds) {
+        if (dirty) {
+          mask = await fresh(label, make, setup);
+          rest = snap(mask);
+          press(k1); await settle(); snap(mask); await settle();
+          entered = snap(mask); dirty = false;
+        }
         const mid = snap(mask);
         const runs: ActionRun[] = [];
         const stop = traceActions(r => runs.push(r));
         try { push(k2); await settle(); } finally { stop(); }
         const after = snap(mask);
         if (same(mid, after)) continue;
-        // Typing that keeps the state goes on from where it is (most second keys are text); anything else
-        // starts the next key from the state again.
-        const typing = !runs.length && after.holds && after.top === mid.top;
-        if (!typing) dirty = true;
-        if (typing) continue;
+        // Typing that keeps the state goes on from where it is (most second keys are text).
+        if (!runs.length && after.holds && after.top === mid.top) continue;
+        // A cancel (the screen as it was before k1): k1 again enters the state, no rebuild needed.
+        if (!runs.length && rest && alike(rest, after)) {
+          press(k1); await settle();
+          if (!entered || !alike(entered, snap(mask))) dirty = true;
+          continue;
+        }
+        dirty = true;
         // A finding is made only from the state built again: the keys before this one may have moved it on.
         const problem = await second(label, make, setup, k1, k2);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
@@ -262,6 +283,7 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
 
   /** `k1` then `k2` on a fresh screen: what's wrong, or null. */
   async function second(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k1: Key, k2: Key): Promise<string | null> {
+    stats.second++;
     const mask = await fresh(label, make, [...setup, k1]);
     const mid = snap(mask);
     const runs: ActionRun[] = [];
@@ -357,7 +379,8 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length, t0 = Date.now();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms\n`);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks)\n`);
+      stats.fresh = stats.freshMs = stats.second = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
     }, 600_000);
