@@ -275,11 +275,11 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 287, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 292, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/note.ts", "l": 47, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3429, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 479, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 496, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 3484, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 484, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 501, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -403,11 +403,11 @@
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 59, "m": "export class Desk" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 791, "m": "protected cmd(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1631, "m": "private intoRefusal" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1632, "m": "private intoRefusal" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 459, "m": "protected async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2403, "m": "floatTile(sel" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1605, "m": "protected floatRefusal(id: number, what: string)" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2434, "m": "protected docking(id: number, name: string)" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2404, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1606, "m": "protected floatRefusal(id: number, what: string)" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2435, "m": "protected docking(id: number, name: string)" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 88, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 104, "m": "\"layout.lock\": {" }
       ],
@@ -578,7 +578,7 @@
         { "r": "door", "p": "src/river/river.ts", "l": 152, "m": "export class River" },
         { "r": "door", "p": "src/river/river.ts", "l": 78, "m": "const PEEK = 24" },
         { "r": "door", "p": "src/river/river.ts", "l": 89, "m": "class OutlineIndex" },
-        { "r": "door", "p": "src/river/river.ts", "l": 1455, "m": "export const RIVER_ACTIONS" }
+        { "r": "door", "p": "src/river/river.ts", "l": 1456, "m": "export const RIVER_ACTIONS" }
       ],
       "questions": [
         { "text": "Re-expressed as a preset: a per-split placement hook, cover, hidden leaves, node attributes, an open rule.", "finding": "A-F4", "route": "PIE-493" },
@@ -613,7 +613,7 @@
       "does": "Find a note: the desk's /, the river's palette, the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2845, "m": "class SearchOverlay" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2846, "m": "class SearchOverlay" },
         { "r": "door", "p": "src/river/river.ts", "l": 128, "m": "function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
