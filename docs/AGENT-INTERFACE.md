@@ -449,13 +449,16 @@ rule now holds by test, not by review:
   person's own cursor or view, an agent's either moves its own (the board's `card.select`) or is refused with
   the agent's way named (`view.scrollTo`, `tree.pick`, `list.read`).
 
-`test/parity.test.ts` keeps it so. It builds every screen the menu opens against a scratch outline, and
+`test/parity.ts` (run by `test/parity-*.test.ts`) keeps it so. It builds every screen the menu opens against a scratch outline, and
 more states of the board, the river, the desk and the reader, then presses every key a person can press and
 clicks across the screen, one at a time from where it opens, and from each input state a second key. Every
-action run is traced (`traceActions`). A key or click that changed the screen (its rows, `describe()`, the
-screen stack or the video mode) without running an action whose `keys` names it fails, as does a hint that
+action run is traced (`traceActions`). A key or click that changed the screen (its rows and the status bar
+under them, `describe()`, the screen stack, the agent drawer being up, entered or resized, or the video mode)
+without running an action whose `keys` names it fails, as does a hint that
 names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
 with no action is checked once more on a fresh screen before it fails. `PARITY_ONLY=<screen,…>`,
 `PARITY_DEPTH=1` and `PARITY_LOG=<file>` narrow it while working on one screen.
 
-What the probe doesn't reach: a terminal tile's own keys (they're its program's), and the logon and logoff.
+What the probe doesn't reach: a terminal tile's own keys (they're its program's), the logon and logoff, the
+message a key flashes on the status bar (it runs out on a timer), the drawer's own rows (its terminal's), and
+ctrl+e in a tile beside the note (the probe edits over the whole door; `desk-tiles.test.ts` covers the tile).
