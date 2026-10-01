@@ -265,8 +265,14 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──
+  const kanban = () => MENU_SCREENS.find(([key]) => key === "K")![1](app) as Screen;
   const BOARD: Scenario[] = [
-    ["board: preview", () => MENU_SCREENS.find(([key]) => key === "K")![1](app) as Screen, [TAB]],
+    ["board: preview", kanban, [TAB]],
+    ["board: detail", kanban, [{ kind: "enter" }]],
+    ["board: float", kanban, [TAB, k("o")]],
+    ["board: outline drawer", kanban, [k("t")]],
+    ["board: backlinks drawer", kanban, [k("b")]],
+    ["board: hub picker", kanban, [k("g")]],
   ];
 
   // ── the river in its other states ──
