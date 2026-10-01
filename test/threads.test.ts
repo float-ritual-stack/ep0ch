@@ -16,6 +16,7 @@ import { NOTE_ACTIONS, NoteSurface } from "../src/surface/note";
 import { THREAD_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -51,7 +52,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
   const frame = () => b.render(B().ctx).lines;
-  const rect = (region: string): Rect => { b.render(B().ctx); return B().rects.get(region); };
+  const rect = (region: string): Rect => { b.render(B().ctx); return BV.rectOf(b, region); };
   const find = (lines: string[], text: string, r: Rect) => {
     for (let y = r.row; y < r.row + r.rows; y++) {
       const l = plain(lines[y] ?? ""), x = l.indexOf(text, r.col);
@@ -82,7 +83,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await until(() => P().msg?.id === note.id && !P().msg!.partial, "the whole note");
     await until(() => P().surface.comments?.length === 2, "the comments");
     await shows("Canes along the fence");
-    B().focus = "preview";
+    BV.at(b, "preview");
   };
 
   beforeAll(async () => {

@@ -16,6 +16,7 @@ import { SCROLL_ROWS } from "../src/scroll";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -47,14 +48,14 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
   const AS = "test-agent-411";
   const B = () => b as any;
   /** A detail's name for agents (PIE-491: kept while it lives, not its place in the row). */
-  const nm = (p: ReaderPane): string => B().readerName(p, "detail");
+  const nm = (p: ReaderPane): string => B().nameOf(B().idOf(p));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   const scrollOf = (p: ReaderPane) => p.surface.scroll;
   const frame = () => b.render(B().ctx).lines.map(plain);
   const hints = () => frame().at(-1)!;
-  const rect = (region: string) => { b.render(B().ctx); return B().rects.get(region); };
+  const rect = (region: string) => { b.render(B().ctx); return BV.rectOf(b, region); };
   const wheel = (r: { col: number; row: number; cols: number; rows: number }, action: "wheel-down" | "wheel-up" = "wheel-down") =>
     key({ kind: "mouse", action, button: 0, x: r.col + Math.floor(r.cols / 2), y: r.row + Math.floor(r.rows / 2) });
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), "the whole note");
@@ -101,7 +102,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key(char(k));
       await until(() => !!d.session, "the comment session");
       await Bun.sleep(30);
-      expect(B().focus).toBe("detail0");
+      expect(BV.where(b)).toBe("detail0");
       const title = frame()[rect("detail0").row]!;
       expect(title).toContain(k === "m" ? "comments" : "quoting");
       expect(hints()).toContain(`detail 1 · ${k === "m" ? "comments" : "quoting"}`);
@@ -125,12 +126,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     (board as any).get = async (...a: Parameters<SocketBoard["get"]>) => { await Bun.sleep(250); return get(...a); };
     try {
       key(char("e"));
-      expect(B().focus).toBe("preview");
+      expect(BV.where(b)).toBe("preview");
       key({ kind: "esc" });                                                    // cancels the edit that is opening, nothing else
-      expect(B().focus).toBe("preview");
+      expect(BV.where(b)).toBe("preview");
       expect(message()).toBe("not opened");
       key({ kind: "esc" });
-      expect(B().focus).toBe("lanes");
+      expect(BV.where(b)).toBe("lanes");
       await Bun.sleep(450);
       expect(B().preview.draft).toBeNull();
       const sel = B().lanes[B().lane].sel;
@@ -145,13 +146,13 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       expect(d.draft).toBeNull();
       // And a comment's passage picker (C reads the note first too).
       key({ kind: "tab" }); key({ kind: "tab" });
-      expect(B().focus).toBe("detail0");
+      expect(BV.where(b)).toBe("detail0");
       key(char("C")); key({ kind: "tab" });
       await Bun.sleep(450);
       expect(d.session).toBeNull();
     } finally { (board as any).get = get; }
     // With the service answering, e opens the edit and the person is in it: keys type.
-    B().focus = "detail0";
+    BV.at(b, "detail0");
     const d = B().details[0] as ReaderPane;
     key(char("e"));
     await until(() => !!d.draft, "the draft");
@@ -170,7 +171,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });          // detail 2, focused
     const d1 = B().details[1] as ReaderPane;
     await whole(d1);
-    expect(B().focus).toBe("detail1");
+    expect(BV.where(b)).toBe("detail1");
     key(char("e"));
     await until(() => !!d1.draft, "the person's draft");
     await Bun.sleep(20);
@@ -178,7 +179,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(await act("open", { id: cards.gate.id })).toMatchObject({ id: cards.gate.id });
     expect(B().details).toContain(d1);
     expect(B().details).not.toContain(d0);
-    expect(B().focus).toBe(`detail${B().details.indexOf(d1)}`);
+    expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
     expect(B().details.find((d: ReaderPane) => d !== d1).msg.id).toBe(cards.gate.id);
     const text = d1.draft!.text;
     key(char("t")); key(char("o"));                                           // board keys (outline, pop out) if they leaked
@@ -187,7 +188,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // Both details held (an agent's edit in the other): the agent's open is refused, the person untouched.
     await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d1)));
     await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/both details hold/);
-    expect(B().focus).toBe(`detail${B().details.indexOf(d1)}`);
+    expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
     key(char("!"));
     expect([d1.draft!.text.length, d1.draft!.text.includes("to!")]).toEqual([text.length + 3, true]);
     for (const d of B().details) await act("edit.close", { discard: true }, nm(d));
@@ -200,14 +201,14 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });
     const p1 = B().details[1] as ReaderPane;
     key({ kind: "backtab" });
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     key(char("i"));
     expect(p0.surface.panel).not.toBeNull();
     await act("open", { id: cards.gate.id });
     expect(B().details).toContain(p0);
     expect(B().details).not.toContain(p1);
     expect(p0.surface.panel).not.toBeNull();
-    expect(B().focus).toBe(`detail${B().details.indexOf(p0)}`);
+    expect(BV.where(b)).toBe(`detail${B().details.indexOf(p0)}`);
     expect(B().entered.in(p0)).toBe(true);
     key({ kind: "esc" });
     expect(p0.surface.panel).toBeNull();
@@ -245,7 +246,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "esc" });
     await act("edit", {}, "detail1");
     key({ kind: "tab" }); key({ kind: "tab" });
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     const text = d.draft!.text, cursor = [d.draft!.row, d.draft!.col];
     for (const k of [char("j"), { kind: "pgdn" } as Key, { kind: "end" } as Key]) key(k);
     expect(scrollOf(d)).toBe(0);
@@ -271,7 +272,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await fresh();
     await act("open", { id: card.id }, "float");
     const f = B().floats[0];
-    await whole(f.pane, card.id);
+    await whole(B().panes.get(f.id), card.id);
     key({ kind: "pgdn" });
     const line = frame()[f.rect.row]!.slice(f.rect.col, f.rect.col + f.rect.cols);
     expect(line).toMatch(/ · \d+%/);
@@ -293,7 +294,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
 
   test("an agent's edit in the preview while the person is in the lanes doesn't take their keys", async () => {
     await fresh();
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     await act("edit", {}, "preview");
     const p = B().preview as ReaderPane;
     expect(p.draft).not.toBeNull();
@@ -302,10 +303,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key(char("j"));
     expect(B().lanes[B().lane].sel).toBe(sel + 1);                             // the lanes moved
     expect(p.draft!.text).toBe(text);                                         // nothing typed into the agent's draft
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     // Tab to it: the frame and hints say whose it is and how to get in; j scrolls, doesn't type.
     key({ kind: "tab" });
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     expect(hints()).toContain("preview · editing · e ⏎ enter the edit");
     expect(frame()[rect("preview").row]).toContain("editing (e enters)");
     key(char("j")); key(char("x"));
@@ -318,7 +319,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect([p.draft!.text.length, p.draft!.text.includes("?"), p.draft!.dirty]).toEqual([text.length + 1, true, true]);
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(p.draft).toBeNull();
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
   });
 
   test("an agent's comment session in a detail: tab and esc still move the person; the wheel scrolls where the pointer is", async () => {
@@ -329,11 +330,11 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "esc" });
     await act("threads", {}, "detail1");
     expect(d.session).not.toBeNull();
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     key({ kind: "tab" }); key({ kind: "tab" });
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     key({ kind: "tab" });
-    expect(B().focus).toBe("lanes");                                           // tab went round, not into the thread list
+    expect(BV.where(b)).toBe("lanes");                                           // tab went round, not into the thread list
     wheel(rect("preview"));
     expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
     await act("comment.close", {}, "detail1");
@@ -349,13 +350,13 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await Bun.sleep(20);
     wheel(rect("preview"));
     expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     expect(d.draft).not.toBeNull();
     // A click elsewhere leaves the edit (unchanged: it just closes) and focuses what was clicked.
     const r = rect("preview");
     key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
     key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     expect(d.draft).toBeNull();
   });
 
@@ -364,7 +365,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key(char("i"));
     const p = B().preview as ReaderPane;
     expect(p.surface.panel).not.toBeNull();
-    expect(B().focus).toBe("preview");
+    expect(BV.where(b)).toBe("preview");
     b.render(B().ctx);
     key({ kind: "pgdn" }); key(char(" "));
     b.render(B().ctx);
@@ -384,7 +385,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().details.length).toBe(2);
     await act("edit", {}, "detail1");                                          // an agent's edit, left open in detail 1
     await act("open", { id: cards.gate.id }, "float");
-    expect(B().focus).toBe("float0");
+    expect(BV.where(b)).toBe("float0");
     key(char("o"));                                                            // dock it
     expect(B().floats.length).toBe(0);
     expect(B().details).toContain(d0);
@@ -393,7 +394,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // Both details editing: docking is refused, and says why.
     await act("open", { id: cards.shed.id }, "float");
     await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d0)));
-    B().focus = "float0";
+    BV.at(b, "float0");
     key(char("o"));
     expect(B().floats.length).toBe(1);
     expect(message()).toContain("not docked: both details hold edits or comments");
@@ -412,7 +413,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().lane).toBe(queued);
     expect(B().lanes[queued].items[B().lanes[queued].sel].id).toBe(picked);
     expect(B().preview.msg.id).toBe(picked);
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
     await act("card.move", { lane: "Doing", card: cards.gate.id });
     await until(() => !B().moving, "the move");
   });
@@ -430,7 +431,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(border.indexOf("█")).toBeGreaterThan(0);                             // scrolled: the thumb isn't at the top
     // The float and the desk's reader do the same.
     await act("open", { id: cards.gate.id }, "float");
-    await whole(B().floats[0].pane);
+    await whole(B().panes.get(B().floats[0].id));
     const f = B().floats[0].rect, fl = frame();
     expect(fl[f.row]).toMatch(/\d+%/);
     expect(Array.from({ length: f.rows - 2 }, (_, i) => fl[f.row + 1 + i]![f.col + f.cols - 1]).join("")).toContain("█");

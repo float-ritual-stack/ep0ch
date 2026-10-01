@@ -15,6 +15,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const card = (props: Record<string, string>, over: Partial<Msg> = {}): Msg => ({
   id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
@@ -59,7 +60,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   const settled = () => until(() => !B().moving && B().lanes.every((l: any) => l.items && !l.want), "lanes", 8000);
   const select = async (name: string, id: string) => {
     await until(() => laneIds(name).includes(id), `${id} in ${name}`, 8000);
-    B().focus = "lanes"; B().lane = laneIndex(name); B().lanes[B().lane].sel = laneIds(name).indexOf(id); B().follow();
+    BV.at(b, "lanes"); B().lane = laneIndex(name); B().lanes[B().lane].sel = laneIds(name).indexOf(id); B().follow();
   };
   const lastBy = async (id: string, author: "agent" | "user") => {
     const log = await other.request("activity.recent", { author, limit: 50 });
@@ -134,7 +135,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
 
   test("n in a roadmap lane: the workboard's allocator makes the item, issues its work-id and files it in its project's queue", async () => {
     await settled(); await Bun.sleep(400); await settled();                // the last move's own change records have been read
-    B().focus = "lanes"; B().lane = laneIndex("Queued");
+    BV.at(b, "lanes"); B().lane = laneIndex("Queued");
     const full = B().refreshes.full, asked = B().asked.length, sent = board.sent.length;
     press({ kind: "char", ch: "n" });
     await until(() => B().composer && !B().composer.planning, "the composer and the lane's plan");
@@ -195,7 +196,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
 
   test("n in an OR roadmap lane without a default: the text must meet the group; a refusal keeps the text", async () => {
     await settled();
-    B().focus = "lanes"; B().lane = laneIndex("Doing");
+    BV.at(b, "lanes"); B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
     await until(() => B().composer && !B().composer.planning, "the composer and the lane's plan");
     expect(B().composer.needs).toEqual(["(project=pi-outliner OR project=ep0ch-door)"]);
@@ -215,7 +216,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
 
   test("Review, Validate and Done lanes refuse a new roadmap item: create in Queued or Doing, then move", async () => {
     await settled();
-    B().focus = "lanes"; B().lane = laneIndex("Review");
+    BV.at(b, "lanes"); B().lane = laneIndex("Review");
     press({ kind: "char", ch: "n" });
     await until(() => !B().composer, "the refusal closes the empty composer");
     expect(message()).toBe("can't create in Review: Review lists work-stage=review: roadmap items are created in Queued or Doing, then moved");
@@ -232,16 +233,16 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await select("Doing", cards.kettle.id);
     const q = B().lanes[laneIndex("Queued")];
     const queuedSel = q.items[q.sel].id;
-    B().collapsed.add("Queued"); B().save();
+    await act("lane.collapse", { lane: "Queued", on: true });
     const r: any = await act("card.create", { lane: "Queued", text: "Clean the gutters [priority::low] [arc::home] [track::roof]" });
     await until(() => laneIds("Queued").includes(r.id), "the agent's item in Queued", 8000);
     await settled();
     expect(B().lane).toBe(laneIndex("Doing"));
     expect(B().card()?.id).toBe(cards.kettle.id);
     expect(q.items[q.sel].id).toBe(queuedSel);
-    expect(B().collapsed.has("Queued")).toBe(true);
-    expect(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).collapsed).toContain("Queued");
-    B().collapsed.delete("Queued"); B().save();
+    expect(B().describe().lanes.find((l: any) => l.name === "Queued").collapsed).toBe(true);
+    expect(JSON.stringify(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).layout)).toContain(`"name":"Queued","id":"t${B().laneIds()[laneIndex("Queued")]}","view":"${B().lanes[laneIndex("Queued")].view}","collapsed":true`);
+    await act("lane.collapse", { lane: "Queued", on: false });
     // An agent trashes and restores another card in the person's lane: the person stays on theirs.
     await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id });
     await until(() => !laneIds("Doing").includes(cards.bulb.id), "bulb gone", 8000);
@@ -252,34 +253,31 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
   });
 
-  test("a drawer pins into the layout by T or by a click on its [ ] pin, and unpins the same way", async () => {
+  test("a drawer docks into the layout by T or by a click on its header's ⇤ drawer; T puts it back in its drawer", async () => {
     await settled();
-    B().focus = "lanes";
+    BV.at(b, "lanes");
     const drawn = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
-    const clickPin = () => {
-      const r = B().rects.get("pin:tree");
-      press({ kind: "mouse", action: "down", button: 0, x: r.col + 1, y: r.row });
-      press({ kind: "mouse", action: "up", button: 0, x: r.col + 1, y: r.row });
-    };
     press({ kind: "char", ch: "t" });
-    expect(drawn()).toContain("[ ] pin · outline");          // a drawer: slides over, not pinned
+    expect(drawn()).toContain("outline ⇤ drawer");             // a drawer: slides over, not docked
     expect(B().treePinned).toBe(false);
-    clickPin();
+    const r = BV.rectOf(b, "tree"), at = drawn().split("\n")[r.row]!.indexOf("⇤ drawer");
+    press({ kind: "mouse", action: "down", button: 0, x: at + 1, y: r.row });
+    press({ kind: "mouse", action: "up", button: 0, x: at + 1, y: r.row });
     expect(B().treePinned).toBe(true);
-    expect(drawn()).toContain("[x] pin · outline");
-    expect(drawn()).toContain("T unpin");
-    clickPin();
+    expect(drawn()).not.toContain("outline ⇤ drawer");
+    press({ kind: "char", ch: "T" });                         // the key toggles it back
     expect(B().treePinned).toBe(false);
-    press({ kind: "char", ch: "T" });                         // the key is the same toggle
+    press({ kind: "char", ch: "T" });
     expect(B().treePinned).toBe(true);
     press({ kind: "char", ch: "T" });
     press({ kind: "esc" });
     expect(B().treePinned).toBe(false);
+    expect(B().treeOpen).toBe(false);
   });
 
   test("esc on a typed card asks twice; a click away keeps it unsent, never created; an agent's create never touches it", async () => {
     await settled();
-    B().focus = "lanes"; B().lane = laneIndex("Doing");
+    BV.at(b, "lanes"); B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     type("Paint the railings");
@@ -293,7 +291,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer).toBeNull();
     expect(message()).toBe("the new card in Doing was kept as unsent, not created · n in Doing brings it back");
     expect((await board.children(queue.id)).length).toBe(before);
-    B().focus = "lanes"; B().lane = laneIndex("Doing");
+    BV.at(b, "lanes"); B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     expect(B().composer.draft.text).toBe("Paint the railings");
@@ -476,11 +474,11 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "char", ch: "e" });
     await until(() => B().details.some((d: any) => d.editing), "the draft");
     press({ kind: "char", ch: "!" });
-    B().focus = "lanes";
+    BV.at(b, "lanes");
     const why = "it's open for editing with unsaved changes · save (ctrl+s) or close (esc) the edit first";
     await expect(act("card.trash", { card: cards.shelf.id, confirm: cards.shelf.id })).rejects.toThrow(why);
     await expect(act("step.set", { card: cards.shelf.id, step: "2" })).rejects.toThrow(why);
-    B().focus = `detail${B().details.findIndex((d: any) => d.editing)}`;
+    BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(b.unsaved()).toBe(false);
   });

@@ -18,6 +18,7 @@ import { ACTOR_ID, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
 import type { ViewRead } from "../src/views";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 // ── pure ──────────────────────────────────────────────────────────────────────
 
@@ -404,7 +405,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
   test("moves still land, and grammar lanes are refused with the construct", async () => {
     await Bun.sleep(300);
     const at = (name: string) => B().lanes.findIndex((l: any) => l.name === name);
-    const pick = (lane: string, id: string) => { B().focus = "lanes"; B().lane = at(lane); B().lanes[at(lane)].sel = laneIds(lane).indexOf(id); };
+    const pick = (lane: string, id: string) => { BV.at(b, "lanes"); B().lane = at(lane); B().lanes[at(lane)].sel = laneIds(lane).indexOf(id); };
     pick("Doing", cards.gate.id);
     B().moveTo(at("Done")); await until(() => !B().moving && laneIds("Done").includes(cards.gate.id), "the move");
     expect((await current(cards.gate.id)).properties.find((p: any) => p.key === "stage").value).toBe("done");

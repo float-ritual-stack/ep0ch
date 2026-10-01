@@ -15,6 +15,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 // ── fictional sources ──────────────────────────────────────────────────────────────────────────────
 
@@ -203,7 +204,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
   const frame = () => b.render(B().ctx).lines.map(plain);
-  const rect = (name: string) => { b.render(B().ctx); return B().rects.get(name) as { col: number; row: number; cols: number; rows: number }; };
+  const rect = (name: string) => { b.render(B().ctx); return BV.rectOf(b, name) as { col: number; row: number; cols: number; rows: number }; };
   const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
   const clickText = (region: string, text: string) => {
     const r = rect(region), lines = frame();
@@ -214,7 +215,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   /** The drawer's list as drawn: its status line (wrapped over `linkHead` lines) joined into one, then one line per row. */
   const drawer = () => {
     const r = rect("backlinks"), lines = frame().slice(r.row + 1, r.row + r.rows - 1).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trimEnd());
-    const head = B().linkHead as number;
+    const head = B().linksTile.head as number;
     // A wrapped line ends with its separator, or had no room for one.
     const status = lines.slice(0, head).map(l => l.trim()).reduce((all, l) => !all ? l : all.endsWith("·") ? `${all} ${l}` : `${all} · ${l}`, "");
     return [status, ...lines.slice(head)];
@@ -226,7 +227,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1 && B().preview.msg?.id === target.id, "the card in the preview", 10_000);
     ch("b");
-    await until(() => !!B().links?.data, "the backlinks");
+    await until(() => !!B().linksTile.data && !!B().describe().backlinks, "the backlinks");
   };
 
   beforeAll(async () => {
@@ -286,12 +287,13 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
         info.cols = w;
         for (const typing of [false, true]) {
           if (typing) { ch("/"); for (const c of "poster") ch(c); }
-          const lines = drawer(), r = rect("backlinks"), head = B().linkHead as number;
+          const lines = drawer(), r = rect("backlinks"), head = B().linksTile.head as number;
           const raw = frame().slice(r.row + 1, r.row + 1 + head).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trim());
           expect(raw.every(l => l.length > 0)).toBe(true);
           expect(lines[0]).toBe(typing ? peek().status.replace("Filter: poster", "Filter: poster▏") : peek().status);
           for (const c of ["kind", "stage", "sort", "resolved", "related"]) {
-            const at = B().rects.get(`bl:${c}`);
+            const seg = B().linksTile.controls.find((x: any) => x.control === c);
+            const at = seg && { col: r.col + 1 + seg.x, row: r.row + 1 + seg.y, cols: seg.cols, rows: 1 };
             expect(at && at.col + at.cols <= r.col + r.cols - 1 && at.row > r.row && at.row < r.row + 1 + head).toBe(true);
           }
           if (typing) key({ kind: "esc" });
@@ -335,10 +337,10 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(peek().rows.map((r: any) => r.id).filter(Boolean)).toEqual([ids.rota]);
     expect(drawer()[0]).toStartWith("Filter: rota▏ · 1 of 9 match · 6 filtered");
     key({ kind: "esc" });
-    expect(B().links).not.toBeNull();                                                 // esc undid the filter, not the drawer
+    expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the drawer
     expect(peek().options.filter).toBe("");
     ch("/"); for (const c of "bgt") ch(c);                                           // the board's b, g and t: letters here
-    expect(B().picker).toBeNull();
+    expect(B().hubPicker).toBeNull();
     expect(B().treeOpen).toBe(false);
     key({ kind: "backspace" }); key({ kind: "backspace" }); key({ kind: "backspace" });
     for (const c of "ana") ch(c);
@@ -379,9 +381,9 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(peek().groups.find((g: any) => g.kind === "comment").expanded).toBe(false);
     clickText("backlinks", "Offer spare onion sets");
     await until(() => B().details[0]?.msg?.id === ids.draft, "the source in a detail");
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     // Back in the drawer, ⏎ replaces that detail and alt+⏎ opens a second one.
-    B().focus = "backlinks";
+    BV.at(b, "backlinks");
     ch("j");
     await until(() => B().linksPreview.msg?.id === ids.waiting, "the preview");
     key({ kind: "alt-enter" });
@@ -419,7 +421,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
       const flat = await board.backlinks(target.id);
       expect(flat.sources.some(s => s.blockId === target.id)).toBe(false);          // today's rule: never the note itself
       key({ kind: "esc" }); ch("b");
-      await until(() => !!B().links?.data, "the backlinks");
+      await until(() => !!B().linksTile.data && !!B().describe().backlinks, "the backlinks");
       const p = peek();
       expect(p.faceted).toBe(false);
       expect(p.status).toBe("9 of 9 match · not grouped: this service sends no facets · Sort: Updated ↓");

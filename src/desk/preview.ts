@@ -37,7 +37,13 @@ export class PreviewPane extends ReaderPane {
   reads = 0;
   constructor(public source: PreviewSource) { super(false); }
 
-  override title() { const f = this.fileNow(); return `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`; }
+  /** What its title calls it in place of its source (the board's: "follows the board"). */
+  label: string | null = null;
+  override title() {
+    const f = this.fileNow();
+    const what = this.label ?? `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`;
+    return [what, this.surface.state()].filter(Boolean).join(" · ");
+  }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
 
   /** The desk's current note moved: a preview follows its source, not that. */

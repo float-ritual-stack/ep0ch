@@ -50,7 +50,9 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
 - **The layout words** (UI-GRAMMAR, "Layout: block, tile, container, screen"): a *block* is outline content,
   never UI; a *tile* shows one thing (its kind from the tile-kind registry); a *container* arranges tiles
   (`split`, `tabs`, `columns`, `drawer`, `flow`) under a saved *policy*; a *screen* is a saved tree of
-  containers and tiles. *Pane* means Herdr's or tmux's box only. Don't switch on a tile kind's name.
+  containers and tiles. *Pane* means Herdr's or tmux's box only. Don't switch on a tile kind's name. A
+  container's tiles can come from data (a tile source: the board's columns are `hub:<id>`); a screen is a
+  preset on the desk's one engine (the board, the welcome, the brief), never a second layout host.
 - **Build the real shape.** Prefer the design that makes the end state true (the open registry over a
   closed list with one escape hatch) and ship it in coherent slices of that architecture. Don't pick the
   minimal option "until we outgrow it".

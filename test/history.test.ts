@@ -14,6 +14,7 @@ import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { Term, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -232,12 +233,12 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
     await whole(B().preview, n.jobs.id);
-    B().focus = "lanes";
+    BV.at(b, "lanes");
     key({ kind: "enter" });
     const d = B().details[0] as ReaderPane;
     await whole(d, n.jobs.id);
     await until(() => frame().map(plain).join("\n").includes("Stake the beans"), "the link drawn as its title");
-    expect(B().focus).toBe("detail0");
+    expect(BV.where(b)).toBe("detail0");
     return d;
   };
 
@@ -275,7 +276,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     expect(current(d)).toMatchObject({ kind: "link", label: "Paint the shed" });
     key({ kind: "alt-enter" });                                            // no ] needed first
     await until(() => B().details.length === 2 && B().details[1].msg?.id === n.shed.id, "a second detail on the shed");
-    B().focus = "detail0"; B().active = 0;
+    BV.at(b, "detail0"); B().active = 0;
     key({ kind: "alt-right" });
     await whole(d, n.shed.id);
     expect(d.surface.describe().history).toMatchObject({ back: [{ id: n.jobs.id }], forward: [] });
@@ -284,7 +285,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
   test("the board: a click on the link follows; a click on ← back comes back", async () => {
     const d = await detail();
     const at = (text: string) => {
-      const lines = frame().map(plain), r = B().rects.get("detail0");
+      const lines = frame().map(plain), r = BV.rectOf(b, "detail0");
       for (let y = r.row; y < r.row + r.rows; y++) { const x = lines[y]!.indexOf(text, r.col); if (x >= r.col) return { x: x + 1, y }; }
       throw new Error(`"${text}" isn't drawn in detail0`);
     };
@@ -311,10 +312,10 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     await whole(d, n.beans.id);
     await expect(act("back", {}, "detail1", AS)).rejects.toThrow("the reader the person has focused");
     expect(d.msg!.id).toBe(n.beans.id);
-    B().focus = "lanes";                                                    // the person moves to the lanes
+    BV.at(b, "lanes");                                                    // the person moves to the lanes
     expect(await act("back", {}, "detail1", AS)).toMatchObject({ reader: "detail1", went: "back", showing: { id: n.jobs.id } });
     await whole(d, n.jobs.id);
-    expect(B().focus).toBe("lanes");
+    expect(BV.where(b)).toBe("lanes");
   }, 30_000);
 
   test("the desk: ⏎ follows in place, alt+← comes back with [ ] on the link, alt+→ goes again", async () => {

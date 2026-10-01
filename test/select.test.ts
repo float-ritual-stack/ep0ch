@@ -14,6 +14,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { cellsOf, Gesture, lineAt, osc52, paintRange, rowsOf, Selection, SELECT_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -275,10 +276,10 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     const d = B().details.find((x: any) => x.msg?.id === card.id);
     await until(() => !!d && !d.msg.partial && plain(frame().join("\n")).includes(LINE()), "the card drawn with its link's title");
     const region = `detail${B().details.indexOf(d)}`;
-    B().focus = region;
+    BV.at(b, region);
     d.surface.clearSelections();                                    // each test starts with nothing selected
     await Bun.sleep(500);                                           // no press before counts toward a double click
-    return { d, r: B().rects.get(region) as Rect };
+    return { d, r: BV.rectOf(b, region) as Rect };
   };
 
   test("a drag selects and writes nothing; y writes the drawn text (the link as its title) with OSC 52", async () => {
@@ -294,7 +295,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     expect(message()).toBe(`copied ${LINE().length} chars`);
     key({ kind: "esc" });
     expect(d.surface.describe().selection).toBeNull();
-    expect(B().focus).toMatch(/^detail/);                           // the first esc only let go of the selection
+    expect(BV.where(b)).toMatch(/^detail/);                           // the first esc only let go of the selection
   });
 
   test("Y writes the source: the link's markup, not its title", async () => {
@@ -367,7 +368,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
 
   test("a float still moves by its title and resizes by its corner; its text selects by drag", async () => {
     const { d } = await openCard();
-    B().focus = `detail${B().details.indexOf(d)}`;
+    BV.at(b, `detail${B().details.indexOf(d)}`);
     key(char("o"));
     await until(() => B().floats.length > 0, "the float");
     const f = B().floats.at(-1);
@@ -381,7 +382,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     await until(() => plain(frame().join("\n")).includes("Water the seedlings"), "the float drawn");
     const w = where(frame(), "Water", f.rect);
     drag(w, { x: w.x + 4, y: w.y });
-    expect(f.pane.surface.describe().selection.text).toBe("Water");
+    expect(B().panes.get(f.id).surface.describe().selection.text).toBe("Water");
     key(char("x"));
   });
 

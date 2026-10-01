@@ -54,6 +54,10 @@ export interface TileSpec {
   drawer?: "over" | "shut";
   /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
   state?: Record<string, unknown>;
+  /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */
+  view?: string;
+  /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
+  collapsed?: true;
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
@@ -66,7 +70,9 @@ export type OpenRule = "current";
  * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
  * (the outermost container's: `locked` there locks the whole screen, PIE-505).
  */
-export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy }
+export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy; floats?: SavedFloat[] }
+/** A float as saved (PIE-511): its tile, and its rectangle. */
+export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number } }
 
 /**
  * A layout saved before PIE-505 marks a drawer on its tile (`drawer: "over"` or `"shut"`). Each such tile (a tab

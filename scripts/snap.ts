@@ -13,7 +13,8 @@ import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
 import { DeliveryBoard } from "../src/desk/delivery";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
+import * as BV from "../test/board-view";
 import { rowBytes, type Key, type TermInfo } from "../src/term";
 
 const scenario = process.argv[2] ?? "kitty";
@@ -259,7 +260,7 @@ if (scenario === "spines") {
   await snap("2-detail-spine", 800);
   press({ kind: "backtab" }); ch("c");                                                  // the preview
   await snap("3-preview-spine", 800);
-  console.log(JSON.stringify((b as any).placed.map((x: any) => x.p.key)), JSON.stringify((app.describe() as any).state.collapsedReaders));
+  console.log(JSON.stringify(b.render(app as any).placements?.map(p => p.key)), JSON.stringify((app.describe() as any).state.collapsedReaders));
   press({ kind: "alt", ch: "c" });
   await snap("4-all-open", 800);
   await app.act({ action: "edit.close", args: { discard: true }, reader: "detail1", as: "snap-agent" });
@@ -294,18 +295,18 @@ if (scenario === "backlinks") {
   app.push(new MainMenu()); app.push(B);
   for (let i = 0; i < 100 && S.preview.msg?.id !== swap.id; i++) await Bun.sleep(50);
   ch("b");
-  for (let i = 0; i < 100 && !S.links?.data; i++) await Bun.sleep(50);
+  for (let i = 0; i < 100 && !S.linksTile.data; i++) await Bun.sleep(50);
   const said = () => console.log(`  ${S.describe().backlinks.status}`);
   await snap("1-defaults", 1500); said();
   ch("h"); ch("n"); ch(".");                                   // resolved and this note shown, the outbox group opened
   await snap("2-everything", 800); said();
   ch("h"); ch("n"); ch("K");                                   // one kind: the first group's
   await snap("3-one-kind", 800); said();
-  ch("K"); for (let i = 0; i < 10 && S.linkView.options.kind !== null; i++) ch("K");
+  ch("K"); for (let i = 0; i < 10 && S.linksTile.options.kind !== null; i++) ch("K");
   ch("/"); for (const c of "poster") ch(c);                      // typed, not yet kept
   await snap("4-filter", 800); said();
   press({ kind: "enter" }); press({ kind: "esc" });
-  board.close(); process.exit(0);
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "tree-links") {
   // The outline tree's authored links (the outliner's Tree, PIE-324): L under a note shows its outlinks,
@@ -369,7 +370,7 @@ if (scenario === "kanban") {
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   const type = (t: string) => { for (const c of t) ch(c); };
   const said = () => console.log(`  status: ${(app as any).message || "(none)"} · refreshes ${JSON.stringify(S.refreshes)}`);
-  const pick = (lane: string, id: string) => { S.focus = "lanes"; S.lane = S.lanes.findIndex((l: any) => l.name === lane); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === id); S.follow(); app.redraw(); };
+  const pick = (lane: string, id: string) => { S.selectBy({ id, lane }, USER); app.redraw(); };
   const to = (lane: string) => { const t = S.lanes.findIndex((l: any) => l.name === lane); for (let i = 0; i < 10 && S.mover && S.mover.sel !== t; i++) ch(S.mover.sel < t ? "j" : "k"); };
   app.push(new MainMenu()); app.push(B);
   await snap("1-or-lanes", 2500);
@@ -420,7 +421,7 @@ if (scenario === "scroll") {
   board.subscribe(e => app.event(e));
   const B = new DeliveryBoard(hub.id), S = B as any;
   const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
-  const wheelAt = (region: string, n: number) => { const r = S.rects.get(region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
+  const wheelAt = (region: string, n: number) => { const r = BV.rectOf(S, region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
   app.push(new MainMenu()); app.push(B);
   await snap("1-board", 2500);
   press({ kind: "enter" }); await Bun.sleep(600);
@@ -501,7 +502,7 @@ if (scenario === "select") {
   board.subscribe(e => app.event(e));
   const B = new DeliveryBoard(hub.id), S = B as any;
   const at = (region: string, words: string) => {
-    const r = S.rects.get(region), rows = emu.text();
+    const r = BV.rectOf(S, region), rows = emu.text();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
     if (y < 0) throw new Error(`no "${words}" in ${region}`);
     return { x: [...rows[y]!].join("").indexOf(words, r.col), y };
@@ -540,7 +541,7 @@ if (scenario === "fold") {
   const B = new DeliveryBoard(hub.id), S = B as any;
   const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
   const clickOn = (region: string, words: string, dx = 4) => {
-    const r = S.rects.get(region), rows = emu.text();
+    const r = BV.rectOf(S, region), rows = emu.text();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
     if (y < 0) throw new Error(`no "${words}" in ${region}`);
     press({ kind: "mouse", action: "down", button: 0, x: r.col + dx, y }); press({ kind: "mouse", action: "up", button: 0, x: r.col + dx, y });
@@ -626,12 +627,12 @@ if (scenario === "elements") {
   const B = new DeliveryBoard(hub.id), S = B as any;
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 2000);
-  S.focus = "preview";
+  BV.at(S, "preview");
   ch("]"); ch("]"); await snap("2-link-ruler", 300);
   for (let i = 0; i < 5; i++) ch("]");
   await snap("3-figure-row", 300);
   press({ kind: "enter" }); await snap("4-row-opens-detail", 800);
-  S.focus = "preview";
+  BV.at(S, "preview");
   ch("["); ch("["); ch("["); await snap("5-comment-mark", 300);
   press({ kind: "enter" }); await snap("6-thread-inline", 600);
   ch("]"); ch("]"); await snap("6b-reply-control", 300);
@@ -641,7 +642,7 @@ if (scenario === "elements") {
   await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
   await snap("7-agent-focus", 400);
   // PIE-453: the detail follows its first link in place, then alt+← comes back with [ ] on it.
-  S.focus = "detail0"; S.active = 0;
+  BV.at(S, "detail0"); S.active = 0;
   ch("]"); ch("]"); press({ kind: "enter" }); await snap("8-followed", 800);
   press({ kind: "alt-left" }); await snap("9-back", 800);
   board.close(); await scratch!.dispose(); process.exit(0);
@@ -663,12 +664,12 @@ if (scenario === "projection") {
   const B = new DeliveryBoard(hub.id), S = B as any;
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 4000);
-  S.focus = "preview";
+  BV.at(S, "preview");
   ch("]"); await snap("2-region-ruler", 400);
   press({ kind: "enter" }); await snap("3-ticket-block", 2500);
   ch("r"); await snap("4-refreshed", 2500);
   press({ kind: "esc" });
-  S.focus = "lanes"; ch("j"); await snap("5-ticket-page", 3000);
+  BV.at(S, "lanes"); ch("j"); await snap("5-ticket-page", 3000);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "journey") {
@@ -712,7 +713,7 @@ if (scenario === "journey") {
   press({ kind: "enter" }); await settle();
   await snap("6-moved", 600); said();
   // Comment on a passage from the preview.
-  for (let i = 0; i < 6 && S.focus !== "preview"; i++) press({ kind: "tab" });
+  for (let i = 0; i < 6 && BV.where(S) !== "preview"; i++) press({ kind: "tab" });
   ch("C"); await Bun.sleep(600);
   ch("j"); await Bun.sleep(100);
   await snap("7-quoting", 500);
@@ -870,7 +871,7 @@ if (scenario === "move") {
   await snap("5-refused", 300);
   // Mouse: drag the gate card from Doing and hover over Review, then drop.
   S.lane = laneOf("Doing"); S.lanes[S.lane].sel = 0; app.redraw(); await Bun.sleep(200);
-  const from = S.laneRects.find((r: any) => r.lane === laneOf("Doing")).rect, to = S.laneRects.find((r: any) => r.lane === laneOf("Review")).rect;
+  const from = BV.rectOf(S, "Doing"), to = BV.rectOf(S, "Review");
   mouse("down", from.col + 4, from.row + 1); mouse("drag", to.col + 6, to.row + 4);
   await snap("6-dragging", 300);
   mouse("up", to.col + 6, to.row + 4); await settle();

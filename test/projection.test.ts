@@ -21,6 +21,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import * as BV from "./board-view";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;:]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -369,7 +370,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
 
   test("r fetches the tickets again and the preview repaints with Jira's new text; the person's lines stay theirs", async () => {
     writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": { ...SHOWCASE_TICKETS["ACME-12"]!, title: "Rollout checklist, now with dates", status: "Review", updatedAt: new Date().toISOString() } }));
-    B().focus = "preview";
+    BV.at(b, "preview");
     key(char("r"));
     await until(() => frame().includes("Jira ACME-12 · Rollout checklist, now with dates"), "the refreshed ticket", 10_000);
     expect(frame()).toContain("Review · A. Person");
@@ -379,7 +380,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   }, 30_000);
 
   test("⏎ on the ticket's title opens its block: a header on top, the body, the comments after; its age refreshes it", async () => {
-    B().focus = "preview";
+    BV.at(b, "preview");
     key({ kind: "enter" });
     await until(() => !!B().details[0]?.msg && !B().details[0].msg.partial, "the detail");
     const d = B().details[0];
