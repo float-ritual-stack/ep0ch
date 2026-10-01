@@ -225,8 +225,9 @@ export class Brief extends Desk {
   override key(k: Key, ctx: Ctx) {
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if ((c === "," || c === ".") && !this.personTyping()) {
-      try { this.step(c === "," ? -1 : 1); } catch (e) { ctx.flash(e instanceof Error ? e.message : String(e)); }
-      return this.redraw();
+      const say = (e: unknown) => { ctx.flash(e instanceof Error ? e.message : String(e)); this.redraw(); };
+      try { BRIEF_ACTIONS.run("brief.step", { by: c === "," ? -1 : 1 }, this, USER).then(() => this.redraw(), say); } catch (e) { say(e); }
+      return;
     }
     super.key(k, ctx);
   }

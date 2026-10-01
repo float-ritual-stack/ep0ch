@@ -1,0 +1,114 @@
+// PIE-506 on the desk: what its keys and clicks did by themselves is an action now, and an agent's run of
+// it never takes the person's focus, selection or keys. Search answers an agent's query without opening the
+// overlay; going into a terminal or the agent drawer is the person's only; a list tile's pick by an agent
+// moves nothing of theirs; ^W then a ctrl+letter isn't the letter. Scratch services, fictional notes, `sh`.
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { App } from "../src/app";
+import { Desk } from "../src/desk/desk";
+import { MainMenu } from "../src/screens";
+import { SocketBoard } from "../src/socket";
+import { traceActions, type ActionRun } from "../src/surface/actions";
+import type { Key } from "../src/term";
+import { outliner, Scratch, until } from "./scratch";
+
+const char = (ch: string): Key => ({ kind: "char", ch });
+const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
+
+describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of them leave the person's keys alone", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, desk: Desk;
+  let key: (k: Key) => void = () => {};
+  const AS = "parity-agent-506";
+  const D = () => desk as any;
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const get = () => D().layoutGet() as { focus: string; tiles: any[] };
+  const ran = async (k: Key) => { const runs: ActionRun[] = []; const stop = traceActions(r => runs.push(r)); try { key(k); await Bun.sleep(20); } finally { stop(); } return runs.map(r => r.name); };
+  const notes: Record<string, any> = {};
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    process.env.EP0CH_DAILY_AGENT = "sh";
+    process.env.EDITOR = "true";
+    delete process.env.VISUAL;
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    const mk = async (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+    notes.orchard = await mk("Orchard rota\nWho prunes which row.");
+    notes.pears = await mk("Prune the pears\nAfter the frost.", notes.orchard.id);
+    notes.plums = await mk("Thin the plums\nOne every hand-span.", notes.orchard.id);
+    const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    desk = new Desk();
+    app.push(desk);
+    desk.render(D().ctx);
+    await until(() => D().panes.size > 0 && get().tiles.length >= 4, "the desk's tiles");
+  }, 30_000);
+
+  afterAll(async () => {
+    D().dispose();
+    board?.close();
+    await scratch.dispose();
+    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EDITOR"]) delete process.env[k];
+  });
+
+  test("search: an agent's query answers the hits and opens nothing; the person's / opens the overlay, and ⏎ there runs open", async () => {
+    const focus = get().focus;
+    const r = await act("search", { query: "Prune the pears" }) as any;
+    expect(r.hits.some((h: any) => h.id === notes.pears.id)).toBe(true);
+    expect(D().search).toBeNull();
+    expect(get().focus).toBe(focus);
+    await expect(act("search", { query: "p" })).rejects.toThrow(/at least 2 characters/);
+    expect(await ran(char("/"))).toEqual(["search"]);
+    expect(desk.holdsKeys()).toBe(true);
+    for (const c of "Thin the plums") key(char(c));
+    await until(() => (D().search as any).hits.length > 0, "the search hits", 5000);
+    expect(await ran({ kind: "enter" })).toContain("open");
+    await until(() => desk.current?.id === notes.plums.id, "the plums note opened");
+    expect(D().search).toBeNull();
+  });
+
+  test("a list tile's pick: the person's moves the selection; an agent's answers the row and moves nothing", async () => {
+    await act("open", { id: notes.orchard.id });
+    await until(() => (D().panes as Map<number, any>).values().some((p: any) => p.kind === "thread" && p.replies().length === 2), "the thread's replies");
+    const thread = [...(D().panes as Map<number, any>).values()].find((p: any) => p.kind === "thread");
+    const r = await act("thread.pick", { n: 2 }) as any;
+    expect(r.id).toBe(notes.plums.id);
+    expect(thread.selected).toBe(0);
+    await D().act({ action: "thread.pick", args: { n: 2 } }, { kind: "user" });
+    expect(thread.selected).toBe(1);
+  });
+
+  test("tile.enter and tile.leave are the person's: an agent's is refused, with the way it does it instead", async () => {
+    await D().act({ action: "tile.open", args: { kind: "pty", name: "shell" } }, { kind: "user" });
+    await until(() => get().tiles.find((t: any) => t.name === "shell")?.terminal?.running, "the shell");
+    await expect(act("tile.enter", {}, "shell")).rejects.toThrow(/tile\.type/);
+    await D().act({ action: "tile.focus", args: {}, reader: "shell" }, { kind: "user" });
+    expect(await ran(char("e"))).toEqual(["tile.enter"]);
+    expect(D().inPty()).toBe(true);
+    await expect(act("tile.leave")).rejects.toThrow(/keys are theirs/);
+    expect(D().inPty()).toBe(true);
+    expect(await ran(ctrl("]"))).toEqual(["tile.leave"]);
+    expect(D().inPty()).toBe(false);
+  });
+
+  test("^W then a ctrl+letter isn't the letter: ^W ctrl+x closes nothing", async () => {
+    const n = get().tiles.length;
+    key(ctrl("w")); key(ctrl("x"));
+    await Bun.sleep(20);
+    expect(get().tiles.length).toBe(n);
+    expect(D().prefix).toBe("");
+  });
+
+  test("q and V on the desk are the shell's actions: screen.back, video.cycle", async () => {
+    expect(await ran(char("V"))).toEqual(["video.cycle"]);
+    expect(await ran(char("q"))).toEqual(["screen.back"]);
+    expect((app as any).stack.at(-1)).toBeInstanceOf(MainMenu);
+  });
+
+  test("the agent drawer: going in is the person's only", async () => {
+    await expect(app.act({ action: "agent.enter", args: {}, as: AS })).rejects.toThrow(/person's keys/);
+    await expect(app.act({ action: "agent.leave", args: {}, as: AS })).rejects.toThrow(/keys are theirs/);
+  });
+});

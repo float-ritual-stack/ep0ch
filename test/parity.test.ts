@@ -284,7 +284,23 @@ describe.skipIf(!outliner)("agent parity: every key a screen handles is an actio
   const RIVER: Scenario[] = [];
 
   // ── the desk and the views built on it, in their other states ──
-  const DESK: Scenario[] = [];
+  const CTRL_W: Key = { kind: "char", ch: "w", ctrl: true };
+  const ALT = (ch: string): Key => ({ kind: "alt", ch });
+  const desk = () => new Desk();
+  const DESK: Scenario[] = [
+    ["desk: tree", desk, [k("1")]],
+    ["desk: thread", desk, [k("3")]],
+    ["desk: activity", desk, [k("4")]],
+    ["desk: reader on a note", desk, [k("1"), { kind: "down" }, { kind: "enter" }, k("2")]],
+    ["desk: backlinks tile", desk, [k("1"), { kind: "enter" }, CTRL_W, k("o"), k("l"), k("5")]],
+    ["desk: who tile", desk, [CTRL_W, k("o"), k("w"), k("5")]],
+    ["desk: art tile", desk, [CTRL_W, k("o"), k("b"), k("5")]],
+    ["desk: daily", () => new Desk(undefined, { layout: "daily" })],
+    ["desk: a terminal", () => new Desk(undefined, { layout: "daily" }), [k("1")]],
+    ["dock: drawer up", () => new MainMenu(), [ALT("a")]],
+    ["showcase: section 3", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3")]],
+    ["showcase: section 3 tried", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3"), { kind: "enter" }]],
+  ];
 
   // ── the reader (the note surface), the edit, the comment and the property panel ──
   /** A seeded note by its title, read whole: what a reader scenario opens. */
