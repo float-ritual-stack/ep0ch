@@ -205,6 +205,18 @@ function claimedExtensionActor(value: unknown, depth = 0): string | undefined {
   return undefined;
 }
 
+/**
+ * Who asks for a run (`extensions.act`, `r` on an `@name` line), as the request declares it: absent is a person,
+ * and a declared one must be a person, the system, or an agent with its actor id.
+ */
+function declaredRequester(request: OutlinerRequest, action: string): MutationProvenance | undefined {
+  const requestedBy = declaredActor(request);
+  if (requestedBy && (!["user", "agent", "system"].includes(requestedBy.author) || (requestedBy.author === "agent" && !requestedBy.actorId?.trim()))) {
+    throw new Error(`${action}'s mutation names who asks: { author: user } or { author: agent, actorId }`);
+  }
+  return requestedBy;
+}
+
 function declaredActor(request: OutlinerRequest): MutationProvenance | undefined {
   const mutation = "mutation" in request ? request.mutation : undefined;
   if (mutation && typeof mutation === "object") {
@@ -373,6 +385,9 @@ export class OutlinerServer {
     if (this.running) throw new Error("Outliner service is already started");
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
+    // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
+    // from before agent requests, are seen to the same way, once per outline.
+    this.agentRequests.start();
     this.extensionSync.start();
     void this.extensionRegistry.watch().catch(() => {});
   }
@@ -390,6 +405,7 @@ export class OutlinerServer {
       unlinkSync(this.socketPath);
     }
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
+    this.agentRequests.start();
     const server = createServer((socket) => this.accept(socket));
     this.server = server;
     const started = Promise.withResolvers<void>();
@@ -442,6 +458,7 @@ export class OutlinerServer {
     if (!this.running) throw new Error("Start the service before its Inbox processor");
     this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), {
       repository: this.inboxRepository, notes: this.noteRepository, noteModel,
+      agentNames: () => this.extensionRegistry.agentNames(),
     });
     this.inbox.wake();
   }
@@ -1588,10 +1605,7 @@ export class OutlinerServer {
           if (request.line !== undefined && (!Number.isSafeInteger(request.line) || request.line < 0)) throw new Error("line must be a line index");
           if (request.args !== undefined && (!request.args || typeof request.args !== "object" || Array.isArray(request.args) ||
             Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
-          const requestedBy = declaredActor(request);
-          if (requestedBy && (!["user", "agent", "system"].includes(requestedBy.author) || (requestedBy.author === "agent" && !requestedBy.actorId?.trim()))) {
-            throw new Error("extensions.act's mutation names who asks: { author: user } or { author: agent, actorId }");
-          }
+          const requestedBy = declaredRequester(request, "extensions.act");
           result = await this.extensionCalls.act({
             extension: request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
@@ -1618,6 +1632,7 @@ export class OutlinerServer {
     if (request.action === "resources.projection.refresh") {
       try {
         const normalized = normalizeResourceProjectionRequest(request);
+        const requestedBy = declaredRequester(request, "resources.projection.refresh");
         const owner = this.store.extensionOwner(normalized.blockId);
         const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
         // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
@@ -1631,8 +1646,9 @@ export class OutlinerServer {
         if (handlerLines.length) {
           await this.extensionCalls.materialize(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
         }
-        // `r` on an `@name` line (or on the note) asks its agent again.
-        const asked = !dataRecord && !record && normalized.line !== undefined && await this.agentRequests.refresh(normalized.blockId, normalized.line);
+        // `r` on an `@name` line asks its agent again; on the note, the requests not answered yet. Who pressed it
+        // is who asked.
+        const asked = !dataRecord && !record && await this.agentRequests.refresh(normalized.blockId, normalized.line, requestedBy);
         const onlyHandlers = dataRecord || ((handlerLines.length > 0 || asked) && normalized.line !== undefined);
         // One line's ticket (a click on its age), the ticket block's own, or every ticket the block shows.
         const one = !onlyHandlers && normalized.line !== undefined && !record
@@ -2488,6 +2504,17 @@ export class OutlinerServer {
           this.stalledHolds.delete(request.holdId);
           result = { released: this.draftHolds.release(request.holdId) };
           break;
+        case "drafts.touch": {
+          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet.
+          // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
+          const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
+          if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
+          void this.askHolder(hold, { kind: "read" }).then(answer => {
+            if ("text" in answer && typeof answer.text === "string") this.agentRequests.touched(hold.blockId, answer.text);
+          }).catch(() => {});
+          result = { touched: true };
+          break;
+        }
         case "drafts.answer":
           result = this.answerHolder(request.requestId, request.clientId, request.answer, request.error);
           break;
