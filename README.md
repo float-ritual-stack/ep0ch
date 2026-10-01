@@ -1186,6 +1186,12 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `screen.shell` | none. The person's only: an agent's is refused (it would take their terminal); open a terminal tile instead (`tile.open kind=pty`) | `!` on the menu, a click on `! Shell`, `^W !` on the desk |
 | `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
 | `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
+| `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
+| `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
+| `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | `?` on the menu |
+| `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer |
+| `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, `R`, a click on `R refresh` |
+| `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
 | `open` | `id`, `reader=detail\|new-detail\|preview\|float` (board), `reader=<pane>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
@@ -1204,7 +1210,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `pane.close`, `pane.float`, `pane.pin` | `reader=<pane>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer, `float` pops a reader out or docks a float, `pin` is for `tree` and `backlinks`. An agent can't close or float the pane that has your keys | board `x`, `esc`, `o`, `T`, `B`; desk `^W x` |
 | `pane.split`, `pane.zoom` | `kind=reader\|tree\|thread\|activity\|who\|art`, `dir=row\|col`; `on=true\|false`. Desk only for now: the board's details open with a note (`open reader=new-detail`) and it has no zoom yet (PIE-428). An agent zooms only the pane that has your keys | desk `^W o`, `^W z` |
 | `backlinks` | `id` (default the drawer's note), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
-| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true` | `e`, typing or `$EDITOR`, `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: hand the draft to `$EDITOR`, the person's only) | `e`, typing or `Ctrl+E` (`$EDITOR`), `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (otherwise `edit.text` or `comment.write`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
@@ -1216,18 +1222,22 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
 | `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
-| `link.select`, `link.follow`, `up` | `n` (from 1) | `[ ]`, `Enter` or a click, `u` |
-| `elements`, `element.select`, `element.open` | `n` (from `elements`); `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `Enter`, `alt+Enter`, a click |
+| `link.select`, `link.follow`, `up` | `n` (from 1); `fresh=true` (follow) opens it in a new reader | `[ ]`, `Enter`, `alt+Enter` or a click, `u` (`U` in the message reader) |
+| `elements`, `element.select`, `element.open` | `n` (from `elements`), or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
+| `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `j k ↑↓ PgUp PgDn space Home End`, the wheel |
+| `callouts` | `show=true\|false` (default toggles): the reader's callouts drawn open. The person's only | `z` |
+| `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
+| `fold.select` | `by=1\|-1`: the next or previous heading or list item to fold. The person's only | `( )` |
 | `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
 | `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
-| `task.link`, `task.menu` | `n` or `id`. `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard); `task.menu` opens the status choice and is the person's only | the choice's `y`; `⏎` on a box |
+| `task.link`, `task.menu` | `n` or `id` (the person's: default the step at their keys). `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard; `copy=false` only makes it addressable); `task.menu` opens the status choice and is the person's only | the choice's `y` and Make addressable; `⏎` on a box |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |
 | `props.close`, `props.summary` | `keys=a,b` (yours), `toggle=key`, `reset=true` | `Esc`, `s` |
-| `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true` | `( )`, `f`, `⏎`, `F`, click |
+| `folds`, `fold`, `unfold`, `fold.toggle` | `text` (a heading's or item's words, `##` optional, a unique start is enough), `line` (of the note, 1 is the subject), `n` (from `folds`); `all=true`. With nothing named, the person's `fold.toggle` acts on the fold at their keys (an agent names one) | `f`, `⏎`, `F`, click |
 | `select`, `select.copy`, `select.clear` | `text` (as drawn; `n` for the nth), or `line` and `to` (1 is the subject); `source=true` | drag, double/triple click, `v`, `y`, `Y`, `esc` |
 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
