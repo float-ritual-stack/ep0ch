@@ -22,8 +22,10 @@ import { Welcome } from "./hub/welcome";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
-import { ActionRefused, ActionSet, runAsPerson, asActor, type ActionInfo, type ActRequest } from "./surface/actions";
-import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent } from "./socket";
+import { ActionRefused, ActionSet } from "./surface/actions";
+import { Dispatcher, type TileRef } from "./surface/dispatch";
+import { SHELL_IDLE_MS } from "./whereabouts";
+import { AGENT_ACTOR_ID, type Actor, type OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -333,7 +335,7 @@ export class MainMenu implements Screen {
   /** The person's arrows, Tab and press on an item: the menu's own actions, as `you`. */
   private run<K extends keyof MenuArgs & string>(name: K, args: MenuArgs[K], ctx: Ctx) {
     this.ctx = ctx;
-    void runAsPerson(MENU_ACTIONS, name, args, { menu: this, ctx }, msg => ctx.flash(msg));
+    void this.dispatch.press(name, args);
   }
   /** The lit item (0-based), for MENU_ACTIONS. */
   get selected() { return this.sel; }
@@ -341,13 +343,9 @@ export class MainMenu implements Screen {
   private ctx: Ctx | null = null;
   enter(ctx: Ctx) { this.ctx = ctx; }
   describe() { return { kind: "main menu", selected: ITEMS[this.sel]!.key, items: ITEMS.map(i => `${i.key} ${i.label}`) }; }
-  actions() { return { actions: MENU_ACTIONS.list(), readers: [] }; }
-  act(req: ActRequest, actor: Actor) {
-    const ctx = this.ctx;
-    if (!ctx) throw new ActionRefused("the main menu isn't shown yet");
-    if (req.reader) throw new ActionRefused("the main menu has no readers");
-    return MENU_ACTIONS.runUntyped(req.action, req.args ?? {}, { menu: this, ctx: asActor(ctx, actor) }, actor);
-  }
+  readonly dispatch = new Dispatcher({ title: this.title, ctx: () => this.ctx }, [
+    { set: MENU_ACTIONS, takes: "none", on: (_, how) => { if (!this.ctx) throw new ActionRefused("the main menu isn't shown yet"); return { menu: this, ctx: how.ctx }; } },
+  ]);
 }
 
 /** Open a menu item's screen over the current one; the screen opened. */
@@ -365,15 +363,14 @@ export const MENU_ACTIONS = new ActionSet<MenuArgs, { menu: MainMenu; ctx: Ctx }
   "menu.select": {
     summary: "light a menu item: name=<its key or label>, or by=<steps> (↑↓ one, ←→ a column of four); ⏎ or its letter opens it (screen.open). An agent's waits until the person is idle and is said on the status bar",
     keys: "↑ ↓ ← → tab, the wheel, click on an item (lit as it is pressed)",
+    touches: "screen", replay: "safe", says: out => `· lit ${out.label} on the menu · ⏎ opens it`,
     args: { name: { type: "string", optional: true, about: "the item's key (S) or label (Stats)" }, by: { type: "number", optional: true, about: "steps from the lit item: 1 down, -1 up, 4 a column right" } },
-    run({ name, by }, { menu, ctx }, actor) {
+    run({ name, by }, { menu, ctx }) {
       if ((name === undefined) === (by === undefined)) throw new ActionRefused("menu.select takes name=<item> or by=<steps>, one of them");
       const at = name !== undefined ? ITEMS.indexOf(itemNamed(name)!) : menu.selected + by!;
       if (name !== undefined && at < 0) throw new ActionRefused(`no item ${JSON.stringify(name)} on the menu; screen.list lists them`);
-      agentMayMove(menu, ctx, actor);
       menu.selected = at;
       const item = ITEMS[menu.selected]!;
-      if (actor.kind === "agent") ctx.flash(`lit ${item.label} on the menu · ⏎ opens it`);
       ctx.redraw();
       return { selected: item.key, label: item.label };
     },
@@ -382,33 +379,23 @@ export const MENU_ACTIONS = new ActionSet<MenuArgs, { menu: MainMenu; ctx: Ctx }
 
 // ── the shell's actions (PIE-489): open a screen, go back, list them; on every screen ─
 
-/** What the shell's actions run on: the door, and the screen they act from (the top one). */
-export interface ShellOn { ctx: Ctx; here?: Screen }
+/**
+ * What the shell's actions run on: the door, the screen they act from (the top one), and `again`: another action run
+ * through the same dispatcher as the same actor (a menu item that is another action's key, the Shell item's `!`).
+ */
+export interface ShellOn { ctx: Ctx; here?: Screen; again?(name: string, args: Record<string, unknown>): Promise<unknown> }
 
-/** How long the person has to have been away from the keys and the mouse before an agent changes their screen. */
-export const SHELL_IDLE_MS = 2000;
+export { SHELL_IDLE_MS };
 
 /**
- * An agent may change what the person sees (another screen, back, a list's lit row) only when it can't land
- * on something they're doing: never over an edit, a comment, the property panel or a terminal tile they're
- * typing in (each screen says so through Screen.holdsKeys and rawKeys: the message reader, the desk and the
- * views built on it, the board, the river), and never within SHELL_IDLE_MS of their last key or click (the key in flight would land on a
- * screen they didn't choose). Otherwise it's refused with the reason, and the agent tries again later.
- * What it does is said on the status bar ("an agent (<id>) · …"), and q brings the person back.
+ * Leaving a screen for an agent, past the actor rule (PIE-514: `touches: "screen"`, never while the person types or
+ * within SHELL_IDLE_MS of their last key): never one holding unsaved text, never one that can't be left. The person's
+ * own leaving asks them instead (App.pop).
  */
-export function agentMayMove(here: Screen | undefined, ctx: Ctx, actor: Actor, leaving = false) {
-  if (actor.kind !== "agent") return;
-  if (!here) throw new ActionRefused("no screen is shown");
-  if (ctx.suspended?.()) throw new ActionRefused(`the person is in the door's ${ctx.suspended()} (the door waits under it); not moved`);
-  if (here instanceof Logon || here instanceof Goodbye) throw new ActionRefused(`the door is at the ${here.title}; the person hasn't logged on`);
-  if (here.rawKeys?.()) throw new ActionRefused(`the person is typing in a terminal tile on the ${here.title}; not moved`);
-  if (ctx.dockHoldsKeys?.()) throw new ActionRefused("the person is typing in the agent drawer; not moved");
-  if (here.holdsKeys?.()) throw new ActionRefused(`the person is in an edit, a comment or the property panel on the ${here.title} (or typing a filter, or choosing); not moved`);
-  if (leaving && here.unsaved?.()) throw new ActionRefused(`the ${here.title} holds unsaved text; not left`);
-  const refusal = leaving ? here.leaveRefusal?.() : null;
+function agentMayLeave(here: Screen | undefined) {
+  if (here?.unsaved?.()) throw new ActionRefused(`the ${here.title} holds unsaved text; not left`);
+  const refusal = here?.leaveRefusal?.();
   if (refusal) throw new ActionRefused(refusal);
-  const idle = ctx.idleFor?.() ?? Infinity;
-  if (idle < SHELL_IDLE_MS) throw new ActionRefused(`the person is at the keys (last key ${(idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`);
 }
 
 /** A menu item by its key (`S`), its label (`Stats`) or another name for its screen (`board stats`, `river`). */
@@ -434,9 +421,10 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   "changes.extensions": {
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes what extensions wrote (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N ext",
+    touches: "screen", replay: "safe",
+    person: "what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent with extensions)",
     args: { include: { type: "boolean", optional: true, about: "true to include extension changes, false to leave them out; default: toggle" } },
-    run({ include }, { ctx }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent with extensions)");
+    run({ include }, { ctx }) {
       ctx.extensionChanges = include ?? !ctx.extensionChanges;
       ctx.events = (ctx.events ?? 0) + (ctx.extensionChanges ? (ctx.extEvents ?? 0) : -(ctx.extEvents ?? 0));
       if (ctx.events < 0) ctx.events = 0;
@@ -447,46 +435,49 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "screen.open": {
     summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C, or n j k r w l f s q b d g x t o c, ⏎, click on a menu item or its letter on the key line",
+    touches: "screen", replay: "safe", says: out => (out?.key ? { text: `· opened ${out.opened ?? out.key} · q goes back`, ms: 6000 } : null),
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
-    run({ name }, { ctx, here }, actor): unknown {
+    run({ name }, { ctx, here, again }, actor): unknown {
       const item = itemNamed(name);
       if (!item) throw new ActionRefused(`no screen ${JSON.stringify(name)} on the menu; screen.list lists them`);
+      // Logging off is the person's G alone (an agent's never ends their session).
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
-      if (item.action) return SHELL_ACTIONS.run(item.action, {}, { ctx, here }, actor);
-      agentMayMove(here, ctx, actor);
+      // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
+      if (item.action) return again ? again(item.action, {}) : Promise.reject(new ActionRefused(`${item.action} runs from the door's own dispatcher`));
       // The menu lights what it opens, so coming back it's where the person left it.
       if (here instanceof MainMenu) here.selected = ITEMS.indexOf(item);
       // Exact class: the brief, Waiting and the welcome are desks too, and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.constructor === item.one);
       if (open) throw new ActionRefused(`the ${open.title} is already open${open === here ? "" : " under this screen; screen.back gets back to it"}`);
       const s = openItem(item, ctx);
-      if (actor.kind === "agent") ctx.flash(`opened ${s?.title ?? item.label} · q goes back`, 6000);
-      return { opened: s?.title ?? null, key: item.key };
+      return { opened: s?.title ?? item.label, key: item.key };
     },
   },
   "screen.back": {
     summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, Esc, click on Q back; ⏎ on Who's online and Stats; any key on the help screen (on the main menu, Esc only: q there is the Quay)",
+    touches: "screen", replay: "safe", says: out => (out?.from ? { text: `· went back from the ${out.from} to the ${out.to}`, ms: 6000 } : null),
     args: {},
     run(_, { ctx, here }, actor) {
+      // Back from the main menu is logging off: the person's G alone.
       if (here instanceof MainMenu) {
         if (actor.kind === "agent") throw new ActionRefused("already at the main menu; an agent doesn't log the person off");
         ctx.flash("you're at the main menu · G logs off");
         return { at: here.title };
       }
-      agentMayMove(here, ctx, actor, true);
+      if (actor.kind === "agent") agentMayLeave(here);
       const from = here?.title ?? null;
       ctx.pop();
       const to = ctx.screens?.().at(-1)?.title ?? null;
-      if (actor.kind === "agent") ctx.flash(`went back from the ${from} to the ${to}`, 6000);
       return { from, to };
     },
   },
   "screen.shell": {
     summary: "drop to shell (the BBS's drop to DOS): the door steps aside for the person's login shell ($SHELL -l) in their own terminal, in the door's folder, with EP0CH_IN_DOOR, EP0CH_CONTROL and EP0CH_NEST set; exit returns to the door where it was, its tiles running meanwhile. The person's only: an agent's is refused",
     keys: "! on the main menu (or a click on Shell on its key line), ^W ! on the desk",
+    touches: "screen", replay: "ask",
+    person: "an agent doesn't drop the person to a shell: it would take their terminal. For a shell of your own, open a terminal tile on the desk (tile.open kind=pty)",
     args: {},
-    async run(_, { ctx }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("an agent doesn't drop the person to a shell: it would take their terminal. For a shell of your own, open a terminal tile on the desk (tile.open kind=pty)");
+    async run(_, { ctx }) {
       const away = ctx.suspended?.();
       if (away) throw new ActionRefused(`the terminal is already handed over (${away})`);
       let code: number | null = null;
@@ -497,16 +488,16 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "screen.help": {
     summary: "open the help screen over this one: every menu item and what it does (any key goes back); an agent's waits until the person is idle and is said on the status bar", keys: "? on the main menu",
+    touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
-    run(_, { ctx, here }, actor) {
-      agentMayMove(here, ctx, actor);
+    run(_, { ctx }) {
       ctx.push(new Help());
-      if (actor.kind === "agent") ctx.flash("opened help · any key goes back", 6000);
       return { opened: "help" };
     },
   },
   "video.cycle": {
-    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's is said on the status bar)", keys: "V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video",
+    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video",
+    touches: "screen", replay: "safe", says: out => `· switched the video to ${out.video}`,
     args: {},
     run(_, { ctx }) {
       ctx.cycleVideo();
@@ -516,15 +507,16 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "open": {
     summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere a message reader opens over the screen (a message reader's opens another). An agent's waits until the person is idle, never takes their keys, never lands over what they're typing, and is said on the status bar",
+    touches: "screen", replay: "safe",
     args: { id: { type: "string", about: "the block id" } },
-    async run({ id }, { ctx, here }, actor) {
+    async run({ id }, { ctx, here }) {
       const m = await ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
       // The screens that reach here (a message reader, the showcase) change what's in front of the person: the
-      // idle wait and every other rule of agentMayMove, as for a screen change. (The desk, the board, the
-      // welcome, the brief and the river have an open of their own and never get here.)
-      if (here?.openBlock) { agentMayMove(here, ctx, actor); here.openBlock(m); }
-      else shellOpenBlock(m, ctx, here, actor);
+      // idle wait and the rest of the actor rule, as for a screen change. (The desk, the board, the welcome, the
+      // brief and the river have an open of their own and never get here.)
+      if (here?.openBlock) here.openBlock(m);
+      else shellOpenBlock(m, ctx);
       ctx.flash(`opened: ${subject(m).slice(0, 60)}`);
       ctx.redraw();
       return { opened: m.id, id: m.id, screen: ctx.screens?.().at(-1)?.title ?? null };
@@ -532,6 +524,7 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "screen.list": {
     summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first",
+    touches: "nothing", replay: "safe",
     args: {},
     run(_, { ctx }) {
       return { stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })) };
@@ -539,9 +532,13 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
 });
 
-/** A person's key or click: the shell's action, as `you`; a refusal is said on the status bar. Any screen's q, Esc and V run these. */
+/**
+ * A person's key or click: the shell's action, as `you`, through a dispatcher of the shell's set for the screen it's
+ * pressed on (inside a frame, the frame's screens); a refusal is said on the status bar. Any screen's q, Esc and V run these.
+ */
 export function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
-  void runAsPerson(SHELL_ACTIONS, name, args, { ctx, here }, msg => ctx.flash(msg));
+  const d: Dispatcher = new Dispatcher({ title: here.title, ctx: () => ctx }, [{ set: SHELL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here, again: (n: string, a: Record<string, unknown>) => d.press(n, a) }) }]);
+  void d.press(name, args);
 }
 
 // The desk and the showcase run q, Esc and V through this too (they can't import this module back).
@@ -554,8 +551,7 @@ export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", 
 const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
 
 /** `open <id>` on a screen with no readers of its own (the menu, a list): a message reader over it. */
-export function shellOpenBlock(m: Msg, ctx: Ctx, here: Screen | undefined, actor: Actor) {
-  agentMayMove(here, ctx, actor);
+export function shellOpenBlock(m: Msg, ctx: Ctx) {
   ctx.push(new MessageReader([m], 0));
 }
 
@@ -567,6 +563,9 @@ export interface ListRow { n: number; title: string; id?: string; [k: string]: u
 /** A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. */
 interface BbsList extends Screen {
   sel: number;
+  /** The screen's context, kept from enter, render and key (never an agent's). */
+  ctx: Ctx | null;
+  readonly dispatch: Dispatcher;
   listRows(): ListRow[] | null;
   /** ⏎ on row `i`: the screen it opens, pushed; or a refusal. */
   openRow(i: number, ctx: Ctx): void;
@@ -592,47 +591,45 @@ const rowAt = (list: BbsList, n: number) => {
 export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
   "list.select": {
     summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
+    touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title.slice(0, 50)}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
-    run({ n }, { list, ctx }, actor) {
+    run({ n }, { list, ctx }) {
       const row = rowAt(list, n);
-      agentMayMove(list, ctx, actor);
       list.sel = n - 1;
-      if (actor.kind === "agent") ctx.flash(`lit row ${n}: ${row.title.slice(0, 50)}`);
       ctx.redraw();
       return { selected: n, row };
     },
   },
   "list.open": {
     summary: "open a row as ⏎ does (read, join, browse): the lit one, or row n", keys: "⏎, a click on the lit row",
+    touches: "screen", replay: "safe", says: out => ({ text: `· opened row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
-    run({ n }, { list, ctx }, actor) {
+    run({ n }, { list, ctx }) {
       const at = n ?? list.sel + 1;
       const row = rowAt(list, at);
-      agentMayMove(list, ctx, actor);
       const was = list.sel;
       list.sel = at - 1;
       // A row that opens nothing (a pack with no art) is refused, and the light goes back where it was.
       try { list.openRow(at - 1, ctx); } catch (e) { list.sel = was; throw e; }
       const opened = ctx.screens?.().at(-1);
-      if (actor.kind === "agent") ctx.flash(`opened row ${at}: ${row.title.slice(0, 50)} · q goes back`, 6000);
-      return { opened: opened && opened !== list ? opened.title : null, row };
+      return { opened: opened && opened !== list ? opened.title : null, n: at, row };
     },
   },
   "list.thread": {
     summary: "list a row's replies (its children) as messages over this list, as t does on a message list: the lit row, or row n (q comes back)", keys: "t, T, click on T thread",
+    touches: "screen", replay: "safe", says: out => ({ text: `· opened the replies of row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
-    run({ n }, { list, ctx }, actor) {
+    run({ n }, { list, ctx }) {
       if (!list.threadRow) throw new ActionRefused(`the ${list.title}'s rows have no threads; list.open opens a row`);
       const at = n ?? list.sel + 1;
       const row = rowAt(list, at);
-      agentMayMove(list, ctx, actor);
       list.threadRow(at - 1, ctx);
-      if (actor.kind === "agent") ctx.flash(`opened the replies of row ${at}: ${row.title.slice(0, 50)} · q goes back`, 6000);
-      return { opened: ctx.screens?.().at(-1)?.title ?? null, row };
+      return { opened: ctx.screens?.().at(-1)?.title ?? null, n: at, row };
     },
   },
   "list.read": {
     summary: "the list's rows (numbered from 1) and which one is lit; moves nothing",
+    touches: "nothing", replay: "safe",
     args: { from: { type: "number", optional: true, about: "the first row, from 1 (default 1)" }, limit: { type: "number", optional: true, about: "how many rows (default 100)" } },
     run({ from, limit }, { list }) {
       const rows = rowsOf(list);
@@ -642,9 +639,10 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
   },
 });
 
-/** A list's keys and clicks: the same actions, as `you`. */
+/** A list's keys and clicks: the same actions, as `you`, through the list's dispatcher. */
 function listKey<K extends keyof ListArgs & string>(list: BbsList, name: K, args: ListArgs[K], ctx: Ctx) {
-  void runAsPerson(LIST_ACTIONS, name, args, { list, ctx }, msg => ctx.flash(msg));
+  list.ctx = ctx;
+  void list.dispatch.press(name, args);
 }
 
 /** A list's keys: q Esc back, ⏎ open, the movement keys select. False when the key isn't one of these. */
@@ -664,12 +662,13 @@ function listDescribe(list: BbsList) {
   return { kind: "list", title: list.title, selected: rows?.length ? list.sel + 1 : null, of: rows?.length ?? null, rows: rows?.slice(0, 20) ?? null };
 }
 
-/** `actions` and `act` on a list screen: the list's actions (the shell's come from App). */
-function listActions(): { actions: ActionInfo[]; readers: string[] } { return { actions: LIST_ACTIONS.list(), readers: [] }; }
-function listAct(list: BbsList, ctx: Ctx | null, req: ActRequest, actor: Actor): Promise<unknown> {
-  if (!ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`);
-  if (req.reader) throw new ActionRefused(`the ${list.title} has no readers; list.open opens a row`);
-  return LIST_ACTIONS.runUntyped(req.action, req.args ?? {}, { list, ctx: asActor(ctx, actor) }, actor);
+/** A list screen's dispatcher: the list's actions (the shell's come from the App's). */
+function listDispatch(list: BbsList): Dispatcher {
+  // `title` read when asked: a list's is set in its constructor, after its fields (this dispatcher among them).
+  return new Dispatcher({ get title() { return list.title; }, ctx: () => list.ctx }, [{
+    set: LIST_ACTIONS, takes: "none",
+    on: (_, how) => { if (!list.ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`); return { list, ctx: how.ctx }; },
+  }]);
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
@@ -695,7 +694,7 @@ export class MessageList implements BbsList {
   private items: Msg[] | null = null;
   private error = "";
   sel = 0;
-  private ctx: Ctx | null = null;
+  ctx: Ctx | null = null;
   private receiving: { started: number; limit: number } | null = null;
   private readonly ptr = new Pointer();
   /** `paged` loaders take a limit: a quick first page, then the full scan behind it. */
@@ -756,12 +755,11 @@ export class MessageList implements BbsList {
   }
   openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.items!, i)); }
   describe() { return listDescribe(this); }
-  actions() { return listActions(); }
-  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
+  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 /** What a message reader's own actions (MESSAGE_ACTIONS) run on. */
-interface MessageOn { r: MessageReader; ctx: Ctx }
+interface MessageOn { r: MessageReader; ctx: Ctx; actor: Actor }
 
 /**
  * The BBS message reader (PIE-426): the BBS message header (Date, To, From, Subj, Conf, Stat) over the
@@ -791,12 +789,14 @@ export class MessageReader implements Screen {
       navigate: (m, how) => {
         // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
         // what it followed is named, not opened over them.
-        if (how?.agent && this.surface.holdsKeys) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
+        if (how?.by?.kind === "agent" && this.surface.holdsKeys) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
       ownKeys: "nNpPtTqQU",
+      // Its own keys and clicks run its note actions through the reader's dispatcher.
+      press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
     };
   }
 
@@ -850,9 +850,9 @@ export class MessageReader implements Screen {
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 
-  /** An agent moved the reader: said in the status bar and, until the person moves on, in the reader. */
-  moved<T extends { index: number; of: number }>(out: T, ctx: Ctx, actor: Actor): T {
-    if (actor.kind === "agent") { ctx.flash(`moved to message ${out.index} of ${out.of}`); this.surface.noteAgent(actor, `moved here (message ${out.index} of ${out.of})`); }
+  /** An agent moved the reader: said in the reader until the person moves on (the status bar says it too: MESSAGE_ACTIONS' says). */
+  moved<T extends { index: number; of: number }>(out: T, actor: Actor): T {
+    this.surface.noteAgent(actor, `moved here (message ${out.index} of ${out.of})`);
     return out;
   }
 
@@ -894,9 +894,7 @@ export class MessageReader implements Screen {
     if (c === "q" || c === "Q") return back(this, ctx);
     if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
     // What the surface doesn't take: the BBS keys. ⏎ is "next" unless an element is current (the surface's).
-    const run = (name: "message.next" | "message.previous" | "message.thread") => {
-      Promise.resolve().then(() => MESSAGE_ACTIONS.run(name, {}, { r: this, ctx }, USER)).catch((e: Error) => ctx.flash(e.message)).finally(() => ctx.redraw());
-    };
+    const run = (name: "message.next" | "message.previous" | "message.thread") => { void this.dispatch.press(name); };
     if (k.kind === "esc") return back(this, ctx);
     if (c === "n" || c === "N" || k.kind === "enter" || k.kind === "right") return run("message.next");
     if (c === "p" || c === "P" || k.kind === "left") return run("message.previous");
@@ -931,6 +929,11 @@ export class MessageReader implements Screen {
   dispose() { this.surface.dispose(); }
   /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
   holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
+  /** Screen.keys: the one reader has the person's focus; they type in it while it holds their keys. */
+  keys() {
+    const busy = this.holdsKeys();
+    return { focus: READER, typingIn: busy ? READER : null, busy, ...(busy ? { why: `the person is in ${this.personIn()} on the ${this.title}` } : {}) };
+  }
 
   describe() {
     return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };
@@ -942,20 +945,28 @@ export class MessageReader implements Screen {
     this.ctx?.push(new MessageReader([m], 0));
   }
 
-  actions() { return { actions: [...MESSAGE_ACTIONS.list(), ...NOTE_ACTIONS.list()], readers: [READER] }; }
-
-  async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    const ctx = this.ctx;
-    if (!ctx) throw new ActionRefused("the message reader isn't shown yet");
-    const args = { ...(req.args ?? {}) };
-    const sel = req.reader;
-    if (sel && sel !== READER && sel !== "focused" && !(/^[0-9a-f-]{8,}$/.test(sel) && this.surface.msg?.id.startsWith(sel)))
-      throw new ActionRefused(`the message reader has one reader, "${READER}"${this.surface.msg ? `, showing ${this.surface.msg.id}` : ""}; not ${sel}`);
-    if (MESSAGE_ACTIONS.has(req.action)) return MESSAGE_ACTIONS.runUntyped(req.action, args, { r: this, ctx: asActor(ctx, actor) }, actor);
-    if (!NOTE_ACTIONS.has(req.action)) throw new ActionRefused(`no action ${req.action} in the message reader; \`actions\` lists them`);
-    const out = await this.surface.act(req.action, args, this.host(ctx), actor);
-    return { reader: READER, ...(out && typeof out === "object" ? out : { result: out }) };
+  /** Its one tile, as `tile=` names it: `message` (or the block it shows). */
+  private tile(): TileRef {
+    const m = this.surface.msg;
+    return { name: READER, kind: "reader", shows: m?.id ?? null, editing: this.surface.editing, holds: a => this.surface.heldBy(a) };
   }
+  private ctxShown(): Ctx {
+    if (!this.ctx) throw new ActionRefused("the message reader isn't shown yet");
+    return this.ctx;
+  }
+  /** The message reader's dispatcher: its own actions (next, previous, thread), then its reader's note actions. */
+  readonly dispatch: Dispatcher = new Dispatcher({
+    title: "message reader", ctx: () => this.ctx, keys: () => this.keys(), tiles: () => [this.tile()],
+    draftOf: () => ({ board: this.ctx?.board, blockId: this.surface.msg?.id ?? null, session: this.surface.draftSession() }),
+  }, [
+    { set: MESSAGE_ACTIONS, takes: "screen", on: (_, how) => ({ r: this, ctx: how.ctx, actor: how.actor }) },
+    {
+      set: NOTE_ACTIONS, takes: "tile", noun: "a reader",
+      on: (_, how) => ({ surface: this.surface, host: (how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown()) }),
+      run: (name, args, on, actor, typed) => this.surface.run(name, args, on.host, actor, typed),
+      answer: (out: unknown) => ({ reader: READER, ...(out && typeof out === "object" ? out : { result: out }) }),
+    },
+  ]);
 }
 
 /** The message reader's one reader, as `actions` and `act reader=` name it. */
@@ -964,20 +975,22 @@ const READER = "message";
 /** The message reader's own keys, as actions: next, previous, thread. The note's actions are NOTE_ACTIONS. */
 export const MESSAGE_ACTIONS = new ActionSet<{ "message.next": Record<string, never>; "message.previous": Record<string, never>; "message.thread": Record<string, never> }, MessageOn>("message", {
   "message.next": {
-    summary: "read the next message in the list the reader was opened from", keys: "n N, ⏎ (with no element current), →",
+    summary: "read the next message in the list the reader was opened from (an agent's waits until the person is idle, and is said)", keys: "n N, ⏎ (with no element current), →",
+    touches: "screen", replay: "safe", says: out => `· moved to message ${out.index} of ${out.of}`,
     args: {},
-    run(_, { r, ctx }, actor) { return r.moved(r.step(1, ctx), ctx, actor); },
+    run(_, { r, ctx, actor }) { return r.moved(r.step(1, ctx), actor); },
   },
   "message.previous": {
-    summary: "read the previous message in the list", keys: "p P, ←",
+    summary: "read the previous message in the list (an agent's waits until the person is idle, and is said)", keys: "p P, ←",
+    touches: "screen", replay: "safe", says: out => `· moved to message ${out.index} of ${out.of}`,
     args: {},
-    run(_, { r, ctx }, actor) { return r.moved(r.step(-1, ctx), ctx, actor); },
+    run(_, { r, ctx, actor }) { return r.moved(r.step(-1, ctx), actor); },
   },
   "message.thread": {
     summary: "list the message's replies (its children) as messages", keys: "t T",
+    touches: "screen", replay: "safe", says: () => "· opened the thread · q goes back",
     args: {},
-    run(_, { r, ctx }, actor) {
-      if (actor.kind === "agent" && r.surface.holdsKeys) throw new ActionRefused(`the person is in ${r.personIn()} here; try again once they close it`);
+    run(_, { r, ctx }) {
       r.thread(ctx);
       return { opened: "thread" };
     },
@@ -988,7 +1001,7 @@ export class Conferences implements BbsList {
   title = "join conference";
   private confs: Msg[] | null = null;
   sel = 0;
-  private ctx: Ctx | null = null;
+  ctx: Ctx | null = null;
   private readonly ptr = new Pointer();
   enter(ctx: Ctx) { this.ctx = ctx; ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
@@ -1017,8 +1030,7 @@ export class Conferences implements BbsList {
     ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
   }
   describe() { return listDescribe(this); }
-  actions() { return listActions(); }
-  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
+  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 // ── who's online and last callers ────────────────────────────────────────────
@@ -1065,27 +1077,24 @@ export class WhoOnline implements Screen {
     this.ctx = ctx;
     if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
     if (isBack(k) || k.kind === "enter") back(this, ctx);
-    else if (k.kind === "char" && !k.ctrl && (k.ch === "r" || k.ch === "R")) {
-      void runAsPerson(WHO_ACTIONS, "who.refresh", {}, { pane: this.host(ctx) }, msg => ctx.flash(msg));
-    }
+    else if (k.kind === "char" && !k.ctrl && (k.ch === "r" || k.ch === "R")) void this.dispatch.press("who.refresh");
   }
   /** Who's online as the who actions' host (src/who-actions.ts): r asks the service again. */
   private host(ctx: Ctx): WhoHost { return { refresh: () => this.load(ctx), rows: () => this.rows() }; }
   /** The callers as last read, for `who.refresh` and `peek`. */
   rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.subjects.get(c.target) ?? null : null })); }
   describe() { return { kind: "who's online", callers: this.callers ? this.rows() : null }; }
-  actions() { return { actions: WHO_ACTIONS.list(), readers: [] }; }
-  act(req: ActRequest, actor: Actor) {
-    if (!this.ctx) throw new ActionRefused("who's online isn't shown yet");
-    return WHO_ACTIONS.runUntyped(req.action, req.args ?? {}, { pane: this.host(this.ctx) }, actor);
-  }
+  readonly dispatch: Dispatcher = new Dispatcher({ title: this.title, ctx: () => this.ctx }, [{
+    set: WHO_ACTIONS, takes: "none",
+    on: () => { if (!this.ctx) throw new ActionRefused("who's online isn't shown yet"); return { pane: this.host(this.ctx) }; },
+  }]);
 }
 
 export class LastCallers implements BbsList {
   title = "last callers";
   private rows: Activity[] | null = null;
   sel = 0;
-  private ctx: Ctx | null = null;
+  ctx: Ctx | null = null;
   private readonly ptr = new Pointer();
   enter(ctx: Ctx) { this.ctx = ctx; ctx.board.activity(80).then(r => { this.rows = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
@@ -1124,8 +1133,7 @@ export class LastCallers implements BbsList {
   }
   openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.rows!.map(r => r.block), i)); }
   describe() { return listDescribe(this); }
-  actions() { return listActions(); }
-  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
+  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 // ── file areas: the WOE packs, straight out of their zips ────────────────────
@@ -1134,7 +1142,7 @@ export class FileAreas implements BbsList {
   title = "file areas";
   private list = packs();
   sel = 0;
-  private ctx: Ctx | null = null;
+  ctx: Ctx | null = null;
   enter(ctx: Ctx) { this.ctx = ctx; }
   private diz = new Map<string, string[]>();
   private readonly ptr = new Pointer();
@@ -1171,8 +1179,7 @@ export class FileAreas implements BbsList {
     ctx.push(new ArtViewer(m));
   }
   describe() { return listDescribe(this); }
-  actions() { return listActions(); }
-  act(req: ActRequest, actor: Actor) { return listAct(this, this.ctx, req, actor); }
+  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 function readDiz(pack: string): string[] {
@@ -1241,7 +1248,7 @@ export class ArtViewer implements Screen {
     this.ctx = ctx;
     if (isBack(k)) return back(this, ctx);
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => void runAsPerson(ART_ACTIONS, name, args, this.on(ctx), msg => ctx.flash(msg));
+    const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => void this.dispatch.press(name, args);
     if (c === "." || c === ">" || k.kind === "right") return run("art.step", { by: 1 });
     if (c === "," || c === "<" || k.kind === "left") return run("art.step", { by: -1 });
     if (c === "i") return run("art.ice", {});
@@ -1262,11 +1269,10 @@ export class ArtViewer implements Screen {
   get iceOn() { return this.ice; }
   about() { return { piece: basename(this.items[this.index]!.path), n: this.index + 1, of: this.items.length, ice: this.ice, scroll: this.scroll, height: this.art?.height ?? null }; }
   describe() { return { kind: "art", ...this.about(), sauce: this.art?.sauce ?? null }; }
-  actions() { return { actions: ART_ACTIONS.list(), readers: [] }; }
-  act(req: ActRequest, actor: Actor) {
-    if (!this.ctx) throw new ActionRefused("the art viewer isn't shown yet");
-    return ART_ACTIONS.runUntyped(req.action, req.args ?? {}, this.on(this.ctx), actor);
-  }
+  readonly dispatch: Dispatcher = new Dispatcher({ title: "art viewer", ctx: () => this.ctx }, [{
+    set: ART_ACTIONS, takes: "none",
+    on: () => { if (!this.ctx) throw new ActionRefused("the art viewer isn't shown yet"); return this.on(this.ctx); },
+  }]);
   /** The viewer as the art actions' host (src/art-actions.ts). */
   private on(ctx: Ctx): ArtOn { return { pane: this, desk: { ctx, redraw: () => ctx.redraw() } }; }
 }

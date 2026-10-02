@@ -79,15 +79,15 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     const r = await act("thread.pick", { n: 2 }) as any;
     expect(r.id).toBe(notes.plums.id);
     expect(thread.selected).toBe(0);
-    await D().act({ action: "thread.pick", args: { n: 2 } }, { kind: "user" });
+    await D().dispatch.act({ action: "thread.pick", args: { n: 2 } }, { kind: "user" });
     expect(thread.selected).toBe(1);
   });
 
   test("tile.enter and tile.leave are the person's: an agent's is refused, with the way it does it instead", async () => {
-    await D().act({ action: "tile.open", args: { kind: "pty", name: "shell" } }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.open", args: { kind: "pty", name: "shell" } }, { kind: "user" });
     await until(() => get().tiles.find((t: any) => t.name === "shell")?.terminal?.running, "the shell");
     await expect(act("tile.enter", {}, "shell")).rejects.toThrow(/tile\.type/);
-    await D().act({ action: "tile.focus", args: {}, reader: "shell" }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.focus", args: {}, reader: "shell" }, { kind: "user" });
     expect(await ran(char("e"))).toEqual(["tile.enter"]);
     expect(D().inPty()).toBe(true);
     await expect(act("tile.leave")).rejects.toThrow(/keys are theirs/);
@@ -116,22 +116,22 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     try { key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 2 }); key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 2 }); await Bun.sleep(20); } finally { stop(); }
     expect(runs.filter(x => x.name === "tile.enter").map(x => x.scope)).toEqual(["terminal"]);
     expect(D().inPty()).toBe(true);
-    await D().act({ action: "tile.leave", args: {} }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.leave", args: {} }, { kind: "user" });
     expect(D().inPty()).toBe(false);
   });
 
   test("a terminal's ⏎ runs tile.enter; an agent's tile.type with no reader never guesses between terminals", async () => {
-    await D().act({ action: "tile.focus", args: {}, reader: "shell" }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.focus", args: {}, reader: "shell" }, { kind: "user" });
     expect(await ran({ kind: "enter" })).toEqual(["tile.enter"]);
     expect(await ran(ctrl("]"))).toEqual(["tile.leave"]);
-    await D().act({ action: "tile.open", args: { kind: "pty", name: "shell2" } }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.open", args: { kind: "pty", name: "shell2" } }, { kind: "user" });
     await until(() => get().tiles.find((t: any) => t.name === "shell2")?.terminal?.running, "the second shell");
     const other = get().tiles.find((t: any) => t.kind === "reader" || t.kind === "tree").name;
-    await D().act({ action: "tile.focus", args: {}, reader: other }, { kind: "user" });
+    await D().dispatch.act({ action: "tile.focus", args: {}, reader: other }, { kind: "user" });
     // The person's keys are on neither terminal: which one would be a guess, so the agent names it.
     await expect(act("tile.type", { text: "x" })).rejects.toThrow(/tile\.type needs tile=<tile>: .*shell, shell2/);
     expect((await act("tile.type", { text: "echo named\\n" }, "shell2") as any).tile).toBe("shell2");
-    await D().act({ action: "tile.close", args: { confirm: true }, reader: "shell2" }, { kind: "user" }).catch(() => {});
+    await D().dispatch.act({ action: "tile.close", args: { confirm: true }, reader: "shell2" }, { kind: "user" }).catch(() => {});
   });
 
   test("^W then a ctrl+letter isn't the letter: ^W ctrl+x closes nothing", async () => {

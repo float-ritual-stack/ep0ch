@@ -72,6 +72,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(top()).toBeInstanceOf(Waiting);
     await until(() => (top() as Waiting).list.items !== null, "the waiting items asked for");
     expect(screen()).toContain("Nobody owes you an answer.");
+    (app as any).lastInput = 0;                                                     // the person is idle
     await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/nothing is waiting/);
   });
 
@@ -95,6 +96,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
 
   test("agents pick by act, said on screen; never while the person is typing; bad picks are refused", async () => {
     expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["waiting.pick", "waiting.reload", "pane.split"]));
+    (app as any).lastInput = 0;                                                     // the person is idle
     expect(await app.act({ action: "waiting.pick", args: { id: ada.id }, as: "test-agent" })).toMatchObject({ n: 1, of: 2, id: ada.id, who: "Ada" });
     expect((app as any).message).toContain("an agent (test-agent) showed what Ada owes (1 of 2)");
     expect(top().current?.id).toBe(ada.id);
@@ -105,7 +107,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     ch("2");
     ch("e");
     await until(() => !!top().readerPanes()[0]?.pane.draft, "the person's edit");
-    await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing here/);
+    await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     press({ kind: "esc" });
     await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
     expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ waiting: 2 });

@@ -97,6 +97,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(screen()).toContain("No daily brief yet.");
     expect(screen()).toContain("ep0ch --skill daily-brief");
     expect(screen()).toContain("daily brief · none yet");
+    (app as any).lastInput = 0;                                                     // the person is idle
     await expect(app.act({ action: "brief.step", args: { by: -1 }, as: "test-agent" })).rejects.toThrow(/no briefs yet/);
     ch("q");
     expect((app as any).stack.at(-1)).toBeInstanceOf(MainMenu);
@@ -145,17 +146,19 @@ describe.skipIf(!outliner)("the brief screen", () => {
 
   test("agents step by act, said on screen; never while the person is typing in the brief", async () => {
     expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["brief.step", "brief.newest", "brief.date", "link.follow", "pane.split"]));
+    (app as any).lastInput = 0;                                                     // the person is idle
     expect(await app.act({ action: "brief.date", args: { date: "2026-01-05" }, as: "test-agent" })).toMatchObject({ id: notes.a.id, n: 1 });
     expect((app as any).message).toContain("an agent (test-agent) showed the brief for 2026-01-05");
     expect(await app.act({ action: "brief.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ id: notes.c.id });
     ch("e");
     await until(() => !!top().reader.draft, "the person's edit");
-    await expect(app.act({ action: "brief.newest", as: "test-agent" })).rejects.toThrow(/the person is typing here/);
+    await expect(app.act({ action: "brief.newest", as: "test-agent" })).rejects.toThrow(/the person is typing/);
     ch(".");                                                                        // typed into the edit, not a step
     expect(top().shown?.id).toBe(notes.c.id);
     expect(top().reader.draft?.dirty).toBe(true);
     press({ kind: "esc" }); press({ kind: "esc" });                                 // closes it, discarding the stray full stop
     await until(() => !top().reader.draft, "the edit closed");
+    (app as any).lastInput = 0;
     expect(await app.act({ action: "brief.newest", as: "test-agent" })).toMatchObject({ id: notes.b.id });
   });
 
@@ -189,6 +192,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     ch("."); ch(".");
     expect(top().shown?.id).toBe(notes.b.id);
     await until(() => !r.msg?.partial && screen().includes("Brief A"), "brief B drawn again");
+    (app as any).lastInput = 0;                                                     // the person is idle: an agent's open may step the brief
     const els = (await app.act({ action: "elements", reader: "1", as: "test-agent" }) as any).elements as { n: number; label: string }[];
     const row = els.find(e => e.label.includes("Brief C"))!;
     await app.act({ action: "element.open", reader: "1", args: { n: row.n }, as: "test-agent" });

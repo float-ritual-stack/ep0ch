@@ -8,7 +8,7 @@
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
@@ -221,10 +221,9 @@ export class QueryPane implements Pane {
     const items = this.items ?? [];
     const m = items[i];
     if (!m) throw new ActionRefused(this.items ? (items.length ? `${this.name} has ${items.length} card${items.length === 1 ? "" : "s"}; n is 1-${items.length}` : `${this.name} is empty`) : `${this.name} is still being read`);
-    const agent = actor.kind === "agent";
     // An agent's pick is its own: the person's cursor and what the tile shows stay.
-    if (!agent) { this.sel = i; desk.setCurrent(m, { from: this }); }
-    if (open) desk.setCurrent(m, { from: this, link: true, ...(agent ? { agent: true } : {}) });
+    if (actor.kind !== "agent") { this.sel = i; desk.setCurrent(m, { from: this }); }
+    if (open) desk.setCurrent(m, { from: this, link: true, by: actor });
     desk.redraw();
     return { card: m.id, title: subject(m), n: i + 1 };
   }
@@ -264,6 +263,7 @@ export const QUERY_ACTIONS = new ActionSet<{
   "query.pick": {
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
     keys: "j k ↑ ↓ PgUp PgDn, ⏎ (open), click on a card (again: open), wheel",
+    touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title.slice(0, 40)}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },
       id: { type: "string", optional: true, about: "a card's block id (or its first 8+ characters)" },
@@ -275,17 +275,15 @@ export const QUERY_ACTIONS = new ActionSet<{
       const items = pane.items ?? [];
       const i = id !== undefined ? items.findIndex(m => m.id === id || (id.length >= 8 && m.id.startsWith(id))) : by !== undefined ? clamp(pane.sel + Math.trunc(by), 0, Math.max(0, items.length - 1)) : n! - 1;
       if (id !== undefined && i < 0) throw new ActionRefused(`${pane.name} doesn't list ${id}`);
-      const r = pane.pick(i, !!open, desk, actor);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${open ? "opened" : "picked"} "${r.title.slice(0, 40)}" in ${pane.name}`);
-      return r;
+      return pane.pick(i, !!open, desk, actor);
     },
   },
   "query.reload": {
     summary: "read a query tile's view again from the service", keys: "r",
+    touches: "nothing", replay: "safe", says: r => `read ${r.lane} again`,
     args: {},
-    async run(_, { pane, desk }, actor) {
+    async run(_, { pane, desk }) {
       await pane.load(desk);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} read ${pane.name} again`);
       return { lane: pane.name, count: pane.items?.length ?? 0 };
     },
   },

@@ -7,6 +7,7 @@ import type { Msg } from "../board";
 import type { Placement } from "../kitty";
 import type { Key, TermInfo } from "../term";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
+import { NOBODY, screenKeys, within } from "../whereabouts";
 
 export class FramedScreen {
   private stack: Screen[] = [];
@@ -16,7 +17,11 @@ export class FramedScreen {
   readonly ctx: Ctx;
   private entered = false;
 
-  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}) {
+  /**
+   * `focused`: the frame has the person's keys where it is (its tile is focused, the showcase's stage is entered);
+   * the screen inside sees the person's whereabouts through it (`within`). Without it, it always has them.
+   */
+  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true) {
     this.stack.push(first);
     this.ctx = frameCtx(this);
   }
@@ -86,6 +91,9 @@ function frameCtx(f: FramedScreen): Ctx {
     suspend: ((run: () => Promise<unknown>, what?: string) => o().suspend(run, what)) as Ctx["suspend"],
     suspended: () => o().suspended?.() ?? null,
     editInTile: (path, cmd, done) => o().editInTile?.(path, cmd, done) ?? false,
+    idleFor: () => o().idleFor?.() ?? Infinity,
+    // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
+    person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };
 }
 
@@ -103,7 +111,7 @@ export class ScreenPane implements Pane {
   private build(m: Msg | null, desk: DeskApi) {
     const s = this.make(m);
     this.desk = desk;
-    this.framed = s ? new FramedScreen(s, () => desk.ctx) : null;
+    this.framed = s ? new FramedScreen(s, () => desk.ctx, undefined, undefined, () => !!desk.hasFocus?.(this)) : null;
   }
   init(desk: DeskApi) { if (!this.follows) this.build(null, desk); }
   select(m: Msg | null, desk: DeskApi) { if (this.follows) this.build(m, desk); }

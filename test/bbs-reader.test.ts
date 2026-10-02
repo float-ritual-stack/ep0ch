@@ -235,8 +235,8 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
 
   test("agents: actions lists the note's actions and the reader's; act folds, selects and moves on, attributed", async () => {
     const r = await open();
-    const listed = app.actions() as { actions: { name: string }[]; readers: string[] };
-    expect(listed.readers).toEqual(["message"]);
+    const listed = app.actions();
+    expect(listed.tiles).toEqual(["message"]);
     const names = listed.actions.map(a => a.name);
     for (const a of ["message.next", "message.previous", "message.thread", "fold", "select", "link.follow", "edit", "props"]) expect(names).toContain(a);
     const folded = await app.act({ action: "fold", args: { all: true }, as: AS }) as any;
@@ -248,7 +248,8 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(sel.chars).toBe(13);
     expect(r.surface.selection).toBeNull();                 // the agent's own, never the person's
     expect(r.surface.agentSelection?.id).toBe(AS);
-    await expect(app.act({ action: "fold", reader: "2", as: AS })).rejects.toThrow(/one reader, "message"/);
+    await expect(app.act({ action: "fold", reader: "2", as: AS })).rejects.toThrow(/no tile 2 on the message reader; tiles: message/);
+    (app as any).lastInput = 0;                                    // moving on is a move of their screen: once they're idle
     const moved = await app.act({ action: "message.next", as: AS }) as any;
     expect(moved).toMatchObject({ index: 2, of: 2, id: n.second.id });
     expect(text()).toContain(`an agent (${AS})`);

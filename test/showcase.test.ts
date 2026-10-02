@@ -338,12 +338,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   test("agents: act shows a section, never while the person is in one, and reaches the section's own actions", async () => {
     ch("1"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    // The person is working in section 1: an agent can't move them out of it.
+    // The person is working in section 1: an agent can't move them out of it (once they've paused, too).
+    (app as any).lastInput = 0;
     await expect(app.act({ action: "section", args: { name: "selection" }, as: "test-agent" })).rejects.toThrow(/the person is in section 1/);
     expect(S().focus).toBe("stage");
     expect(S().sel).toBe(0);
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
+    (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
     expect(r).toEqual({ section: 16, key: "selection" });
     expect(S().focus).toBe("index");
@@ -356,6 +358,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(JSON.stringify(sel)).toContain("red lentils");
     expect(app.describe()).toMatchObject({ screen: "showcase", state: { kind: "showcase", section: { key: "selection" }, focus: "index" } });
     await expect(app.act({ action: "section", args: { name: "nope" }, as: "test-agent" })).rejects.toThrow(/no section nope/);
+    // The shell's actions stay the App's on the showcase: the stage takes only its own (PIE-514).
+    expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
   }, 20_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {

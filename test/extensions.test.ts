@@ -252,7 +252,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     desk.render(D().ctx);
     // ^W o T from the reader, which shows a note: the tile's block is that note.
     const spot = await board.createBlock(note.id, "Where readings go");
-    await D().act({ action: "open", args: { id: spot.id } }, { kind: "user" }).catch(() => {});
+    await D().dispatch.act({ action: "open", args: { id: spot.id } }, { kind: "user" }).catch(() => {});
     const reader = D().namedReaders()[0];
     D().focus = [...D().names].find(([, v]: any) => v === reader.name)![0];
     reader.pane.hold?.(spot, desk);
@@ -274,7 +274,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await app.act({ action: "tile.open", args: { kind: "tarot.reading", note: note.id, name: "cards" }, as: AS });
     expect(tiles().find(t => t.name === "cards")).toMatchObject({ kind: "tarot.reading", args: { block: note.id } });
     // Saved with its kind and its block, nothing else.
-    await D().act({ action: "layout.save", args: { name: "cards" } }, { kind: "user" });
+    await D().dispatch.act({ action: "layout.save", args: { name: "cards" } }, { kind: "user" });
     const saved = JSON.stringify(JSON.parse(readFileSync(join(process.env.EP0CH_STATE!, "layouts.json"), "utf8")).cards);
     expect(saved).toContain(`"kind":"tarot.reading"`);
     expect(saved).toContain(`"state":{"block":"${note.id}"}`);

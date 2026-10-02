@@ -4,7 +4,7 @@
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
-import { USER, type Actor } from "./socket";
+import { whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
@@ -786,41 +786,49 @@ export interface DraftActionArgs {
 export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
   "draft.newline": {
     summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
+    touches: "draft", draft: "type", replay: "ask",
     args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   },
   "draft.indent": {
     summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
+    touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
   },
   "draft.outdent": {
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
+    touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     run({ from, to }, d, actor) { const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
   },
   "draft.place": {
     summary: "put the draft's cursor at a line and column; extend=true selects from where it was", keys: "click, drag",
+    touches: "draft", draft: "type", replay: "safe",
     args: { line: { type: "number", about: "line, from 1" }, col: { type: "number", optional: true, about: "column, from 1 (default the end)" }, extend: { type: "boolean", optional: true, about: "select from the cursor to here" } },
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   },
   "draft.scroll": {
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view)", keys: "wheel",
+    touches: "draft", draft: "type", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
     run({ by }, d, actor) { d.scrollBy(by); return { following: d.follow }; },
   },
   "draft.undo": {
     summary: "take back the last edit an agent's draft.patch made in this draft (an agent: only its own); one patch is one undo", keys: "ctrl+z",
+    touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.undoPatch(actor); return { undone: said, left: d.patches.length }; },
   },
   "draft.preview": {
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
+    touches: "draft", draft: "type", replay: "safe",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
     run({ on }, d, actor) { d.preview = on ?? !d.preview; return { preview: d.preview }; },
   },
   "draft.copy": {
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (an agent's never). A drag in a draft doesn't copy by itself, unlike a reader's: typing or a paste replaces what's selected there", keys: "cmd+c",
+    touches: "draft", draft: "type", replay: "safe",
     args: {},
     run(_, d, actor) {
       const text = d.selectedText();
@@ -831,7 +839,7 @@ export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
 });
 
 /** How a patch's writer is named where it landed: `tidy` for an agent, `you` for the person. */
-export const patchLabel = (a: Actor) => (a.kind === "agent" ? a.id : "you");
+export const patchLabel = whoOf;
 
 /** The same party: the person, or the same agent. */
 export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);

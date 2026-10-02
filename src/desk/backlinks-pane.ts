@@ -14,7 +14,7 @@ import {
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkStatusPart, type BacklinkViewOptions,
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
 import { bg, C, fg, INPUT_CURSOR, pad, RESET, width } from "../style";
 import type { Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -234,11 +234,11 @@ export class BacklinksPane implements Pane {
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
     // follows it, whose backlinks these are, would move to the row and the list with it.
-    if (how === "show" && desk.showFrom) desk.showFrom(this, m, agent);
+    if (how === "show" && desk.showFrom) desk.showFrom(this, m);
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.
-      if (!agent && desk.showFrom) desk.showFrom(this, m, false);
-      desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), ...(agent ? { agent: true } : {}) });
+      if (!agent && desk.showFrom) desk.showFrom(this, m);
+      desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), by: actor });
     }
     desk.redraw();
     return { row: i + 1, id: m.id };
@@ -342,9 +342,9 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
   "backlinks.fold": {
     summary: "open or fold a kind's group in a backlinks tile (kind=<its key or label>; default the selected row's), as . or space on it does; every group is open while a filter is set. The person's view: an agent's is refused",
     keys: ". space",
+    touches: "tile", replay: "safe", person: "which groups are folded is the person's view; an agent reads every row with backlinks.view or peek",
     args: { kind: { type: "string", optional: true, about: "the group's kind (its key, as peek's rows give it, or its label); default the selected row's" } },
-    run({ kind }, { pane, desk }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("which groups are folded is the person's view; an agent reads every row with backlinks.view or peek");
+    run({ kind }, { pane, desk }) {
       const r = pane.rows()[pane.sel];
       const kinds = backlinkView(pane.data, { ...pane.options, kind: null }).kinds;
       const k = kind === undefined ? (r?.kind === "group" ? r.group.kind : r?.source.facets?.kind) : kinds.find(x => x.kind === kind || x.label.toLowerCase() === kind.toLowerCase())?.kind ?? kind;
@@ -357,6 +357,7 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
   "backlinks.pick": {
     summary: "pick a row of a backlinks tile (tile=<its name>): n (as peek's rows, from 1) or id; the source shows where the tile's selection goes; open=true as ⏎, fresh=true as alt+⏎. An agent's never moves the person's keys",
     keys: "j k ↑ ↓ Home End wheel (show) · ⏎ click (open) · alt+⏎ ctrl-click alt-click (fresh)",
+    touches: "nothing", replay: "safe", says: r => `picked a backlink (row ${r.row})`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a source's block id (or its start)" },
@@ -370,14 +371,13 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
       const i = id !== undefined ? rows.findIndex(r => r.kind === "source" && r.source.blockId.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
       if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
       if (id !== undefined && i < 0) throw new ActionRefused(`no backlink from ${id} here`);
-      const r = await pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} picked a backlink (row ${r.row})`);
-      return r;
+      return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
     },
   },
   "backlinks.view": {
     summary: "change a backlinks tile's view as Detail's controls do: filter (text to match), kind (a kind or all), stage (all, open, waiting, draft, active, done), resolved, related, sort (updated, created, title, -asc or -desc); step=filter starts typing one (the person's)",
     keys: "K w h n s, click on the status line; / then typing, backspace ctrl+u, ⏎ keeps it, esc goes back",
+    touches: "nothing", replay: "safe", says: r => (r.said ? `· ${r.said}` : "changed the backlinks view"),
     args: {
       filter: { type: "string", optional: true, about: "text to match, as / filters (empty clears)" },
       kind: { type: "string", optional: true, about: "a kind or its label, or all" },
@@ -392,15 +392,14 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
         if (!(["kind", "stage", "resolved", "related", "sort", "filter"] as string[]).includes(step)) throw new ActionRefused(`step is filter, kind, stage, resolved, related or sort, not ${step}`);
         if (step === "filter" && actor.kind === "agent") throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");
         const said = pane.control(step as BacklinkControl);
-        if (said) desk.ctx.flash(actor.kind === "agent" ? `${agentLabel(actor)} · ${said}` : said);
+        if (said) desk.ctx.flash(said);
         desk.redraw();
-        return { backlinks: pane.describe() };
+        return { backlinks: pane.describe(), ...(said ? { said } : {}) };
       }
       const kinds = backlinkView(pane.data, { ...pane.options, kind: null }).kinds;
       let next: BacklinkViewOptions;
       try { next = backlinkOptionsFrom(pane.options, args, kinds); } catch (e) { throw new ActionRefused((e as Error).message); }
       pane.options = next;
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} changed the backlinks view`);
       desk.redraw();
       return { backlinks: pane.describe() };
     },

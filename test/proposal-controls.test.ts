@@ -168,12 +168,12 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
   test("an agent dismisses only its own proposal, attributed; another agent is refused", async () => {
     const { id, proposal } = await proposed();
     const { s, h } = await reading(id);
-    await expect(NOTE_ACTIONS.run("proposal.dismiss", { id: proposal }, { surface: s, host: h }, OTHER)).rejects.toThrow("an agent dismisses only its own");
+    await expect(s.act("proposal.dismiss", { id: proposal }, h, OTHER)).rejects.toThrow("an agent dismisses only its own");
     expect((await board.get(proposal))!.deleted).toBeFalsy();
-    const r = await NOTE_ACTIONS.run("proposal.dismiss", { id: proposal }, { surface: s, host: h }, TIDY);
+    const r = await s.act("proposal.dismiss", { id: proposal }, h, TIDY);
     expect(r).toMatchObject({ outcome: "dismissed", proposalId: proposal, embedRemoved: "saved" });
     expect((await board.get(proposal))!.deleted).toBe(true);
-    expect(flashes.at(-1)).toContain("by an agent (tidy)");
+    expect(flashes.at(-1)).toContain("an agent (tidy) · dismissed the proposal");
     expect(await lastChange(id)).toMatchObject({ actor: { author: "agent", actorId: "tidy" } });
     expect(await lastChange(proposal)).toMatchObject({ kind: "delete", actor: { author: "agent", actorId: "tidy" } });
   }, 30_000);

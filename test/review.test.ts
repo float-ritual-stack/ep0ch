@@ -109,7 +109,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
   const AS = "reviewer-3";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
   const tile = (name: string) => (D().layoutGet().tiles as any[]).find(t => t.name === name);
   const idOf = (name: string) => [...D().names].find(([, v]: any) => v === name)![0];
   const message = () => (app as any).message as string;

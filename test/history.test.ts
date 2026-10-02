@@ -153,7 +153,7 @@ describe("a reader's history, without a service", () => {
       await until(() => s.msg?.id === id(3), "the parent");
       const r = s.act("back", {}, h, agent);
       if (focused) {
-        await expect(r).rejects.toThrow("the reader the person has focused");
+        await expect(r).rejects.toThrow("has the person's keys");
         expect(s.msg?.id).toBe(id(3));
       } else {
         expect(await r).toMatchObject({ went: "back", showing: { id: id(1) } });
@@ -188,8 +188,8 @@ describe("an agent's scroll and back, where the view doesn't say the reader isn'
     const at = s.describe().elements?.current;
     expect(at).toMatchObject({ kind: "link" });
     const asAgent = (name: string, args: Record<string, unknown>) => Promise.resolve().then(() => s.act(name, args, h, agent));
-    await expect(asAgent("scroll", { by: 5 })).rejects.toThrow("the reader the person has focused");
-    await expect(asAgent("back", {})).rejects.toThrow("the reader the person has focused");
+    await expect(asAgent("scroll", { by: 5 })).rejects.toThrow("has the person's keys");
+    await expect(asAgent("back", {})).rejects.toThrow("has the person's keys");
     expect(s.scroll).toBe(0);
     expect(s.describe().elements?.current).toEqual(at);
   });
@@ -310,7 +310,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     stepTo(d, "Stake the beans");
     key({ kind: "enter" });
     await whole(d, n.beans.id);
-    await expect(act("back", {}, "detail1", AS)).rejects.toThrow("the reader the person has focused");
+    await expect(act("back", {}, "detail1", AS)).rejects.toThrow("has the person's keys");
     expect(d.msg!.id).toBe(n.beans.id);
     BV.at(b, "lanes");                                                    // the person moves to the lanes
     expect(await act("back", {}, "detail1", AS)).toMatchObject({ reader: "detail1", went: "back", showing: { id: n.jobs.id } });

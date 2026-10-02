@@ -1,8 +1,10 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import type { Placement } from "./kitty";
 import { KittyLayer } from "./kitty";
-import { AGENT_ACTOR_ID, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, agentLabel, asActor, traceActions, type ActionInfo, type ActRequest } from "./surface/actions";
+import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
+import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
+import { Dispatcher } from "./surface/dispatch";
+import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { isCopyKey, osc52 } from "./surface/selection";
 import { bg, C, fg, headOf, pad, RESET, tailFrom, width } from "./style";
@@ -17,7 +19,7 @@ import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
-import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, dockRunner, overlay, type DockRun } from "./dock";
+import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
@@ -74,8 +76,11 @@ export interface Ctx {
   screens?(): readonly Screen[];
   /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
   idleFor?(): number;
-  /** The person is typing in the agent drawer (PIE-498): an agent doesn't move their screen then either. */
-  dockHoldsKeys?(): boolean;
+  /**
+   * Where the person is (PIE-514): their keys and focus, the tile they type in, whether they're busy, how long idle.
+   * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
+   */
+  person?(): Whereabouts;
 }
 
 export interface Screen {
@@ -95,14 +100,20 @@ export interface Screen {
   keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
   holdsKeys?(): boolean;
+  /**
+   * Where the person's keys are on this screen (PIE-514), by the names `tile=` uses: the tile with their focus, the
+   * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
+   */
+  keys?(): ScreenKeys;
   /** What this screen shows, for agents (`ep0ch-door peek`). */
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
-  /** The named actions this screen and its readers take (`ep0ch-door actions`), and the readers they can name. */
-  actions?(): { actions: ActionInfo[]; readers: string[] };
-  /** Run a named action as `actor`, through the same code as its keys (`ep0ch-door act`). */
-  act?(req: ActRequest, actor: Actor): Promise<unknown>;
+  /**
+   * The screen's dispatcher (PIE-514): the action sets it registered, run by its keys and clicks and by `act`
+   * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
+   */
+  readonly dispatch?: Dispatcher;
   /** Every key is the screen's, ctrl+c included: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
   /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
@@ -190,8 +201,9 @@ export class App implements Ctx {
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
-    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1) });
-    this.dockRun = dockRunner(this.dock, this, () => this.stack.at(-1));
+    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person() });
+    // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
+    this.dockRun = (name, args) => { void this.dispatch.pressIn(DOCK_ACTIONS, name, args); };
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
     // Raw input while the person types in the agent drawer or a terminal tile: the drawer first, then the
@@ -213,7 +225,6 @@ export class App implements Ctx {
   }
   screens(): readonly Screen[] { return this.stack; }
   idleFor(): number { return Date.now() - this.lastInput; }
-  dockHoldsKeys(): boolean { return this.dock.shown && this.dock.entered; }
   get graphics() { return this.video !== "cells"; }
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
@@ -384,7 +395,9 @@ export class App implements Ctx {
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(), state: s?.describe?.() ?? null };
+      ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(),
+      // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
+      person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
   }
 
   /**
@@ -398,13 +411,13 @@ export class App implements Ctx {
 
   /**
    * The screen's actions, then the shell's (`screen.*`, and `open` where the screen has none of its own), the
-   * dock's (`agent.*`) and the extensions' (`ext.*`, a handler line's or a block's), which work on every screen.
+   * host layer's (`host.*`, `agent.*`) and the extensions' (`ext.*`, a handler line's or a block's), which work on
+   * every screen: one list, in the order the App's dispatcher looks a name up.
    */
   actions() {
     const s = this.stack.at(-1);
-    const own = s?.actions?.() ?? { actions: [], readers: [] };
-    const mine = new Set(own.actions.map(a => a.name));
-    return { screen: s?.title ?? null, ...own, actions: [...own.actions, ...SHELL_ACTIONS.list().filter(a => !mine.has(a.name)), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list().filter(a => !mine.has(a.name))] };
+    const d = this.dispatch.list();
+    return { screen: s?.title ?? null, actions: d.actions, tiles: s?.dispatch?.list().tiles ?? [] };
   }
 
   /**
@@ -427,50 +440,46 @@ export class App implements Ctx {
   private extensionsSeen = false;
 
   /**
-   * An agent acts (`ep0ch-door act`). Never silent: the status bar names the agent and the action before
-   * it runs, and anything the action says while it lands is prefixed "an agent (<id>) · ".
+   * The App's dispatcher (PIE-514): the host layer's actions, the shell's and the extensions', on every screen, then
+   * the top screen's own (its dispatcher). A screen's action of a shell action's name is the screen's (the desk's,
+   * the board's, the river's `open`). An extension's action a tile kind also lists (tarot's keep) is the tile's when
+   * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
+   */
+  readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.reader === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
+    { set: DOCK_ACTIONS, takes: "none", fixed: () => HOST_AGENT_TILE, on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
+    { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.reader !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
+    { delegate: () => this.stack.at(-1)?.dispatch },
+  ]);
+
+  /**
+   * Where the person is (PIE-514): the top screen's own answer (its `keys`; else whether it holds their keys), the host
+   * layer's drawer they may be typing in, the shell or editor the door is suspended under, and how long they've been idle.
+   */
+  person(): Whereabouts {
+    const s = this.stack.at(-1);
+    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.dock.shown && this.dock.entered, suspended: this.away, loggedOn: !!s && !s.noDock, idle: this.idleFor() });
+  }
+
+  /**
+   * An agent acts (`ep0ch-door act`), through the App's dispatcher. Never silent: the status bar names the agent and
+   * the action before it runs, a refusal says why, and anything it says while it lands is "an agent (<id>) · …".
    */
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
-    // A screen's own action of a shell action's name comes first (the desk's, the board's, the river's `open`);
-    // the shell's is the one every other screen has.
-    const screenHas = !!s?.act && !!s.actions?.().actions.some(a => a.name === req.action);
-    const shell = SHELL_ACTIONS.has(req.action) && !screenHas;
-    const dock = DOCK_ACTIONS.has(req.action);
-    // An extension's line or block action (`ext.<id>.<action>`, PIE-512), on every screen. One a tile kind also
-    // lists (tarot's keep) is the tile's when the request names the tile (tile=) or no block: its block is the
-    // tile's own. With block= it runs on that block, tile or none.
-    const ext = !shell && !dock && EXT_ACTIONS.has(req.action) && !(screenHas && (req.reader !== undefined || req.args?.block === undefined));
-    // The dock's agent tells its door it lives in Herdr (`tile.herdr`, as its launcher attaches) on whatever screen is shown.
-    const herdr = req.action === "tile.herdr" && req.reader === DOCK_TILE_ID;
-    if (!shell && !dock && !ext && !herdr && !s?.act) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${[...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].map(a => a.name).join(", ")}`);
+    if (!this.dispatch.takes(req)) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
     this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
     try {
-      // The shell's actions (screen.open, screen.back, screen.list) come first, on every screen.
-      const r = shell ? await SHELL_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: asActor(this, actor), here: s }, actor)
-        : dock ? await DOCK_ACTIONS.runUntyped(req.action, req.args ?? {}, { dock: this.dock, ctx: asActor(this, actor), here: s }, actor)
-        : ext ? await EXT_ACTIONS.runUntyped(req.action, req.args ?? {}, { ctx: this }, actor)
-        : herdr ? this.dockHerdr(req.args ?? {})
-        : await s!.act!(req, actor);
+      const r = await this.dispatch.act(req, actor);
       this.redraw();
       return r;
     } catch (e) {
       this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
-  }
-
-  /** `tile.herdr` for the dock's agent: the same rule as a desk tile's (the terminal kind's `tile.herdr`, PTY_ACTIONS). */
-  private dockHerdr(args: Record<string, unknown>) {
-    const p = this.dock.tile;
-    if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);
-    if (args.on === false || args.on === "false") { p.herdr = null; return { tile: DOCK_TILE_ID, herdr: null }; }
-    if (typeof args.pane !== "string" || !args.pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-    if (!p.running) throw new ActionRefused(`${DOCK_TILE_ID}'s program isn't running`);
-    p.herdr = { pane: args.pane };
-    return { tile: DOCK_TILE_ID, herdr: p.herdr };
   }
 
   /**
@@ -503,7 +512,7 @@ export class App implements Ctx {
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
-    try { this.dispatch(k); }
+    try { this.route(k); }
     finally {
       // Said once, after the key did its work, so the hint isn't covered by what the key said.
       if (k !== typed && !this.saidOptionKeys) {
@@ -513,11 +522,12 @@ export class App implements Ctx {
     }
   }
 
-  private dispatch(k: Key) {
+  /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
+  private route(k: Key) {
     // A click on the status bar's `+N ext` shows (or hides) what extensions wrote, as `changes.extensions` does.
     const ext = this.extAt;
     if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
-      if (k.action === "down") void SHELL_ACTIONS.run("changes.extensions", {}, { ctx: this, here: this.stack.at(-1) }, USER);
+      if (k.action === "down") void this.dispatch.press("changes.extensions");
       return;
     }
     // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
@@ -551,8 +561,7 @@ export class App implements Ctx {
   private optionAsAlt(k: Key): Key {
     if (!this.optionKeys || k.kind !== "char" || k.ctrl || k.pasted) return k;
     const alt = OPTION_KEYS[k.ch];
-    const top = this.stack.at(-1);
-    if (!alt || this.dockHoldsKeys() || top?.holdsKeys?.() || top?.rawKeys?.()) return k;
+    if (!alt || this.person().busy) return k;
     return { kind: "alt", ch: alt };
   }
   private saidOptionKeys = false;

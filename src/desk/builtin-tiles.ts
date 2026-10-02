@@ -39,7 +39,7 @@ const screen = (kind: ScreenKind, key: string, about: string): TileKind => ({
   make: s => new ScreenTile(kind, { preview: s.preview }),
   // A whole screen keeps its own keys while it's in an edit, answers its own actions (the board's card.*) and animates.
   takesKeys: p => (p as ScreenTile).holdsKeys(),
-  act: (p, req, actor) => (p as ScreenTile).act(req, actor),
+  dispatcher: p => (p as ScreenTile).screen?.dispatch ?? null,
   tick: p => (p as ScreenTile).tick(),
   holdsWork: p => (p as ScreenTile).unsaved(),
   shows: p => (p as ScreenTile).current(),

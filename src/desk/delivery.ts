@@ -8,10 +8,12 @@
 import type { Ctx, Frame } from "../app";
 import { subject, type Msg } from "../board";
 import { Canvas, type Rect } from "../canvas";
-import { USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView, backlinkOptionsFrom, type BacklinkViewOptions } from "../backlinks";
-import { ActionRefused, ActionSet, runAsPerson, agentLabel, asActor, type ActRequest } from "../surface/actions";
-import { draftPreview, leaveSaid, NOTE_ACTIONS, type OpenHow } from "../surface/note";
+import { ActionRefused, ActionSet, agentLabel, asActor } from "../surface/actions";
+import { Dispatcher, type TileRef } from "../surface/dispatch";
+import type { ScreenKeys } from "../whereabouts";
+import { draftPreview, leaveSaid, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
 import { bg, C, fg, pad, paint, RESET } from "../style";
@@ -20,14 +22,13 @@ import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLANNER, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
 import { wheelRows } from "../scroll";
-import { Desk, UNNAMED_AGENT } from "./desk";
+import { Desk } from "./desk";
 import { ReaderPane, sessionName, sessionStart, TreePane, type Pane, type SessionKind } from "./panes";
 import { PreviewPane } from "./preview";
 import { BacklinksPane, BACKLINKS_ACTIONS } from "./backlinks-pane";
 import { DetailPane, type LayoutSpec } from "./tiles";
 import { columnsOf, drawerOf, leaf, leaves, node, parentOf, serialize, splitOf, visible, type At, type Columns, type Dir, type LNode, type Op, type Policy } from "./screen-layout";
 import { TILE_ACTIONS, type TileDone } from "./tile-actions";
-import { TREE_ACTIONS } from "./tree";
 import { shellKeyOf } from "../shell-keys";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
@@ -177,6 +178,15 @@ export class DeliveryBoard extends Desk {
     // Docked when the board was saved, its drawers slide as they should when put back.
     this.drawerPolicyFor(this.splitId("outline"), { min: 28 });
     this.drawerPolicyFor(this.splitId("links"), { stays: true });
+    // The board's own actions before the desk's, through the desk's dispatcher: `tile=` read with the one grammar
+    // (the board's older names are its tiles' aliases), `open`'s new-detail and float are where a new reader goes.
+    this.dispatch.register([{
+      set: BOARD_ACTIONS, takes: "screen",
+      // `given` is the step the steps overlay read, for the person's step.set from it (checked against it).
+      on: (at, how) => ({ b: this, reader: at.place ?? at.name, shown: (how.given as { shown?: BoardOn["shown"] } | undefined)?.shown }),
+      // A card action writes the card it names (or the one selected): the draft rule is asked about that block.
+      draftOf: (_, a, actor) => ({ board: this.ctx?.board, blockId: typeof a.card === "string" ? a.card : this.selectedCardOr(actor) }),
+    }], true);
   }
   /**
    * An old delivery.json (OldSaved) on the preset: the outline's side and width (its drawer's edge and share), the
@@ -536,7 +546,7 @@ export class DeliveryBoard extends Desk {
   /**
    * Screen.holdsKeys: the person's keys are the board's own business right now: the desk's (an edit, a comment
    * or the property panel they're in, a filter, a ^W command), a new card or note being written, the mover or
-   * steps overlay, or the hub picker. An agent doesn't move the person's screen then (agentMayMove, PIE-489).
+   * steps overlay, or the hub picker. An agent doesn't move the person's screen then (the actor rule, PIE-514).
    */
   override personTyping(): boolean {
     return super.personTyping() || this.readers().some(r => r.surface.choosing && !this.collapsed.has(this.idOf(r) ?? -1))
@@ -554,32 +564,29 @@ export class DeliveryBoard extends Desk {
     return viewSummaryKeys(lane?.def ?? undefined);
   }
 
-  override openBlock(m: Msg) { this.current = m; this.openDetail(m, false, true); }
+  override openBlock(m: Msg, by: Actor = USER) { this.current = m; this.openDetail(m, false, by); }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch act`) ─────
 
-  override actions() {
-    const d = super.actions();
-    const mine = new Set(BOARD_ACTIONS.list().map(a => a.name));
-    // A board action by the same name as a desk one's alias (focus) is the board's: the alias isn't listed twice.
-    const theirs = d.actions.filter(a => !mine.has(a.name)).map(a => (a.aliases?.some(x => mine.has(x)) ? { ...a, aliases: a.aliases.filter(x => !mine.has(x)) } : a));
-    return { ...d, actions: [...BOARD_ACTIONS.list(), ...theirs], readers: this.boardReaders().map(r => r.name) };
-  }
-
-  override async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    const args = { ...(req.args ?? {}) };
-    if (BOARD_ACTIONS.has(req.action)) return BOARD_ACTIONS.runUntyped(req.action, args, { b: this, reader: req.reader }, actor);
-    const reader = this.alias(req.reader, NOTE_ACTIONS.has(req.action));
-    // The outline drawer's tree and the backlinks list: their rows are the ones on screen, so a shut drawer refuses.
-    if (TREE_ACTIONS.has(req.action) && !this.treeOpen) throw new ActionRefused("the outline drawer is shut; t opens it");
-    if (BACKLINKS_ACTIONS.has(req.action) && !this.linksOpen) throw new ActionRefused("no backlinks drawer is open; b opens it on a reader's note");
-    if (NOTE_ACTIONS.has(req.action)) {
-      const r = this.pickBoardReader(reader);
-      // Like a shut drawer's reader: an action there would change a note where the person can't see it.
-      if (this.collapsed.has(r.id)) throw new ActionRefused(`${r.name} is collapsed to a spine; tile.collapse on=false tile=${r.name} opens it first`);
-      return super.act({ ...req, reader: r.name }, actor);
-    }
-    return super.act({ ...req, reader }, actor);
+  /**
+   * The tiles as `tile=` reads them: the desk's, with the names agents used for the board's readers before it was a
+   * preset as aliases (`detail`, the one ⏎ opens into; `float`, the top one; `lanes`, the lane the cursor is in; for a
+   * note action, `tree` and `backlinks` are the drawers' previews). A reader that isn't on screen (a shut drawer's) or
+   * is folded to a spine is read-only to a note action: it would change a note where the person can't see it.
+   */
+  protected override tiles(): TileRef[] {
+    const more = new Map<string, string[]>();
+    const add = (alias: string, name: string | undefined) => { if (name && name !== alias) more.set(name, [...(more.get(name) ?? []), alias]); };
+    for (const a of ["detail", "float", "lanes"]) add(a, this.alias(a));
+    add("tree", "tree-preview"); add("backlinks", "backlinks-preview");
+    const shut = (name: string) => (name.startsWith("tree") ? "t opens the outline drawer" : name.startsWith("backlinks") ? "b opens a reader's backlinks" : "focus it");
+    return super.tiles().map(t => {
+      const reader = this.paneNamed(t.name) instanceof ReaderPane, drawer = t.name === "tree" || t.name === "backlinks";
+      const readOnly = t.readOnly ?? (!t.shown && reader ? `${t.name} isn't on screen; open it first (${shut(t.name)})`
+        : !t.shown && drawer ? (t.name === "tree" ? "the outline drawer is shut; t opens it" : "no backlinks drawer is open; b opens it on a reader's note") : null);
+      const aliases = [...(t.aliases ?? []), ...(more.get(t.name) ?? [])];
+      return { ...t, ...(aliases.length ? { aliases } : {}), ...(readOnly ? { readOnly } : {}) };
+    });
   }
 
   /**
@@ -602,37 +609,29 @@ export class DeliveryBoard extends Desk {
   }
 
   /**
-   * The reader an action names: by name, `detail`, `float`, `focused`, or a block id (the reader showing that
-   * note, one that's editing it first). No name: the focused reader, or the preview when the lanes have focus.
-   * The drawers' previews exist while their drawers are shut: an action there would change a note where the
-   * person can't see it, so it's refused until the drawer is open.
+   * The reader the board puts a note in or acts on: by its name (the dispatcher read `tile=`), or `detail`, `float`
+   * (the board's own words for its places). No name: the focused reader, or the preview when the lanes have focus.
+   * A drawer's preview while its drawer is shut is refused: an action there would change a note the person can't see.
    */
   private pickBoardReader(sel?: string): { name: string; id: number; pane: ReaderPane } {
     const all = this.boardReaders();
     const s = this.alias(sel, true);
-    let r: (typeof all)[number] | undefined;
-    if (!s || s === "focused") r = all.find(x => x.id === this.focus) ?? all.find(x => x.name === "preview");
-    else r = all.find(x => x.name === s);
-    if (!r && s && /^[0-9a-f-]{8,}$/.test(s)) {
-      const showing = all.filter(x => x.pane.msg?.id.startsWith(s));
-      r = showing.find(x => x.shown && x.pane.editing) ?? showing.find(x => x.shown) ?? showing[0];
-      if (!r) throw new ActionRefused(`no reader shows ${s}; open it first (open id=${s})`);
-    }
+    const r = !s || s === "focused" ? all.find(x => x.id === this.focus) ?? all.find(x => x.name === "preview") : all.find(x => x.name === s);
     if (!r) throw new ActionRefused(`no reader ${sel} on the board; readers: ${all.map(x => x.name).join(", ")}, focused, or a block id`);
     if (!r.shown) throw new ActionRefused(`${r.name} isn't on screen; open it first (${r.name.startsWith("tree") ? "t opens the outline drawer" : r.name.startsWith("backlinks") ? "b opens a reader's backlinks" : "focus it"})`);
     return r;
   }
 
   /** `open`: put a note in a reader — the preview (selecting its card when a lane lists it), a detail, a new detail, or a new float. */
-  async openOnBoard(id: string, where = "detail", quiet = false, actor: Actor = quiet ? UNNAMED_AGENT : USER): Promise<{ reader: string; id: string; why?: string }> {
+  async openOnBoard(id: string, where = "detail", actor: Actor = USER): Promise<{ reader: string; id: string; why?: string }> {
     // A card the lanes list, or a note a reader shows, opens at once (the person's ⏎ on it); any other is read first.
     const known = this.lanes.flatMap(l => l.items ?? []).find(x => x.id === id) ?? this.readers().find(r => r.msg?.id === id)?.msg;
     const m = known ?? await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     this.current = m;
     // An open gives the reader it opened the keys, unless the person is in an edit, a comment or the property
-    // panel (that keeps them), or it's quiet: an agent's naming no reader (`ep0ch open <id>`) never moves them.
-    const keep = quiet || !!this.personIn();
+    // panel (that keeps them), or it's an agent's: an agent never moves them, whatever reader it names.
+    const keep = actor.kind === "agent" || !!this.personIn();
     let shown: ReaderPane | null = null;
     if (where === "preview") {
       // Selecting its card is the lanes moving; shown without one, it's an open into the preview (PIE-453).
@@ -641,7 +640,7 @@ export class DeliveryBoard extends Desk {
       if (!keep) this.focus = this.idNamed("preview")!;
       shown = this.preview;
     } else if (where === "detail" || where === "new-detail") {
-      if (!this.openDetail(m, where === "new-detail", quiet, actor) || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
+      if (!this.openDetail(m, where === "new-detail", actor) || this.detailTiles()[this.active]?.pane.msg?.id !== m.id) {
         // A locked board (or one whose readers row was taken apart) opens no detail: the note is in the preview, said so.
         const locked = this.noReadersRow("opening a detail") ?? this.detailRefusal(actor);
         if (locked && this.preview.msg?.id === m.id) return { reader: "preview", id: m.id, why: locked };
@@ -734,12 +733,11 @@ export class DeliveryBoard extends Desk {
   /** A board action as the person; a refusal is said on the status bar. */
   private runBoard<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
     // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
-    const said = name === "card.move";
-    return runAsPerson(BOARD_ACTIONS, name, args, { b: this, reader, ...extra }, msg => { if (!said) this.ctx.flash(msg); this.redraw(); });
+    return this.dispatch.pressIn(BOARD_ACTIONS, name, args as Record<string, unknown>, reader, name === "card.move", extra.shown ? { shown: extra.shown } : undefined);
   }
   /** A tile action (TILE_ACTIONS) as the person, on the tile named as `peek` names it. */
   private tileAct<K extends Parameters<typeof TILE_ACTIONS.run>[0]>(name: K, args: Parameters<typeof TILE_ACTIONS.run<K>>[1], reader: string) {
-    void runAsPerson(TILE_ACTIONS, name, args, { d: this, reader }, msg => { this.ctx.flash(msg); this.redraw(); });
+    void this.dispatch.pressIn(TILE_ACTIONS, name, args as Record<string, unknown>, reader);
   }
   /** The shell's action (screen.back, video.cycle), as on every screen. */
   private shellKey(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
@@ -793,21 +791,19 @@ export class DeliveryBoard extends Desk {
   /** `board.hub`: the hubs (the person's opens the picker), or show the one named. */
   async chooseHub(id: string | undefined, actor: Actor): Promise<unknown> {
     if (id === undefined) {
+      // The person's opens the picker (their keys go to it); an agent's reads the list.
       if (actor.kind !== "agent") { this.openPicker(); return { picker: true }; }
       const found = await findBoards(this.ctx.board);
       return { current: this.hub?.id ?? null, hubs: found.map(f => ({ id: f.hub.id, title: subject(f.hub), lanes: f.lanes })) };
     }
-    if (actor.kind === "agent" && this.personTyping()) throw new ActionRefused("the person is typing on the board (an edit, a comment, a picker or a filter); the board stays as it is");
     const hub = this.hubPicker?.items.find(i => i.hub.id === id || (id.length >= 8 && i.hub.id.startsWith(id)))?.hub ?? await this.ctx.board.get(id);
     if (!hub) throw new ActionRefused(`no block ${id}`);
     if ((await hubViews(this.ctx.board, hub.id)).length < 2) throw new ActionRefused(`${subject(hub)} isn't a board: it has fewer than two virtual-branch lanes`);
     await this.useHub(hub);
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} showed the board ${subject(hub)}`);
     return { hub: hub.id, title: subject(hub), lanes: this.lanes.map(l => l.name) };
   }
   /** The picker put away (esc, q): the board as it was, or with no board yet, back to the menu. */
-  closePicker(actor: Actor = USER) {
-    if (actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
+  closePicker() {
     if (!this.hubPicker) return { picker: false };
     if (!this.hub) { this.shellKey("screen.back"); return { left: true }; }
     this.hubPicker = null; this.redraw();
@@ -824,10 +820,9 @@ export class DeliveryBoard extends Desk {
   }
 
   /** `board.reload`: every lane asked again. */
-  reloadLanes(actor: Actor) {
+  reloadLanes() {
     if (!this.hub) throw new ActionRefused("no board is shown yet; board.hub picks one");
     this.loadLanes();
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} reloaded the lanes`);
     this.redraw();
     return { lanes: this.lanes.map(l => l.name) };
   }
@@ -838,8 +833,7 @@ export class DeliveryBoard extends Desk {
     const l = name === undefined ? lanes[this.lane] : lanes.find(x => x.name.toLowerCase() === name.toLowerCase());
     if (!l) throw new ActionRefused(name === undefined ? "the board has no lanes yet" : `no lane ${name}; lanes: ${lanes.map(x => x.name).join(", ")}`);
     const r = this.collapseTile(this.nameOf(this.idOf(l)!), on, actor);
-    if (actor.kind === "agent" && r.changed !== false) this.ctx.flash(`${agentLabel(actor)} ${r.collapsed ? "collapsed" : "opened"} the lane ${l.name}`);
-    return { lane: l.name, collapsed: !!r.collapsed };
+    return { lane: l.name, collapsed: !!r.collapsed, ...(r.changed === false ? { changed: false } : {}) };
   }
   /** A lane folded to a spine is opened (a card moved or written into it should be seen). */
   private unfold(l: Lane) { const id = this.idOf(l); if (id !== undefined && this.collapsed.has(id)) { this.unfoldTile(id); this.save(); } }
@@ -1051,25 +1045,31 @@ export class DeliveryBoard extends Desk {
     // A lane's cursor moved (a click, query.pick): that's the lanes' selection, followed by the preview.
     if (from instanceof QueryPane && this.lanes.includes(from)) {
       const i = this.lanes.indexOf(from);
-      if (opts.link) { this.current = m; this.openDetail(m, !!opts.fresh, !!opts.agent); return; }
-      if (!opts.agent) { this.lane = i; this.follow(); }
+      if (opts.link) { this.current = m; this.openDetail(m, !!opts.fresh, opts.by); return; }
+      // The lanes' cursor is the person's: an agent's pick in a lane (query.pick) is its own.
+      if (opts.by?.kind !== "agent") { this.lane = i; this.follow(); }
       return this.redraw();
     }
     this.current = m;
     // alt+⏎ on a link opens a new detail; a link followed in the preview, or in a drawer's preview or list, opens
     // in a detail, as ⏎ on a card does (PIE-441). An agent's never takes the person's focus.
     const drawerTile = from === this.treePreview || from === this.linksPreview || from === this.linksTile;
-    if ((from instanceof ReaderPane || from === this.linksTile) && (opts.fresh || (opts.link && (from === this.preview || drawerTile)))) { this.openDetail(m, !!opts.fresh, !!opts.agent); return; }
+    if ((from instanceof ReaderPane || from === this.linksTile) && (opts.fresh || (opts.link && (from === this.preview || drawerTile)))) { this.openDetail(m, !!opts.fresh, opts.by); return; }
     // The outline's cursor (and its ⏎): its preview follows it (the desk's followers).
-    if (from === this.outline || from === this.linksTile) return this.showFrom(from, m, !!opts.agent);
+    if (from === this.outline || from === this.linksTile) return this.showFrom(from, m);
     if (from instanceof ReaderPane && from !== this.preview) from.show(m, this);   // links open in place
     else this.preview.follow(m, this);
     this.redraw();
   }
   /** ⏎ in the outline: the note opens in a detail. */
   override focusKind(kind: TileKindName) { if (kind === "reader" && this.current) this.openDetail(this.current, false); }
-  /** The reader the person has focused; with the lanes focused, the preview following them (PIE-453). */
-  override holdsFocus(pane: ReaderPane) { return pane === (this.onLanes ? this.preview : this.panes.get(this.focus)); }
+  /** Tile `p` has the person's focus; with the lanes focused, the preview following them does too (PIE-453). */
+  override hasFocus(p: Pane) { return p === (this.onLanes ? this.preview : this.panes.get(this.focus)); }
+  /** Where the person's keys are on the board: the desk's answer, with the preview theirs while the lanes have them. */
+  override keys(): ScreenKeys {
+    const k = super.keys();
+    return this.onLanes ? { ...k, focus: "preview" } : k;
+  }
 
   /** Start a session in `pane` as the person's key does: it takes the keys first (the lanes' e, C, i edit the preview). */
   private startIn(pane: ReaderPane, kind: SessionKind) {
@@ -1082,8 +1082,9 @@ export class DeliveryBoard extends Desk {
     this.startSession(pane, kind);
   }
 
-  /** Show `m` in a detail; false (with a flash) when none could take it. `quiet`: an agent's, focus stays. */
-  private openDetail(m: Msg, fresh: boolean, quiet = false, actor: Actor = quiet ? UNNAMED_AGENT : USER): boolean {
+  /** Show `m` in a detail, for `actor`; false (with a flash) when none could take it. An agent's leaves the focus where it is. */
+  private openDetail(m: Msg, fresh: boolean, actor: Actor = USER): boolean {
+    const quiet = actor.kind === "agent";
     // The reader the person is in (an edit, a comment or the property panel), by identity: the readers row can
     // shift under it, and their keys stay with it wherever it lands.
     const keep = this.personIn();
@@ -1213,7 +1214,7 @@ export class DeliveryBoard extends Desk {
       if (details.length >= 2) {
         let out = details.find(d => !d.pane.editing);
         if (!out) throw new ActionRefused("not docked: both details hold edits or comments · save or close one first");
-        if (actor.kind === "agent" && out.id === this.focus) out = details.find(d => !d.pane.editing && d.id !== this.focus);
+        if (this.dispatch.rule("tile", actor, this.nameOf(out.id))) out = details.find(d => !d.pane.editing && !this.dispatch.rule("tile", actor, this.nameOf(d.id)));
         if (!out) throw new ActionRefused("not docked: the other detail holds an edit or a comment, and the person has this one");
         this.closeId(out.id);
       }
@@ -1225,7 +1226,7 @@ export class DeliveryBoard extends Desk {
     if (!p.msg) throw new ActionRefused("focus a reader with something in it, then o to pop it out");
     if (p === this.preview) {
       // A copy of what the preview shows floats: the preview stays, but its keys are the person's.
-      if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't float it`);
+      this.dispatch.check("tile", actor, t.name, "an agent doesn't float it");
       const f = this.floatNote(p.msg, actor);
       if (actor.kind !== "agent") this.focus = this.idOf(f)!;
       this.redraw();
@@ -1265,7 +1266,7 @@ export class DeliveryBoard extends Desk {
     // Asked first, of the layout: a tile that stays says so to anyone (its container's rule, a source's, a lock).
     if (!drawer) { const asked = this.ask({ op: "close", tile: t.id }, actor); if (!asked.ok) throw new ActionRefused(asked.refused); }
     // A drawer's tile shuts its drawer (not a layout close): the person's keys there are theirs too.
-    else if (actor.kind === "agent" && t.id === this.focus) throw new ActionRefused(`${t.name} has the person's keys; an agent doesn't close it`);
+    else this.dispatch.check("tile", actor, t.name, "an agent doesn't close it");
     if (drawer === "tree") { const keep = this.focus; this.shutDrawer("tree", actor); if (keep === t.id || keep === this.idNamed("tree-preview")) this.toLanes(); else this.focus = keep; this.save(); this.redraw(); return { tile: "tree", pane: "tree" }; }
     if (drawer === "backlinks") { const keep = this.focus; this.shutLinks(actor); if (keep !== this.idNamed("backlinks") && keep !== this.idNamed("backlinks-preview")) this.focus = keep; this.save(); this.redraw(); return { tile: "backlinks", pane: "backlinks" }; }
     const wasFocus = this.focus;
@@ -1322,7 +1323,7 @@ export class DeliveryBoard extends Desk {
     const person = actor.kind !== "agent";
     if (!card || !target || to === from) return;
     const ctx = asActor(this.ctx, actor);
-    const by = actor.kind === "agent" ? { by: actor.id } : {};
+    const by = byOf(actor);
     const blocked = this.moveBlocked(card);
     if (blocked) { this.lastMove = { card: card.id, to: target.name, result: `refused: ${blocked}`, ...by }; return ctx.flash(`not moved: ${blocked}`); }
     // From here until it lands or is refused, this card is moving: a second move waits for it.
@@ -1406,6 +1407,8 @@ export class DeliveryBoard extends Desk {
   laneFor(name: string): Lane { return this.laneNamed(name); }
   /** The card an action names no card for: an agent's own `card.select`, else the person's selected card. */
   selectedCardId(actor?: Actor): string { return this.cardFor(undefined, actor).id; }
+  /** The card an action with no card= acts on for `actor` (its own selection, else the person's), or null when none is. */
+  private selectedCardOr(actor: Actor): string | null { try { return this.cardFor(undefined, actor).id; } catch { return null; } }
   async listSteps(id?: string, actor?: Actor) {
     const card = this.cardFor(id, actor);
     const r = await this.ctx.board.checklist(card.id);
@@ -1520,9 +1523,9 @@ export class DeliveryBoard extends Desk {
     if (cmd === "save") void this.submitComposer();
     else if (cmd === "editor") openInEditor(this.ctx, d);
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
-    else if (cmd === "copy") void runAsPerson(DRAFT_ACTIONS, "draft.copy", {}, d, m => this.ctx.flash(m)).then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
+    else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
-    else if (cmd === "close" || cmd === "discard") void runAsPerson(BOARD_ACTIONS, "composer.close", cmd === "discard" ? { discard: true } : {}, { b: this }, m => this.ctx.flash(m));
+    else if (cmd === "close" || cmd === "discard") void this.dispatch.pressIn(BOARD_ACTIONS, "composer.close", cmd === "discard" ? { discard: true } : {});
   }
 
   /**
@@ -1538,11 +1541,10 @@ export class DeliveryBoard extends Desk {
   }
 
   /** Close the new card or note (esc): unchanged, it goes; typed text only with `discard`, put aside as unsent. */
-  closeComposer(discard: boolean, actor: Actor): { closed: boolean; keptAt?: string; said?: string } {
+  closeComposer(discard: boolean): { closed: boolean; keptAt?: string; said?: string } {
     const C0 = this.composer;
     if (!C0) return { closed: false };
     if (C0.session.dirty && !discard) throw new ActionRefused("there's typed text; ctrl+s creates it, discard=true puts it aside as unsent");
-    if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
     const r = C0.session.close(discard);
     if (r.said) this.ctx.flash(r.said, 8000);
     this.redraw();
@@ -1620,7 +1622,7 @@ export class DeliveryBoard extends Desk {
    * or saved layout.
    */
   private created(lane: Lane, m: Msg, actor: Actor, flash: string, result: string) {
-    this.lastWrite = { what: "create", id: m.id, result, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    this.lastWrite = { what: "create", id: m.id, result, ...(byOf(actor)) };
     asActor(this.ctx, actor).flash(flash);
     if (actor.kind !== "agent") {
       lane.want = m.id; lane.wantVerb = "created";
@@ -1640,7 +1642,7 @@ export class DeliveryBoard extends Desk {
     const parent = await this.ctx.board.get(parentId).catch(() => null);
     if (parent) for (const r of this.readers()) r.refresh(parent);
     asActor(this.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId.slice(0, 8)} · ${titleOf(m)}`);
-    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId.slice(0, 8)}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId.slice(0, 8)}`, ...(byOf(actor)) };
     for (const r of this.readers()) if (r.msg?.id === parentId) r.surface.noteAgent(actor, "added a note under this card");
     this.redraw();
     return { id: m.id, parent: parentId, text: m.text };
@@ -1683,8 +1685,8 @@ export class DeliveryBoard extends Desk {
       const it = S.read.items[S.sel];
       if (it) {
         const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
-        BOARD_ACTIONS.run("step.set", { step: String(S.sel + 1), status, card: S.card.id }, { b: this, shown: { item: it, revision: S.read.revision } }, USER)
-          .catch(e => { S.note = (e as Error).message; this.ctx.flash(`not changed: ${(e as Error).message}`); this.redraw(); });
+        // The person's step change from the overlay: checked against the step as it was read; a refusal is its note.
+        void this.dispatch.pressIn(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
       }
     }
     this.redraw();
@@ -1717,7 +1719,7 @@ export class DeliveryBoard extends Desk {
       const named = it.identity === "unassigned" && r.changed ? ` · the step now has an id (^${r.item.itemId})` : "";
       const said = `${to === "done" ? "checked off" : `set to ${to}`}: ${stepText(it.text)} · ${titleOf(card)}${named}`;
       asActor(this.ctx, actor).flash(r.changed ? said : `already ${to}: ${stepText(it.text)}`);
-      this.lastWrite = { what: "step", id: card.id, result: `step ${i + 1} ${it.status} -> ${to} · revision ${r.block.revision}`, ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+      this.lastWrite = { what: "step", id: card.id, result: `step ${i + 1} ${it.status} -> ${to} · revision ${r.block.revision}`, ...(byOf(actor)) };
       if (S) { S.note = r.changed ? said : ""; }
       return { card: card.id, step: i + 1, status: to, changed: r.changed, revision: r.block.revision, id: r.item.itemId };
     } catch (e) {
@@ -1774,7 +1776,7 @@ export class DeliveryBoard extends Desk {
       if (gone === null) throw new ActionRefused(`${why}, and the outline didn't say whether the card is in Trash; look before trying again`);
       lost = ` (the outline's answer was lost: ${why}; it is in Trash)`;
     }
-    const by = actor.kind === "agent" ? { by: actor.id } : {};
+    const by = byOf(actor);
     this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
     asActor(this.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
@@ -1796,7 +1798,7 @@ export class DeliveryBoard extends Desk {
       if (lane && actor.kind !== "agent") { lane.want = m.id; lane.wantVerb = "restored"; }   // an agent's restore never moves the person's selection
       this.trashed = null;
     }
-    this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(actor.kind === "agent" ? { by: actor.id } : {}) };
+    this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(byOf(actor)) };
     asActor(this.ctx, actor).flash(`restored "${title}"`);
     if (this.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.redraw();
@@ -1919,7 +1921,7 @@ export class DeliveryBoard extends Desk {
       if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) { this.redraw(); return true; }
       if (k.action !== "down" || inside) return true;
       if (d.busy) { this.ctx.flash("the new card is being created · wait for it"); return true; }
-      void BOARD_ACTIONS.run("composer.leave", {}, { b: this }, USER).then(r => { const said = leaveSaid(r); if (said) this.ctx.flash(said, 8000); this.redraw(); }, e => this.ctx.flash(e instanceof Error ? e.message : String(e)));
+      void this.dispatch.pressIn(BOARD_ACTIONS, "composer.leave").then(r => { const said = r ? leaveSaid(r as LeaveResult) : null; if (said) this.ctx.flash(said, 8000); this.redraw(); });
     }
     if (this.steps && k.kind !== "mouse") { this.stepsKey(k, c); return true; }
     if (this.trashArm && !(c === "d" && this.onLanes)) this.trashArm = null;   // any other key keeps the card
@@ -2227,32 +2229,28 @@ export const BOARD_ACTIONS = new ActionSet<{
 }, BoardOn>("board", {
   "open": {
     summary: "open a note: tile=detail (default), new-detail, preview (selects its card), float, or a named reader; or, with from=<tile>, where that tile's opens land (its link, as on the desk; unlinked, the detail). An agent's naming neither (`ep0ch open <id>`) lands in a detail and leaves the person's keys where they are. A program in a tile passes from=$EP0CH_TILE", keys: "⏎, alt+⏎ (new-detail), click on the selected card, ⏎ in the outline or the backlinks",
+    touches: "nothing", replay: "safe", confirms: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
     args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" } },
     async run({ id, from }, { b, reader }, actor) {
       // The desk's own open from= (Desk.openFrom): the tile's link is honoured on the board as on any desk.
       // An agent naming neither (`ep0ch open <id>`): the detail, quietly (the person's keys stay where they are,
       // as on the desk); refused, said, when no detail is free. Naming a reader is asking for that one.
-      const r = from !== undefined ? await b.openFrom(id, from, actor)
-        : await b.openOnBoard(id, reader ?? "detail", reader === undefined && actor.kind === "agent", actor);
-      b.ctx.flash(`${agentLabel(actor)} opened a note${r.reader ? ` in ${r.reader}` : ""}`);
-      return r;
+      return from !== undefined ? b.openFrom(id, from, actor) : b.openOnBoard(id, reader ?? "detail", actor);
     },
   },
   "focus": {
     summary: "give keys to tile=<name> (a reader, tree, backlinks, a lane's tile) or tile=lanes (a float comes to the top). An agent's is refused while the person is typing (an edit, a comment, a panel, a picker, a filter)", keys: "tab, shift+tab, click on a spine, esc q (back to the lanes)",
+    touches: "screen", replay: "safe", says: r => `gave the keys to ${r.focus}`,
     args: {},
     run(_, { b, reader }, actor) {
       if (!reader) throw new ActionRefused("focus needs tile=<name> (or lanes)");
-      // Refused only when it would move the keys of a person who is typing; focusing where they already are leaves them in it.
-      if (actor.kind === "agent" && b.personTyping() && !b.focusedIs(reader)) throw new ActionRefused("the person is typing on the board (an edit, a comment, a panel, a picker or a filter); their keys stay where they are");
-      const r = b.focusOn(reader);
-      if (actor.kind === "agent") b.ctx.flash(`${agentLabel(actor)} gave the keys to ${r.focus}`);
-      return r;
+      return b.focusOn(reader);
     },
   },
   "card.select": {
     summary: "select a card: id (in lane=<name> when it's in more than one), or step from the selection: by=<cards> down its lane (negative up), lanes=<lanes> right (negative left), or lane=<name> with by. The preview follows. An agent's selection is its own: what its card actions default to, leaving the person's cursor, preview and keys where they are",
     keys: "h l j k ↑↓ ← → PgUp PgDn, click on a card, wheel over a lane",
+    touches: "nothing", replay: "safe",
     args: {
       id: { type: "string", optional: true, about: "the card's block id (or its first 8+ characters)" },
       lane: { type: "string", optional: true, about: "the lane, by name: where id is, or whose cursor by moves" },
@@ -2267,48 +2265,57 @@ export const BOARD_ACTIONS = new ActionSet<{
   "board.hub": {
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
     keys: "g, then j k ↑↓ and ⏎ or click on a board; esc q puts the picker away",
+    touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
     args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" } },
-    run: ({ id, close }, { b }, actor) => (close ? b.closePicker(actor) : b.chooseHub(id, actor)),
+    run({ id, close }, { b }, actor) {
+      // Putting the picker away is the person's own (only their g opens it).
+      if (close && actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
+      return close ? b.closePicker() : b.chooseHub(id, actor);
+    },
   },
   "board.reload": {
     summary: "read every lane again from the service", keys: "r on the lanes",
+    touches: "nothing", replay: "safe", says: () => "reloaded the lanes",
     args: {},
-    run(_, { b }, actor) { return b.reloadLanes(actor); },
+    run(_, { b }) { return b.reloadLanes(); },
   },
   "lane.collapse": {
     summary: "collapse a lane to a spine showing its name, or open it again (on=true/false; default toggles): lane=<name>, default the person's lane. Its cards stay where they are",
     keys: "c on the lanes, ⏎ or space on a collapsed lane, click on a lane's spine (the desk's tile.collapse on its tile)",
+    touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "collapsed" : "opened"} the lane ${r.lane}`),
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
     run: ({ lane, on }, { b }, actor) => b.collapseLane(lane, on, actor),
   },
   "outline": {
     summary: "the outline drawer (the desk's drawer container holding the tree over its preview): open=true opens it (the person's also gives it the keys; an agent's leaves them), open=false shuts it (pinned, it goes back into its drawer), left out toggles; side=left or right moves it, keeping its width. An agent doesn't shut it while the person is in it",
     keys: "t, S, esc q in the drawer",
+    touches: "shape", replay: "safe",
     args: { open: { type: "boolean", optional: true, about: "true opens, false shuts; default toggles" }, side: { type: "string", optional: true, about: "left or right; other moves it to the other side" } },
     run: ({ open, side }, { b }, actor) => b.outlineDrawer(open, side, actor),
   },
   "card.move": {
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
+    touches: "draft", draft: "write", replay: "ask",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { b }, actor) => b.moveCard(lane, card, actor),
   },
   "composer.leave": {
     summary: "leave the new card or note the person is writing, as a click outside it does: never created (ctrl+s creates); typed text is kept as unsent, and n or N brings it back. The person's own: an agent creates with card.create or note.create",
     keys: "click outside it",
+    touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: {},
-    run(_, { b }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
-      return b.leaveComposer();
-    },
+    run(_, { b }) { return b.leaveComposer(); },
   },
   "composer.close": {
     summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",
     keys: "esc (twice with typed text)",
+    touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
-    run: ({ discard }, { b }, actor) => b.closeComposer(!!discard, actor),
+    run: ({ discard }, { b }) => b.closeComposer(!!discard),
   },
   "card.create": {
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
+    touches: "nothing", replay: "ask",
     args: {
       lane: { type: "string", about: "the lane's name" },
       text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
@@ -2318,16 +2325,19 @@ export const BOARD_ACTIONS = new ActionSet<{
   },
   "note.create": {
     summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
+    touches: "nothing", replay: "ask",
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ text, parent }, { b }, actor) => b.createNote(parent ?? b.selectedCardId(actor), text, actor),
   },
   "steps": {
     summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
+    touches: "nothing", replay: "safe",
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ card }, { b }, actor) => b.listSteps(card, actor),
   },
   "step.set": {
     summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w !",
+    touches: "draft", draft: "write", replay: "ask",
     args: {
       step: { type: "string", about: "the step's number in `steps` (from 1), or its ^id" },
       status: { type: "string", optional: true, about: "todo, done, waiting or problem; default toggles done" },
@@ -2342,6 +2352,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   },
   "card.trash": {
     summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d arms it (a second d within 5 s trashes it, any other key keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
+    touches: "draft", draft: "write", replay: "ask",
     args: {
       confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
@@ -2357,6 +2368,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "backlinks": {
     summary: "the backlinks drawer (the desk's backlinks tile in a drawer at the bottom) as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (as=you) opens the drawer on id (following the reader that shows it) and sets their options; its rows and controls are the tile's (backlinks.pick, backlinks.view, backlinks.fold)",
     keys: "b",
+    touches: "nothing", replay: "safe",
     args: {
       id: { type: "string", optional: true, about: "the note whose backlinks to read; default the drawer's" },
       filter: { type: "string", optional: true, about: "text to match, as / filters" },
@@ -2370,6 +2382,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   },
   "card.restore": {
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
+    touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
     run: ({ id }, { b }, actor) => b.restoreCard(id, actor),
   },

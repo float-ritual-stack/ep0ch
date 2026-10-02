@@ -493,6 +493,23 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   return `${theirs.openedBy.kind === "user" ? "the person has" : `${agentLabel(theirs.openedBy)} has`} ${title} open in a draft${theirs.dirty ? " with unsaved changes" : ""}; an agent doesn't write it underneath · draft.patch lands in their draft, or wait until it's saved or closed`;
 }
 
+/**
+ * The rule for an action declared `touches: "draft"` (PIE-514), as the dispatcher asks it before the action runs: the
+ * rule above, for what the action does (`use`) in a tile that shows `blockId` and holds `session`.
+ * - `type`: typing in the tile's draft (draft.*, a passage picked, a reply): only one the agent opened and alone typed in.
+ * - `leave`: saving, closing or sending it: the same.
+ * - `write`: writing the block (an edit opened, a property, a step): never under a draft someone else has open on it
+ *   elsewhere (the tile's own is the action's to handle: edit.text replaces it, copying theirs out first).
+ * - `safe`: what the session keeps safe itself (comment.write replaces the text, copying theirs out first; draft.undo
+ *   takes back only that actor's own patch): allowed.
+ */
+export function draftRule(actor: Actor, use: "type" | "leave" | "write" | "safe", at: { board?: object | null; blockId?: string | null; session?: DraftSession | null }): string | null {
+  if (actor.kind !== "agent") return null;
+  if (use === "type" || use === "leave") return at.session ? agentRefusal(actor, at.session, { op: use }) : null;
+  if (use === "write" && at.blockId) return agentRefusal(actor, { board: at.board, blockId: at.blockId, ...(at.session ? { except: at.session } : {}) });
+  return null;
+}
+
 /** The draft open on `blockId` here, if any (a card's move waits for it). */
 export function openDraftOf(board: object | null | undefined, blockId: string): DraftSession | null {
   return [...registry(board)].find(s => s.target.blockId === blockId) ?? null;

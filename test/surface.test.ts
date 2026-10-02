@@ -98,7 +98,7 @@ describe("the surface without a service", () => {
   test("actions check their arguments before anything runs, and take them from the command line as text", async () => {
     const ran: unknown[] = [];
     const set = new ActionSet<{ go: { n: number; loud?: boolean; say?: string } }, null>("t", {
-      go: { summary: "go", args: { n: { type: "number", about: "n" }, loud: { type: "boolean", optional: true, about: "l" }, say: { type: "string", optional: true, about: "s" } }, run: a => { ran.push(a); return a; } },
+      go: { summary: "go", touches: "nothing", replay: "safe", args: { n: { type: "number", about: "n" }, loud: { type: "boolean", optional: true, about: "l" }, say: { type: "string", optional: true, about: "s" } }, run: a => { ran.push(a); return a; } },
     });
     expect(await set.runUntyped("go", { n: "3", loud: "true" }, null, { kind: "user" })).toEqual({ n: 3, loud: true });
     expect(() => set.runUntyped("go", {}, null, { kind: "user" })).toThrow("go needs n");
@@ -129,27 +129,27 @@ describe("the surface without a service", () => {
     try {
       const set = new ActionSet<{ "tile.fold": { on?: boolean } }, { said: string[] }>("t", {
         "tile.fold": {
-          summary: "fold", keys: "^W c",
+          summary: "fold", keys: "^W c", touches: "nothing", replay: "safe",
           aliases: ["pane.fold", { name: "reader.shut", keys: "c on a reader", args: {}, map: () => ({ on: true }) }],
           args: { on: { type: "boolean", optional: true, about: "on" } },
           run: ({ on }, h) => { h.said.push(String(on)); return { on }; },
         },
       });
       const h = { said: [] as string[] };
-      expect(set.list()).toEqual([{ name: "tile.fold", summary: "fold", keys: "^W c; c on a reader", args: { on: { type: "boolean", optional: true, about: "on" } }, scope: "t", aliases: ["pane.fold", "reader.shut"] }]);
+      expect(set.list()).toEqual([{ name: "tile.fold", summary: "fold", keys: "^W c; c on a reader", args: { on: { type: "boolean", optional: true, about: "on" } }, scope: "t", aliases: ["pane.fold", "reader.shut"], touches: "nothing", replay: "safe" }]);
       expect(await set.runUntyped("pane.fold", { on: "false" }, h, { kind: "user" })).toEqual({ on: false });
       expect(await set.runUntyped("reader.shut", {}, h, { kind: "user" })).toEqual({ on: true });
       expect(() => set.runUntyped("reader.shut", { on: "false" }, h, { kind: "user" })).toThrow("reader.shut takes no on");
       expect(runs.map(r => [r.name, r.keys])).toEqual([["tile.fold", "^W c; c on a reader"], ["tile.fold", "^W c; c on a reader"]]);
       expect([set.has("pane.fold"), set.canonical("pane.fold"), set.canonical("tile.fold")]).toEqual([true, "tile.fold", "tile.fold"]);
       // An alias that answered differently gives its older answer; the action's own name gives the action's.
-      const answered = new ActionSet<{ "tile.pin": Record<string, never> }, null>("t", { "tile.pin": { summary: "", args: {}, aliases: [{ name: "pane.pin", answer: (r: { tile: string }) => ({ ...r, pane: r.tile }) }], run: () => ({ tile: "tree" }) } });
+      const answered = new ActionSet<{ "tile.pin": Record<string, never> }, null>("t", { "tile.pin": { summary: "", touches: "nothing", replay: "safe", args: {}, aliases: [{ name: "pane.pin", answer: (r: { tile: string }) => ({ ...r, pane: r.tile }) }], run: () => ({ tile: "tree" }) } });
       expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree", pane: "tree" });
       expect(await answered.runUntyped("tile.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree" });
       // An action defined later under an alias's name (an extension's) is that action.
-      answered.define("pane.pin", { summary: "", args: {}, run: () => "its own" });
+      answered.define("pane.pin", { summary: "", touches: "nothing", replay: "safe", args: {}, run: () => "its own" });
       expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toBe("its own");
-      expect(() => new ActionSet<{ a: object; b: object }, null>("t", { a: { summary: "", aliases: ["b"], args: {}, run: () => 0 }, b: { summary: "", args: {}, run: () => 0 } })).toThrow("b is already an action");
+      expect(() => new ActionSet<{ a: object; b: object }, null>("t", { a: { summary: "", touches: "nothing", replay: "safe", aliases: ["b"], args: {}, run: () => 0 }, b: { summary: "", touches: "nothing", replay: "safe", args: {}, run: () => 0 } })).toThrow("b is already an action");
       // An action defined again (an extension reloaded) takes its aliases with it.
       set.forget("tile.fold");
       expect(set.has("pane.fold")).toBe(false);
@@ -189,10 +189,12 @@ describe("the surface without a service", () => {
     // While the answer is out, nothing changes or closes the draft: not the keys, not an agent.
     s.key(char("!"), h); s.key({ kind: "esc" }, h); s.key({ kind: "esc" }, h);
     const act = async (name: string, args: Record<string, unknown> = {}) => s.act(name, args, h, AGENT);
+    // Replacing the text is the agent's to ask (the person's is copied out first), and waits for the save; leaving or
+    // reloading the person's draft is never an agent's (the draft rule, checked before the action runs).
     await expect(act("edit.text", { text: "Something else" })).rejects.toThrow("still landing");
-    await expect(act("edit.close", { discard: true })).rejects.toThrow("still landing");
-    await expect(act("edit.reload")).rejects.toThrow("still landing");
-    await expect(act("edit.save")).rejects.toThrow("still landing");
+    await expect(act("edit.close", { discard: true })).rejects.toThrow("the person is in this edit");
+    await expect(act("edit.reload")).rejects.toThrow("this draft is the person's");
+    await expect(act("edit.save")).rejects.toThrow("the person is in this edit");
     expect(s.draft?.text).toBe(previewed);
     answer({});
     await saving;
@@ -224,7 +226,8 @@ describe("the surface without a service", () => {
     s.session.busy = "sending the comment...";
     const act = async (name: string, args: Record<string, unknown>) => s.act(name, args, h, AGENT);
     await expect(act("comment.write", { body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
-    await expect(act("comment", { quote: "ferns", body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
+    // Picking a passage in it is typing in the person's comment: the draft rule refuses it before anything runs.
+    await expect(act("comment", { quote: "ferns", body: "Replaced mid-send" })).rejects.toThrow("this draft is the person's");
     expect(s.session.composer!.text).toBe("Twice a week.");
   }));
 
@@ -290,6 +293,10 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   const AS = "test-agent-7";
   const B = () => b as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  /** The person has been away from the keys longer than the idle window (an agent may move their screen). */
+  const idle = () => { (app as any).lastInput = 0; };
+  /** The person's own action, through the board's dispatcher (their key's path). */
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => b.dispatch.act({ action, args, reader }, { kind: "user" });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   /** Who last changed a block, as the service's activity log recorded it (among `author`'s changes). */
@@ -329,9 +336,10 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("open, edit.text, edit.save: the same save as ctrl+s, recorded as the agent's, and said on screen", async () => {
+    const was = BV.where(b);
     expect(await act("open", { id: cards.beans.id }, "preview")).toEqual({ reader: "preview", id: cards.beans.id });
     expect(B().preview.msg.id).toBe(cards.beans.id);
-    expect(BV.where(b)).toBe("preview");
+    expect(BV.where(b)).toBe(was);                                  // naming the reader never moves the person's keys (PIE-514)
     await until(() => !B().preview.msg.partial, "the whole note");
     const text = (await current(cards.beans.id)).text.replace("Canes along the fence.", "Canes along the fence, two per plant.");
     expect(await act("edit.text", { text })).toMatchObject({ reader: "preview", dirty: true });
@@ -367,7 +375,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await act("open", { id: cards.mine.id }, "detail");
     const pane = B().details[B().active] as ReaderPane;
     await until(() => pane.msg?.id === cards.mine.id && !pane.msg?.partial, "the note");
-    await act("focus", {}, `detail${B().active + 1}`);
+    await mine("focus", {}, `detail${B().active + 1}`);
     key(char("e"));
     await until(() => !!pane.draft, "the person's draft");
     key({ kind: "end" }); for (const c of " (mine)") key(char(c));
@@ -375,9 +383,11 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const r: any = await act("edit.text", { text: "Turn the compost [stage::queued]\nEvery week." }, cards.mine.id);
     expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe(typed + "\n");
     expect(pane.draft!.note).toContain(r.keptYourDraftAt);
-    await expect(act("edit.close", {}, cards.mine.id)).rejects.toThrow("unsaved changes");
+    // The draft is still the person's: an agent replaced its text (theirs kept), but doesn't close it (the draft rule).
+    await expect(act("edit.close", { discard: true }, cards.mine.id)).rejects.toThrow("the person is in this edit");
     expect(message()).toContain("edit.close refused");
-    expect(await act("edit.close", { discard: true }, cards.mine.id)).toMatchObject({ closed: true });
+    await expect(mine("edit.close", {}, cards.mine.id)).rejects.toThrow("unsaved changes");
+    expect(await mine("edit.close", { discard: true }, cards.mine.id)).toMatchObject({ closed: true });
     expect(pane.draft).toBeNull();
     expect((await current(cards.mine.id)).text).toBe("Turn the compost [stage::queued]\nEvery two weeks.");
   });
@@ -388,7 +398,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await act("open", { id: m.id }, "detail");
     const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
     await until(() => pane.msg?.id === m.id && !pane.msg?.partial, "the note");
-    await act("focus", {}, reader);
+    await mine("focus", {}, reader);
     return { id: m.id as string, pane, reader };
   };
   const type = (s: string) => { for (const c of s) key(char(c)); };
@@ -402,7 +412,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const r: any = await act("edit.text", { text: "Water the ferns\nDaily." }, reader);
     expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe(typed + "\n");
     expect(pane.draft!.note).toContain("what you had typed is at");
-    await act("edit.close", { discard: true }, reader);
+    // The person typed in it too: it's no longer the agent's alone to close (the draft rule); the person closes it.
+    await expect(act("edit.close", { discard: true }, reader)).rejects.toThrow("someone else is typing in this draft");
+    await mine("edit.close", { discard: true }, reader);
   });
 
   test("a save is recorded as who wrote it, not who pressed save", async () => {
@@ -418,11 +430,12 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(await lastBy(a.id)).toEqual(["agent", AS]);
     expect(message()).toContain(`recorded as an agent (${AS})'s`);
 
-    // The person wrote it, the agent saved it: the person's.
+    // The person wrote it: an agent doesn't save it under them (the draft rule); their save is theirs.
     const u = await openFresh("Net the currants\nBefore June.");
     key(char("e")); await until(() => !!u.pane.draft, "the draft");
     key({ kind: "end" }); type(" (birds)");
-    expect(await act("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
+    await expect(act("edit.save", {}, u.reader)).rejects.toThrow("the person is in this edit");
+    expect(await mine("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
     expect(await lastBy(u.id, "user")).toEqual(["user", ACTOR_ID]);
 
     // Both wrote it: the saver's, and the actor id names both. The frame said so before the save.
@@ -441,7 +454,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       await act("open", { id }, "detail");
       await act("passage.select", { quote }, id);
       await act("comment.write", { body }, id);
-      await act("focus", {}, id);
+      await mine("focus", {}, id);
       const pane = B().details.find((p: ReaderPane) => p.msg?.id === id) as ReaderPane;
       key(char("e"));                                                          // enter the agent's comment
       key({ kind: "end" }); type(more); key(ctrl("s"));
@@ -477,7 +490,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(pane.session?.mode).toBe("threads");
     expect(pane.render(90, 30, true, b).lines.join("\n")).toContain("resolved");
     // The person picks it up from there with the keys: the session is theirs too.
-    await act("focus", {}, reader);
+    await mine("focus", {}, reader);
     key(char("x"));                                                              // not in it yet: the board's x, refused
     expect(pane.session?.threads[0]?.open).toBe(false);
     key({ kind: "enter" }); key(char("x"));
@@ -499,7 +512,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await expect(act("card.move", { lane: "Doing", card: cards.squash.id })).rejects.toThrow("already in Doing");
     await expect(act("card.move", { lane: "Compost" })).rejects.toThrow("no lane Compost");
     await expect(act("card.fly", {})).rejects.toThrow("no action card.fly");
-    await expect(act("edit.save", {}, "detail9")).rejects.toThrow("no reader detail9");
+    await expect(act("edit.save", {}, "detail9")).rejects.toThrow("no tile detail9");
   });
 
   test("an agent's card.select and card.move leave the person's keys where they are", async () => {
@@ -524,10 +537,11 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(B().selectedCardId()).toBe(mine);
     expect(await act("card.move", { lane: "Doing", card: cards.beans.id })).toMatchObject({ lane: "Doing" });
     expect(BV.where(b)).toBe(region);
-    // Giving the keys away is only ever an explicit action, and it says so.
+    // Giving the keys away is only ever an explicit action, once the person is idle, and it says so.
+    idle();
     expect(await act("focus", {}, "lanes")).toEqual({ focus: "lanes" });
     expect(message()).toContain("an agent (test-agent-7) gave the keys to lanes");
-    await act("focus", {}, reader);
+    await b.dispatch.act({ action: "focus", reader }, { kind: "user" });
     await settled();
   });
 
@@ -549,7 +563,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     try {
       const listed = await ask({ cmd: "actions" });
       expect(listed.result.actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["open", "card.move", "edit.save", "comment", "reply", "resolve"]));
-      expect(listed.result.readers).toContain("preview");
+      expect(listed.result.tiles).toContain("preview");
       await act("open", { id: cards.gate.id }, "preview");
       const r2 = await ask({ cmd: "act", action: "edit.text", reader: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
       expect(r2).toMatchObject({ ok: true, result: { reader: "preview", dirty: true } });

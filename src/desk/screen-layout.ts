@@ -20,7 +20,7 @@
 // (its kind, its kind's default policy, whether it takes notes, what keeps it). Tile instances, gestures and
 // painting stay the desk's. Internal: the tree arithmetic (`layout.ts`) and the flow's squeeze (`flow.ts`).
 import type { Rect } from "../canvas";
-import type { Actor } from "../socket";
+import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setDocked, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, dockedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
@@ -96,6 +96,11 @@ export interface Person<I = number> {
   typingIn: I | null;
   /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */
   busy: boolean;
+  /**
+   * Why an agent may not move their keys now, as the shell's one rule says it (`actorRule` for `touches: "screen"`:
+   * busy, away, or at the keys in the last 2s), or null. Left out, being busy is the rule.
+   */
+  held?: string | null;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
@@ -430,7 +435,8 @@ class Step<I> {
   }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
-    refuse(this.agent && this.ctx.person.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
+    const p = this.ctx.person;
+    refuse(!this.agent ? null : p.held !== undefined ? (p.held ? `${p.held} · an agent doesn't ${what} now` : null) : p.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
   }
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {
@@ -842,7 +848,7 @@ class Step<I> {
       const e = this.policyAt(id);
       if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't collapse (collapsible off)`);
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't fold it`);
-      this.d.collapsed.set(id, this.ctx.actor.kind === "agent" ? { by: this.ctx.actor.id } : {});
+      this.d.collapsed.set(id, byOf(this.ctx.actor));
     } else this.d.collapsed.delete(id);
     this.d.answer = { collapsed: want };
   }
