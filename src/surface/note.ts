@@ -644,7 +644,7 @@ export class NoteSurface {
       ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
       // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
-      ...unsentOn(m.id).map(l => fg(C.yellow) + pad(l, w) + RESET),
+      ...unsentOn(m.id, m.revision).map(l => fg(C.yellow) + pad(l, w) + RESET),
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),

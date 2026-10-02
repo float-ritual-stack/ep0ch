@@ -335,7 +335,7 @@ export class DraftSession {
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w);
-    d.note = `brought back your unsent draft from ${whenPut(u.at)} · esc twice drops it`;
+    d.note = `brought back your unsent draft from ${whenPut(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
 
@@ -578,6 +578,9 @@ export function blockTarget(m: Msg, o: {
       try {
         const saved = await o.board.update(m.id, text, d.base, by);
         d.saving = false;
+        // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
+        const old = unsent(`edit:${m.id}`);
+        if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
         o.saved?.(saved, by, asked, propertyChange(d.baseProps, saved.props));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
@@ -800,12 +803,14 @@ export function unsentAll(): Unsent[] {
 
 /**
  * The reader's lines for what's put aside on note `id`: an edit or a comment on it, a new note under it (a card),
- * or a new card in its lane (a view). When, and the key that brings it back.
+ * or a new card in its lane (a view). When, and the key that brings it back; an edit put aside on another revision
+ * than the note's now (`revision`) isn't brought back by `e`, so its line says where its copy is instead.
  */
-export function unsentOn(id: string): string[] {
+export function unsentOn(id: string, revision?: number): string[] {
   const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`), n = unsent(`child:${id}`), k = unsent(`card:${id}`);
+  const stale = !!e && revision !== undefined && e.base !== revision;
   return [
-    ...(e ? [`■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
+    ...(e ? [stale ? `■ unsent edit from ${whenPut(e.at)} put aside on an older revision · its copy is at ${tidy(e.copy ?? "drafts/")}` : `■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
     ...(c ? [`■ unsent comment from ${whenPut(c.at)} · C and a passage bring it back`] : []),
     ...(n ? [`■ unsent note under this from ${whenPut(n.at)} · N on the card brings it back`] : []),
     ...(k ? [`■ unsent new card from ${whenPut(k.at)} · n in this lane brings it back`] : []),

@@ -141,6 +141,7 @@ describe("the lifecycle, on a fake target", () => {
     keys(a, [" -- wrong idea"]); a.close(true);                       // esc esc
     const b = DraftSession.open(t(), { text: "Quince jam", base: 3 }, { said: m => said.push(m) });   // e brings it back
     expect(b.dirty).toBe(true);
+    expect(b.draft.note).toContain("· ctrl+s saves · esc twice drops it");
     expect(await b.leave()).toMatchObject({ left: "kept", said: "the edit to “Quince” was kept as unsent, not saved: it came back unsent and nothing was typed since · e brings it back" });
     expect(said).toHaveLength(1);
     expect(sent).toEqual([]);
@@ -159,7 +160,9 @@ describe("the lifecycle, on a fake target", () => {
     const b = DraftSession.open(t, { text: "Medlar, picked", base: 5 });
     expect([b.dirty, b.draft.text, b.draft.note]).toEqual([false, "Medlar, picked", expect.stringContaining("was on revision 2; the note changed since")]);
     expect(unsent("edit:note-medlar")?.text).toBe("Medlar bletted");
-    expect(unsentOn("note-medlar")).toEqual([expect.stringMatching(/^■ unsent edit from /)]);
+    expect(unsentOn("note-medlar", 5)).toEqual([expect.stringMatching(/^■ unsent edit from .* put aside on an older revision · its copy is at /)]);
+    expect(unsentOn("note-medlar", 5)[0]).not.toContain("e brings it back");
+    expect(unsentOn("note-medlar", 2)).toEqual([expect.stringMatching(/^■ unsent edit from .* · e brings it back$/)]);
     b.dispose();
   });
 
@@ -417,6 +420,23 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(await again.submit(USER)).toMatchObject({ ok: false, again: true });
     expect(await again.submit(USER)).toMatchObject({ ok: true });
     expect((await board.get(id))!.props.stage).toBe("doing");
+  }, 30_000);
+
+  test("a block: an edit put aside on an older revision is said with its copy, not e, and goes once a newer edit is saved", async () => {
+    const id = await create("Lift the dahlias");
+    const m = (await board.get(id))!;
+    const a = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: m.props }, { board });
+    keys(a, [" before frost"]); a.close(true);                      // put aside on this revision
+    await board.update(id, "Lift the dahlias and dry them", m.revision!, USER);   // the note moves on elsewhere
+    const n = (await board.get(id))!;
+    expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ unsent edit from .* put aside on an older revision · its copy is at /)]);
+    expect(unsentOn(id, n.revision)[0]).not.toContain("e brings it back");
+    const b = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: n.props }, { board });
+    expect(b.draft.text).toBe("Lift the dahlias and dry them");     // not laid over the newer note
+    keys(b, ["!"]);
+    expect(await b.submit(USER)).toMatchObject({ ok: true });
+    expect(unsent(`edit:${id}`)).toBeNull();
+    expect(unsentOn(id, (await board.get(id))!.revision)).toEqual([]);
   }, 30_000);
 
   test("a comment and a reply: sent once with a request id, recorded as who wrote it; a stale passage is refused and kept", async () => {

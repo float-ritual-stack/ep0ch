@@ -805,7 +805,8 @@ The board's new-card composer is the same control too.
   `C` and a passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that
   came back unchanged drops it, and says where its copy stays. Closing a screen, quitting and a dropped
   connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
-  over a newer note: the reader says where its copy is, and it stays unsent. A new card is put aside in its
+  over a newer note: the reader's line says it was put aside on an older revision and where its copy is,
+  until a newer edit of the note is saved. A new card is put aside in its
   lane on its own board: another board's lane of the same name doesn't bring it back. An agent's edit or
   comment never picks up your put-aside text.
 - **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else

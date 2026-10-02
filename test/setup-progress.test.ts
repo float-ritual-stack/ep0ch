@@ -187,6 +187,29 @@ test("a timeout ends the wait even when a grandchild holds the output open, and 
   expect(alive()).toBe("");
 });
 
+test("Ctrl+C while a command runs stops its process group too: nothing is left running after the door exits", async () => {
+  // The command runs in its own group, which the terminal's SIGINT doesn't reach; exiting stops it (a `git pull`
+  // left running would finish without the install after it, or hold .git/index.lock).
+  const mark = `${7 + Math.random()}`.slice(0, 8);
+  const alive = () => Bun.spawnSync(["pgrep", "-f", `sleep ${mark}`]).stdout.toString().trim();
+  const script = join(scratch, "interrupt.ts");
+  writeFileSync(script, `import { run } from ${JSON.stringify(join(import.meta.dir, "../src/setup/facts"))};
+process.on("SIGINT", () => process.exit(130));   // as setup's interrupted path ends
+void run(["sh", "-c", "sleep ${mark} & sleep ${mark}"], { timeoutMs: 60_000 });
+setTimeout(() => process.kill(process.pid, "SIGINT"), 400);
+`);
+  const p = Bun.spawn([process.execPath, script], { stdout: "ignore", stderr: "pipe" });
+  expect(await p.exited).toBe(130);
+  for (let i = 0; i < 40 && alive(); i++) await Bun.sleep(50);
+  expect(alive()).toBe("");
+});
+
+test("a timed-out command keeps what it had said (the diagnosis) before the timeout line", async () => {
+  const r = await run(["sh", "-c", "echo 'Permission denied (publickey).' >&2; exec sleep 5"], { timeoutMs: 400 });
+  expect(r.code).toBe(124);
+  expect(r.err).toBe("Permission denied (publickey).\ntimed out after 0.4s");
+});
+
 describe("the whole command, in a scratch home", () => {
   /** A fictional home: two outline databases, ~/.local/bin on PATH, a door that isn't a git checkout. */
   function home(name: string) {
