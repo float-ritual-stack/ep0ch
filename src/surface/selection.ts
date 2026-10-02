@@ -12,7 +12,7 @@
 // copies it. A plain click selects nothing and copies nothing; a selection made by keys (`v`) is copied by
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
-import type { Key } from "../term";
+import { ch, isUp, isDown, type Key } from "../term";
 import { RESET, tint } from "../style";
 import { themed } from "../theme";
 
@@ -221,7 +221,7 @@ export type ModeKey = "moved" | "copy" | "source" | "done" | null;
  * row's ends move the head; y or cmd+c copies, Y copies the source, v and esc leave. Null: not one of its keys.
  */
 export function modeKey(k: Key, s: Selection, rows: SelectRows, page: number): ModeKey {
-  const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+  const c = ch(k);
   if (c === "y" || isCopyKey(k)) return "copy";
   if (c === "Y") return "source";
   if (c === "v" || k.kind === "esc") return "done";
@@ -230,8 +230,8 @@ export function modeKey(k: Key, s: Selection, rows: SelectRows, page: number): M
   const m = (r: number) => rows.margin?.(r) ?? 0;
   const clampCol = (r: number, col: number) => Math.max(m(r), Math.min(col, Math.max(m(r), len(r) - 1)));
   const toRow = (r: number) => { const row = Math.max(0, Math.min(last, r)); s.head = { row, col: clampCol(row, h.col) }; };
-  if (k.kind === "down" || c === "j") toRow(h.row + 1);
-  else if (k.kind === "up" || c === "k") toRow(h.row - 1);
+  if (isDown(k)) toRow(h.row + 1);
+  else if (isUp(k)) toRow(h.row - 1);
   else if (k.kind === "pgdn") toRow(h.row + page);
   else if (k.kind === "pgup") toRow(h.row - page);
   else if (k.kind === "right" || c === "l") {

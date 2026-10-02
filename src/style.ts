@@ -11,6 +11,11 @@ export const fgRgb = (c: Rgb) => `\x1b[38;2;${c.join(";")}m`;
 export const bgRgb = (c: Rgb) => `\x1b[48;2;${c.join(";")}m`;
 /** One of the theme's tints as a background: a selection, an agent's, the ruler, a thread, an embed, an idle row. */
 export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
+/**
+ * A list's selected row, its background and text: white on the palette's blue while the list has the keys, on the
+ * idle tint (`idleRow` for a search's or the backlinks' rows) while it doesn't.
+ */
+export const selected = (keys = true, idle: "idle" | "idleRow" = "idle") => (keys ? bg(C.blue) : tint(idle)) + fg(C.white);
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;
 /**
@@ -31,6 +36,10 @@ export function chip(back: number, text: number = C.white): string {
   return bgRgb(b) + fgRgb(f);
 }
 export const RESET = "\x1b[0m";
+/** Bold on and off, leaving the colour as it is. */
+export const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
+/** Text in the quiet colour (a hint, a count, what's secondary). */
+export const dim = (s: string) => fg(C.dark) + s + RESET;
 /**
  * A sparkline's steps, lowest to highest, in glyphs the kitty+crt font has: it is CP437, which has no ▁▂▃▅▆▇
  * (they drew as ?, as ↳ and ⌕ did before #81). A shade ramp, the BBS way, over an underscore for the lowest.
@@ -202,6 +211,9 @@ export function pad(s: string, w: number): string {
   }
   return out;
 }
+
+/** `s` cut to `w` cells, ending in `…`, when it's wider; never padded, never through a wide or joined glyph. */
+export const ellipsize = (s: string, w: number): string => (width(s) <= w ? s : w < 1 ? "" : headOf(s, w - 1) + "…");
 
 /**
  * The first `n` cells of a styled string, its colour codes kept, never half a wide glyph. Its link tags and

@@ -15,13 +15,11 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import { bg, C, fg, INPUT_CURSOR, pad, RESET, tint, width } from "../style";
-import { themed } from "../theme";
-import type { Key } from "../term";
+import { C, fg, INPUT_CURSOR, pad, RESET, selected, width } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import { RowView } from "../scroll";
 
-let SEL = "";
-themed(() => { SEL = bg(C.blue) + fg(C.white); });
 
 /** One piece of the status line as placed: at x, y in the list's cells, `cols` wide (clipped), a control or not. */
 export interface StatusSeg { x: number; y: number; text: string; cols: number; sgr: string; control?: BacklinkControl }
@@ -49,7 +47,7 @@ export function layoutBacklinkStatus(parts: readonly BacklinkStatusPart[], cols:
 
 /** One row as drawn: a kind group's header (its count and stages), or a source with its dim suffix. */
 export function backlinkRowLine(row: BacklinkRow, o: { selected: boolean; focused: boolean; faceted: boolean; cols: number }): string {
-  const on = o.selected ? (o.focused ? SEL : tint("idleRow") + fg(C.white)) : "";
+  const on = o.selected ? selected(o.focused, "idleRow") : "";
   if (row.kind === "group") {
     const g = row.group;
     const head = ` ${row.expanded ? "−" : "+"} ${g.label} ${g.sources.length}`;
@@ -62,7 +60,6 @@ export function backlinkRowLine(row: BacklinkRow, o: { selected: boolean; focuse
 }
 
 const rowKey = (r: BacklinkRow | undefined) => (r ? (r.kind === "group" ? `g:${r.group.kind}` : `s:${r.source.blockId}`) : undefined);
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 
 /** How a picked source opens: shown where the selection goes (moving), opened (⏎, a click), or fresh (alt+⏎). */
 export type PickHow = "show" | "open" | "fresh";
@@ -75,7 +72,7 @@ export class BacklinksPane implements Pane {
   problem = "";
   /** The selected row, and the first row drawn. */
   sel = 0;
-  private top = 0;
+  private view = new RowView();
   options: BacklinkViewOptions = { ...DEFAULT_BACKLINK_VIEW_OPTIONS };
   expanded = new Set<string>();
   /** The status line's controls as last drawn (for clicks), and how many rows it took. */
@@ -140,7 +137,7 @@ export class BacklinksPane implements Pane {
     const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
     if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); }
     this.target = m;
-    if (!keepSel) { this.data = null; this.sel = 0; this.top = 0; }
+    if (!keepSel) { this.data = null; this.sel = 0; this.view.reset(); }
     this.problem = "";
     if (!m) return Promise.resolve();
     const n = ++this.asked;
@@ -204,10 +201,8 @@ export class BacklinksPane implements Pane {
     this.head = st.rows;
     const fit = Math.max(1, h - this.head);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
-    if (this.sel < this.top) this.top = this.sel;
-    if (this.sel >= this.top + fit) this.top = this.sel - fit + 1;
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, rows.length - fit)));
-    rows.slice(this.top, this.top + fit).forEach((row, j) => lines.push(backlinkRowLine(row, { selected: this.top + j === this.sel, focused, faceted: view.faceted, cols: w })));
+    this.view.place(this.sel, rows.length, fit);
+    rows.slice(this.view.top, this.view.top + fit).forEach((row, j) => lines.push(backlinkRowLine(row, { selected: this.view.top + j === this.sel, focused, faceted: view.faceted, cols: w })));
     if (!this.data.sources.length) lines.push(fg(C.dark) + " nothing links here yet" + RESET);
     else if (!rows.length) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };
@@ -334,8 +329,8 @@ export class BacklinksPane implements Pane {
     // The selection moves at once (the next key counts from it); the source is read and shown after.
     const to = (i: number) => { if (n && i >= 0 && i < n && i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 }); return true; };
     const by = (d: number) => { const i = this.sel + d; if (n && i >= 0 && i < n) this.run(desk, "backlinks.pick", { by: d }); return true; };
-    if (k.kind === "down" || c === "j") return by(1);
-    if (k.kind === "up" || c === "k") return by(-1);
+    if (isDown(k)) return by(1);
+    if (isUp(k)) return by(-1);
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.pick", { n: this.sel + 1, open: true, ...(k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
@@ -352,7 +347,7 @@ export class BacklinksPane implements Pane {
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
     if (c?.control) { this.run(desk, "backlinks.view", { step: c.control }); return true; }
-    const i = this.top + y - this.head;
+    const i = this.view.top + y - this.head;
     if (y >= this.head && i < this.rows().length) this.run(desk, "backlinks.pick", { n: i + 1, open: true, ...((k.mods ?? 0) & 24 ? { fresh: true } : {}) });
     return true;
   }

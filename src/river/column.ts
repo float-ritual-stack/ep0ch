@@ -14,9 +14,8 @@ import { historyRow, IN_TRASH, type Link } from "../surface/note";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
 import { readState, writeState } from "../state";
-import { bg, C, fg, INPUT_CURSOR, pad, paint, RESET, visible } from "../style";
-import { themed } from "../theme";
-import type { Key } from "../term";
+import { C, fg, INPUT_CURSOR, pad, paint, RESET, selected, visible } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import { scrolled, wheelRows } from "../scroll";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
@@ -27,8 +26,6 @@ import type { TileSpec } from "../desk/tiles";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
-let SEL = "";
-themed(() => { SEL = bg(C.blue) + fg(C.white); });
 const CHIP_COLOURS = [C.lgreen, C.lcyan, C.yellow, C.lmagenta, C.lred, C.lblue];
 const GLYPH: Record<string, string> = { hub: "◎", workboard: "▦", workspace: "▣", notes: "▤", "virtual-branch": "⑂", "roadmap-item": "◆", proof: "✓", synthesis: "✦", inbox: "✉", note: "·" };
 
@@ -313,7 +310,7 @@ export class RiverColumn extends ReaderPane {
       const rail = fg(C.blue) + "│ ".repeat(row.depth) + RESET;
       const mark = on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ";
       const tw = Math.max(8, w - row.depth * 2 - 2);
-      push(rail + mark + (on && active ? SEL : fg(C.white)) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET, n);
+      push(rail + mark + (on && active ? selected() : fg(C.white)) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET, n);
       push(rail + " " + pad(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
@@ -398,14 +395,14 @@ export class RiverColumn extends ReaderPane {
     if (this.selectKey(k, desk)) return true;
     // The mouse's back and forward buttons: back and forward in the flow, as alt+← and alt+→.
     if (k.kind === "back" || k.kind === "forward") { void desk.perform?.("tile.travel", { dir: k.kind }, USER, this); return true; }
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     const held = this.surface.editing;
     const current = !held && this.surface.msg?.id === this.noteOf()?.id ? this.surface.currentKind() : null;
     if (!held) {
       // A link or an element `[ ]` is on: ⏎ (and space on a step) are the surface's, as in any reader.
       if ((this.linked() || current) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);
       if (current === "task" && c === " ") return super.key(k, desk);
-      if (k.kind === "down" || c === "j" || k.kind === "up" || c === "k") { this.run(desk, "column.select", { by: k.kind === "down" || c === "j" ? 1 : -1 }); return true; }
+      if (isDown(k) || isUp(k)) { this.run(desk, "column.select", { by: isDown(k) ? 1 : -1 }); return true; }
       if (k.kind === "pgdn" || k.kind === "pgup") { this.run(desk, "column.scroll", { by: (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.height - 2) }); return true; }
       if (k.kind === "home" || k.kind === "end") { this.run(desk, "column.select", { by: k.kind === "home" ? -1e9 : 1e9 }); return true; }
       // ⏎ opens the selected note in the next column (the flow's), alt+⏎ in a new one even when a column has it.
@@ -444,7 +441,7 @@ export class RiverColumn extends ReaderPane {
 
   /** v, y, Y; and while there's a selection, esc and the keyboard mode's keys. True when the key was the selection's. */
   private selectKey(k: Key, desk: DeskApi): boolean {
-    const c = isCopyKey(k) ? "y" : k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = isCopyKey(k) ? "y" : ch(k);
     const sel = this.text;
     if (!sel) {
       if (this.surface.editing) return false;

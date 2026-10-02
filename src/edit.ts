@@ -870,6 +870,11 @@ export function pruneDrafts(dir: string, keep: string, now = Date.now()): string
   try {
     files = readdirSync(dir).filter(f => f.endsWith(".md")).map(f => ({ path: join(dir, f), at: statSync(join(dir, f)).mtimeMs }));
   } catch { return []; }
+  return pruneOld(files, keep, now);
+}
+
+/** Of `files`, remove what the rule drops (past the newest DRAFT_KEEP and older than DRAFT_DAYS; never `keep`), and say which. */
+export function pruneOld(files: { path: string; at: number }[], keep: string, now: number): string[] {
   files.sort((a, b) => b.at - a.at);
   const old = files.filter((f, i) => f.path !== keep && i >= DRAFT_KEEP && now - f.at > DRAFT_DAYS * 86_400_000);
   for (const f of old) { try { rmSync(f.path); } catch { /* best effort */ } }

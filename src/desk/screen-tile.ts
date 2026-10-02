@@ -8,7 +8,7 @@ import type { Msg } from "../board";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { FramedScreen } from "../showcase/frame";
-import type { Key } from "../term";
+import { ch, type Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 
 export type ScreenKind = "board" | "river";
@@ -69,7 +69,7 @@ export class ScreenTile implements Pane {
 
   key(k: Key): boolean {
     if (!this.framed) return false;
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     // In an edit, a comment or a panel, every key is the screen's; otherwise the desk keeps 1-9 and video.
     if (!this.framed.top.holdsKeys?.() && (/^[1-9]$/.test(c) || c === "V")) return false;
     this.framed.key(k);

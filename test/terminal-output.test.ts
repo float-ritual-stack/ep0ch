@@ -12,11 +12,13 @@ import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
 import { Draft, wrapRows } from "../src/edit";
 import { renderCompletion } from "../src/surface/completer";
+import { historyRow } from "../src/surface/note";
+import { titleOf } from "../src/desk/writes";
 import { EXT_ACTIONS } from "../src/extensions";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import { fitHint, headOf, pad, visible, width } from "../src/style";
+import { ellipsize, fitHint, headOf, pad, visible, width } from "../src/style";
 import { rowBytes } from "../src/term";
 import { paintable, printable, wrap } from "../src/text";
 import { outliner, Scratch, until } from "./scratch";
@@ -59,6 +61,22 @@ describe("terminal cells, not code points", () => {
     expect(headOf(emoji, 8)).toBe("🌙 moon ");
     expect(cells(pad(emoji, 10))).toBe(10);
     for (const l of wrap(`${cjk}${cjk} and some words`, 7)) expect(width(l)).toBeLessThanOrEqual(7);
+  });
+
+  test("a title cut to fit counts cells: a wide title ends with … inside its room, never past it", () => {
+    for (const w of [7, 12, 20]) {
+      const row = historyRow(w * 2 + 3, cjk + cjk, emoji + emoji)!;
+      expect(cells(row.line)).toBeLessThanOrEqual(w * 2 + 3);
+    }
+    const m = { id: "b1", text: cjk + cjk, props: {} } as any;
+    expect(cells(titleOf(m, 9))).toBeLessThanOrEqual(9);
+    expect(titleOf(m, 9)).toEndWith("…");
+    // ellipsize: cut to cells with …, never padded, never half a wide or joined glyph.
+    expect(ellipsize(cjk, 7)).toBe("会議メ…");
+    expect(ellipsize(cjk, 6)).toBe("会議…");                      // 5 cells: the next glyph would split
+    expect(ellipsize("👩‍💻 dev", 2)).toBe("…");
+    expect(ellipsize(emoji, 9)).toBe("🌙 moon …");
+    expect(ellipsize("short", 9)).toBe("short");
   });
 
   test("the canvas puts a wide glyph in two cells, keeps the row's width, and blanks half a glyph written over", () => {

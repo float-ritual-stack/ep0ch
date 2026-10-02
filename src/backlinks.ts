@@ -10,6 +10,8 @@
 // test/backlinks.test.ts checks it against the service's own functions. The door never derives a facet:
 // against a service without them the view is one flat list, as Detail's is.
 
+import { ellipsize, width } from "./style";
+
 export const BACKLINK_STAGE_BUCKETS = ["waiting", "draft", "active", "done"] as const;
 /** Normalized lifecycle bucket; waiting, draft and active are open. */
 export type BacklinkStageBucket = (typeof BACKLINK_STAGE_BUCKETS)[number];
@@ -335,24 +337,20 @@ export function backlinkStatusParts(view: BacklinkView, options: Readonly<Backli
   return parts;
 }
 
-/** Fit `title — suffix` into `columns`, shortening the suffix before the title (`fitBacklinkRow`). */
+/** Fit `title — suffix` into `columns` (terminal cells, where Detail counts characters), shortening the suffix before the title (`fitBacklinkRow`). */
 export function fitBacklinkRow(title: string, suffix: string, columns: number): { title: string; suffix: string } {
   const separator = 3;
-  const titleWidth = cells(title);
-  const suffixWidth = cells(suffix);
+  const titleWidth = width(title);
+  const suffixWidth = width(suffix);
   if (!suffix || titleWidth + separator + suffixWidth <= columns) return { title: fitColumns(title, columns), suffix };
   const room = columns - separator;
   if (room < 12) return { title: fitColumns(title, columns), suffix: "" };
   const suffixMinimum = Math.min(suffixWidth, Math.max(8, Math.floor(room * 0.35)));
   const fittedTitle = fitColumns(title, room - suffixMinimum);
-  return { title: fittedTitle, suffix: fitColumns(suffix, room - cells(fittedTitle)) };
+  return { title: fittedTitle, suffix: fitColumns(suffix, room - width(fittedTitle)) };
 }
 
-const cells = (s: string) => [...s].length;
-function fitColumns(text: string, columns: number): string {
-  const n = Math.max(1, columns), chars = [...text];
-  return chars.length <= n ? text : chars.slice(0, n - 1).join("") + "…";
-}
+const fitColumns = (text: string, columns: number) => ellipsize(text, Math.max(1, columns));
 
 // ── the door's rows ──────────────────────────────────────────────────────────────────────────────────
 

@@ -39,8 +39,9 @@ export function paintable(line: string): string {
   return line.split(SGR_PART).map((part, i) => (i % 2 ? part : printable(part.replaceAll("\t", " ")))).join("");
 }
 
-export const ago = (ms: number) => {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
+/** How long ago `ms` was, as of `now`: `42s`, `5m`, `3h`, `2d`. */
+export const ago = (ms: number, now = Date.now()) => {
+  const s = Math.max(0, (now - ms) / 1000);
   if (s < 90) return `${Math.round(s)}s`;
   if (s < 5400) return `${Math.round(s / 60)}m`;
   if (s < 129600) return `${Math.round(s / 3600)}h`;

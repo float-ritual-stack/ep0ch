@@ -9,9 +9,9 @@ import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Caller, type Msg } from "./board";
 import { artNamed, find, loadArt, members, packs, type Member } from "./packs";
 import type { Activity } from "./socket";
-import { bg, C, center, chip, fg, pad, paint, RESET, width } from "./style";
+import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
-import type { Key } from "./term";
+import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
 import { Showcase } from "./showcase/showcase";
@@ -27,8 +27,8 @@ import { AGENT_ACTOR_ID, type Actor, type OutlineEvent } from "./socket";
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const nav = (k: Key, len: number, i: number, page: number) => {
-  if (k.kind === "up" || (k.kind === "char" && !k.ctrl && k.ch === "k")) return Math.max(0, i - 1);
-  if (k.kind === "down" || (k.kind === "char" && !k.ctrl && k.ch === "j")) return Math.min(len - 1, i + 1);
+  if (isUp(k)) return Math.max(0, i - 1);
+  if (isDown(k)) return Math.min(len - 1, i + 1);
   if (k.kind === "pgup") return Math.max(0, i - page);
   if (k.kind === "pgdn") return Math.min(len - 1, i + page);
   if (k.kind === "home") return 0;
@@ -324,7 +324,7 @@ export class MainMenu implements Screen {
     // go back to from here, and q → Quay is in the fingers.
     else if (k.kind === "esc") return shellKey("screen.back", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
-    else if (k.kind === "char" && !k.ctrl && k.ch === "?") return shellKey("screen.help", {}, this, ctx);
+    else if (ch(k) === "?") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
@@ -791,7 +791,7 @@ export class MessageList implements BbsList {
       this.ptr.row(lines.length, n, w);
       const num = (m.props["work-id"] ?? String(n + 1)).padStart(7).slice(-7);
       const row = ` ${num}  ${pad(m.author ?? "?", 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
-      lines.push(n === this.sel ? bg(C.blue) + fg(C.white) + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(m.author ?? "?", 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
+      lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(m.author ?? "?", 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · ", ["|15Q|08 back", char("q")]]));
@@ -949,7 +949,7 @@ export class MessageReader implements Screen {
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
     if (c === "q" || c === "Q") return back(this, ctx);
     if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
@@ -1071,7 +1071,7 @@ export class Conferences implements BbsList {
     (this.confs ?? []).forEach((c, i) => {
       this.ptr.row(lines.length, i, w);
       const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${c.props.type ?? ""}`;
-      lines.push(i === this.sel ? bg(C.blue) + fg(C.white) + pad(label, w) + RESET : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
+      lines.push(i === this.sel ? selected() + pad(label, w) + RESET : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
     lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
@@ -1174,7 +1174,7 @@ export class LastCallers implements BbsList {
     rows.slice(start, start + page).forEach((r, i) => {
       this.ptr.row(lines.length, start + i, w);
       const row = ` ${ago(r.at).padStart(5)}  ${pad(r.actor, 21)} ${pad(r.kind === "properties" ? "props" : "edit", 6)} ${pad(subject(r.block), w - 40)}`;
-      lines.push(start + i === this.sel ? bg(C.blue) + fg(C.white) + pad(row, w) + RESET
+      lines.push(start + i === this.sel ? selected() + pad(row, w) + RESET
         : `${fg(C.dark)}${row.slice(0, 7)}${fg(r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan)}${row.slice(7, 30)}${fg(C.dark)}${row.slice(30, 37)}${fg(C.grey)}${row.slice(37)}${RESET}`);
     });
     while (lines.length < h - 1) lines.push("");
@@ -1219,7 +1219,7 @@ export class FileAreas implements BbsList {
       this.ptr.row(lines.length, i, w);
       if (on) for (let j = 1; j <= Math.min(5, Math.max(0, d.length - 1)); j++) this.ptr.row(lines.length + j, i, w);
       const head = ` ${pad(basename(p).toUpperCase(), 14)} ${String(Math.round(size / 1024)).padStart(5)}k  ${pad(d[0] ?? "", w - 32)}`;
-      lines.push(on ? bg(C.blue) + fg(C.white) + pad(head, w) + RESET : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
+      lines.push(on ? selected() + pad(head, w) + RESET : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
       if (on) for (const extra of d.slice(1, 6)) lines.push(`${" ".repeat(24)}${fg(C.dark)}${pad(extra, w - 25)}${RESET}`);
     });
     while (lines.length < h - 1) lines.push("");
@@ -1307,14 +1307,14 @@ export class ArtViewer implements Screen {
     }
     this.ctx = ctx;
     if (isBack(k)) return back(this, ctx);
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => void this.dispatch.press(name, args);
     if (c === "." || c === ">" || k.kind === "right") return run("art.step", { by: 1 });
     if (c === "," || c === "<" || k.kind === "left") return run("art.step", { by: -1 });
     if (c === "i") return run("art.ice", {});
     if (c === "v") return shellKey("video.cycle", {}, this, ctx);
     if (k.kind === "enter" || c === " ") return run("art.reveal", {});
-    const by = k.kind === "down" || c === "j" ? 2 : k.kind === "up" || c === "k" ? -2 : k.kind === "pgdn" ? 20 : k.kind === "pgup" ? -20 : 0;
+    const by = isDown(k) ? 2 : isUp(k) ? -2 : k.kind === "pgdn" ? 20 : k.kind === "pgup" ? -20 : 0;
     if (by) return run("art.scroll", { by });
   }
   private ctx: Ctx | null = null;

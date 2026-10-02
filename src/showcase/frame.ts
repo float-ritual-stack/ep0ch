@@ -5,7 +5,7 @@
 import type { Ctx, Frame, Screen, Video } from "../app";
 import type { Msg } from "../board";
 import type { Placement } from "../kitty";
-import type { Key, TermInfo } from "../term";
+import { ch, type Key, type TermInfo } from "../term";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import { NOBODY, screenKeys, within } from "../whereabouts";
 
@@ -124,7 +124,7 @@ export class ScreenPane implements Pane {
   }
   key(k: Key): boolean {
     if (!this.framed) return false;
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     // A screen in an edit, a comment or a property panel takes every key (its q, esc, digits are text or its own).
     if (this.framed.top.holdsKeys?.()) { this.framed.key(k); this.desk?.redraw(); return true; }
     // The desk keeps focus keys (1-9), video and search; esc or q on the first screen leaves the desk.

@@ -26,8 +26,8 @@ import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, uns
 import type { Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
-import { C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
-import type { Key } from "../term";
+import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
 import { Dispatcher } from "./dispatch";
@@ -144,8 +144,7 @@ export function historyKey(k: Key): -1 | 1 | 0 {
 export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: -1 | 1 }[] } | null {
   if ((!back && !forward) || w < 12) return null;
   const room = back && forward ? Math.floor((w - 3) / 2) : w - 2;
-  const fit = (s: string, n: number) => ([...s].length > n ? [...s].slice(0, Math.max(0, n - 1)).join("") + "…" : s);
-  const b = back ? fit(`← back · ${printable(back)}`, room) : "", f = forward ? fit(`${printable(forward)} · forward →`, room) : "";
+  const b = back ? ellipsize(`← back · ${printable(back)}`, room) : "", f = forward ? ellipsize(`${printable(forward)} · forward →`, room) : "";
   const hits: { from: number; to: number; dir: -1 | 1 }[] = [];
   let line = "";
   if (b) { line += " " + fg(C.lcyan) + "← back" + fg(C.dark) + b.slice("← back".length) + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
@@ -286,15 +285,11 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   kept.forEach((r, k) => { if (lit.inside.has(r.i)) literal.add(k); });
   return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)), literal, unterminated: lit.unterminated };
 }
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
-const dim = (s: string) => fg(C.dark) + s + RESET;
-const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
 const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === c && !completerOf(s.composer)?.shown;
 const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
-const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 export { leaveSaid, propertyChange, type LeaveResult };
 
@@ -573,7 +568,7 @@ export class NoteSurface {
     this.use(host);
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -2028,7 +2023,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${q.length > 40 ? q.slice(0, 39) + "…" : q}" · ${c.author}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${c.author}${c.open ? "" : " · resolved"}` });
     }
     return out;
   }
@@ -2144,14 +2139,14 @@ export class NoteSurface {
     if (spec.near !== undefined && spec.quote === undefined) throw new ActionRefused("near= goes with quote=");
     if (spec.line !== undefined && (spec.line < 1 || (spec.to ?? spec.line) < spec.line)) throw new ActionRefused("line is from 1 (the subject), and to isn't before it");
     if (spec.quote !== undefined && !spec.quote.trim()) throw new ActionRefused("quote is empty");
-    if (spec.quote !== undefined && findQuote(m.text, spec.quote, spec.near) < 0) throw new ActionRefused(`"${spec.quote.length > 40 ? spec.quote.slice(0, 39) + "…" : spec.quote}" isn't in the note's current text`);
+    if (spec.quote !== undefined && findQuote(m.text, spec.quote, spec.near) < 0) throw new ActionRefused(`"${ellipsize(spec.quote, 40)}" isn't in the note's current text`);
     const rows = this.focusRows(spec, m, d.doc, d.lines, d.top);
     if (!rows) {
       if (spec.block !== undefined) throw new ActionRefused(`this note doesn't embed or link ${spec.block} where it's drawn; to mark another note, open it first`);
       throw new ActionRefused("nothing of that is drawn here (past the end, only properties, or in a folded section; unfold it first)");
     }
     const q = spec.quote?.trim() ?? "";
-    const label = spec.quote !== undefined ? `"${q.length > 40 ? q.slice(0, 39) + "…" : q}"`
+    const label = spec.quote !== undefined ? `"${ellipsize(q, 40)}"`
       : spec.line !== undefined ? `line${spec.to && spec.to !== spec.line ? `s ${spec.line}–${spec.to}` : ` ${spec.line}`}`
       : sameId(spec.block!, m.id) ? "this note" : (this.elems.find(e => sameId(spec.block!, e.link?.block))?.label ?? spec.block!).slice(0, 40);
     this.focusMark = { by, spec, label, at: Date.now() };
@@ -2949,7 +2944,7 @@ export class NoteSurface {
       const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
       const hits = [...flat.matchAll(re)];
       const hit = hits[(n ?? 1) - 1];
-      if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${text.length > 40 ? text.slice(0, 39) + "…" : text}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
+      if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${ellipsize(text, 40)}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
       const at = (off: number): Pos => {
         const row = starts.findLastIndex(s => s <= off);
         return { row, col: (rows.margin?.(row) ?? 0) + off - starts[row]! };

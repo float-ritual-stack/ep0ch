@@ -11,13 +11,12 @@ import { ActionRefused, ActionSet, agentLabel, asActor } from "../surface/action
 import { Dispatcher } from "../surface/dispatch";
 import { draftPreview, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
-import { bg, C, chip, fg, pad, paint, RESET } from "../style";
-import { themed } from "../theme";
-import type { Key } from "../term";
+import { bg, C, chip, fg, pad, paint, RESET, selected } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
-import { wheelRows } from "../scroll";
+import { clamp, RowView, wheelRows } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
@@ -36,9 +35,6 @@ interface CardDrag { from: number; card: Msg; over: number | null; open: boolean
 /** What the lanes keep between runs: the hub shown in each workspace, and the lane the cursor was in. */
 export interface LanesSaved { hubs?: Record<string, string>; lane?: string }
 
-let SEL = "";
-themed(() => { SEL = bg(C.blue) + fg(C.white); });
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 export class Lanes implements SourceModel {
   hub: Msg | null = null;
@@ -73,7 +69,7 @@ export class Lanes implements SourceModel {
   /** Where the composer was last drawn, for the mouse. */
   composerAt: Rect | null = null;
   /** The selected card's checklist steps (`s`): pick one and set its status. */
-  steps: { card: Msg; read: ChecklistRead | null; sel: number; busy: boolean; note: string } | null = null;
+  steps: { card: Msg; read: ChecklistRead | null; sel: number; busy: boolean; note: string; view: RowView } | null = null;
   /** The first `d` on a card: a second one within a few seconds trashes it. */
   trashArm: { id: string; at: number } | null = null;
   /** The last card trashed from the board, until it is restored or another one is: `u` restores it. */
@@ -223,7 +219,7 @@ export class Lanes implements SourceModel {
    * key and click; a key that isn't `d` lets go of a trash armed.
    */
   key(k: Key): boolean {
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     // A card or note being written holds every key, like an edit.
     if (this.composer) {
       if (k.kind !== "mouse") { this.composerKey(k); return true; }
@@ -251,8 +247,8 @@ export class Lanes implements SourceModel {
         if (row) { P.sel = row.i; void this.run("board.hub", { id: P.items[row.i]!.hub.id }); }
         return true;
       }
-      if (k.kind === "down" || c === "j") P.sel = Math.min(P.items.length - 1, P.sel + 1);
-      else if (k.kind === "up" || c === "k") P.sel = Math.max(0, P.sel - 1);
+      if (isDown(k)) P.sel = Math.min(P.items.length - 1, P.sel + 1);
+      else if (isUp(k)) P.sel = Math.max(0, P.sel - 1);
       else if (k.kind === "enter") { const it = P.items[P.sel]; if (it) void this.run("board.hub", { id: it.hub.id }); return true; }
       else if (k.kind === "esc" || c === "q") { void this.run("board.hub", { close: true }); return true; }
       this.host.redraw();
@@ -264,7 +260,7 @@ export class Lanes implements SourceModel {
   }
 
   /** A key on a lane (the query tile's own, `QueryPane.key`, on the board): the lanes' keys. */
-  laneKeys(k: Key): boolean { return this.laneKey(k, k.kind === "char" && !k.ctrl ? k.ch : ""); }
+  laneKeys(k: Key): boolean { return this.laneKey(k, ch(k)); }
 
   /** A board action as the person; a refusal is said on the status bar (a move says its own as it lands). */
   private run(name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null)): Promise<unknown> {
@@ -683,8 +679,8 @@ export class Lanes implements SourceModel {
 
   private moverKey(k: Key, c: string) {
     const M = this.mover!;
-    if (k.kind === "down" || c === "j") M.sel = Math.min(this.lanes.length - 1, M.sel + 1);
-    else if (k.kind === "up" || c === "k") M.sel = Math.max(0, M.sel - 1);
+    if (isDown(k)) M.sel = Math.min(this.lanes.length - 1, M.sel + 1);
+    else if (isUp(k)) M.sel = Math.max(0, M.sel - 1);
     else if (k.kind === "esc" || c === "m" || c === "q") this.mover = null;
     else if (k.kind === "enter") {
       this.mover = null;
@@ -958,7 +954,7 @@ export class Lanes implements SourceModel {
   /** `s`: the selected card's checklist steps, read from the service. */
   private async openSteps(card = this.card()) {
     if (!card) return this.host.ctx.flash("select a card to see its steps");
-    const S = { card, read: null as ChecklistRead | null, sel: 0, busy: true, note: "" };
+    const S = { card, read: null as ChecklistRead | null, sel: 0, busy: true, note: "", view: new RowView() };
     this.steps = S; this.host.redraw();
     try {
       S.read = await this.host.ctx.board.checklist(card.id);
@@ -971,8 +967,8 @@ export class Lanes implements SourceModel {
     const S = this.steps!;
     const n = S.read?.items.length ?? 0;
     if (k.kind === "esc" || c === "q" || c === "s") this.steps = null;
-    else if (k.kind === "down" || c === "j") S.sel = Math.min(Math.max(0, n - 1), S.sel + 1);
-    else if (k.kind === "up" || c === "k") S.sel = Math.max(0, S.sel - 1);
+    else if (isDown(k)) S.sel = Math.min(Math.max(0, n - 1), S.sel + 1);
+    else if (isUp(k)) S.sel = Math.max(0, S.sel - 1);
     else if (!S.busy && S.read && (c === " " || k.kind === "enter" || c === "x" || c === "w" || c === "!")) {
       const it = S.read.items[S.sel];
       if (it) {
@@ -1104,7 +1100,7 @@ export class Lanes implements SourceModel {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + `pick a board · ${this.host.ctx.workspace}`, fg(C.dark) + "⏎ open · esc back");
     this.pickerRows = P.items.map((_, i) => ({ i, col: r.col + 1, row: r.row + 1 + i, cols: r.cols - 2 })).filter(x => x.row < r.row + r.rows - 1);
     P.items.forEach((it, i) => canvas.text(r.col + 1, r.row + 1 + i,
-      (i === P.sel ? SEL : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
+      (i === P.sel ? selected() : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
   }
 
   // ── input: the board's own keys, before the desk's ─────────────────────
@@ -1138,7 +1134,7 @@ export class Lanes implements SourceModel {
     if (c === "u" && this.trashed) { void this.run("card.restore", {}); return true; }
     if (c === "c" && l) { void this.run("lane.collapse", { lane: l.name }); return true; }
     if (l && this.host.folded(l) && (k.kind === "enter" || c === " ")) { void this.run("lane.collapse", { lane: l.name, on: false }); return true; }
-    const by = k.kind === "down" || c === "j" ? 1 : k.kind === "up" || c === "k" ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
     if (l && by) { void this.run("card.select", { by }); return true; }
     // ⏎ opens the card where the lane's opens land (the readers row's detail), alt+⏎ in a new one: the desk's `open from=`.
     if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.card(); if (m && l) void this.host.perform?.("open", { id: m.id, from: this.host.nameOfPane(l), ...(k.kind === "alt-enter" ? { fresh: true } : {}) }, USER); return true; }
@@ -1214,7 +1210,7 @@ export class Lanes implements SourceModel {
         : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
         : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
         : fg(C.lred) + "can't: " + p.reason;
-      canvas.text(r.col + 1, y, (sel ? SEL : fg(C.white)) + pad(` ${sel ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, inner) + RESET, inner);
+      canvas.text(r.col + 1, y, (sel ? selected() : fg(C.white)) + pad(` ${sel ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, inner) + RESET, inner);
       canvas.text(r.col + 1, y + 1, pad(`     ${what}`, inner) + RESET, inner);
     });
   }
@@ -1258,11 +1254,11 @@ export class Lanes implements SourceModel {
     const MARK: Record<StepStatus, string> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
     const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred };
     const room = r.rows - 3;
-    const top = Math.max(0, Math.min(S.sel - room + 1, items.length - room));
+    const top = S.view.place(S.sel, items.length, room);
     items.slice(top, top + room).forEach((it, j) => {
       const i = top + j, sel = i === S.sel;
       const text = `${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`;
-      canvas.text(r.col + 1, r.row + 1 + j, (sel ? SEL : fg(COLOR[it.status])) + pad(` ${text}`, w) + RESET, w);
+      canvas.text(r.col + 1, r.row + 1 + j, (sel ? selected() : fg(COLOR[it.status])) + pad(` ${text}`, w) + RESET, w);
     });
     canvas.text(r.col + 1, r.row + r.rows - 2, fg(S.busy ? C.grey : C.dark) + pad(` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}`, w) + RESET, w);
   }

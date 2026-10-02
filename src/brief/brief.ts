@@ -13,7 +13,7 @@ import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
-import type { Key } from "../term";
+import { ch, type Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
@@ -78,7 +78,7 @@ export class BriefReader extends ReaderPane {
   override hint() { return `, . day · ${super.hint()}`; }
   /** `,` and `.` step a day (brief.step), wherever the brief is (its own screen, a tile on the desk), unless the person types. */
   override key(k: Key, desk: DeskApi): boolean {
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     if ((c === "," || c === ".") && !this.holdsKeys && !desk.personTyping?.()) { void desk.press?.(this, BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }); return true; }
     return super.key(k, desk);
   }

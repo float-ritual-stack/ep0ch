@@ -17,6 +17,7 @@ import { resolveTarget } from "../discover";
 import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";
 import { runProgram, Term } from "../term";
+import { ago } from "../text";
 import { codeVersion, LOCKED, serve } from "./daemon";
 import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
 import { forgetSession } from "./restore";
@@ -81,14 +82,12 @@ export function runEnv(session: Record<string, string> | undefined, here: Record
   return out;
 }
 
-const ago = (ms: number) => (ms < 90_000 ? `${Math.round(ms / 1000)}s` : ms < 90 * 60_000 ? `${Math.round(ms / 60_000)}m` : `${(ms / 3_600_000).toFixed(1)}h`);
-
 /** `session list`, as text. */
 export function formatSession(i: SessionInfo, now = Date.now()): string {
   const where = i.outline.outline ? `${i.outline.host} · ${i.outline.outline}` : `${i.outline.host}:${i.outline.workspace}`;
-  const lines = [`session ${i.pid} · ${where} · up ${ago(now - i.started)} · on the ${i.screen ?? "logon"}`, `  state ${i.state}${i.code.commit ? ` · code ${i.code.commit.slice(0, 9)}` : ""}`];
+  const lines = [`session ${i.pid} · ${where} · up ${ago(i.started, now)} · on the ${i.screen ?? "logon"}`, `  state ${i.state}${i.code.commit ? ` · code ${i.code.commit.slice(0, 9)}` : ""}`];
   lines.push(i.clients.length ? `  ${i.clients.length} terminal${i.clients.length === 1 ? "" : "s"} attached:` : "  no terminal attached");
-  for (const c of i.clients) lines.push(`    #${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${c.away ? ` · running ${c.away}` : ""} · idle ${ago(c.idle)}`);
+  for (const c of i.clients) lines.push(`    #${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${c.away ? ` · running ${c.away}` : ""} · idle ${ago(now - c.idle, now)}`);
   lines.push(i.terminals.length ? `  ${i.terminals.length} program${i.terminals.length === 1 ? "" : "s"} running${i.host ? ` in its terminal host (pid ${i.host})` : ""}: ${i.terminals.map(t => `${t.tile} (${t.cmd}${t.pid ? `, pid ${t.pid}` : ""})`).join(", ")}` : "  no programs running in its tiles");
   if (i.kept?.length) lines.push(`  ${i.kept.length} kept without a tile yet (a screen not opened since a handoff): ${i.kept.map(k => `${k.cmd}${k.pid ? ` (pid ${k.pid})` : ""}`).join(", ")}`);
   return lines.join("\n");
