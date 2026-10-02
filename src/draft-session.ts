@@ -30,7 +30,7 @@ export type Outcome =
 
 /** Where a draft goes when it's written: one adapter per kind of destination. */
 export interface DraftTarget {
-  /** Where it's put aside and brought back from (the unsent key): `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<lane>`, `child:<id>`. */
+  /** Where it's put aside and brought back from (the unsent key): `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<view>`, `child:<id>`. */
   readonly place: string;
   /** What brings it back, as said: "e brings it back". */
   readonly back: string;
@@ -198,7 +198,7 @@ export class DraftSession {
    * The person clicked (or ^W'd) away from the draft, as in any editor: nothing typed is lost and nothing is
    * posted that wasn't meant to be. Unchanged, it closes. A changed edit is written against the revision it
    * started from; one that can't be (stale, offline, refused, a property change not yet confirmed) is put
-   * aside as unsent. A comment, reply or new card is put aside, never sent: sending is an explicit act. The
+   * aside as unsent, and so is one brought back unsent and not typed in since. A comment, reply or new card is put aside, never sent: sending is an explicit act. The
    * hold goes with it. An agent leaves only a draft it opened and alone typed in.
    */
   async leave(actor: Actor = USER): Promise<LeaveResult> {
@@ -208,6 +208,15 @@ export class DraftSession {
     const d = this.draft, t = this.target;
     if (d.busy) return { left: t.verb === "send" ? "sending" : t.verb === "create" ? "creating" : "saving" };
     if (!d.dirty) { this.end("closed"); return { left: "closed" }; }
+    // An edit put aside, brought back and left as it came: a click away puts it aside again. Only typing (or
+    // ctrl+s) says the person means to write it now; a click elsewhere never writes it over the note.
+    if (t.leaveWrites && d.restored !== null && d.restored === d.text) {
+      const keptAt = this.keep();
+      this.end("aside");
+      const said = `${t.what} was kept as unsent, not saved: it came back unsent and nothing was typed since · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
+      this.env.said?.(said);
+      return { left: "kept", keptAt, said };
+    }
     if (t.leaveWrites) {
       const r = await this.submit(actor, true);
       if (r.ok) return { left: "saved", revision: r.revision };
@@ -312,20 +321,21 @@ export class DraftSession {
 
   /**
    * The draft put aside at this place comes back, when it was written on the revision this draft starts from
-   * (a comment or a new card always). One on an older revision stays on disk, and is said.
+   * (a comment or a new card always). One on an older revision stays put aside (the reader's "■ unsent" line
+   * keeps saying so) with its copy on disk, and is said.
    */
   private restore(): boolean {
     const d = this.draft, u = unsent(this.target.place);
     if (!u) return false;
-    unshelve(this.target.place);
-    if (u.text === d.text) return false;
+    if (u.text === d.text) { unshelve(this.target.place); return false; }
     if (u.base !== d.base) { d.note = `your unsent draft from ${whenPut(u.at)} was on revision ${u.base}; the note changed since · it's at ${tidy(u.copy ?? "")}`; return false; }
+    unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w);
-    d.note = `brought back your unsent draft from ${whenPut(u.at)} · esc twice drops it`;
+    d.note = `brought back your unsent draft from ${whenPut(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
 
@@ -568,6 +578,9 @@ export function blockTarget(m: Msg, o: {
       try {
         const saved = await o.board.update(m.id, text, d.base, by);
         d.saving = false;
+        // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
+        const old = unsent(`edit:${m.id}`);
+        if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
         o.saved?.(saved, by, asked, propertyChange(d.baseProps, saved.props));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
@@ -694,17 +707,18 @@ export function commentTarget(o: {
 /**
  * Create a card in a lane (its text born with what the lane's view needs, `views.planWrite`, through
  * `card.create`) or a child note under a card (`note.create`). `create` has no revision or request id, so a
- * lost answer is looked for by the action, never retried here.
+ * lost answer is looked for by the action, never retried here. A new card is put aside under its lane's view
+ * (`card:<view id>`): a view is one hub's, so two hubs' "Doing" lanes never share one.
  */
 export function cardTarget(o:
-  | { kind: "card"; lane: string; create(text: string, by: Actor): Promise<unknown> }
+  | { kind: "card"; lane: string; view: string; create(text: string, by: Actor): Promise<unknown> }
   | { kind: "child"; parent: Msg; create(text: string, by: Actor): Promise<unknown> },
 ): DraftTarget {
   const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
   const card = o.kind === "card";
   const label = card ? `new-card-${slug(o.lane)}` : `new-note-${o.parent.id.slice(0, 8)}`;
   return {
-    place: card ? `card:${o.lane}` : `child:${o.parent.id}`,
+    place: card ? `card:${o.view}` : `child:${o.parent.id}`,
     back: card ? `n in ${o.lane} brings it back` : "N on the card brings it back",
     label,
     what: card ? `the new card in ${o.lane}` : `the new note under “${subject(o.parent).slice(0, 40)}”`,
@@ -732,9 +746,17 @@ export function cardTarget(o:
 export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[] }
 
 const unsentDir = () => join(stateDir(), "drafts", "unsent");
-const unsentPath = (key: string) => join(unsentDir(), `${key.replace(/[^\w.-]+/g, "-")}.json`);
+/**
+ * A place's file: `<kind>-<id>.json` when the id is plain (letters, digits, . - _). Anything else (an older
+ * `card:<lane name>`) is named by its hash too, so two keys never share a file ("To do" and "To-do").
+ */
+const unsentPath = (key: string) => {
+  const plain = /^([a-z]+):([\w.-]+)$/.exec(key);
+  const name = plain ? `${plain[1]}-${plain[2]}` : `${key.replace(/[^\w.-]+/g, "-").slice(0, 60)}-${createHash("sha256").update(key).digest("hex").slice(0, 10)}`;
+  return join(unsentDir(), `${name}.json`);
+};
 
-/** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<lane>`, `child:<id>`). */
+/** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<view>`, `child:<id>`). */
 export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
   const u: Unsent = { key, text: d.text, base: d.base, at, copy, writers: d.writers };
   try {
@@ -779,11 +801,21 @@ export function unsentAll(): Unsent[] {
   } catch { return []; }
 }
 
-/** The reader's lines for an edit or a comment put aside on note `id`: when, and the key that brings it back. */
-export function unsentOn(id: string): string[] {
-  const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`);
+/**
+ * The reader's lines for what's put aside on note `id`: an edit or a comment on it, a new note under it (a card),
+ * or a new card in its lane (a view). When, and the key that brings it back; an edit put aside on another revision
+ * than the note's now (`revision`) isn't brought back by `e`, so its line says where its copy is instead.
+ */
+export function unsentOn(id: string, revision?: number): string[] {
+  const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`), n = unsent(`child:${id}`), k = unsent(`card:${id}`);
+  const stale = !!e && revision !== undefined && e.base !== revision;
   return [
-    ...(e ? [`■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
+    ...(e ? [stale ? `■ unsent edit from ${whenPut(e.at)} put aside on an older revision · its copy is at ${tidy(e.copy ?? "drafts/")}` : `■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
     ...(c ? [`■ unsent comment from ${whenPut(c.at)} · C and a passage bring it back`] : []),
+    ...(n ? [`■ unsent note under this from ${whenPut(n.at)} · N on the card brings it back`] : []),
+    ...(k ? [`■ unsent new card from ${whenPut(k.at)} · n in this lane brings it back`] : []),
   ];
 }
+
+/** Whether a draft is put aside at `key` (a lane's title asks on every paint: no read, only whether its file is there). */
+export function hasUnsent(key: string): boolean { try { return existsSync(unsentPath(key)); } catch { return false; } }

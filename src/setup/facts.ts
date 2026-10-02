@@ -17,27 +17,70 @@ type Env = Record<string, string | undefined>;
 export type OnLine = (line: string) => void;
 
 /**
- * Runs a command to completion; never throws. With `onLine`, its output is read as it arrives and each
- * chunk's latest line (a `\r`-redrawn progress line too) is passed on; the whole output is still returned.
+ * The process groups `run` has going: Ctrl+C (setup's SIGINT path) and the door's exit stop them, since a group
+ * of its own doesn't get the terminal's SIGINT (a `git pull` left running would hold .git/index.lock).
  */
-export async function run(cmd: string[], opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<{ code: number; out: string; err: string }> {
-  try {
-    const p = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...(opts.env ?? process.env), GIT_TERMINAL_PROMPT: "0" } as Record<string, string>, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    const timer = setTimeout(() => p.kill(), opts.timeoutMs ?? 20_000);
-    const [out, err, code] = await Promise.all([drain(p.stdout, opts.onLine), drain(p.stderr, opts.onLine), p.exited]);
-    clearTimeout(timer);
-    return { code: p.signalCode ? 124 : code, out: out.trim(), err: (p.signalCode ? `timed out after ${(opts.timeoutMs ?? 20_000) / 1000}s` : err).trim() };
-  } catch (e) { return { code: 127, out: "", err: (e as Error).message }; }
+const liveGroups = new Set<number>();
+let exitHooked = false;
+
+/** Stop every command `run` still has going (its whole process group): Ctrl+C during install, and on exit. */
+export function stopRunning(sig: NodeJS.Signals = "SIGTERM"): void {
+  for (const pid of liveGroups) { try { process.kill(-pid, sig); } catch { /* gone */ } }
 }
 
-/** A stream's text; with `onLine`, read chunk by chunk, each chunk's latest non-blank line passed on as it comes. */
-export async function drain(stream: ReadableStream<Uint8Array>, onLine?: OnLine): Promise<string> {
-  if (!onLine) return new Response(stream).text();
+/**
+ * Runs a command to completion; never throws. With `onLine`, its output is read as it arrives and each
+ * chunk's latest line (a `\r`-redrawn progress line too) is passed on; the whole output is still returned.
+ * Past `timeoutMs` the wait ends (code 124, with what it had written so far): the command runs in its own
+ * process group, and the whole group is stopped (TERM, then KILL if it lingers), so a grandchild holding its
+ * output open (git fetch's git-remote-https on a hung network) neither keeps the wait going nor outlives it.
+ */
+export async function run(cmd: string[], opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<{ code: number; out: string; err: string }> {
+  const ms = opts.timeoutMs ?? 20_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let pid: number | undefined;
+  try {
+    if (!exitHooked) { exitHooked = true; process.on("exit", () => stopRunning()); }
+    const p = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...(opts.env ?? process.env), GIT_TERMINAL_PROMPT: "0" } as Record<string, string>, stdout: "pipe", stderr: "pipe", stdin: "ignore", detached: true });
+    pid = p.pid;
+    liveGroups.add(pid);
+    const group = (sig: NodeJS.Signals) => { try { process.kill(-p.pid, sig); } catch { try { p.kill(sig); } catch { /* gone */ } } };
+    const got = { out: "", err: "" };
+    const done = Promise.all([drain(p.stdout, opts.onLine, t => { got.out += t; }), drain(p.stderr, opts.onLine, t => { got.err += t; }), p.exited]);
+    const late = new Promise<null>(res => { timer = setTimeout(() => res(null), ms); });
+    const r = await Promise.race([done, late]);
+    if (!r) {
+      group("SIGTERM");
+      // What ignores TERM is killed; either way the streams close once the group is gone, and the reads end with them.
+      let ended = false;
+      const gone = () => { ended = true; liveGroups.delete(p.pid); };
+      done.then(gone, gone);
+      setTimeout(() => { if (!ended) group("SIGKILL"); }, 2000).unref?.();
+      pid = undefined;   // still stopping: it stays in liveGroups until its streams close
+      return { code: 124, out: got.out.trim(), err: `${got.err.trim()}${got.err.trim() ? "\n" : ""}timed out after ${ms / 1000}s` };
+    }
+    const [out, err, code] = r;
+    return { code, out: out.trim(), err: err.trim() };
+  } catch (e) { return { code: 127, out: "", err: (e as Error).message }; }
+  finally {
+    clearTimeout(timer);
+    if (pid !== undefined) liveGroups.delete(pid);
+  }
+}
+
+/**
+ * A stream's text; with `onLine`, read chunk by chunk, each chunk's latest non-blank line passed on as it comes.
+ * `got` sees each chunk's text as it's read (what a timed-out command had said).
+ */
+export async function drain(stream: ReadableStream<Uint8Array>, onLine?: OnLine, got?: (text: string) => void): Promise<string> {
+  if (!onLine && !got) return new Response(stream).text();
   const decoder = new TextDecoder();
   let all = "", partial = "";
   for await (const chunk of stream) {
     const text = decoder.decode(chunk, { stream: true });
     all += text;
+    got?.(text);
+    if (!onLine) continue;
     const parts = (partial + text).split(/\r\n|\r|\n/);
     partial = parts.pop()!;
     // The last whole line; an unfinished one only when there is nothing else (a prompt, a line still coming).

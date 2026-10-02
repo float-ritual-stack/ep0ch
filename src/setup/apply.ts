@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlink
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
-import { depsState, gatherFacts, hostFacts, type OnLine, pluginFacts, run, serviceFacts, unitState } from "./facts";
+import { depsState, gatherFacts, hostFacts, type OnLine, pluginFacts, run, serviceFacts, stopRunning, unitState } from "./facts";
 import { Progress, progressMode, size, type Task, type Terminal } from "./progress";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
 import { backupDirOf, buildPlan, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, restartStep, serviceLabel, type Step, type StepStatus } from "./plan";
@@ -232,6 +232,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     const head = progress.interrupt();
     io.err(head?.lead ? `interrupted at step ${head.lead} (${head.title}): it may not have finished; ep0ch install shows where things stand`
       : head ? `interrupted while ${head.title.toLowerCase()}` : "interrupted");
+    stopRunning();   // the running step's command is in its own process group: the terminal's SIGINT didn't reach it
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
