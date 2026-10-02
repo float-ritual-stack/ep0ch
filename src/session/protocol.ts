@@ -42,6 +42,10 @@ export interface SessionInfo {
   clients: ClientInfo[];
   /** Programs running in terminal tiles (and the agent drawer), by tile. */
   terminals: { tile: string; cmd: string; pid?: number }[];
+  /** Programs the terminal host keeps that no tile has adopted (yet): a tile not drawn since a handoff, or one gone. */
+  kept?: { key: string | null; cmd: string; pid?: number }[];
+  /** The terminal host's process: where the programs run (src/session/pty-host.ts). */
+  host?: number;
 }
 
 export interface ClientInfo { id: number; pid: number; tty?: string; nest?: string; cols: number; rows: number; video: string; active: boolean; watch: boolean; since: number; idle: number; away: string | null }
@@ -58,7 +62,11 @@ export type ClientMsg =
   /** What the session is (`session list`), without attaching. */
   | { t: "query" }
   /** End the session (`session end`); `force`: even with programs running in its tiles. */
-  | { t: "end"; force?: boolean };
+  | { t: "end"; force?: boolean }
+  /** Hand the session to a new daemon on the code in the checkout (`session upgrade`). */
+  | { t: "upgrade" }
+  /** Every attached terminal starts again on the code in the checkout; the daemon goes on (`session upgrade --clients`). */
+  | { t: "reload" };
 
 /** Daemon → client. */
 export type DaemonMsg =
@@ -69,13 +77,13 @@ export type DaemonMsg =
   | { t: "run"; id: number; argv: string[]; cwd?: string; env?: Record<string, string>; banner?: string }
   | { t: "info"; info: SessionInfo }
   /** The end of this attach: why, and what to print once the terminal is back. `code`: the client's exit code. */
-  | { t: "bye"; reason: "detached" | "ended" | "refused" | "replaced" | "upgrade"; message: string; code?: number }
+  | { t: "bye"; reason: "detached" | "ended" | "refused" | "upgrade" | "restart"; message: string; code?: number }
   /** An answer to `end` that ended nothing: why (programs running), and what would. */
   | { t: "ask"; message: string };
 
 // Frame types: one letter each.
 const TYPE: Record<ClientMsg["t"] | DaemonMsg["t"], string> = {
-  hello: "h", input: "i", resize: "r", ran: "x", detach: "d", query: "q", end: "e",
+  hello: "h", input: "i", resize: "r", ran: "x", detach: "d", query: "q", end: "e", upgrade: "u", reload: "l",
   output: "o", ground: "g", run: "p", info: "n", bye: "b", ask: "a",
 };
 const NAME = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k])) as Record<string, ClientMsg["t"] | DaemonMsg["t"]>;

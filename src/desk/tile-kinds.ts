@@ -27,6 +27,8 @@ export interface TileEnv {
   desk: DeskApi;
   /** The tile's stable id (`t4`), its name, and the layout it's in. */
   id: string; name: string; place: string;
+  /** Where its screen's layout is saved (`desk.json`), when it is: with its id, what a tile is known by across session daemons. */
+  home: string | null;
   /** Another tile on the desk, by name. */
   tile(name: string): Pane | undefined;
   /** The tiles that follow this one (a preview with `source=tile:<this>`). */

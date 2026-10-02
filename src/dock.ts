@@ -186,6 +186,8 @@ export class AgentDock {
     const p = new PtyPane({ cmd: a.cmd, ...(a.cwd ? { cwd: a.cwd } : {}), label: DOCK_NAME, agent: true });
     p.tileId = DOCK_TILE_ID;
     p.place = "dock";
+    // The drawer's agent is the dock's (dock.json): a session's next daemon adopts it by that.
+    if (this.persist) p.home = "dock.json";
     // The program's output repaints whatever shows it: the drawer, a desk tile, or only the chip.
     p.init(this.api);
     this.p = p;

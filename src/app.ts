@@ -86,6 +86,11 @@ export interface Ctx {
    * run or a draft is unsaved: again within 3s ends it). `force` ends it anyway, the drafts copied to disk first.
    */
   end?(force: boolean): string | null;
+  /**
+   * The session onto new code (`session.upgrade`): handed to a new daemon, or with `clients` only its terminals started
+   * again; what happened. Absent: this door runs in its own terminal, not as a session.
+   */
+  upgradeSession?(clients: boolean): Promise<{ ok: boolean; message: string }>;
   /** Which terminal the person is typing on now (a session's client), for a logoff begun there: `logoff(from)` lets go of that one. */
   typingOn?(): unknown;
   /**
@@ -171,6 +176,8 @@ export interface Screen {
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
+  /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
+  reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
   /** No agent drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDock?: boolean;
   /**
@@ -269,13 +276,16 @@ export class App implements Ctx {
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
   background: Screen[] = [];
-  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); }
+  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
+  /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
+  onStack: (() => void) | null = null;
   pop() {
     const last = this.stack.length === 1;
     if (!this.leaving(last ? [...this.stack, ...this.background] : [this.stack.at(-1)], last)) return;
     this.leave();
     if (!this.stack.length) return this.quit();
     this.redraw();
+    this.onStack?.();
   }
   replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.leave(); this.push(s); }
   /** The top screen goes: it ends what it started, or keeps running in the background (its programs). */
@@ -297,7 +307,7 @@ export class App implements Ctx {
     const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
     if (refusal) { this.flash(refusal); return false; }
     const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() : null;
+    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() ?? this.quitWarning?.() ?? null : null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -315,6 +325,16 @@ export class App implements Ctx {
     this.term.detachActive(from);
     this.redraw();
   }
+  /** A session's own: hand it over, restart its terminals (src/session/daemon.ts). */
+  session: { upgrade(): Promise<{ ok: boolean; message: string }>; reload(): string } | null = null;
+  /** Something more that ends with the door, to ask about first (a session's programs kept for screens not open yet). */
+  quitWarning: (() => string | null) | null = null;
+  async upgradeSession(clients: boolean): Promise<{ ok: boolean; message: string }> {
+    if (!this.session) return { ok: false, message: "this door runs in its own terminal, not as a session" };
+    return clients ? { ok: true, message: this.session.reload() } : this.session.upgrade();
+  }
+  /** Paint now (a restore: the screen it opened is drawn at once, so its tiles adopt their programs). */
+  flush(): void { if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; } if (!this.closed) this.paint(); }
   end(force: boolean): string | null {
     if (force) { this.terminate(); return null; }
     if (!this.leaving([...this.stack, ...this.background], true)) return this.message;

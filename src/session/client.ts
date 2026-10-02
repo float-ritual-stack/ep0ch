@@ -7,17 +7,18 @@
 //   ep0ch session attach [--watch]     attach to it (--watch: read-only, never the person's keys)
 //   ep0ch session end [--yes]          end it (asks when programs run in its tiles)
 //   ep0ch session serve [door flags]   run one in the foreground (what `ep0ch` starts, detached)
-import { spawn } from "node:child_process";
-import { closeSync, openSync, readFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { listening } from "../control";
 import { resolveTarget } from "../discover";
 import { appendNest, nestLayers } from "../nest";
-import { privateDir, stateDir } from "../state";
+import { stateDir } from "../state";
 import { runProgram, Term } from "../term";
-import { LOCKED, serve, sessionLog, sessionSocket } from "./daemon";
+import { codeVersion, LOCKED, serve } from "./daemon";
+import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
+import { forgetSession } from "./restore";
+import { sessionEnv, sessionSocket, startSession, TERMINAL_VARS, waitFor } from "./start";
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 
 /**
@@ -28,6 +29,8 @@ export async function doorMode(args: readonly string[], env: Record<string, stri
   if (args.includes("--no-daemon") || env.EP0CH_DAEMON === "0") return { mode: "local", running: false };
   const running = await listening(sessionSocket());
   if (running) return { mode: "attach", running };
+  // A session whose daemon stopped left its programs in the terminal host: starting it again restores it.
+  if (await listening(ptyHostSocket())) return { mode: "attach", running: false };
   return { mode: args.includes("--daemon") || env.EP0CH_DAEMON === "1" ? "attach" : "local", running };
 }
 
@@ -45,13 +48,6 @@ export async function attachDoor(args: string[], how: { running: boolean }): Pro
   return attach(sessionSocket(), { args, ...(target ? { target } : {}) });
 }
 
-/** Until a session answers on `path`, at most `ms`: whether one does. */
-export async function waitFor(path: string, ms: number): Promise<boolean> {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { if (await listening(path, 500)) return true; await Bun.sleep(100); }
-  return false;
-}
-
 /**
  * The outline the door flags name (`--ws <name|root>`, a socket path, EP0CH_SOCKET), as resolveTarget names it (its
  * service's socket, and the outline on it): the same resolution the session made when it started, without asking the
@@ -66,22 +62,6 @@ export async function namedTarget(args: readonly string[], env: Record<string, s
   return { socket: resolve(t.path), ...(t.outline ? { outline: t.outline } : {}) };
 }
 
-/** The variables a session doesn't keep from the terminal that started it: it outlives that terminal, its pane and its ssh login. */
-export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "SSH_AUTH_SOCK", "TMUX", "TMUX_PANE", "WINDOWID", "STY", "TERM", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "DISPLAY", "WAYLAND_DISPLAY", "KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR"] as const;
-/**
- * Started from inside a door (a tile, a drop shell: EP0CH_IN_DOOR), these name that door and its tile, never the
- * session's own: the session serves its control socket in its own state dir and its tiles are its own.
- */
-export const INSIDE_DOOR_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_IN_DOOR"] as const;
-
-/** What a session starts with: this environment, without the terminal's (and an outer door's) variables. */
-export function sessionEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
-  const drop = new Set<string>([...TERMINAL_VARS, ...(env.EP0CH_IN_DOOR ? INSIDE_DOOR_VARS : [])]);
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
-  return out;
-}
-
 /**
  * A program the session hands this terminal (the drop shell, $EDITOR) runs with the session's environment and this
  * terminal's own: its TERM and colours, its ssh login, tmux, display; and the layers it runs in before the session's.
@@ -94,38 +74,6 @@ export function runEnv(session: Record<string, string> | undefined, here: Record
   if (!out.EP0CH_NEST) delete out.EP0CH_NEST;
   return out;
 }
-
-/**
- * Start the session for this state dir, detached (its own process group and session, no terminal), and wait until it
- * serves: it says so on fd 3, or why it couldn't. Its output goes to session.log in the state dir.
- */
-export async function startSession(args: readonly string[], timeoutMs = 30_000): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!privateDir(stateDir(), true)) return { ok: false, error: `${stateDir()} isn't yours alone (it needs mode 700): no session` };
-  const env = sessionEnv();
-  env.EP0CH_SESSION_READY = "3";
-  const log = openSync(sessionLog(), "a", 0o600);
-  const main = join(import.meta.dir, "../main.ts");
-  const child = spawn(process.execPath, [main, "session", "serve", ...args], { detached: true, stdio: ["ignore", log, log, "pipe"], env, cwd: process.cwd() });
-  closeSync(log);
-  const said = await new Promise<string>(res => {
-    let got = "";
-    const pipe = child.stdio[3] as NodeJS.ReadableStream | null;
-    const t = setTimeout(() => res(""), timeoutMs);
-    pipe?.on("data", (d: Buffer) => { got += d.toString(); if (got.includes("\n")) { clearTimeout(t); res(got); } });
-    pipe?.on("end", () => { clearTimeout(t); res(got); });
-    child.once("exit", () => setTimeout(() => { clearTimeout(t); res(got); }, 50));
-  });
-  child.unref();
-  (child.stdio[3] as unknown as { destroy?(): void } | null)?.destroy?.();
-  try {
-    const m = JSON.parse(said.split("\n")[0]!) as { ok: boolean; error?: string };
-    return m.ok ? { ok: true } : { ok: false, error: m.error ?? "the session didn't start" };
-  } catch {
-    return { ok: false, error: `the session didn't start; its log: ${sessionLog()}${tail(sessionLog())}` };
-  }
-}
-
-const tail = (path: string) => { try { const l = readFileSync(path, "utf8").trim().split("\n").slice(-6); return l.length ? `\n  ${l.join("\n  ")}` : ""; } catch { return ""; } };
 
 /** One request to the session, its first answer (not attached: `session list`, `session end`). */
 function ask(path: string, m: Parameters<typeof encode>[0], ms = 5000): Promise<DaemonMsg | null> {
@@ -155,7 +103,8 @@ export function formatSession(i: SessionInfo, now = Date.now()): string {
   const lines = [`session ${i.pid} · ${where} · up ${ago(now - i.started)} · on the ${i.screen ?? "logon"}`, `  state ${i.state}${i.code.commit ? ` · code ${i.code.commit.slice(0, 9)}` : ""}`];
   lines.push(i.clients.length ? `  ${i.clients.length} terminal${i.clients.length === 1 ? "" : "s"} attached:` : "  no terminal attached");
   for (const c of i.clients) lines.push(`    #${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${c.away ? ` · running ${c.away}` : ""} · idle ${ago(c.idle)}`);
-  lines.push(i.terminals.length ? `  ${i.terminals.length} program${i.terminals.length === 1 ? "" : "s"} running: ${i.terminals.map(t => `${t.tile} (${t.cmd}${t.pid ? `, pid ${t.pid}` : ""})`).join(", ")}` : "  no programs running in its tiles");
+  lines.push(i.terminals.length ? `  ${i.terminals.length} program${i.terminals.length === 1 ? "" : "s"} running${i.host ? ` in its terminal host (pid ${i.host})` : ""}: ${i.terminals.map(t => `${t.tile} (${t.cmd}${t.pid ? `, pid ${t.pid}` : ""})`).join(", ")}` : "  no programs running in its tiles");
+  if (i.kept?.length) lines.push(`  ${i.kept.length} kept without a tile yet (a screen not opened since a handoff): ${i.kept.map(k => `${k.cmd}${k.pid ? ` (pid ${k.pid})` : ""}`).join(", ")}`);
   return lines.join("\n");
 }
 
@@ -164,21 +113,49 @@ export async function sessionCommand(args: string[]): Promise<number> {
   const [cmd, ...rest] = args;
   const path = sessionSocket();
   if (cmd === "serve") return serve(rest);
+  if (cmd === "pty-host") return servePtyHost();
+  if (cmd === "upgrade") return upgradeCommand(rest);
+  if (cmd === "restart") return upgradeCommand([...rest, "--handoff"]);
   if (cmd === "list" || cmd === undefined) {
     const i = await sessionInfo(path);
     if (rest.includes("--json")) { console.log(JSON.stringify(i ? [i] : [])); return 0; }
-    console.log(i ? formatSession(i) : `no session in ${stateDir()} · \`ep0ch\` starts one`);
+    const waiting = !i && (await listening(ptyHostSocket())) ? ` · its terminal host still runs the programs of one whose daemon stopped: \`ep0ch\` restores it` : "";
+    console.log(i ? formatSession(i) : `no session in ${stateDir()}${waiting || " · `ep0ch` starts one"}`);
     return 0;
   }
   if (cmd === "attach") {
-    if (!(await listening(path))) { console.error(`ep0ch: no session in ${stateDir()} · \`ep0ch\` starts one`); return 1; }
+    // --wait <s>: a terminal attaching again after a handoff waits for the new daemon to serve; --or-start: with none
+    // by then, one is started (it restores the session), as `ep0ch` starts one.
+    const at = rest.indexOf("--wait"), wait = at >= 0 ? Number(rest[at + 1]) || 30 : 0;
+    if (at >= 0) rest.splice(at, 2);
+    const orStart = rest.includes("--or-start");
+    if (orStart) rest.splice(rest.indexOf("--or-start"), 1);
+    if (!(await (wait ? waitFor(path, wait * 1000) : listening(path)))) {
+      if (orStart && !rest.includes("--watch")) return attachDoor(rest, { running: false });
+      console.error(`ep0ch: no session in ${stateDir()} · \`ep0ch\` starts one`);
+      return 1;
+    }
     const args = rest.filter(a => a !== "--watch"), target = await namedTarget(args);
     if (target && "error" in target) { console.error(`ep0ch: ${target.error}`); return 1; }
     return attach(path, { args, watch: rest.includes("--watch"), ...(target ? { target } : {}) });
   }
   if (cmd === "end") {
-    if (!(await listening(path))) { console.error(`ep0ch: no session in ${stateDir()}`); return 1; }
     let force = rest.includes("--yes") || rest.includes("-y");
+    if (!(await listening(path))) {
+      // No daemon, but the programs of a session whose daemon stopped still run in its terminal host: they end too.
+      if (!(await listening(ptyHostSocket()))) { console.error(`ep0ch: no session in ${stateDir()}`); return 1; }
+      const host = await HostPtys.connect().catch(() => null);
+      const n = host?.unadopted().length ?? 0;
+      const ask = `no session runs, but its terminal host still runs ${n} program${n === 1 ? "" : "s"} (${host?.unadopted().map(p => (p.meta.cmd ?? p.argv).join(" ")).join(", ")})`;
+      if (n && !force) {
+        if (!process.stdin.isTTY) { console.error(`ep0ch: ${ask} · \`ep0ch session end --yes\` ends ${n === 1 ? "it" : "them"}`); host?.release(); return 1; }
+        if (!(await confirm(`${ask}. End ${n === 1 ? "it" : "them"}? [y/N] `))) { host?.release(); console.error("ep0ch: left running"); return 1; }
+      }
+      host?.endAll();
+      forgetSession();
+      console.log(`ep0ch: the session's terminal host ended${n ? `, with its ${n} program${n === 1 ? "" : "s"}` : ""}`);
+      return 0;
+    }
     for (;;) {
       const r = await endOnce(path, force);
       if (r.t === "ask") {
@@ -191,7 +168,7 @@ export async function sessionCommand(args: string[]): Promise<number> {
       return r.code ?? 0;
     }
   }
-  console.error(`ep0ch: session ${cmd}? try: ep0ch session list | attach [--watch] | end [--yes]`);
+  console.error(`ep0ch: session ${cmd}? try: ep0ch session list | attach [--watch] | end [--yes] | upgrade [--clients] | restart`);
   return 2;
 }
 
@@ -227,6 +204,8 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   const finished = new Promise<number>(r => { done = r; });
   let said = "";
   let over = false;
+  /** Told to attach again (a handoff, new code): what to say as it does. */
+  let again: string | null = null;
   /** A program the session handed this terminal is running (the drop shell, $EDITOR): the terminal is its. */
   let handed = 0;
   let running: Promise<void> = Promise.resolve();
@@ -237,6 +216,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
     // A program that has the terminal keeps it until it ends; then the terminal is put back and the reason said.
     void running.then(() => {
       term.stop();
+      if (again !== null) return reattach(again, o);
       if (message) (code ? console.error : console.log)(`ep0ch: ${message}`);
       done(code);
     });
@@ -253,7 +233,13 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
     for (const m of msgs) {
       if (m.t === "output") { if (!over && !handed) process.stdout.write(m.text); }
       else if (m.t === "ground") term.sessionGround = m.set;
-      else if (m.t === "bye") { said = m.message; leave(m.code ?? 0, m.message); }
+      else if (m.t === "bye") {
+        said = m.message;
+        // The session is handed to new code (or this terminal is asked to start again on it): this process becomes the
+        // new client, in this same terminal, and attaches again.
+        if (m.reason === "upgrade" || m.reason === "restart") { again = m.message; leave(0); }
+        else leave(m.code ?? 0, m.message);
+      }
       else if (m.t === "run") {
         // One program at a time, in the order asked; the terminal is the program's until it ends.
         handed++;
@@ -282,6 +268,47 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   term.pass = text => { if (!handed) send({ t: "input", text }); };
   term.onResize(() => send({ t: "resize", cols: term.info.cols, rows: term.info.rows }));
   return finished;
+}
+
+/**
+ * Become a new client on the code in the checkout, in this same process and terminal (execve keeps the pid, the tty
+ * and an ssh session's ForceCommand), waiting for the session to serve again.
+ */
+function reattach(message: string, o: { args?: string[]; watch?: boolean }): void {
+  console.log(`ep0ch: ${message}`);
+  const main = join(import.meta.dir, "../main.ts");
+  // It waits for the new daemon to serve; with none by then (it didn't start), it starts one, as `ep0ch` would, which
+  // restores the session and adopts its programs. A watcher only waits.
+  const argv = [process.execPath, main, "session", "attach", "--wait", "30", ...(o.watch ? ["--watch"] : ["--or-start"]), ...(o.args ?? [])];
+  const env = process.env as Record<string, string>;
+  if (typeof process.execve === "function") process.execve(process.execPath, argv, env);
+  // A runtime without execve: the new client runs as this one's child, in this terminal, and this one goes with it.
+  const child = Bun.spawn(argv, { stdio: ["inherit", "inherit", "inherit"], env });
+  void child.exited.then(code => process.exit(code ?? 1));
+  return undefined as never;
+}
+
+/**
+ * `ep0ch session upgrade [--clients]`: the session onto the code in this checkout. A daemon on other code hands over
+ * to a new one (the programs in its tiles keep running in the terminal host, the screens and edits come back, every
+ * terminal attaches again); one on this code already, or with --clients, only has its terminals start again.
+ * `ep0ch session restart` hands over whatever code it runs (a daemon to start afresh).
+ */
+async function upgradeCommand(rest: string[]): Promise<number> {
+  const path = sessionSocket();
+  const before = await sessionInfo(path);
+  if (!before) { console.error(`ep0ch: no session in ${stateDir()}`); return 1; }
+  const here = codeVersion();
+  if (rest.includes("--clients") || (!rest.includes("--handoff") && before.code.commit && before.code.commit === here.commit)) {
+    await ask(path, { t: "reload" });
+    console.log(`ep0ch: the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${before.clients.length} terminal${before.clients.length === 1 ? "" : "s"} start${before.clients.length === 1 ? "s" : ""} again on this checkout`);
+    return 0;
+  }
+  const r = await ask(path, { t: "upgrade" }, 60_000);
+  if (r?.t !== "ask" || r.message !== "handed over") { console.error(`ep0ch: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"}`); return 1; }
+  const after = await sessionInfo(path);
+  console.log(`ep0ch: the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${before.terminals.length} program${before.terminals.length === 1 ? "" : "s"} kept running · ${before.clients.length} terminal${before.clients.length === 1 ? "" : "s"} attaching again`);
+  return 0;
 }
 
 /** This terminal's name (`/dev/pts/3`), for `session list`. */

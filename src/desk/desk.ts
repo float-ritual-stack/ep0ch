@@ -37,6 +37,7 @@ import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
+import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
@@ -422,7 +423,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   protected startTile(id: number) {
     const p = this.panes.get(id)!;
     const env: TileEnv = {
-      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk",
+      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.spec.saves ?? null,
       tile: name => { const t = this.idNamed(name); return t !== undefined ? this.panes.get(t) : undefined; },
       followers: () => (this.panes.has(id) ? this.followers(id) : []),
     };
@@ -612,7 +613,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
   private onScreen = false;
   /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
-  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running); }
+  /** Its terminal tiles with a program running, or kept for them in a session's terminal host (not drawn since a handoff). */
+  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
     const r = this.spec.layouts ? [] : this.running();
@@ -1398,6 +1400,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
 
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
+  /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
+  reopen(): { action: string; tile: string; args?: Record<string, unknown> }[] {
+    // The note first (a reader that comes back shows what its layout says), then its edit.
+    return [...this.panes].flatMap(([id, p]) => (p instanceof ReaderPane && p.surface.draft && p.msg ? [{ action: "open", tile: this.nameOf(id), args: { id: p.msg.id } }, { action: "edit", tile: this.nameOf(id) }] : []));
+  }
   /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
   keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
   private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }

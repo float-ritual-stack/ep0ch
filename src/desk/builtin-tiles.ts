@@ -126,7 +126,7 @@ const builtins = (): TileKind[] => [
     start: (p, env) => {
       const t = p as PtyPane;
       // The program learns its tile's id (EP0CH_TILE_ID) as it starts, at the tile's first paint.
-      t.tileId = env.id; t.tileName = env.name; t.place = env.place;
+      t.tileId = env.id; t.tileName = env.name; t.place = env.place; t.home = env.home;
       // A terminal tile's view (nvim's buffer): previews following it show its file.
       t.onView = v => { for (const q of env.followers()) q.followFile?.(v.file, env.desk); };
     },

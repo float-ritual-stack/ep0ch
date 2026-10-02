@@ -97,7 +97,9 @@ export class SessionTerm implements Display {
   private runs = 0;
   private running = new Map<number, { c: SessionClient; done: (code: number | null) => void }>();
 
-  constructor() {
+  /** `size`: what the session was drawn at before (a handoff): its tiles start at that size till a terminal attaches. */
+  constructor(size?: { cols: number; rows: number }) {
+    if (size) { this.info.cols = clamp(size.cols, 80); this.info.rows = clamp(size.rows, 25); }
     this.mirror = new Mirror(this.info.cols, this.info.rows);
     this.mirrorPainter = new Painter(new Rows(s => this.mirror.write(s), this.info), "cells");
   }
