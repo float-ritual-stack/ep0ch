@@ -20,7 +20,8 @@ import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surf
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
 import { keyName, specData, type ScreenSpec } from "./screen-spec";
-import { bg, C, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width } from "../style";
+import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
@@ -1274,7 +1275,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   private putMarks(id: number, put: (text: string, sgr: string) => void, xNow: () => number, row: number) {
     for (const m of this.marksOn(id)) {
       const from = xNow();
-      put(` ${markLabel(m)} `, bg(C.magenta) + fg(C.white));
+      put(` ${markLabel(m)} `, chipStyle(C.magenta));
       this.markHits.push({ n: m.n, row, from, to: xNow() });
     }
   }
@@ -1291,7 +1292,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       if (d.drop.kind === "tabs" && !why) canvas.text(g.col + 1, g.row + 1, `${fg(C.yellow)}${"▀".repeat(Math.max(0, g.cols - 2))}${RESET}`, Math.max(0, g.cols - 2));
     }
     const label = ` ⠿ ${this.nameOf(d.src)} `;
-    canvas.text(Math.max(0, Math.min(this.area.cols - label.length, d.x + 1)), Math.min(this.area.rows - 1, d.y + 1), `${bg(C.magenta)}${fg(C.white)}${label}${RESET}`);
+    canvas.text(Math.max(0, Math.min(this.area.cols - label.length, d.x + 1)), Math.min(this.area.rows - 1, d.y + 1), `${chipStyle(C.magenta)}${label}${RESET}`);
   }
 
   /**
@@ -1330,9 +1331,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     this.handles = [];
     let x = cols - hw;
     let tail = "";
-    for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, drawer: h.drawer, from: x, to: x + hw }); tail += `${bg(C.brown)}${fg(C.white)}${h.text}${RESET} `; x += hw + 1; }
+    for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, drawer: h.drawer, from: x, to: x + hw }); tail += `${chipStyle(C.brown)}${h.text}${RESET} `; x += hw + 1; }
     this.lockChip = chip ? { from: x, to: x + width(chip) } : null;
-    if (chip) tail += `${locked ? bg(C.yellow) + fg(C.black) : fg(C.dark)}${chip}${RESET} `;
+    if (chip) tail += `${locked ? chipStyle(C.yellow, C.black) : fg(C.dark)}${chip}${RESET} `;
     const room = Math.max(0, cols - hw);
     // Too long for the row (drawer handles take its end): cut between its parts, never inside a key's, and say
     // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
@@ -2446,7 +2447,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
 }
 
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
-const MORE = paint("|08 · |15?|08 more") + RESET;
+let MORE = "";
+themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });
 const MORE_WIDTH = width(MORE);
 /**
  * A hint row's parts (split at " · ") put on lines at most `w` wide, a part never split unless it's wider than a

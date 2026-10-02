@@ -15,11 +15,13 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
-import { bg, C, fg, INPUT_CURSOR, pad, RESET, width } from "../style";
+import { bg, C, fg, INPUT_CURSOR, pad, RESET, tint, width } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
-const SEL = bg(C.blue) + fg(C.white);
+let SEL = "";
+themed(() => { SEL = bg(C.blue) + fg(C.white); });
 
 /** One piece of the status line as placed: at x, y in the list's cells, `cols` wide (clipped), a control or not. */
 export interface StatusSeg { x: number; y: number; text: string; cols: number; sgr: string; control?: BacklinkControl }
@@ -47,7 +49,7 @@ export function layoutBacklinkStatus(parts: readonly BacklinkStatusPart[], cols:
 
 /** One row as drawn: a kind group's header (its count and stages), or a source with its dim suffix. */
 export function backlinkRowLine(row: BacklinkRow, o: { selected: boolean; focused: boolean; faceted: boolean; cols: number }): string {
-  const on = o.selected ? (o.focused ? SEL : bg(C.dark) + fg(C.white)) : "";
+  const on = o.selected ? (o.focused ? SEL : tint("idleRow") + fg(C.white)) : "";
   if (row.kind === "group") {
     const g = row.group;
     const head = ` ${row.expanded ? "−" : "+"} ${g.label} ${g.sources.length}`;

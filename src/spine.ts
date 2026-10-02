@@ -5,19 +5,20 @@ import { cp437Code } from "./ansi";
 import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
 import { C, fg, RESET } from "./style";
+import { theme } from "./theme";
 import { rasterize, rotateCW, type Rgba } from "./vga";
 
 /** How wide a spine is, in cells: two for the title, one for its right border. */
 export const SPINE = 3;
 
 const cache = new Map<string, Rgba>();
-/** The title as rotated VGA text in `colour`, transparent around the glyphs. */
+/** The title as rotated VGA text in the theme's `colour`, transparent around the glyphs. */
 export function spineImage(title: string, colour: number): Rgba {
-  const key = `${colour}:${title}`;
+  const t = theme(), key = `${t.name}:${colour}:${title}`;
   let img = cache.get(key);
   if (!img) {
     const row = [...title].map(ch => ({ code: cp437Code(ch), fg: colour, bg: 0 }));
-    img = rotateCW(rasterize([row], 0, 0, row.length, 1, { clearBg: true }));
+    img = rotateCW(rasterize([row], 0, 0, row.length, 1, { clearBg: true, palette: t.palette }));
     cache.set(key, img);
   }
   return img;
@@ -27,7 +28,7 @@ export interface Spine {
   /** The placement's stable key (the river's `spine:<uid>`). */
   key: string;
   title: string;
-  /** The title's VGA colour. */
+  /** The title's palette colour (`C.*`). */
   colour: number;
   /** One cell each, drawn top down before the title (already coloured). */
   marks?: string[];

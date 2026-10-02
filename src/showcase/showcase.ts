@@ -13,7 +13,7 @@ import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } fro
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type Capability, type OutlineEvent } from "../socket";
-import { bg, C, fg, pad, paint, RESET } from "../style";
+import { bg, C, fg, pad, paint, RESET, tint } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
 import { ActionRefused, ActionSet, type ActionInfo, type ActRequest } from "../surface/actions";
@@ -513,7 +513,7 @@ export class ActionsPane implements Pane {
       const i = this.top + j;
       if ("head" in r) return fg(C.lcyan) + pad(r.head, w) + RESET;
       const text = ` ${pad(r.a.name, nameW)} ${pad(r.a.keys ?? "—", keysW)} ${r.a.summary}`;
-      return i === this.sel ? (focused ? bg(C.blue) : "\x1b[48;2;22;30;58m") + fg(C.white) + pad(text, w) + RESET
+      return i === this.sel ? (focused ? bg(C.blue) : tint("idle")) + fg(C.white) + pad(text, w) + RESET
         : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(r.a.keys ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
     });
     while (lines.length < room) lines.push("");

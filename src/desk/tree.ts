@@ -19,13 +19,14 @@ import {
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
-import { bg, C, fg, pad, RESET, width } from "../style";
+import { bg, C, fg, pad, RESET, tint, width } from "../style";
+import { themed } from "../theme";
 import { follow } from "../scroll";
 import type { Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
-const SEL_ON = bg(C.blue) + fg(C.white);
-const SEL_OFF = "\x1b[48;2;22;30;58m" + fg(C.white);
+let SEL_ON = "", SEL_OFF = "";
+themed(() => { SEL_ON = bg(C.blue) + fg(C.white); SEL_OFF = tint("idle") + fg(C.white); });
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";

@@ -68,11 +68,14 @@ export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
 }
 
+/** The terminal's own default text and background again (OSC 110, 111), after a theme's ground (Term.setGround). */
+export const GROUND_RESET = "\x1b]110\x1b\\\x1b]111\x1b\\";
+
 /**
  * Everything `start` turns on, turned off: the Kitty keyboard protocol (popped on the alternate screen, where it
- * was pushed), paste, mouse, colours, wrap, the cursor, then the normal screen.
+ * was pushed), paste, mouse, colours (the theme's ground too), wrap, the cursor, then the normal screen.
  */
-export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m" + GROUND_RESET + "\x1b[?7h\x1b[?25h\x1b[?1049l";
 
 /**
  * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
@@ -130,6 +133,9 @@ export class Term {
   }
 
   private guard: { dismiss(): void } | null = null;
+  /** The theme's ground (OSC 10 and 11, src/theme.ts groundSeq): set again on every resume, given back by TERM_RESET. */
+  private ground = "";
+  setGround(seq: string): void { this.ground = seq; this.write(seq); }
 
   async start(): Promise<void> {
     this.guard = terminalGuard();
@@ -147,6 +153,7 @@ export class Term {
     });
     if (hint !== null) this.info.kitty = hint;
     if (this.kbd) this.write(KBD_PUSH);
+    if (this.ground) this.write(this.ground);
   }
 
   /**
@@ -166,7 +173,7 @@ export class Term {
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.pending = "";
-    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}`);
+    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}${this.ground}`);
     this.measure();
     this.invalidate();
   }

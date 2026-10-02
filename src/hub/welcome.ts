@@ -24,7 +24,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, bg, C, fg, pad, paint, RESET, width } from "../style";
+import { artLines, bg, C, chip, fg, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
 import { bbsDate, wrap } from "../text";
 import { ActionRefused, ActionSet } from "../surface/actions";
@@ -167,7 +167,7 @@ export class WelcomeList implements Pane {
       lines: this.rows.slice(this.top, this.top + h).map(r => {
         if ("more" in r) return fg(C.dark) + pad(`  … ${r.more} more`, w) + RESET;
         const m = this.items![r.i]!, key = tabKey(r.i) ?? " ";
-        if (r.i === at) return (focused ? bg(C.blue) : bg(C.magenta)) + fg(C.white) + pad(` ${key} ${subject(m)}`, w) + RESET;
+        if (r.i === at) return (focused ? bg(C.blue) + fg(C.white) : chip(C.magenta)) + pad(` ${key} ${subject(m)}`, w) + RESET;
         return pad(` ${fg(C.white)}${key} ${fg(C.lmagenta)}${subject(m)}`, w) + RESET;
       }),
     };
@@ -372,7 +372,7 @@ export class WelcomeList implements Pane {
       const t = subject(m);
       const label = t.length > titleW ? t.slice(0, titleW - 1) + "…" : t;
       put(" ", "");
-      put(`${tabKey(i)} ${label}`, on ? bg(C.magenta) + fg(C.white) : fg(C.lmagenta), { i });
+      put(`${tabKey(i)} ${label}`, on ? chip(C.magenta) : fg(C.lmagenta), { i });
       put(" =", rail);
     });
     if (more) { put(" ", ""); put(`… ${more} more`, fg(C.lcyan), { more: true }); put(" =", rail); }
@@ -440,7 +440,7 @@ export class WelcomePreview extends PreviewPane {
     const lw = width(READ_HERE);
     if (v.lines.length && !this.holdsKeys && w >= lw + 8) {
       this.readFrom = w - lw;
-      v.lines[0] = fg(C.white) + pad(subject(this.msg), w - lw) + bg(C.magenta) + fg(C.white) + READ_HERE + RESET;
+      v.lines[0] = fg(C.white) + pad(subject(this.msg), w - lw) + chip(C.magenta) + READ_HERE + RESET;
     }
     return v;
   }

@@ -1,14 +1,15 @@
 // Activity heatmap: 7 days × 24 hours. Pixels under Kitty, shade glyphs otherwise.
 import type { Placement } from "./kitty";
 import { fg, RESET } from "./style";
+import { theme } from "./theme";
 import type { TermInfo } from "./term";
 import type { Rgba } from "./vga";
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-// black → blue → cyan → white, the ramp every VGA plasma effect used.
-const RAMP: [number, number, number][] = [[8, 10, 24], [0, 0, 170], [0, 170, 170], [85, 255, 255], [255, 255, 255]];
-
+// black → blue → cyan → white, the ramp every VGA plasma effect used, in the theme's colours.
 function ramp(v: number): [number, number, number] {
+  const t = theme(), p = t.palette;
+  const RAMP = [t.heatLow, p[1]!, p[3]!, p[11]!, p[15]!];
   const x = Math.max(0, Math.min(1, v)) * (RAMP.length - 1);
   const i = Math.min(RAMP.length - 2, Math.floor(x)), f = x - i;
   const a = RAMP[i]!, b = RAMP[i + 1]!;

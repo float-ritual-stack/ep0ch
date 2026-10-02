@@ -6,6 +6,7 @@
 import { statSync, unwatchFile, watchFile, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { Msg } from "../board";
+import { C, fg } from "../style";
 import type { Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "./panes";
 import type { TileKindName } from "./tile-kinds";
@@ -85,7 +86,7 @@ export class PreviewPane extends ReaderPane {
   override dispose() { this.unwatch(); super.dispose(); }
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
-    if (!this.msg) return { lines: ["\x1b[38;2;85;85;85m" + ("tile" in this.source ? `follows tile ${this.source.tile}: pick something there` : "reading…") + "\x1b[0m"] };
+    if (!this.msg) return { lines: [fg(C.dark) + ("tile" in this.source ? `follows tile ${this.source.tile}: pick something there` : "reading…") + "\x1b[0m"] };
     return super.render(w, h, focused, desk);
   }
 

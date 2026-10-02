@@ -20,10 +20,12 @@ export class Mirror {
   cells: TCell[][];
   images = new Map<number, { w: number; h: number; data: Uint8Array }>();
   placements = new Map<string, { id: number; col: number; row: number; c: number; r: number; z: number; cx: number; cy: number; cw: number; ch: number }>();
-  x = 0; y = 0; sx = 0; sy = 0; fg = [170, 170, 170]; bg: number[] | null = null;
+  /** The terminal's default text and background: VGA grey on black, or what OSC 10 and 11 set (a theme's ground). */
+  defaultFg: number[] = [170, 170, 170]; ground: number[] = [0, 0, 0];
+  x = 0; y = 0; sx = 0; sy = 0; fg = this.defaultFg; bg: number[] | null = null;
   private chunks = new Map<number, string>();
   private lastId = 0;
-  blankRow(): TCell[] { return Array.from({ length: this.cols }, () => ({ ch: " ", fg: [170, 170, 170], bg: null })); }
+  blankRow(): TCell[] { return Array.from({ length: this.cols }, () => ({ ch: " ", fg: this.defaultFg, bg: null })); }
   write(s: string) {
     let i = 0;
     while (i < s.length) {
@@ -32,9 +34,11 @@ export class Mirror {
         this.apc(s.slice(i + 3, end)); i = end + 2; continue;
       }
       if (s.startsWith("\x1b]", i)) {
-        // OSC (the clipboard, a title): nothing on screen. Ends at BEL or ST.
+        // OSC (the clipboard, a title): nothing on screen, but for the default colours (10, 11; 110, 111 reset them).
+        // Ends at BEL or ST.
         const bel = s.indexOf("\x07", i), st = s.indexOf("\x1b\\", i);
         const end = bel < 0 ? st : st < 0 ? bel : Math.min(bel, st);
+        this.osc(s.slice(i + 2, end < 0 ? s.length : end));
         i = end < 0 ? s.length : end + (end === st ? 2 : 1); continue;
       }
       if (s[i] === "\x1b") {
@@ -62,12 +66,22 @@ export class Mirror {
     else if (f === "m") {
       for (let k = 0; k < n.length; k++) {
         const v = n[k] || 0;
-        if (v === 0) { this.fg = [170, 170, 170]; this.bg = null; }
+        if (v === 0) { this.fg = this.defaultFg; this.bg = null; }
         else if (v === 38 && n[k + 1] === 2) { this.fg = [n[k + 2]!, n[k + 3]!, n[k + 4]!]; k += 4; }
         else if (v === 48 && n[k + 1] === 2) { this.bg = [n[k + 2]!, n[k + 3]!, n[k + 4]!]; k += 4; }
       }
     }
   }
+  osc(body: string) {
+    const m = /^(1[01]);rgb:([0-9a-f]{2})[0-9a-f]*\/([0-9a-f]{2})[0-9a-f]*\/([0-9a-f]{2})/i.exec(body);
+    if (m) {
+      const c = [m[2], m[3], m[4]].map(h => parseInt(h!, 16));
+      if (m[1] === "10") { if (this.fg === this.defaultFg) this.fg = c; this.defaultFg = c; } else this.ground = c;
+    } else if (body === "110") this.defaultFg = [170, 170, 170];
+    else if (body === "111") this.ground = [0, 0, 0];
+  }
+  /** The colours a cell is drawn in: its own, or the terminal's default background. */
+  colours(c: { fg: number[]; bg: number[] | null }): { fg: number[]; bg: number[] } { return { fg: c.fg, bg: c.bg ?? this.ground }; }
   apc(body: string) {
     const [ctl, payload = ""] = body.split(";");
     const kv = Object.fromEntries(ctl!.split(",").map(p => p.split("=")));
@@ -94,7 +108,7 @@ export class Mirror {
   snapshot(t: TermInfo): Uint8Array {
     const W = this.cols * t.cellW, H = this.rows * t.cellH;
     const px = new Uint8Array(W * H * 4);
-    for (let i = 0; i < W * H; i++) { px[i * 4 + 3] = 255; }
+    for (let i = 0; i < W * H; i++) { px[i * 4] = this.ground[0]!; px[i * 4 + 1] = this.ground[1]!; px[i * 4 + 2] = this.ground[2]!; px[i * 4 + 3] = 255; }
     const fill = (x0: number, y0: number, w: number, h: number, c: number[]) => {
       for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { const o = (y * W + x) * 4; px[o] = c[0]!; px[o + 1] = c[1]!; px[o + 2] = c[2]!; }
     };

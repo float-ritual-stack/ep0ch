@@ -9,7 +9,7 @@ import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draf
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
 import type { Completer } from "./surface/completer";
 import { USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
-import { bg, C, fg, pad, RESET } from "./style";
+import { bg, C, chip, fg, pad, RESET } from "./style";
 import type { Key } from "./term";
 import { ago, rule, wrap } from "./text";
 
@@ -112,7 +112,7 @@ export class Passage {
     const w1 = Math.max(4, w - 2);
     const out: string[] = [];
     let selTop = -1, selBottom = -1;
-    const HI = bg(C.cyan) + fg(C.black), LO = fg(C.grey);
+    const HI = chip(C.cyan, C.black), LO = fg(C.grey);
     this.lines.forEach((line, i) => {
       const s = this.starts[i]!, e = s + line.length;
       const onLine = comments.filter(c => c.start !== null && c.end !== null && c.start < Math.max(e, s + 1) && c.end > s);

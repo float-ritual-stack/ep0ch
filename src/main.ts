@@ -13,6 +13,7 @@ import { attachTarget, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
 import { setupCommand } from "./setup/apply";
 import { alive, claimState, readState, writeState } from "./state";
+import { setTheme, startTheme } from "./theme";
 import { recoverEdits } from "./surface/editor";
 import { whereCommand } from "./where";
 
@@ -157,6 +158,8 @@ term.write = (s: string) => { rawWrite(s); mirror.write(s); };
 process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const lastCall = readLastCall();
 const loggedOnAt = Date.now();
+// The theme: EP0CH_THEME, else the one chosen last time (theme.set keeps it in the state dir), else calm.
+setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
 app = new App(term, board, lastCall, () => {
   term.stop();                                          // never throws: a terminal that's gone is skipped
   if (app!.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app!.keptOnExit.join("\n  ")}`);

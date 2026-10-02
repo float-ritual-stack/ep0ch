@@ -19,15 +19,19 @@ function on(code: number, x: number, y: number): boolean {
 
 export interface Rgba { width: number; height: number; data: Uint8Array }
 
-/** Render rows[top..top+rows) × cols[left..left+cols) to RGBA at native 9×16 pixels per cell. */
-export function rasterize(grid: Cell[][], left: number, top: number, cols: number, rows: number, opts: { clearBg?: boolean } = {}): Rgba {
+/**
+ * Render rows[top..top+rows) × cols[left..left+cols) to RGBA at native 9×16 pixels per cell. In true VGA colours
+ * (art is always VGA, whatever the theme), or `opts.palette` for UI text drawn as pixels (a spine's title).
+ */
+export function rasterize(grid: Cell[][], left: number, top: number, cols: number, rows: number, opts: { clearBg?: boolean; palette?: readonly (readonly [number, number, number])[] } = {}): Rgba {
+  const pal = opts.palette ?? VGA_RGB;
   const width = cols * GLYPH_W, height = rows * GLYPH_H;
   const data = new Uint8Array(width * height * 4);
   for (let cy = 0; cy < rows; cy++) {
     const line = grid[top + cy];
     for (let cx = 0; cx < cols; cx++) {
       const cell = line?.[left + cx] ?? { code: 32, fg: 7, bg: 0 };
-      const f = VGA_RGB[cell.fg]!, b = VGA_RGB[cell.bg]!;
+      const f = pal[cell.fg]!, b = pal[cell.bg]!;
       for (let gy = 0; gy < GLYPH_H; gy++) {
         let o = ((cy * GLYPH_H + gy) * width + cx * GLYPH_W) * 4;
         for (let gx = 0; gx < GLYPH_W; gx++, o += 4) {

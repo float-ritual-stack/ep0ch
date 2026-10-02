@@ -18,6 +18,7 @@ import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { SHADE } from "../src/embeds";
 import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -142,7 +143,7 @@ describe("a projection in a reader", () => {
     expect(text[at + 1]!.trim()).toBe("▌  Status: In progress · Assignee: A. Person · Labels: rollout, vendor · Updated: 2026-09-19 " + projectionLayout(p).lines[1]!.split("2026-09-19 ")[1]);
     expect(text[at + 2]!.trim()).toMatch(/^▌  fetched \d{4}-\d\d-\d\d \d\d:\d\d \(12 min ago\)$/);
     expect(text[at + 3]!.trim()).toBe("After the region.");
-    expect(lines[at]!).toContain("\x1b[48;2;18;24;44m");                     // shaded like an embed
+    expect(lines[at]!).toContain(SHADE);                                       // shaded like an embed
   });
 
   test("each other status says what it is, in Detail's words, with the service's reason", async () => {

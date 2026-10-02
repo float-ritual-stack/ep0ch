@@ -9,7 +9,8 @@
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
-import { bg, C, fg, pad, RESET } from "../style";
+import { bg, C, fg, pad, RESET, tint } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
@@ -24,7 +25,8 @@ import type { TileSpec } from "./tiles";
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 /** Views under a hub that aren't lanes on its board. */
 const HIDDEN = new Set(["superseded"]);
-const SEL = bg(C.blue) + fg(C.white);
+let SEL = "";
+themed(() => { SEL = bg(C.blue) + fg(C.white); });
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
@@ -199,7 +201,7 @@ export class QueryPane implements Pane {
       const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
       const extra = (keys ? summarySegments(m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value })), keys).map(x => x.value) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
       if (sel) {
-        const style = focused ? SEL : bg(C.dark) + fg(C.white);
+        const style = focused ? SEL : tint("idleRow") + fg(C.white);
         lines.push(style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
         lines.push(style + pad(` ${title}`, w) + RESET);
       } else {

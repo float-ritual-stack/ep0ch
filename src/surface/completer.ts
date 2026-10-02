@@ -11,7 +11,7 @@ import {
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
-import { bg, C, fg, pad, RESET } from "../style";
+import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
@@ -322,7 +322,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;
     rows.push(i);
-    out.push(sel ? line(`» ${it.label}`, fg(C.white), bg(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue)));
+    out.push(sel ? line(`» ${it.label}`, chip(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue)));
     if (sel && out.length < h - Number(footer)) rows.push(i), out.push(line(`    ${it.kind} · ${it.context || it.insertion}`, fg(C.lcyan), bg(C.blue)));
   }
   if (footer) rows.push(null), out.push(line(` ${s.message || COMPLETION_HINT}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));

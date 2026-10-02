@@ -35,7 +35,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
+const wide = ["themes", "brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -52,7 +52,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
-const scratch = scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
   return new Scratch();
@@ -1088,6 +1088,34 @@ if (scenario === "desk") {
   press({ kind: "enter" });
   await snap("7-after-search", 3000);
   board.close(); process.exit(0);
+}
+if (scenario === "themes") {
+  // Each theme (src/theme.ts) on the same screens, for side-by-side looks: the main menu, the welcome notes, the
+  // desk with a reader on a note with comments, the board and the Quay. The showcase outline (fictional) only.
+  // out/snap-themes-<theme>-<screen>.png; the menu's art is the same image in each (VGA, whatever the theme).
+  const { seedShowcase, SEED } = await import("../src/showcase/seed");
+  const { MENU_SCREENS } = await import("../src/screens");
+  const { THEME_NAMES } = await import("../src/theme");
+  const seeded = await seedShowcase(board);
+  await board.createBlock(null, `Start here [welcome::1]\nThe house board is [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]], and the soup is [[${SEED.recipe}]].`, { kind: "user" });
+  board.subscribe(e => app.event(e));
+  const open = (key: string) => { const s = MENU_SCREENS.find(([k]) => k === key)![1](app)!; app.push(s); return s; };
+  const back = () => { const A = app as any; for (const s of A.stack.splice(1)) try { s.dispose?.(); } catch { /* gone */ } app.redraw(); };
+  for (const name of [...THEME_NAMES].sort((a, b) => (a === "classic" ? -1 : b === "classic" ? 1 : 0))) {
+    app.setTheme(name);
+    const shot = (what: string, wait?: number) => { (app as any).message = ""; return snap(`${name}-${what}`, wait); };
+    app.push(new MainMenu());
+    await shot("1-menu", 800);
+    open("C"); await shot("2-welcome", 2500); back();
+    open("D"); await shot("3-desk", 3000);
+    (app as any).lastInput = 0;
+    await app.act({ action: "open", args: { id: seeded.notes.shed.id }, as: "snap-themes" }).catch(e => console.log(`  open: ${e.message}`));
+    await shot("4-reader", 2500); back();
+    open("K"); await shot("5-board", 4000); back();
+    open("Q"); await shot("6-quay", 3000); back();
+    (app as any).stack.splice(0);
+  }
+  board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "bbs") {
   // PIE-452: the main menu and the BBS lists by mouse, on the showcase outline (fictional): a press lights

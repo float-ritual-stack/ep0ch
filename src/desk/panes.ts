@@ -14,7 +14,8 @@ import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
-import { artLines, bg, C, fg, pad, RESET } from "../style";
+import { artLines, bg, C, fg, pad, RESET, tint } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
@@ -110,8 +111,8 @@ export interface Pane {
   folded?(on: boolean): void;
 }
 
-const SEL_ON = bg(C.blue) + fg(C.white);
-const SEL_OFF = "\x1b[48;2;22;30;58m" + fg(C.white);
+let SEL_ON = "", SEL_OFF = "";
+themed(() => { SEL_ON = bg(C.blue) + fg(C.white); SEL_OFF = tint("idle") + fg(C.white); });
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";

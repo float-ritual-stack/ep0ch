@@ -56,19 +56,23 @@ One walk through the door, in the order you meet things. Each step has its own s
 4. **The agent drawer.** `alt+a` or a click on the status bar's `▲ claude` chip pulls the daily agent up over
    any screen, with your keys in it. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once you're out,
    puts it away ([The agent drawer](#the-agent-drawer-pie-498)).
-5. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
+5. **Easy on the eyes.** The door opens in the **calm** theme: dark, soft accents, every word at 4.5:1 or
+   more. `alt+t` (or a click on its name on the status bar) steps to **night**, dimmer, and **classic**, the
+   bright VGA palette; `alt+v` steps the video mode (the CRT glow is Kitty+CRT). Both work on every screen
+   ([Themes and accessibility](#themes-and-accessibility)).
+6. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
    brings the door back where it was ([Getting around](#ep0ch-door), above).
-6. **Links in the tree.** In an outline tile, `L` shows the selected row's outlinks, resources and backlinks
+7. **Links in the tree.** In an outline tile, `L` shows the selected row's outlinks, resources and backlinks
    under it, as the outliner's Tree does; `⏎` or a click opens one, and a resource shows what the service
    stores for it ([The desk](#the-desk)).
-7. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
+8. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
    outdent, `Ctrl+P` previews, `Ctrl+S` saves (the first press says which properties would change). `Esc`
    twice puts unsaved text aside as **unsent**; `e` on the same note brings it back
    ([Editing notes](#editing-notes)).
-8. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
+9. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
    `macos_option_as_alt left`). Without it, where you aren't typing text, the door reads `å` as `alt+a`, `¬`
    as `alt+l` and so on, and says once which setting to change ([The agent drawer](#the-agent-drawer-pie-498)).
-9. **Keep the stack current.** `ep0ch doctor` checks every piece; `ep0ch install` shows the plan and
+10. **Keep the stack current.** `ep0ch doctor` checks every piece; `ep0ch install` shows the plan and
    `--apply` runs it ([Install and update](#install-and-update)). `ep0ch outline list` names the host's
    outlines, and from a program in a tile `ep0ch where` says which door, tile and keys it's in
    ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
@@ -331,6 +335,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_SOCKET` | socket path (same as the argument) |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
+| `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
 | `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
@@ -1259,8 +1264,65 @@ Kitty graphics are used only where cells can't do it, and every word stays real 
 - Each distinct image is uploaded once (raw RGBA, zlib-compressed). Reveal and scroll only change the placement's
   source rectangle. Placements are diffed per frame; exit frees all image data.
 
-`V` cycles Kitty+CRT → Kitty → cells. Under Herdr, graphics follow `[terminal] kitty_graphics` in
+`alt+v` on every screen (`V` on the menu and most screens, or a click on the status bar's video mode) cycles
+Kitty+CRT → Kitty → cells. Under Herdr, graphics follow `[terminal] kitty_graphics` in
 `~/.config/herdr/config.toml` (older builds: `[experimental]`), because Herdr panes report `xterm-256color`.
+
+## Themes and accessibility
+
+The door has three colour themes, all dark. **calm** is the default; **night** is calm, dimmer; **classic** is the
+exact VGA palette the door was drawn in (bright cyan, magenta and phosphor green on `#0000AA` bars).
+
+| Theme | For |
+|---|---|
+| `calm` | every day: a near-black ground with a little blue in it, ink-slate bars instead of saturated blue, off-white text (never `#fff`), accents desaturated but each still its hue: cyan for links and focus, yellow for headings, red for errors, magenta for agents |
+| `night` | late hours and sensitive eyes: calm with the brightest text held near 10:1 and dim text still at 4.5:1 or more |
+| `classic` | the VGA palette, unchanged |
+
+- **Switch** with `alt+t` on every screen (calm → night → classic), a click on the theme's name on the status bar
+  (beside the video mode), or `ep0ch act theme.set name=night` (an agent's waits until you're idle and is said on
+  the status bar). It applies at once on every screen and is kept in the door's state for next time.
+  `EP0CH_THEME=calm|night|classic` picks one at start and wins over the saved choice.
+- **Ground.** calm and night set the terminal's default text and background (OSC 10, OSC 11) while the door runs,
+  so cells with no colour of their own sit on the theme's ground; the door gives the terminal its own back when
+  it exits, drops to a shell or runs an editor. A terminal that ignores these keeps its own background.
+- **ANSI art keeps true VGA** in every theme: art packs, the menu and logon art, `.ans` files, the art viewer and
+  the CRT art path are drawn from `VGA_RGB`, never the theme. The menu art is the same image, byte for byte, in
+  all three (`test/theme-contrast.test.ts`).
+- **Nothing flashes bright.** No theme has a light ground, a light selection or a light banner; chips (a lit menu
+  slot, a drawer handle, a mark) take text that reads on them (`chip` in `src/style.ts`).
+- **Checked, not eyeballed.** `test/theme-contrast.test.ts` paints the main menu and every screen the menu opens
+  (the welcome notes, the desk, the board, the Quay, the brief, Waiting, the lists, Stats, the showcase) and a reader
+  with links, comments, a proposal, the reading ruler and a selection, reads every cell back from the terminal
+  mirror and checks WCAG 2 contrast: in calm and night every text cell reads at 4.5:1 or more on whatever it is
+  drawn on, and no text is brighter than 15:1 (calm) or 10:1 (night). Lines are allowed lower (box drawing,
+  block elements, and the logos' dotted frame and the welcome tabs' rail drawn in the frame colour). Classic's
+  numbers are reported, never failed: about a third of its text cells read under 4.5:1 (`#555` on black is 2.8:1).
+
+Each palette entry against the ground and the bar (WCAG 2 contrast; `C.*` and the `|NN` pipe codes name them):
+
+| Entry | calm | on ground | on bar | night | on ground | on bar | classic on black | on bar |
+|---|---|---|---|---|---|---|---|---|
+| 0 black | `#0d1016` | 1.00 | 1.59 | `#0a0b0e` | 1.00 | 1.23 | 1.00 | 1.58 |
+| 1 blue | `#2e3748` | 1.59 | 1.00 | `#1e222a` | 1.23 | 1.00 | 1.58 | 1.00 |
+| 2 green | `#64a064` | 6.12 | 3.85 | `#588c5a` | 4.98 | 4.03 | 6.75 | 4.27 |
+| 3 cyan | `#4896a0` | 5.57 | 3.50 | `#40848c` | 4.59 | 3.72 | 7.33 | 4.64 |
+| 4 red | `#c8625c` | 4.86 | 3.05 | `#c0605a` | 4.74 | 3.84 | 2.71 | 1.71 |
+| 5 magenta | `#a86ab2` | 4.87 | 3.06 | `#a068aa` | 4.74 | 3.84 | 3.29 | 2.08 |
+| 6 brown | `#b08048` | 5.47 | 3.43 | `#a07442` | 4.75 | 3.85 | 4.01 | 2.54 |
+| 7 grey | `#c8cace` | 11.60 | 7.29 | `#a6a6aa` | 8.11 | 6.57 | 9.04 | 5.72 |
+| 8 dark | `#9ca0a8` | 7.26 | 4.56 | `#8a8c92` | 5.85 | 4.74 | 2.82 | 1.78 |
+| 9 lblue | `#86a4dc` | 7.58 | 4.76 | `#7690c0` | 6.11 | 4.95 | 4.13 | 2.61 |
+| 10 lgreen | `#8ac484` | 9.35 | 5.87 | `#78aa74` | 7.31 | 5.92 | 15.82 | 10.01 |
+| 11 lcyan | `#80ced6` | 10.62 | 6.67 | `#6eb0b8` | 8.03 | 6.50 | 17.13 | 10.84 |
+| 12 lred | `#e8847e` | 7.28 | 4.57 | `#ce7670` | 6.04 | 4.90 | 6.68 | 4.23 |
+| 13 lmagenta | `#cc92d6` | 7.84 | 4.93 | `#b080ba` | 6.22 | 5.04 | 8.00 | 5.06 |
+| 14 yellow | `#e6ce78` | 12.21 | 7.67 | `#c8b46c` | 9.56 | 7.74 | 19.69 | 12.46 |
+| 15 white | `#e4e2dc` | 14.70 | 9.23 | `#bab8b2` | 9.92 | 8.04 | 21.00 | 13.29 |
+
+The tints under text (a selection, an agent's selection, the reading ruler, an open thread, an embed's band, an idle
+selected row) are theme entries too (`tint` in `src/style.ts`); in calm and night grey, dark and every light accent
+read at 4.5:1 or more on each of them.
 
 ## Letting an agent see what you see, and do what you do
 
@@ -1298,7 +1360,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
 | `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
 | `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | `?` on the menu |
-| `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer |
+| `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `alt+v` on every screen; `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer; a click on the status bar's video mode |
+| `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, `R`, a click on `R refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
 | `open` | `id`, `tile=detail\|new-detail\|preview\|float` (board), `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |

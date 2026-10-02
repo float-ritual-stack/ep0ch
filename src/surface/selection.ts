@@ -13,7 +13,8 @@
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import type { Key } from "../term";
-import { RESET } from "../style";
+import { RESET, tint } from "../style";
+import { themed } from "../theme";
 
 /** A cell in rendered rows: `row` in content (not screen) rows, `col` in cells. */
 export interface Pos { row: number; col: number }
@@ -27,19 +28,21 @@ export interface SelectRows {
   margin?(row: number): number;
 }
 
+// The tints below are the theme's (src/theme.ts): `let`s set again on a theme switch, so every importer draws the new one.
 /** The person's selection: calm, readable over any text colour, on the board and under kitty+crt. */
-export const SELECT_BG = "\x1b[48;2;46;72;132m";
+export let SELECT_BG = "";
 /** An agent's selection: tinted in the agents' colour, and never the person's. */
-export const AGENT_BG = "\x1b[48;2;78;40;88m";
+export let AGENT_BG = "";
 /**
  * The reading ruler (PIE-441, the door side of PIE-423's focus mark): a calm warm tint under the block the
  * reader's current element is in, or that an agent marked. Unlike the selection's blue, the agents'
  * purple, an embed's navy and comment mode's cyan, it's a dim amber, so white, cyan and grey text all
  * stay readable on it.
  */
-export const RULER_BG = "\x1b[48;2;58;50;26m";
+export let RULER_BG = "";
 /** A comment thread's quoted passage while the thread is expanded under it (PIE-420): a quiet olive. */
-export const THREAD_BG = "\x1b[48;2;40;52;30m";
+export let THREAD_BG = "";
+themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); THREAD_BG = tint("thread"); });
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;

@@ -1,9 +1,29 @@
-// VGA-palette styling for real terminal text, plus width-safe padding.
+// Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
+// theme (src/theme.ts); ANSI art keeps true VGA (artLines).
 import { glyph, VGA_RGB, type Cell } from "./ansi";
+import { contrast, theme, type Rgb, type Theme } from "./theme";
 
-const rgb = (i: number) => VGA_RGB[i]!.join(";");
+const rgb = (i: number) => theme().palette[i & 15]!.join(";");
 export const fg = (i: number) => `\x1b[38;2;${rgb(i)}m`;
 export const bg = (i: number) => `\x1b[48;2;${rgb(i)}m`;
+/** A colour that isn't a palette entry, as text or as a background. */
+export const fgRgb = (c: Rgb) => `\x1b[38;2;${c.join(";")}m`;
+export const bgRgb = (c: Rgb) => `\x1b[48;2;${c.join(";")}m`;
+/** One of the theme's tints as a background: a selection, an agent's, the ruler, a thread, an embed, an idle row. */
+export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
+/**
+ * A chip: `text` on a palette background. Where the theme keeps chips legible (calm, night) and `text` reads under
+ * 4.5:1 there, the ground or white is drawn instead, whichever reads better; classic draws what was asked.
+ */
+export function chip(back: number, text: number = C.white): string {
+  const t = theme(), b = t.palette[back & 15]!;
+  let f = t.palette[text & 15]!;
+  if (t.legibleChips && contrast(f, b) < 4.5) {
+    const light = t.palette[C.white]!, dark = t.palette[C.black]!;
+    f = contrast(light, b) >= contrast(dark, b) ? light : dark;
+  }
+  return bgRgb(b) + fgRgb(f);
+}
 export const RESET = "\x1b[0m";
 /**
  * A sparkline's steps, lowest to highest, in glyphs the kitty+crt font has: it is CP437, which has no ▁▂▃▅▆▇
@@ -238,7 +258,7 @@ const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 
 export const center = (s: string, w: number) => " ".repeat(Math.max(0, Math.floor((w - width(s)) / 2))) + s;
 
-/** Art as coloured terminal cells: the no-graphics fallback, and what cells mode shows. */
+/** Art as coloured terminal cells: the no-graphics fallback, and what cells mode shows. Always true VGA, whatever the theme. */
 export function artLines(grid: Cell[][], left: number, top: number, cols: number, rows: number): string[] {
   const out: string[] = [];
   for (let r = top; r < top + rows; r++) {
@@ -247,7 +267,7 @@ export function artLines(grid: Cell[][], left: number, top: number, cols: number
     let s = "", last = "";
     for (let c = left; c < Math.min(line.length, left + cols); c++) {
       const cell = line[c]!;
-      const sgr = fg(cell.fg) + bg(cell.bg);
+      const sgr = `\x1b[38;2;${VGA_RGB[cell.fg & 15]!.join(";")}m\x1b[48;2;${VGA_RGB[cell.bg & 15]!.join(";")}m`;
       if (sgr !== last) { s += sgr; last = sgr; }
       s += glyph(cell.code);
     }
