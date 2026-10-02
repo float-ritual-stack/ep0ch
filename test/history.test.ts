@@ -299,8 +299,12 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
 
   test("the board: an agent's open into the person's detail is in their history; they go back from it", async () => {
     const d = await detail();
+    // Not while they read it (round 3, C3): the agent opens into it once their keys are on the lanes.
+    await expect(act("open", { id: n.beans.id }, "detail1", AS)).rejects.toThrow(/detail1 has the person's keys; opening a note there/);
+    BV.at(b, "lanes");
     await act("open", { id: n.beans.id }, "detail1", AS);
     await whole(d, n.beans.id);
+    BV.at(b, "detail0");
     key({ kind: "alt-left" });
     await whole(d, n.jobs.id);
   }, 30_000);

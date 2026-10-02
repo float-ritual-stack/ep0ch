@@ -11,6 +11,8 @@ import { App, type ViewEvent } from "../src/app";
 import { controlClient, startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { NvimClient } from "../src/desk/nvim";
+import { ReaderPane } from "../src/desk/panes";
+import { external } from "../src/open";
 import { Mirror } from "../src/mirror";
 import { decode, encode, Ext, handle, Incomplete } from "../src/msgpack";
 import { MainMenu } from "../src/screens";
@@ -215,6 +217,65 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     key({ kind: "alt", ch: "x" });                                  // dismisses the marks on the focused tile's note
     expect(await act("marks.list")).toMatchObject({ marks: [] });
   });
+
+  test("an agent never opens the browser, and never moves the reader the person has (round 3, C1 C3)", async () => {
+    const ran: string[][] = [];
+    const run = external.run;
+    external.run = cmd => { ran.push(cmd); };
+    try {
+      const fence = (await board.request<{ id: string }>("create", { parentId: notes.shed.id, text: `Fence quote\nAsk [the supplier](https://example.invalid/fence) and see ((${notes.long.id}|the seed order)).`, author: "agent" })).id;
+      await mine("tile.focus", "tree");
+      await act("open", { id: fence }, "side");
+      await until(() => desk.dispatch.tile("side")?.shows === fence, "the note in side");
+      const side = () => (desk.paneNamed("side") as ReaderPane).surface;
+      await until(() => side().describe().links.length === 2, "its links");
+      // A web link: the agent is given the address; nothing outside the door opens, and the screen says so.
+      expect(await act("link.follow", { n: 1 }, "side")).toMatchObject({ opened: null, outside: "browser", url: "https://example.invalid/fence", launched: false });
+      expect(ran).toEqual([]);
+      expect(said.at(-1)).toMatch(/watcher-7.*was given https:\/\/example\.invalid\/fence · an agent doesn't open the browser/);
+      // ...and the person's [ ] position stayed where it was (none).
+      expect(side().describe().links.some(l => l.selected)).toBe(false);
+      // In the reader the person has, every action that would move what they read is refused, the agent's way said.
+      await mine("tile.focus", "side");
+      const shown = side().msg?.id;
+      await expect(act("link.follow", { n: 2 }, "side")).rejects.toThrow(/side has the person's keys; following a link there would move what they're reading/);
+      await expect(act("element.open", { n: 2 }, "side")).rejects.toThrow(/side has the person's keys; opening an element there/);
+      await expect(act("up", {}, "side")).rejects.toThrow(/side has the person's keys; up would move what they're reading/);
+      await expect(act("threads", {}, "side")).rejects.toThrow(/side has the person's keys/);
+      await expect(act("props.follow", { n: 1 }, "side")).rejects.toThrow(/side has the person's keys/);
+      await expect(act("open", { id: notes.shed.id }, "side")).rejects.toThrow(/side has the person's keys; opening a note there would move what they're reading/);
+      expect(side().msg?.id).toBe(shown);
+      await mine("tile.focus", "tree");
+    } finally { external.run = run; }
+  }, 20_000);
+
+  test("an open naming no tile lands where opens land, even the note the person reads: said on screen, never their keys, never a reader they type in", async () => {
+    const mid = () => (desk.paneNamed("middle") as ReaderPane);
+    // The person on the tree, whose opens land in middle: the agent's tile-less open shows the note there (the
+    // designed "show the person" path), their keys stay on the tree, and it's said on the status bar.
+    await mine("tile.focus", "tree");
+    const r = await act("open", { id: notes.shed.id }) as { reader: string | null; id: string };
+    expect(r).toMatchObject({ reader: "middle", id: notes.shed.id });
+    await until(() => mid().msg?.id === notes.shed.id, "the note in middle");
+    expect(person().focus).toBe("tree");
+    expect(said.at(-1)).toMatch(/watcher-7.*opened a note in middle/);
+    // The person reading middle themselves: it lands where opens land from there (a reader that follows), keys unmoved.
+    await mine("tile.focus", "middle");
+    const r2 = await act("open", { id: notes.long.id }) as { reader: string | null };
+    expect(r2.reader).toBeTruthy();
+    expect(person().focus).toBe("middle");
+    // Typing in middle: the open never lands in that reader; their edit and its note stay.
+    await desk.dispatch.act({ action: "edit", args: {}, reader: "middle" }, USER);
+    key(char("e"));
+    await until(() => person().typingIn === "middle", "the person typing in middle");
+    const typing = mid().msg?.id;
+    const landed = await act("open", { id: notes.shed.id }) as { reader: string | null };
+    expect(landed.reader).not.toBe("middle");
+    expect(mid().msg?.id).toBe(typing);
+    expect(person().typingIn).toBe("middle");
+    await desk.dispatch.act({ action: "edit.close", args: { discard: true }, reader: "middle" }, USER).catch(() => {});
+    await mine("tile.focus", "tree");
+  }, 20_000);
 
   test("a border dragged is layout.resize, the action an agent calls", async () => {
     const f = feed(["layout.changed"]);

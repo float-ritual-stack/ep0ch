@@ -116,7 +116,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("h"));                                              // a panel key, not a column move
     expect(V().focus).toBe(at);
     // an agent doesn't start an edit under the person's open panel
-    await expect(act("edit.text", { text: "agent text" }, beansR)).rejects.toThrow(/property panel/);
+    await expect(act("edit.text", { text: "agent text" }, beansR)).rejects.toThrow(/property panel|the person is typing in/);
     expect(S().draft).toBeNull();
     key({ kind: "enter" });                                      // edit the selected value
     await until(() => !!S().panel?.field, "the value field");
@@ -186,7 +186,11 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(mine_.originalTarget.anchor.exact).toBe("the wind is strong there");
     expect([mine_.block.author, mine_.block.actorId]).toEqual(["agent", AS]);
     expect(await act("reply", { thread: mine_.block.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
+    // Resolving opens the thread list over the note: refused in the column the person has (round 3, C3); fine once they're elsewhere.
+    await expect(act("resolve", { thread: mine_.block.id }, beansR)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
+    key(char("h"));
     expect(await act("resolve", { thread: mine_.block.id }, beansR)).toMatchObject({ lifecycle: "resolved" });
+    key(char("l"));
     await act("comment.close", {}, beansR);
   });
 
@@ -194,7 +198,10 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const open = async () => (await threads(notes.beans.id)).filter(t => t.lifecycle === "open").map(t => t.block.id).sort();
     const before = await open();
     expect(before.length).toBeGreaterThan(0);
+    // The agent lists threads in the column while the person is in the Library; then they come to it.
+    key(char("h"));
     await act("threads", {}, beansR);
+    key(char("l"));
     expect(surfaceOf(2).session?.mode).toBe("threads");
     key(char("x"));
     await Bun.sleep(400);
@@ -403,9 +410,13 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(paneOf(opened.reader).source).toMatchObject({ kind: "block", id: notes.squash.id });
     expect(focused()).toBe(was);
     await act("tile.close", {}, opened.reader);
-    // tag: a #queued column of the beans' stage, beside the Library; the person stays on the Library.
-    await act("column.select", { id: notes.beans.id }, lib());
-    const tag = (await act("tag", { key: "stage" }, lib())) as { tile: string; value: string };
+    // Picking a note by id there is moving their cursor too (round 3, H1): refused, their selection as it was.
+    const lib0 = column(1), before = lib0.sel;
+    const other = lib0.flat().find((r: { m: { id: string } }, i: number) => i !== before)!.m.id;
+    await expect(act("column.select", { id: other }, lib())).rejects.toThrow(/has the person's keys; an agent doesn't move their cursor there/);
+    expect(lib0.sel).toBe(before);
+    // tag: a #queued column (the stage named, since the Library's selection is the person's), beside the Library; the person stays on it.
+    const tag = (await act("tag", { key: "stage", value: "queued" }, lib())) as { tile: string; value: string };
     expect(tag.value).toBe("queued");
     expect(paneOf(tag.tile).titleOf()).toBe("#queued");
     expect(focused()).toBe(was);
@@ -427,7 +438,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key({ kind: "enter" });
     await until(() => focused().filter.length === 0, "the filter cleared");
     // #: the selected note's properties to follow (same property), or why there are none.
-    await act("column.select", { id: notes.squash.id }, lib());
+    await expect(act("column.select", { id: notes.squash.id }, lib())).rejects.toThrow("has the person's keys");
     await mine("column.select", { id: notes.squash.id }, lib());
     key(char("#"));
     expect(screen()).toContain("same property");

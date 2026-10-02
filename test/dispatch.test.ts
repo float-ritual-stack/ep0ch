@@ -44,7 +44,8 @@ function promised(def: ActionDef<unknown, unknown>, actor: Actor, state: keyof t
   if (def.person) return def.person;
   const t: Touches = def.touches;
   if (t === "nothing" || t === "shape") return null;
-  if (t === "draft") return "the draft rule's answer";
+  // Replacing a tile's whole draft: never while the person types there; else the draft rule's (whose draft it is).
+  if (t === "draft") return def.draft === "replace" && state === "typing" ? /the person is typing in middle; an agent doesn't replace their text/ : "the draft rule's answer";
   if (t === "tile") {
     if (state === "typing") return /the person is typing in middle/;
     return def.while === "typing" ? null : /middle has the person's keys/;
@@ -71,7 +72,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
       if (def.while) expect({ action: name, while: def.touches }).toEqual({ action: name, while: "tile" });
       if (def.draft) expect({ action: name, draft: def.touches }).toEqual({ action: name, draft: "draft" });
       // An action that writes to the outline or reaches outside the door isn't run again by itself after a restart.
-      if (def.touches === "draft" && def.draft === "write") expect({ action: name, replay: def.replay }).toEqual({ action: name, replay: "ask" });
+      if (def.touches === "draft" && (def.draft === "write" || def.draft === "replace")) expect({ action: name, replay: def.replay }).toEqual({ action: name, replay: "ask" });
     }
   });
 
@@ -113,6 +114,16 @@ describe("the actor rule, for every action (PIE-514)", () => {
     touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.pin", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
     // In a tile: refused in the person's (typing in it, for these).
     for (const n of ["tile.type", "view.scrollTo", "agent.type", "host.size", "agent.restart"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
+    for (const n of ["tile.restart", "tile.herdr"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
+    // Round 3: what moves the reader the person reads is refused there (back and forward were already).
+    touches(["link.follow", "element.open", "up", "props.follow", "threads", "resolve", "back", "forward", "column.select"], "tile");
+    // Opening something outside the door, or keeping a choice for the next start: a restarted door asks first.
+    for (const n of ["link.follow", "props.follow", "element.open", "tree.pick", "theme.set", "theme.cycle"]) expect({ n, replay: of(n).replay }).toEqual({ n, replay: "ask" });
+    // By its arguments: column.select id= is the person's cursor too; the desk's open moves the reader it names; clearing tile.herdr is anyone's.
+    expect(of("column.select").touchesWith).toBeUndefined();
+    const open = allActionSets().find(s => s.scope === "desk")!.def("open")!;
+    expect([open.touchesWith!({}, "side"), open.touchesWith!({}, undefined)]).toEqual(["tile", "nothing"]);
+    expect([of("tile.herdr").touchesWith!({ on: false }), of("tile.herdr").touchesWith!({ pane: "door-claude" })]).toEqual(["nothing", "tile"]);
     // Pointing at something, writing what the service attributes: no actor rule.
     touches(["block.mark", "block.unmark", "block.tint", "projection.refresh", "tree.links", "tree.pick", "search", "who.refresh"], "nothing");
     // The person's own: refused to any agent, with its way said.
@@ -120,7 +131,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
       expect({ n, person: !!of(n).person }).toEqual({ n, person: true });
     }
     // The person's draft: the draft session's rule.
-    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "write"], ["props.edit", "write"], ["task.status", "write"], ["draft.newline", "type"], ["comment.write", "safe"]] as const) {
+    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "replace"], ["props.edit", "write"], ["task.status", "write"], ["draft.newline", "type"], ["comment.write", "safe"]] as const) {
       expect({ n, t: of(n).touches, use: of(n).draft }).toEqual({ n, t: "draft", use });
     }
   });
@@ -340,9 +351,10 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(await act("open", { id: notes.peas.id }, "new-detail")).toMatchObject({ reader: "detail2", id: notes.peas.id });
     expect(await act("open", { id: notes.beans.id }, "detail1")).toMatchObject({ reader: "detail1" });
     // A block id names the reader showing it: on screen first, the one with the person's keys first among equals
-    // (the lanes have them, so the preview following them does).
-    expect(await act("open", { id: notes.peas.id }, notes.peas.id)).toMatchObject({ reader: "preview" });
-    expect(await act("open", { id: notes.peas.id }, "preview")).toMatchObject({ reader: "preview" });
+    // (the lanes have them, so the preview following them does). That reader is theirs: an agent's open there is
+    // refused (round 3, C3), by its name or by the block it shows.
+    await expect(act("open", { id: notes.peas.id }, notes.peas.id)).rejects.toThrow(/preview has the person's keys; opening a note there would move what they're reading/);
+    await expect(act("open", { id: notes.peas.id }, "preview")).rejects.toThrow(/preview has the person's keys/);
     const fl = await act("open", { id: notes.beans.id }, "float");
     expect(fl.reader).toMatch(/^detail\d+$/);
     expect(where()).toBe(was);                                                        // an agent's open never moves the keys
@@ -403,6 +415,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   test("every action an agent runs on the desk, the board and the river leaves the person's keys where they are", async () => {
     const desk = twoReaders();
     app.push(desk);
+    await desk.dispatch.act({ action: "tile.focus", reader: "side" }, USER);
     await act("open", { id: notes.beans.id }, "middle");
     await desk.dispatch.act({ action: "tile.focus", reader: "middle" }, USER);
     await sweep("desk");

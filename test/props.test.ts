@@ -248,6 +248,8 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   const B = () => BV.view(b);
   const AS = "test-agent-9";
   const act = (action: string, args: Record<string, unknown> = {}, reader = "preview") => app.act({ action, args, reader, as: AS }) as Promise<any>;
+  /** The person's own action (their key's path): the preview is theirs, so the scene is set this way. */
+  const mine = (action: string, args: Record<string, unknown> = {}, reader = "preview") => b.dispatch.act({ action, args, reader }, { kind: "user" }) as Promise<any>;
   const create = async (parentId: string | null, text: string) => (await board.request("create", { parentId, text, author: "agent" })).id as string;
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const shown = (h = 60) => B().preview.render(110, h, true, b).lines.map(strip).join("\n") as string;
@@ -284,7 +286,8 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     b = boardScreen(hub);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 1 && B().lanes[0].items?.length === 1, "the lane", 10_000);
-    await act("open", { id: ids.card });
+    // The scene: the card in the preview, as the person's open puts it (an agent's would be refused there: it's theirs).
+    await mine("open", { id: ids.card });
     await until(() => !B().preview.msg.partial, "the whole note");
   }, 30_000);
 
@@ -363,12 +366,14 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   });
 
   test("follow: a block value opens its target; a missing Work ID says so; the summary choice is yours", async () => {
-    await act("open", { id: ids.card });
+    await mine("open", { id: ids.card });
     await until(() => !B().preview.msg.partial, "the note");
-    const r = await act("props.follow", { key: "related-to" });
+    // An agent's follow would move the reader the person has (round 3, C3): refused; theirs opens it.
+    await expect(act("props.follow", { key: "related-to" })).rejects.toThrow(/preview/);
+    const r = await mine("props.follow", { key: "related-to" });
     expect(r).toMatchObject({ opened: ids.plan, title: "Garden plan" });
-    await act("open", { id: ids.card });
-    await expect(act("props.follow", { key: "project" })).rejects.toThrow("plain text");
+    await mine("open", { id: ids.card });
+    await expect(mine("props.follow", { key: "project" })).rejects.toThrow("plain text");
     (app as any).lastInput = 0;                                    // the person's summary keys: an agent's change waits until they're idle
     const s = await act("props.summary", { keys: "project, work-stage" });
     expect(s.yours).toEqual({ keys: ["project", "work-stage"], source: "yours" });
@@ -389,7 +394,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     };
     const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("≡ Queued chores") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
     try {
-      await act("open", { id: ids.card });
+      await mine("open", { id: ids.card });
       await act("props.close");
       await settled("the embeds");
       // 1. Someone edits a note this card neither links nor embeds.
@@ -420,7 +425,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       // 3. A note whose body links a target by label and whose property holds the same target's id.
       const linked = await create(null, `Linked note [related-to::${ids.plan}]\nSee ((${ids.plan}|the plan)) and ((${ids.plan})).`);
       reset();
-      await act("open", { id: linked });
+      await mine("open", { id: linked });
       await until(() => !B().preview.msg.partial, "the note");
       B().preview.surface.openPanel();
       await until(() => { const s = shown(); return s.includes("See the plan and Garden plan.") && /related-to\s+Garden plan/.test(s); }, "the links and the panel", 8000);
@@ -432,7 +437,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   }, 30_000);
 
   test("embeds refresh when their target changes", async () => {
-    await act("open", { id: ids.card });
+    await mine("open", { id: ids.card });
     await act("props.close");
     await until(() => shown(120).includes("Beans along the fence."), "the embed");
     const plan = await current(ids.plan);

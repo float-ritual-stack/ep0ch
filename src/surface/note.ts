@@ -20,7 +20,7 @@ import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, pre
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { ComponentCatalog } from "../components";
-import { destinationOf, external, externalOpenCommand } from "../open";
+import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
 import type { Placement } from "../kitty";
@@ -50,6 +50,11 @@ import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RUL
  * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys).
  */
 export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor }
+/**
+ * A link that names something outside the door: a web page (`browser`) or a file (`viewer`, a figure). The person's
+ * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
+ */
+export interface Outside { outside: "browser" | "viewer"; url: string; launched: boolean }
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -1040,7 +1045,7 @@ export class NoteSurface {
    * changed since the panel read it (nothing is retried over someone else's change). Returns the new
    * revision, or null with the reason in the field's note.
    */
-  async saveValue(host: SurfaceHost, actor: Actor = USER): Promise<number | null> {
+  async saveValue(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<number | null> {
     const f = this.panel?.field, m = this.msg;
     if (!f || !m || f.saving) return null;
     const why = checkValue(f.row, f.text);
@@ -1234,7 +1239,7 @@ export class NoteSurface {
    * wrote the text (recordAs), which is not always `actor`, who pressed save. Returns that, or null when
    * nothing was written (unchanged, a property change shown first, or refused: the draft says why).
    */
-  async save(host: SurfaceHost, actor: Actor = USER): Promise<Actor | null> {
+  async save(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<Actor | null> {
     const s = this.drafting;
     if (!s || s.busy) return null;
     if (!s.dirty) { s.close(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
@@ -1255,7 +1260,7 @@ export class NoteSurface {
    * revision or kept as unsent, a comment or reply is kept as unsent, never sent), and the comment session
    * closes with it. What was kept is flashed. An agent may leave only a session it opened.
    */
-  async leave(host: SurfaceHost, actor: Actor = USER): Promise<LeaveResult> {
+  async leave(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<LeaveResult> {
     const why = this.modes.leaveRefusal();
     if (why) throw new ActionRefused(why);
     // Each open mode leaves, the one with the keys first; what the last of them did is the answer.
@@ -1300,7 +1305,7 @@ export class NoteSurface {
     this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
   }
 
-  private commentEnv(host: SurfaceHost, actor: Actor = USER): CommentEnv {
+  private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {
       board: host.ctx.board,
       fetch: id => host.ctx.board.get(id),
@@ -1647,7 +1652,7 @@ export class NoteSurface {
    * Fetch the tickets `blockId` shows now (`resources.projection.refresh`), as `actor`; the region repaints
    * when the service has written them. Said on the status bar either way.
    */
-  async refreshTickets(host: SurfaceHost, blockId: string, actor: Actor = USER, line?: number): Promise<{ refreshed: string; tickets: string[] }> {
+  async refreshTickets(host: SurfaceHost, blockId: string, actor: Actor = host.actor ?? USER, line?: number): Promise<{ refreshed: string; tickets: string[] }> {
     host.ctx.flash("fetching…");
     try {
       // Who pressed r (or ran projection.refresh) is who asked: an @name line asked again records them.
@@ -1853,7 +1858,7 @@ export class NoteSurface {
   }
 
   /** ⏎ on a selected link: media open in the system viewer, blocks and pages open through the host. */
-  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | null> {
+  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | Outside | null> {
     const l = this.links[i];
     return l ? this.followTarget(l, host, { link: true, fresh }) : Promise.resolve(null);
   }
@@ -2220,7 +2225,7 @@ export class NoteSurface {
    * Open a link the host drew itself (the river's note body): it becomes the selected `[ ]` link when
    * it is one of them, then opens where ⏎ on it would.
    */
-  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | null> {
+  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | Outside | null> {
     // A step's box opens its status choice; a row of an open choice chooses it (PIE-472).
     if (l.role === "task" && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
@@ -2235,29 +2240,47 @@ export class NoteSurface {
     return this.followTarget(l, host, { link: true, fresh });
   }
 
-  /** Open what a link names: media in the system viewer, blocks and pages through the host (`how`, where). */
-  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
-    if (l.media) { Bun.spawn(["open", l.media], { stdout: "ignore", stderr: "ignore" }); host.ctx.flash("opened in the system viewer"); return null; }
+  /**
+   * Open what a link names outside the door, in the person's browser or system viewer: theirs alone. An agent's
+   * follow never opens anything there (it would take their screen); it gets the address back in its answer, and
+   * the reader says so.
+   */
+  private openOutside(where: Outside["outside"], url: string, host: SurfaceHost): Outside {
+    const by = host.actor, app = where === "browser" ? "the browser" : "the system viewer";
+    if (by?.kind === "agent") {
+      this.noteAgent(by, `was given ${url} · an agent doesn't open ${app}`);
+      host.ctx.flash(`was given ${url} · an agent doesn't open ${app}`);
+      host.redraw();
+      return { outside: where, url, launched: false };
+    }
+    external.run(where === "browser" ? externalOpenCommand(url) : fileOpenCommand(url));
+    host.ctx.flash(`opened ${where === "browser" ? url : "it"} in ${app}`);
+    return { outside: where, url, launched: true };
+  }
+
+  /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
+  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | null> {
+    if (l.media) return this.openOutside("viewer", l.media, host);
     // A resource token: its Resource's stored content, registered and fetched first if it must be (src/authored.ts).
     if (l.resource) {
       const to = resourceTarget(l.resource);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
       host.ctx.flash(`reading ${l.resource.label}…`);
-      const shown = await openResource(host.ctx.board, to).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
+      const shown = await openResource(host.ctx.board, to, host.actor ?? USER).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
       if (!shown) return null;
       this.track(() => host.navigate(shown.note, how));
       if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);
       return shown.note;
     }
     // A ticket's age refreshes it (PIE-445), as r does.
-    if (l.refresh) { void this.refreshTickets(host, l.refresh, USER, l.refreshLine).catch(() => {}); return null; }
+    if (l.refresh) { void this.refreshTickets(host, l.refresh, host.actor ?? USER, l.refreshLine).catch(() => {}); return null; }
     // A resource projection opens its ticket block, or its ticket's page; without one it says why (no key, not fetched yet, …).
     if (l.role === "resource" && l.url === undefined && !l.block) { host.ctx.flash(l.reason ?? "nothing to open here"); return null; }
     // A Markdown link: a web page opens in the browser; a pi-outliner:// block or page link opens here.
     if (l.url !== undefined) {
       const to = destinationOf(l.url);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
-      if ("web" in to) { external.run(externalOpenCommand(to.web)); host.ctx.flash(`opened ${to.web} in the browser`); return null; }
+      if ("web" in to) return this.openOutside("browser", to.web, host);
       return this.followTarget(to.target, host, how);
     }
     let target: Msg | null = null;
@@ -3631,8 +3654,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "edit.text": {
-    summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR",
-    touches: "draft", draft: "write", replay: "ask",
+    summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR. An agent's replaces only an edit it opened, never while the person types in that reader (draft.patch lands in theirs)",
+    touches: "draft", draft: "replace", replay: "ask",
     args: { text: { type: "string", about: "subject line, body and [key::value] properties" } },
     async run({ text }, { surface, host }, actor) {
       const s = await surface.ensureDraft(host);
@@ -3687,17 +3710,22 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   },
   "link.follow": {
     summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: "enter, alt+enter, click on a link",
-    touches: "nothing", replay: "safe",
+    touches: "tile", replay: "ask", way: "following a link there would move what they're reading · an agent follows one in another reader (tile=), or opens the note with open id= naming no tile (it lands where opens land)",
     args: {
       n: { type: "number", optional: true, about: "which link, from 1; default the selected one" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
     async run({ n, fresh }, { surface, host }, actor) {
       surface.requireNote();
-      if (n !== undefined) surface.selectLink(n - 1);
-      const i = surface.describe().links.findIndex(l => l.selected);
+      // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
+      if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
+      const links = surface.describe().links;
+      if (n !== undefined && !links[n - 1]) throw new ActionRefused(`there is no link ${n}; the note has ${links.length}`);
+      const i = n !== undefined && actor.kind === "agent" ? n - 1 : links.findIndex(l => l.selected);
       if (i < 0) throw new ActionRefused("no link is selected; pass n");
       const m = await surface.followLink(i, host, !!fresh);
+      // Outside the door (a web page, a file): the person's opened there; an agent's is given the address.
+      if (m && "outside" in m) return { opened: null, ...m };
       if (m) surface.noteAgent(actor, `followed a link to ${subject(m).slice(0, 40)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
     },
@@ -3734,8 +3762,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "element.open": {
-    summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone", keys: "enter, alt+enter, a click",
-    touches: "nothing", replay: "ask",
+    summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: "enter, alt+enter, a click",
+    touches: "tile", replay: "ask", way: "opening an element there would move what they're reading · an agent opens one in another reader (tile=), opens the note with open id=, or folds a section with fold or unfold",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them); default the current one (the person's own only)" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
@@ -3778,7 +3806,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
         return { thread: e.thread, ...r };
       }
       const r = await surface.openElement(e, host, !!fresh, actor.kind === "user");
-      surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label.slice(0, 40)}`);
+      // Outside the door, an agent's was given the address (openOutside said so); it opened nothing.
+      if (!(r && typeof r === "object" && "outside" in r)) surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label.slice(0, 40)}`);
       host.redraw();
       return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
     },
@@ -3804,8 +3833,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "up": {
-    summary: "go to the note's parent", keys: "u (U too in the message reader)",
-    touches: "nothing", replay: "safe",
+    summary: "go to the note's parent. An agent's is refused on the reader the person has", keys: "u (U too in the message reader)",
+    touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
     args: {},
     async run(_, { surface, host }, actor) {
       if (actor.kind === "user") surface.letGo();
@@ -3911,7 +3940,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   },
   "threads": {
     summary: "show the note's comment threads (the person's opens on the comment mark the [ ] position is on); in the list, j k move and PgUp PgDn and the wheel scroll it", keys: "m; j k PgUp PgDn wheel in the list",
-    touches: "nothing", replay: "safe",
+    touches: "tile", replay: "safe", way: "the thread list would cover what they're reading · an agent lists threads in another reader (tile=)",
     args: {},
     async run(_, { surface, host }, actor) {
       // The person's opens as it was asked for: on a comment mark's thread, or with a Reply control's reply started.
@@ -3948,8 +3977,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "resolve": {
-    summary: "resolve a comment thread, or reopen it with open=true", keys: "m, j k, x",
-    touches: "nothing", replay: "ask",
+    summary: "resolve a comment thread, or reopen it with open=true. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "m, j k, x",
+    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
     async run({ thread, open }, { surface, host }, actor) {
       const s = await surface.ensureSession(host, "threads");
@@ -3996,8 +4025,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "props.follow": {
-    summary: "open what a block, page or Work-ID value names; where it opens is the view's call", keys: "i, tab, o",
-    touches: "nothing", replay: "safe",
+    summary: "open what a block, page or Work-ID value names; where it opens is the view's call. An agent's is refused on the reader the person has", keys: "i, tab, o",
+    touches: "tile", replay: "ask", way: "following it there would move what they're reading · an agent follows it in another reader (tile=), or opens the note with open id=",
     args: ROW_ARGS,
     async run({ n, key }, { surface, host }, actor) {
       const { row } = await propRow(surface, n, key);

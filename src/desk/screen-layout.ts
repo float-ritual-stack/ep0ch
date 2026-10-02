@@ -340,6 +340,19 @@ function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | 
 export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed">, holds?: (id: I) => boolean): PlaceOpts<I> {
   return { fixed: (id, dir) => (dir === "row" && s.collapsed.has(id) ? SPINE : undefined), ...(holds ? { holds } : {}) };
 }
+/** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
+function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
+  const out = { row: 1, col: 1 };
+  const chain = chainOf(tree, id);
+  chain.forEach((c, i) => {
+    if (!isLine(c) || c.t === "flow") return;
+    const next = chain[i + 1];
+    const k = c.kids.findIndex(x => (next ? x === next : x.t === "leaf" && x.id === id));
+    const sum = c.weights.reduce((a, w) => a + w, 0) || 1;
+    if (k >= 0) out[c.dir === "col" ? "col" : "row"] *= c.weights[k]! / sum;
+  });
+  return out;
+}
 /** The screen placed in `area`: the tree, the drawers sliding over it, each flow's columns (floats keep their own rects). */
 export function place<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed">, area: Rect, holds?: (id: I) => boolean): PlacedScreen<I> {
   return placeScreen({ root: s.tree, floats: [...s.floats] }, area, placeOpts(s, holds));
@@ -437,6 +450,20 @@ class Step<I> {
   private guard(id: I, what: string) {
     refuse(this.agent && this.ctx.person.typingIn === id ? `${this.name(id)} is where the person is typing; an agent doesn't ${what} it` : null);
   }
+  /**
+   * An agent never resizes the tile the person is typing in (a border moved, a split's shares, a tile grown, the
+   * screen evened out): the size it has on screen after the step is the size it had before, or the step is refused.
+   */
+  private keepsSize(step: () => void) {
+    const t = this.agent ? this.ctx.person.typingIn : null;
+    if (t === null || !has(this.d.tree, t)) return step();
+    const before = shareOf(this.d.tree, t);
+    step();
+    const after = shareOf(this.d.tree, t);
+    // Its share of the screen along each axis, from the weights (not cells, which round as other borders move).
+    const moved = (["row", "col"] as const).some(a => Math.abs(after[a] - before[a]) > 1e-9);
+    if (moved) refuse(`${this.name(t)} is where the person is typing; an agent doesn't resize it (block.mark gets their attention)`);
+  }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
     const p = this.ctx.person;
@@ -512,10 +539,10 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "drawer": return this.drawer(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on);
-      case "resize": return this.resizeBorder(op);
-      case "shares": return this.shares(op.split, op.shares);
-      case "grow": return this.grow(op.tile, op.axis, op.by);
-      case "even": return this.even();
+      case "resize": return this.keepsSize(() => this.resizeBorder(op));
+      case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
+      case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
+      case "even": return this.keepsSize(() => this.even());
       case "lock": return this.lock(op.on);
       case "policy": return this.setPolicy(op);
       case "link": return this.link(op.tile, op.to);

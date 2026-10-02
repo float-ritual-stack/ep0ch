@@ -218,20 +218,32 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await shows("[Reply]");
     await expect(act("thread.toggle", { thread: t.canes }, "preview", AS)).rejects.toThrow(/person's reading state/);
     await expect(act("thread.toggle", { thread: t.water, expand: true }, "preview", AS)).rejects.toThrow(/person's reading state/);
-    const els = P().surface.describeElements();
+    // The preview the person reads the lanes through is theirs (round 3, C3): element.open and resolve there are refused.
+    const pels = P().surface.describeElements();
+    const preply = pels.find(e => e.kind === "control" && e.control === "reply")!;
+    await expect(act("element.open", { n: preply.n }, "preview", AS)).rejects.toThrow(/preview has the person's keys/);
+    await expect(act("resolve", { thread: t.canes }, "preview", AS)).rejects.toThrow(/preview has the person's keys; the thread list would cover/);
+    // In a reader of its own, with the thread expanded there, the agent works on it and leaves it expanded.
+    const { reader } = await act("open", { id: note.id }, "new-detail", AS) as { reader: string };
+    const R = () => B().details.find(d => d.msg?.id === note.id) as ReaderPane;
+    await until(() => !!R() && !R().msg!.partial && R().surface.comments?.length === 2, "the note in a detail of its own");
+    R().surface.setExpanded(t.canes, true);
+    b.render(B().ctx);
+    const els = R().surface.describeElements();
     const reply = els.find(e => e.kind === "control" && e.control === "reply")!;
-    await expect(act("element.open", { n: reply.n }, "preview", AS)).rejects.toThrow(/reply thread=/);
+    await expect(act("element.open", { n: reply.n }, reader, AS)).rejects.toThrow(/reply thread=/);
     const mark = els.find(e => e.kind === "comment" && e.thread === t.canes)!;
-    await act("element.open", { n: mark.n }, "preview", AS);             // its own thread list, as before
-    expect(P().surface.expanded.has(t.canes)).toBe(true);
-    await act("comment.close", {}, "preview", AS);
-    const r = await act("resolve", { thread: t.canes }, "preview", AS) as any;
+    await act("element.open", { n: mark.n }, reader, AS);                // its own thread list, as before
+    expect(R().surface.expanded.has(t.canes)).toBe(true);
+    await act("comment.close", {}, reader, AS);
+    const r = await act("resolve", { thread: t.canes }, reader, AS) as any;
     expect(r.lifecycle).toBe("resolved");
-    await act("comment.close", {}, "preview", AS);
-    expect(P().surface.expanded).toEqual(new Set([t.canes]));            // the person's view is as they left it
+    await act("comment.close", {}, reader, AS);
+    expect(R().surface.expanded).toEqual(new Set([t.canes]));            // the view is as it was left
+    expect(P().surface.expanded).toEqual(new Set([t.canes]));            // and the person's preview untouched
     await shows("[Reopen]");
-    await act("resolve", { thread: t.canes, open: true }, "preview", AS);
-    await act("comment.close", {}, "preview", AS);
+    await act("resolve", { thread: t.canes, open: true }, reader, AS);
+    await act("comment.close", {}, reader, AS);
     // The person's own thread.toggle (the action the key and the click share) does it.
     await NOTE_ACTIONS.run("thread.toggle", { thread: t.canes.slice(0, 8) }, { surface: P().surface, host: P().host(b) } as any, USER);
     expect(P().surface.expanded.size).toBe(0);

@@ -647,9 +647,9 @@ export const COLUMN_ACTIONS = new ActionSet<{
   "column.copy": Record<string, never>;
 }, KindHost>("river", {
   "column.select": {
-    summary: "select a note a river column lists (in the Library and a #tag column, that's the note e and C act on): id=, the nth row (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's n= or by= is refused on the column the person has the keys in (that's their cursor); id= picks a note for its own note actions",
+    summary: "select a note a river column lists (in the Library and a #tag column, that's the note e and C act on): id=, the nth row (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's is refused on the column the person has the keys in (its selection is their cursor, id= too); elsewhere it picks a note for its own note actions",
     keys: "j k ↑↓ Home End, a click on a card",
-    touches: "tile", touchesWith: a => (a.id !== undefined ? "nothing" : "tile"), replay: "safe", way: "an agent doesn't move their cursor there · column.select id= picks a note for your note actions; peek reads the column, or act on another column", says: (r, a) => (a.id === undefined ? `selected row ${r.n} in ${r.tile}` : null),
+    touches: "tile", replay: "safe", way: "an agent doesn't move their cursor there · act on another column, or open the note in a column of its own (open id= from=<column>); peek reads the column", says: (r, a) => (a.id === undefined ? `selected row ${r.n} in ${r.tile}` : `selected ${String(r.selected).slice(0, 8)} in ${r.tile}`),
     args: {
       id: { type: "string", optional: true, about: "the note's block id (or its first 8+ characters)" },
       n: { type: "number", optional: true, about: "the nth row listed, from 1 (replies shown in place count)" },

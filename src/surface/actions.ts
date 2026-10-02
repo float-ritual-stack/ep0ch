@@ -34,9 +34,10 @@ export type Replay = "safe" | "ask";
 /**
  * What a `draft` action does to a draft (draftRule): types in it, leaves it (save, close, send), writes the block, or
  * changes it in a way the session keeps safe for the person itself (`safe`: a whole text replaced copies theirs out
- * first, an undo takes back only that actor's own patch).
+ * first, an undo takes back only that actor's own patch), or replaces the tile's whole draft (`replace`: an agent's only
+ * in a draft it opened, and never while the person types in that tile).
  */
-export type DraftUse = "type" | "leave" | "write" | "safe";
+export type DraftUse = "type" | "leave" | "write" | "safe" | "replace";
 
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
@@ -45,8 +46,11 @@ export interface ActionDef<A, H> {
   keys?: string;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
   touches: Touches;
-  /** What it touches with these arguments, when they decide it (board.hub with id= shows a board; without, it answers). */
-  touchesWith?(args: A): Touches;
+  /**
+   * What it touches with these arguments, when they decide it (board.hub with id= shows a board; without, it answers),
+   * and `tile`: the tile the request named (tile=), when it named one (the desk's open: a reader named is moved).
+   */
+  touchesWith?(args: A, tile?: string): Touches;
   /** `touches: "tile"`: refused in the tile with the person's keys (`focused`, the default), or only while they type in it. */
   while?: "focused" | "typing";
   /** `touches: "draft"`: what it does to a draft (DraftUse); default `write`. */

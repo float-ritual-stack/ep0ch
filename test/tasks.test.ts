@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     expect(text).toMatch(/- \[x\] Buy bread \^t-|- \[ \] Buy bread$/); // the step under the choice, or nothing
   }, 30_000);
 
-  test("an agent's link.follow never scrolls or marks the person's focused reader; elsewhere it's marked as the agent's (S3)", async () => {
+  test("an agent's link.follow is refused in the person's focused reader; elsewhere it's marked as the agent's (S3)", async () => {
     const make = (focused: boolean) => {
       const s = new NoteSurface();
       const host: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate: m => { s.show(m, host); }, focused };
@@ -263,11 +263,17 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       const { s, host, draw } = make(focused);
       s.show((await board.get(pointer.id))!, host);
       await until(() => draw().join("\n").includes("Long notes"), "the link's title");
+      // The person's focused reader: the follow is refused outright (round 3, C3), nothing scrolled, marked or moved.
+      if (focused) {
+        await expect(s.act("link.follow", { n: 1 }, host, { kind: "agent", id: AGENT })).rejects.toThrow(/has the person's keys; following a link there/);
+        expect(s.msg!.id).toBe(pointer.id);
+        expect(s.scroll).toBe(0); expect(s.describe().focus).toBeNull();
+        continue;
+      }
       await s.act("link.follow", { n: 1 }, host, { kind: "agent", id: AGENT });
       expect(s.msg!.id).toBe(long.id);
       await Bun.sleep(300); draw();
-      if (focused) { expect(s.scroll).toBe(0); expect(s.describe().focus).toBeNull(); }
-      else { expect(s.describe().focus).toMatchObject({ by: AGENT, marked: "^far" }); expect(draw().some(l => l.includes(`an agent (${AGENT}) followed it`))).toBe(true); }
+      { expect(s.describe().focus).toMatchObject({ by: AGENT, marked: "^far" }); expect(draw().some(l => l.includes(`an agent (${AGENT}) followed it`))).toBe(true); }
     }
   }, 30_000);
 

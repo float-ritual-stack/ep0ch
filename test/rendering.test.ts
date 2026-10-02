@@ -13,7 +13,7 @@ import type { Msg } from "../src/board";
 import { ComponentCatalog, documentComponent } from "../src/components";
 import { renderDoc, type DocEnv } from "../src/doc";
 import { emphasis } from "../src/inline";
-import { destinationOf, external, externalOpenCommand } from "../src/open";
+import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../src/open";
 import { presentLinks } from "../src/refs";
 import { MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -160,6 +160,9 @@ describe("Markdown links", () => {
     expect(externalOpenCommand("https://example.org/a b", "linux")).toEqual(["xdg-open", "https://example.org/a%20b"]);
     expect(externalOpenCommand("https://example.org/", "darwin")).toEqual(["open", "https://example.org/"]);
     expect(() => externalOpenCommand("file:///etc/passwd", "linux")).toThrow();
+    // A figure's file opens in the system viewer the same way: xdg-open on Linux (`open` is macOS's).
+    expect(fileOpenCommand("/tmp/figures/bean-trench.png", "linux")).toEqual(["xdg-open", "/tmp/figures/bean-trench.png"]);
+    expect(fileOpenCommand("/tmp/figures/bean-trench.png", "darwin")).toEqual(["open", "/tmp/figures/bean-trench.png"]);
   });
 });
 
