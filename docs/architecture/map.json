@@ -38,10 +38,10 @@
   },
   "findings": [
     { "id": "A-F1", "line": 52, "title": "Outside the desk, keys and drags bypass the action registry", "status": "resolved", "by": "#96", "note": "every key and click on every screen runs an ActionDef, kept by test/parity.ts" },
-    { "id": "A-F2", "line": 78, "title": "Five hand-written act() routers and four ways to name a reader", "status": "resolved", "by": "PIE-514", "note": "one dispatcher per screen host: tile= read with one grammar over the screen's tiles (the board's and the river's older names its aliases), the set that owns a name, expected=, and each action's declared touches checked against the shell's whereabouts once" },
+    { "id": "A-F2", "line": 78, "title": "Five hand-written act() routers and four ways to name a reader", "status": "resolved", "by": "PIE-514", "note": "one dispatcher per screen host: tile= read with one grammar over the screen's tiles (declared aliases answer older names), the set that owns a name, expected=, and each action's declared touches checked against the shell's whereabouts once" },
     { "id": "A-F3", "line": 94, "title": "An agent can't leave the main menu, or act on any BBS list screen", "status": "resolved", "by": "#59" },
-    { "id": "A-F4", "line": 106, "title": "The river is a second layout engine; the board's lanes a third weight model", "status": "partial", "by": "#98", "note": "the board is a desk preset: its lanes are query tiles in a columns container on the one tree; the river's layout model is the engine's flow container (PIE-513), and the River screen ports onto it next", "route": "PIE-515" },
-    { "id": "A-F5", "line": 122, "title": "DeskPreset is code, not data; screens built on the desk are Desk subclasses", "status": "open", "route": "PIE-493" },
+    { "id": "A-F4", "line": 106, "title": "The river is a second layout engine; the board's lanes a third weight model", "status": "resolved", "by": "#126", "note": "the board is a screen spec: its lanes are query tiles in a columns container on the one tree; the river is a flow spec on the same engine (its columns are river.column tiles in a flow container, PIE-513, PIE-515)" },
+    { "id": "A-F5", "line": 122, "title": "DeskPreset is code, not data; screens built on the desk are Desk subclasses", "status": "resolved", "by": "#122, #125, #126", "note": "every screen is a spec on the one desk (screen-spec.ts); no class extends Desk" },
     { "id": "A-F6", "line": 138, "title": "Screen-in-a-tile exists twice and can't host the BBS screens", "status": "open", "route": "PIE-493" },
     { "id": "A-F7", "line": 151, "title": "Who's Online and the activity list are built twice", "status": "open", "route": "PIE-493" },
     { "id": "A-F8", "line": 162, "title": "Four live searches, one dead one, and the service's ranked search unused", "status": "partial", "note": "the dead BBS Search screen is deleted (PIE-510); the live searches are still separate and none uses tree.search", "route": "PIE-493" },
@@ -106,10 +106,10 @@
     { "id": "feed", "title": "Capabilities and the change feed", "lede": "Clients ask `ping` what the service can do and pick features by capability, not by protocol bumps. Every committed change is a numbered record: live on `events.subscribe`, replayable from `changes.since`." },
     { "id": "socket", "title": "The socket", "lede": "The door speaks to the service over its Unix socket through one client, SocketBoard. Where a call per paint is too slow, the door holds a copy of the service's grammar, checked byte for byte; the older mirrors are still here." },
     { "id": "surface", "title": "NoteSurface", "lede": "One reader draws every note in the door: the board's preview and details, the desk's readers, the river's columns, the BBS message reader and the hub screens. Editing is one draft component under all of them." },
-    { "id": "actions", "title": "The action registry", "lede": "An action is an ActionDef in an ActionSet: typed arguments, an actor, a refusal with a reason. The desk and the BBS shell run their keys through it. The board and the river still match keys in place, and ActionDef.keys is a caption, not a binding." },
+    { "id": "actions", "title": "The action registry", "lede": "An action is an ActionDef in an ActionSet: typed arguments, an actor, a refusal with a reason. Every screen runs its keys and clicks through it: a screen spec's key map names actions, and one dispatcher per screen host runs them (PIE-514). ActionDef.keys is the caption." },
     { "id": "layout", "title": "The layout tree and tiles", "lede": "The desk is a tree of splits, tab sets and tiles, each with a stable id, and a revision any agent can check with expected=. The algebra is pure and shared; the host around it is still the desk's own." },
     { "id": "terminal", "title": "Terminal tiles and Herdr", "lede": "A tile can run a program: a pty from Bun, the screen through @xterm/headless. An agent that must outlive the door runs in a Herdr pane the tile attaches to. Every exit goes through one teardown." },
-    { "id": "screens", "title": "Screens as specs", "lede": "Every screen is a spec on the one screen host, the desk: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land, all plain data. The desk, the welcome, the brief, Waiting and a pinned page are specs; the board is still a Desk subclass and the river its own strip until the rest of PIE-515; the BBS screens are outside the tree."},
+    { "id": "screens", "title": "Screens as specs", "lede": "Every screen is a spec on the one screen host, the desk: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land, all plain data. The desk, the welcome, the brief, Waiting, a pinned page, the board (its lanes a hub source's columns) and the river (a flow) are specs, and no class extends Desk (PIE-515); the BBS screens are outside the tree."},
     { "id": "agents", "title": "Agents via act and peek", "lede": "A second actor drives the door over its control socket: peek and snap to see, act to do, subscribe for the live feed. An agent's action is attributed and never takes the person's focus, selection or keys." },
     { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and component renderers in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
   ],
@@ -340,8 +340,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 1039, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
-        { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" },
-        { "text": "Screens still subclass the desk to register their sets; a screen spec registers them as data.", "route": "PIE-515" }
+        { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
       ]
     },
     {
@@ -359,7 +358,7 @@
     {
       "id": "door.keys", "name": "Key dispatch", "group": "door", "chapter": "actions", "ladder": "accidental", "dependsOn": ["kept.terminal"],
       "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
-      "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in river.ts), each screen with its own priority order.",
+      "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in the river's old screen), each screen with its own priority order.",
       "refs": [
         { "r": "door", "p": "src/desk/lanes.ts", "l": 1145, "m": "if (c === \"m\") { this.openMover(); return true; }" },
         { "r": "door", "p": "src/screens.ts", "l": 38, "m": "const isBack" }
@@ -452,9 +451,7 @@
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 100, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 311, "m": "\"tile.widen\": {" }
       ],
-      "questions": [
-        { "text": "The board and the other presets still subclass Desk; screens as specs on the engine is next.", "finding": "A-F5", "route": "PIE-515" }
-      ]
+      "questions": []
     },
     {
       "id": "door.tilekinds", "name": "Tile kinds", "group": "door", "chapter": "layout", "ladder": "provisional", "was": "accidental", "dependsOn": [],
@@ -477,7 +474,7 @@
     {
       "id": "door.layouts", "name": "Layout descriptions", "group": "door", "chapter": "layout", "ladder": "accidental", "dependsOn": ["door.layout", "door.identity"],
       "does": "A layout saved by name (daily, river, your own), restored with its tiles, links and ids.",
-      "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, DeskPreset (code), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
+      "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, a screen spec's layout (screen-spec.ts, plain data), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
       "refs": [
         { "r": "door", "p": "src/desk/tiles.ts", "l": 81, "m": "export interface LayoutSpec" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 180, "m": "export function withoutAgentTile" },
@@ -596,7 +593,6 @@
         { "r": "door", "p": "src/brief/brief.ts", "l": 266, "m": "export function briefSpec" }
       ],
       "questions": [
-        { "text": "The board and the river are still their own classes: their specs are the rest of PIE-515.", "finding": "A-F5", "route": "PIE-515" },
         { "text": "Specs stored as notes in the outline (gap 4): the data shape is ready (specData, readSpec, screen.spec).", "finding": "A-F5", "route": "PIE-412" }
       ]
     },

@@ -2,9 +2,9 @@
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
 // the dispatcher, which:
 //
-// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id `t4` or `r7`, a number on
-//   screen `#3`, `focused`, a block id, and the aliases a screen keeps for older names: the board's `detail`, the
-//   river's `3.2`), and the arguments that name a tile (`to=`) the same way;
+// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id `t4`, a number on
+//   screen `#3`, `focused`, a block id, and the aliases a screen keeps for older names: the board's
+//   `detail`), and the arguments that name a tile (`to=`) the same way;
 // - finds the set that owns an action name, in the order the screen registered them (its own sets, the desk's
 //   tile actions, the tile kinds', a reader's note actions, then the shell's, the host layer's and the extensions');
 // - checks `expected=` against the layout's revision;
@@ -21,11 +21,11 @@ import { ActionRefused, agentLabel, asActor, type ActionDef, type ActionInfo, ty
 export interface TileRef {
   /** Its name: what answers say, and what `tile=` matches first. */
   name: string;
-  /** Its stable id (`t4` on a desk, `r7` in the river): the same tile while it lives. */
+  /** Its stable id (`t4`): the same tile while it lives. */
   id?: string;
   /** Its number on screen, from 1 (`#3`, or `3`): where it is now. */
   n?: number;
-  /** Other names it answers to now (the board's `detail`, the river's `3` and `3.2`): a place, like a number. */
+  /** Other names it answers to now (the board's `detail`): a place, like a number. */
   aliases?: readonly string[];
   /** Its kind (`reader`, `pty`, a river column). */
   kind: string;

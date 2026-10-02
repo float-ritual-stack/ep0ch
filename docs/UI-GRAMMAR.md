@@ -503,9 +503,9 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 
 | Where | Code | Backend |
 |---|---|---|
-| BBS `Search` screen | `scr:338` | `board.search`; **not reachable** from any menu |
+| BBS `Search` screen | removed (PIE-510) | was `board.search`, reachable from no menu |
 | Desk `/` overlay | `dsk:371` | `board.search`, debounced, with preview |
-| River `/` jump | `riv:66`, `riv:883` | local `tree.index`; retired by PIE-515 (the river's `g` is the desk's search) |
+| River `/` jump | removed with `river.ts` (PIE-515) | was a local `tree.index`; the river's `g` is the desk's search now, and its `/` filters a column |
 | Board `g` | `del` picker | board (hub) discovery, not text |
 
 - One jump palette, as a shell overlay, would serve every view. PIE-427's outline switcher can
@@ -682,7 +682,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `^W r` / `^W w` | load / save a layout by name | none | new |
 | `q` | back, on every screen but the menu (PIE-489): the board's lanes (it did nothing), the river (it flashed "quote isn't here"). On the menu, the top, it stays the Quay | the river's quote flash moved to `"` (gone since PIE-515); the menu's `q` (Quay) is unchanged: there's nothing under the menu to go back to | changed, except on the menu |
 | `"` | nothing (PIE-515: the river's "quoting isn't here yet" flash went with its screen) | none | removed |
-| the river's keys (PIE-515: its key map, a spec's) | `h l ← →` `tile.focus dir=` (the column before or after) · `w` `tile.widen` · `p` `tile.dock` · `x` `tile.close` · `alt+← backspace` / `alt+→` `tile.travel` · `g` the desk's `search` | the reader's `h l` aren't bound (READER_OWN_KEYS keeps them for extensions only); `p` holds a following reader, but a river column follows nothing; `x` in a thread list resolves, but a session the person is in takes every key first; the desk's `/` is search, so on the river the search moves to `g` (the board's `g` is its hub picker: another screen); `backspace` was the reader's history back, and in a flow back is the column's | moved onto the engine's tile actions; `g` new |
+| the river's keys (PIE-515: its key map, a spec's) | `h l ← →` `tile.focus dir=` (the column before or after) · `w` `tile.widen` · `p` `tile.dock` · `x` `tile.close` · `alt+← backspace alt+b` / `alt+→ alt+f` `tile.travel` · `g` the desk's `search` | the reader's `h l` aren't bound (READER_OWN_KEYS keeps them for extensions only); `p` holds a following reader, but a river column follows nothing; `x` in a thread list resolves, but a session the person is in takes every key first; the desk's `/` is search, so on the river the search moves to `g` (the board's `g` is its hub picker: another screen); `backspace` was the reader's history back, and in a flow back is the column's | moved onto the engine's tile actions; `g` new |
 | `/` in a river column | filter this column (`column.filter`): the hint row is the prompt, `type:hub -status:done author:codex word` its example | it was the river's jump palette (the local index), retired for the desk's search on `g`; the desk's `/` (search) is reached by `g` here | changed (PIE-515, Evan) |
 | `f` `( )` `[ ]` in a river column | fold, fold points, step between the note's elements, as in every reader (the column is a reader of the note surface) | `f` was the river's filter (now `/`); `[ ]` already stepped links | changed: `f` folds (PIE-515) |
 | `#` in a river column | **same property**: the selected note's properties, each a digit, opening a column of every note with it (`column.tag`); "this note has no properties to follow" when it has none | it was labelled "tags" and showed an empty box | relabelled (PIE-515) |

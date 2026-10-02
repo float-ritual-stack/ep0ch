@@ -62,8 +62,7 @@ describe("a screen is a spec", () => {
     const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (p.endsWith(".ts")) files.push(p); } };
     walk(join(import.meta.dir, "../src"));
     const subclasses = files.filter(f => /\bextends\s+Desk\b/.test(readFileSync(f, "utf8"))).map(f => f.replace(/.*\/src\//, "src/"));
-    // The board and the river are ported in the rest of PIE-515.
-    expect(subclasses.filter(f => f !== "src/desk/delivery.ts")).toEqual([]);
+    expect(subclasses).toEqual([]);
   });
 });
 
