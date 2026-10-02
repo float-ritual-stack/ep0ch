@@ -181,9 +181,9 @@ export function modStamp(dirs: string[]): ModStamp | null {
 // ── what it knows ──
 
 /**
- * - `current`: started in a door (EP0CH_CONTROL and the rest), after the installed mod last changed: it has the
- *   door tools.
- * - `stale`: started before the mod changed, or by an older door that left variables out: a restart fixes it.
+ * - `current`: started in a door (EP0CH_CONTROL and the rest): it has the door tools. A mod changed since doesn't
+ *   matter: Claude Code reloads mods into a running session.
+ * - `stale`: started by an older door that left variables out: a restart fixes it.
  * - `no-door`: started without EP0CH_CONTROL, so the mod gave it no door tools.
  * - `unknown`: its environment couldn't be read (gone, or not this user's), or Claude loads no Outliner mod.
  */
@@ -194,15 +194,7 @@ export type AgentKnows =
   | { state: "unknown"; why: string };
 
 const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
-const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-/** A time beside another: the day only when they differ, the seconds only when the minutes don't. */
-const when = (ms: number, other: number) => {
-  const t = hhmm(ms) === hhmm(other) ? new Date(ms).toTimeString().slice(0, 8) : hhmm(ms);
-  return day(ms) === day(other) ? t : `${day(ms)} ${t}`;
-};
 
-/** `ps -o lstart` has whole seconds: a mod written within this of the start counts as before it. */
-const SLACK_MS = 1500;
 
 export function judgeAgent(proc: AgentProc | null, mod: ModStamp | null): AgentKnows {
   if (!proc?.env) return { state: "unknown", why: proc ? `couldn't read pid ${proc.pid}'s environment` : "no agent process" };
@@ -212,10 +204,9 @@ export function judgeAgent(proc: AgentProc | null, mod: ModStamp | null): AgentK
   if (!env.EP0CH_CONTROL) return { state: "no-door", why: "it started without EP0CH_CONTROL, so it has no door tools" };
   const missing = AGENT_VARS.filter(k => !env[k]);
   if (missing.length) return { state: "stale", why: `it was started by an older door, without ${missing.join(", ")}` };
-  if (proc.startedAt !== null && mod.at > proc.startedAt + SLACK_MS) {
-    return { state: "stale", why: `it started at ${when(proc.startedAt, mod.at)}; the Claude mod it loads (${mod.dir}) changed at ${when(mod.at, proc.startedAt)}` };
-  }
-  return { state: "current", why: `started in a door after the Claude mod last changed (${hhmm(mod.at)})` };
+  // A newer mod is not staleness: Claude Code hot-reloads its mods into a running session (2.1.287+), so only
+  // what a session can't pick up live, its environment, needs a restart.
+  return { state: "current", why: `started in a door; the Claude mod (${mod.dir}, last changed ${hhmm(mod.at)}) reloads into it live` };
 }
 
 /** What the chip adds for it (after the agent's state): `door tools`, or what's wrong and ⟳ to restart. */
