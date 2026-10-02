@@ -28,12 +28,13 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    creating it if there is none (like herdr --session <name>); with
                                    nothing named, the folder's bound outline, else the outline named
                                    after the folder. A --ws with a / is a folder root, as before
-  ep0ch session list [--json] | attach [--watch] | end [--yes]
+  ep0ch session list [--json] | attach [--watch] | end [--yes] | upgrade [--clients] | restart
                                    the door session in this state dir: who's attached and what runs in its
-                                   tiles; attach to it (--watch: read-only); end it (asks while programs run).
-                                   EP0CH_DAEMON=1 ep0ch runs the door as a session (quitting detaches; ep0ch
-                                   attaches again); with one running, ep0ch attaches; --no-daemon opens the
-                                   door in this terminal instead
+                                   tiles; attach to it (--watch: read-only); end it (asks while programs run);
+                                   upgrade hands it to a new daemon on this checkout's code (its programs keep
+                                   running; --clients only restarts the terminals); restart does so anyway.
+                                   The door is a session: quitting detaches, ep0ch attaches again; --no-daemon
+                                   (or EP0CH_DAEMON=0) opens the door in this terminal instead
   ep0ch outline list | attach <name> | create <name> | adopt <path> <name> [--root <dir>]
                 | stop <name> | delete <name> [--yes]      [--json]
                                    the host's outlines: attach opens the door on one (the same as
@@ -97,6 +98,9 @@ if (args[0] === "clients") {
 // The door: attached to this state dir's session (started when sessions are on and none runs), or in this terminal.
 const how = await doorMode(args);
 if (how.mode === "attach") process.exit(await attachDoor(args, how));
+// A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on
+// this state dir.
+process.env.EP0CH_DAEMON = "0";
 const opened = await connectTarget(args);
 if ("error" in opened) { console.error(`ep0ch: ${opened.error}`); process.exit(1); }
 

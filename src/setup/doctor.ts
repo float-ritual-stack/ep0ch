@@ -3,7 +3,7 @@
 import { OUTLINE_CAPABILITIES } from "../socket";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
-import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, sessionStep, serviceLabel, unitRunsElsewhere } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -55,6 +55,12 @@ export function doctorChecks(f: Facts): Check[] {
   // Another door checkout's link is left alone on purpose (install skips it too): information, not a fault.
   else if (f.ep0ch.found) add("door", "ep0ch on PATH", link.status === "skip" ? "info" : "behind", link.why);
   else add("door", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
+  // The door session (PIE-418): the daemon, on the door's code or behind it.
+  if (f.session !== undefined) {
+    const sess = sessionStep(f, { status: "skip" }), sx = f.session;
+    if (!sx) add("door", "session", "info", "none running · `ep0ch` starts one");
+    else add("door", "session", sess.status === "do" ? "behind" : /another door checkout|left for you/.test(sess.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
+  }
 
   // outline services
   const h = f.host;

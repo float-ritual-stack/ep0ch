@@ -125,7 +125,7 @@ describe("backup naming", () => {
 describe("the plan", () => {
   test("a behind laptop: backup first, then plugin, door and link; restarts only offered", () => {
     const plan = buildPlan(laptop(), opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:do", "link:do", "restart:offer", "host:skip"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:do", "link:do", "restart:offer", "host:skip", "session:skip"]);
     const [backup, plugin, door, link, restart] = plan.steps;
     expect(backup!.backups!.map(b => b.dest)).toEqual([`${HOME}/backups/ep0ch/seed-library-20260314T092653Z.sqlite`]);
     expect(plugin!.commands).toEqual(["herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main --yes"]);
@@ -152,12 +152,12 @@ describe("the plan", () => {
   });
 
   test("everything current: every step skipped, the backup too (a second run does nothing)", () => {
-    expect(statuses(current())).toEqual(["backup:skip", "plugin:skip", "door:skip", "link:skip", "restart:skip", "host:skip"]);
+    expect(statuses(current())).toEqual(["backup:skip", "plugin:skip", "door:skip", "link:skip", "restart:skip", "host:skip", "session:skip"]);
   });
 
   test("only a restart to do still backs up first", () => {
     const f = { ...current(), services: laptop().services };
-    expect(statuses(f, opts({ restartServices: true }))).toEqual(["backup:do", "plugin:skip", "door:skip", "link:skip", "restart:do", "host:skip"]);
+    expect(statuses(f, opts({ restartServices: true }))).toEqual(["backup:do", "plugin:skip", "door:skip", "link:skip", "restart:do", "host:skip", "session:skip"]);
   });
 
   test("a plugin update makes running services candidates, checked again after it", () => {
@@ -209,6 +209,30 @@ describe("the plan", () => {
   });
 });
 
+describe("the door session (PIE-418)", () => {
+  const session = (o: Partial<NonNullable<Facts["session"]>> = {}) => ({ pid: 4321, dir: `${HOME}/projects/ep0ch-door`, commit: "40aaaaa", clients: 2, programs: 3, ...o });
+  test("a session on the code before the door's update is handed to a daemon on the new code; its programs keep running", () => {
+    const step = buildPlan(laptop({ session: session() }), opts()).steps.at(-1)!;
+    expect(step).toMatchObject({ id: "session", status: "do", commands: ["ep0ch session upgrade"] });
+    expect(step.why).toBe("the session (pid 4321) runs 40aaaaa, the door will be at 49bbbbb: a new daemon on that code takes it over; its 3 programs keep running and its 2 terminals attach again");
+  });
+  test("the target is the door's code after this run: a deps-only update keeps HEAD; a checkout left for the person isn't handed to", () => {
+    const f = current();
+    const ahead = { ...f, door: { checkout: checkout(f.door.checkout.root, { head: "50ccccc", upstream: "1111111aaaa", ahead: 2 }), deps: { needed: true, why: "a package is missing" }, entry: f.door.entry } };
+    expect(buildPlan({ ...ahead, session: session({ commit: "50ccccc" }) }, opts()).steps.at(-1)!.status).toBe("skip");
+    const branch = { ...f, door: { ...f.door, checkout: checkout(f.door.checkout.root, { branch: "pie-418/try", head: "60ddddd" }) } };
+    expect(buildPlan({ ...branch, session: session({ commit: "1111111aaaa" }) }, opts()).steps.at(-1)).toMatchObject({ status: "skip", why: expect.stringContaining("left for you") });
+  });
+
+  test("none running, one on the current code, or one from another checkout: nothing to do", () => {
+    expect(buildPlan(laptop(), opts()).steps.at(-1)).toMatchObject({ id: "session", status: "skip", why: "no door session runs" });
+    expect(buildPlan(laptop({ session: session({ commit: "49bbbbb" }) }), opts()).steps.at(-1)!.status).toBe("skip");
+    const f = current();
+    expect(buildPlan({ ...f, session: session({ commit: f.door.checkout.head }) }, opts()).steps.at(-1)!.why).toContain("runs the current door code");
+    expect(buildPlan(laptop({ session: session({ dir: "/Users/wren/old/ep0ch-door" }) }), opts()).steps.at(-1)!.why).toContain("runs another door checkout");
+  });
+});
+
 describe("the outline host under launchd (the Mac) or systemd", () => {
   const PLUGIN = `${HOME}/.config/herdr/plugins/github/float.pi-outliner-0a1b2c`;
   const unit = { kind: "launchd" as const, path: `${HOME}/Library/LaunchAgents/io.example.outliner-host.plist`, name: "io.example.outliner-host", program: `${PLUGIN}/src/host-main.ts`,
@@ -240,7 +264,7 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
     expect(hostUnitArgv(unit, "restart", 501)).toEqual(["launchctl", "kickstart", "-k", "gui/501/io.example.outliner-host"]);
     // In the whole plan it follows the plugin, and the backup comes first.
     const plan = buildPlan(mac({}, { plugin: laptop().plugin }), opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:skip", "link:skip", "restart:offer", "host:do"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:skip", "link:skip", "restart:offer", "host:do", "session:skip"]);
   });
 
   test("a host missing what the plugin offers is restarted too, and doctor says install does it", () => {

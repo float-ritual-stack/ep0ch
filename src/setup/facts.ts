@@ -1,6 +1,7 @@
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline sockets (`ping`, `outlines.list`), the file system. Nothing here
 // writes a database, starts a service or changes a config.
+import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
@@ -357,7 +358,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services, agents] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services, agents, session] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
@@ -366,6 +367,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("the outline host", hostFacts(base, platform, home)),
     part("folder services", serviceFacts(base)),
     part("door agents", doorAgents(env).catch(() => undefined)),
+    part("the door session", doorSession(env).catch(() => null)),
   ]);
 
   const found = which("ep0ch", pathDirs);
@@ -402,6 +404,14 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     databases: databases(base, host, services),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     expected: plugin?.capabilities ?? [...OUTLINE_CAPABILITIES],
+    session,
   };
+}
+
+/** The door session in the person's state dir (EP0CH_STATE, else their default), when one answers. */
+async function doorSession(env: Record<string, string | undefined>): Promise<Facts["session"]> {
+  const { sessionInfo } = await import("../session/start");
+  const i = await sessionInfo(join(env.EP0CH_STATE ?? defaultStateDir(env), "session.sock"));
+  return i ? { pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) } : null;
 }
 

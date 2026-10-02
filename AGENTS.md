@@ -41,7 +41,9 @@ for working in an outline for someone, and `ep0ch` for driving a door.
 - The owner's door may be running on the default control socket. Never run
   `bun src/main.ts act|peek|snap|open|actions` without pointing at your own test door:
   - start the door with `EP0CH_STATE` and `EP0CH_CONTROL` set under a temp directory, and with
-    `EP0CH_SOCKET` (or the socket argument) pointing at a scratch service;
+    `EP0CH_SOCKET` (or the socket argument) pointing at a scratch service, and `--no-daemon` (or
+    `EP0CH_DAEMON=0`) so it doesn't run as a session that outlives your pane; testing a session, end it
+    yourself (`EP0CH_STATE=… ep0ch session end --yes`);
   - pass the same `EP0CH_CONTROL` to every control command;
   - start it through `scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs the agent
     drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the real-pane

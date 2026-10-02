@@ -34,6 +34,8 @@ function sandbox(state?: string) {
     HOME: join(dir, "home"), XDG_STATE_HOME: join(dir, "xs"), XDG_CACHE_HOME: join(dir, "xc"), TMPDIR: join(dir, "tmp"),
     EP0CH_STATE: state ?? join(dir, "state"), EP0CH_CONTROL: join(dir, "ctl", "door.sock"),
     EP0CH_OBSERVE: "0", EP0CH_KITTY: "0",
+    // The door runs in its pty, as these tests drive it, not as a session that would outlive them.
+    EP0CH_DAEMON: "0",
   };
   return { dir, env };
 }

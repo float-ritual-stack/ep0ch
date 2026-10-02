@@ -571,9 +571,9 @@
       "does": "The door keeps running without a terminal (PIE-418): quitting a terminal detaches it, and the screens, layouts, drafts and terminal tiles (programs and scrollback) are there at the next attach. Several terminals at once, the keys wherever the person last typed; ended only by session.end.",
       "built": "One daemon per user and state dir runs openDoor on a SessionTerm and serves session.sock beside the control socket; a client probes its terminal, sends input and its size, writes the frames it's sent, runs a program the session hands it. Frames, not state: App renders once and SessionTerm paints each client through its own Painter (size, video mode, Kitty images).",
       "refs": [
-        { "r": "door", "p": "src/session/daemon.ts", "l": 70, "m": "export async function serve" },
+        { "r": "door", "p": "src/session/daemon.ts", "l": 81, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 77, "m": "export class SessionTerm" },
-        { "r": "door", "p": "src/session/client.ts", "l": 199, "m": "export async function attach(" },
+        { "r": "door", "p": "src/session/client.ts", "l": 185, "m": "export async function attach(" },
         { "r": "door", "p": "src/session/protocol.ts", "l": 107, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 56, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 41, "m": "export async function openDoor" }
@@ -601,8 +601,8 @@
       "does": "Checks and updates the whole stack: facts detected, a plan, then apply.",
       "built": "setup/: facts, model, plan, apply, doctor.",
       "refs": [
-        { "r": "door", "p": "src/setup/facts.ts", "l": 38, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 151, "m": "MIN_BUN = \"1.3.0\"" }
+        { "r": "door", "p": "src/setup/facts.ts", "l": 39, "m": "export async function run" },
+        { "r": "door", "p": "src/setup/model.ts", "l": 156, "m": "MIN_BUN = \"1.3.0\"" }
       ],
       "questions": [
         { "text": "~/backups/ep0ch isn't configurable.", "finding": "B-F17", "route": "PIE-494" },

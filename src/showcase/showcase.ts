@@ -262,7 +262,7 @@ export const SECTIONS: Section[] = [
         kind: "showcase.session", about: "the terminals attached to this session",
         render: async req => {
           const s = servingSession();
-          const rows = !s ? [`${fg(C.yellow)}this door runs in its own terminal (--no-daemon): quitting it ends it${RESET}`, `${fg(C.grey)}EP0CH_DAEMON=1 ep0ch runs it as a session${RESET}`]
+          const rows = !s ? [`${fg(C.yellow)}this door runs in its own terminal (--no-daemon): quitting it ends it${RESET}`, `${fg(C.grey)}ep0ch (without --no-daemon) runs it as a session${RESET}`]
             : [`${fg(C.lcyan)}session ${process.pid}${RESET} ${fg(C.dark)}drawn at ${s.info.cols}×${s.info.rows}${RESET}`,
               ...s.list().map(c => `  ${c.active ? fg(C.white) : fg(C.grey)}#${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${RESET}`)];
           return { title: "session", lines: rows.map(x => x.slice(0, req.cols + 40)) };

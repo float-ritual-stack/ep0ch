@@ -1,12 +1,12 @@
 // `ep0ch install`'s plan: from the facts (model.ts), which steps run, in order, and which are already current.
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { slugOutlineName } from "../discover";
 import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type ServiceFacts, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). offer: runs with a flag. */
 export type StepStatus = "do" | "skip" | "manual" | "offer";
-export type StepId = "backup" | "plugin" | "door" | "link" | "restart" | "host";
+export type StepId = "backup" | "plugin" | "door" | "link" | "restart" | "host" | "session";
 
 export interface Step {
   id: StepId;
@@ -281,13 +281,38 @@ export function oldMentionsAllowlist(f: Facts): string | null {
   return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
+/**
+ * The door session (PIE-418): a daemon on older code than the door checkout (after its update) is handed to a new one
+ * on that code (`ep0ch session upgrade`): its programs keep running in the terminal host, its terminals attach again.
+ */
+export function sessionStep(f: Facts, door: Pick<Step, "status">): Step {
+  const title = "Hand the door session to the new code";
+  const s = f.session;
+  if (!s) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
+  const c = f.door.checkout;
+  if (resolve(s.dir) !== resolve(c.root)) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs another door checkout, ${s.dir}; run install from that one`, commands: [] };
+  // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
+  // hand the session to.
+  if (door.status === "manual" || door.status === "offer" || c.branch !== "main") return { id: "session", title, status: "skip", why: `the door checkout is left for you (not main, or not fast-forwardable), so the session (pid ${s.pid}) stays on ${short(s.commit)}`, commands: [] };
+  const doorUpdates = door.status === "do" && c.behind > 0;
+  const target = doorUpdates ? c.upstream : c.head;
+  if (s.commit && s.commit === target) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs the current door code (${short(s.commit)})`, commands: [] };
+  return {
+    id: "session", title, status: "do",
+    why: `the session (pid ${s.pid}) runs ${short(s.commit)}, the door ${doorUpdates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
+    commands: ["ep0ch session upgrade"],
+  };
+}
+
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const plugin = pluginStep(f);
   const door = doorStep(f);
   const link = linkStep(f);
+  const session = sessionStep(f, door);
   const restart = restartStep(f, o, plugin.status === "do");
   const host = hostStep(f, plugin.status === "do");
   const backup = backupStep(f, o, [plugin, door, link, restart, host].some(s => s.status === "do"));
-  return { steps: [backup, plugin, door, link, restart, host], notes: planNotes(f) };
+  // The session last: handed to the new code once everything under it is current.
+  return { steps: [backup, plugin, door, link, restart, host, session], notes: planNotes(f) };
 }

@@ -34,6 +34,17 @@ export function codeVersion(dir = resolve(import.meta.dir, "../..")): { dir: str
   } catch { return { dir, commit: null }; }
 }
 
+/** A process's parents, nearest first, up to init (Linux's /proc, else ps); empty when it can't be read. */
+export function ancestors(pid: number): number[] {
+  const out: number[] = [];
+  const parentOf = (p: number): number => {
+    try { const st = readFileSync(`/proc/${p}/stat`, "utf8"); return Number(st.slice(st.lastIndexOf(")") + 2).split(" ")[1]); } catch { /* not Linux */ }
+    try { return Number(Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(p)], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim()); } catch { return 0; }
+  };
+  for (let p = pid, i = 0; p > 1 && i < 64; i++) { p = parentOf(p); if (!Number.isInteger(p) || p <= 1) break; out.push(p); }
+  return out;
+}
+
 /** Whose a process is: its command line (Linux's /proc, else ps), or null when it can't be read. */
 function commandOf(pid: number): string | null {
   try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " "); } catch { /* not Linux */ }
@@ -248,7 +259,9 @@ export async function serve(args: string[]): Promise<never> {
           }
           // A terminal inside this session (one of its tiles, its drop shell) would show the session inside itself,
           // every frame drawn into the tile that draws it.
-          if (nestLayers(h.nest).some(l => l.startsWith(`door:${process.pid}/`) || l === `shell:${process.pid}`)) {
+          // Its own nest names this daemon; a program kept from a daemon before it (a handoff) is found by its
+          // process: a child of the terminal host, or of this daemon.
+          if (nestLayers(h.nest).some(l => l.startsWith(`door:${process.pid}/`) || l === `shell:${process.pid}`) || ancestors(h.pid).some(p => p === process.pid || p === host.hostPid)) {
             link.close({ t: "bye", reason: "refused", code: 1, message: "this terminal is inside the session already (one of its tiles, or its drop shell): attaching would show the session inside itself" });
             return;
           }

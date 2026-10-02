@@ -126,7 +126,8 @@ When interaction changes, drive the real door in a terminal pane, by keys and by
 # in the door checkout (or your worktree of it)
 mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX); chmod 700 "$d"  # short: a socket path over ~104 bytes fails
 # scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_HERDR_AGENT_CMD, EP0CH_DAILY_CWD,
-# EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh, then what you pass.
+# EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh and EP0CH_DAEMON=0 (the door
+# in the pane, not a session that outlives it), then what you pass (EP0CH_DAEMON=1 to test a session).
 tmux new-session -d -s try -x 160 -y 48 \
   "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>"
 C=$d/s/showcase/door/door.sock                  # the showcase sets its own EP0CH_CONTROL; it prints it

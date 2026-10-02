@@ -45,7 +45,8 @@ the outline host and per-folder services (flagging ones running old code), Herdr
 Claude mod. It only reads (`git fetch` aside).
 
 `ep0ch install` without `--apply` is safe to run any time: it prints the plan. Run `--apply` only when the
-person asked for the update. It backs up every outline database to `~/backups/ep0ch/` first, then
+person asked for the update: it also hands the person's door session to the new code, which restarts every
+terminal attached to it. It backs up every outline database to `~/backups/ep0ch/` first, then
 fast-forwards the plugin and door checkouts and links `ep0ch`. After a plugin update (or when the host runs
 old code) it also restarts the outline host through its systemd or launchd unit, and every door and pane on
 it reconnects: say so before you run it. `--restart-services` restarts the person's per-folder service
@@ -76,11 +77,12 @@ person asked for it.
   `~/.local/state/ep0ch-door/door.sock` — **usually the person's own door.**
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
-  it with `ep0ch try … --copy` or against a scratch service, and pass the same `EP0CH_CONTROL` to every
+  it with `ep0ch try … --copy` or against a scratch service with `--no-daemon` (else it runs as a session that
+  outlives your pane), and pass the same `EP0CH_CONTROL` to every
   command. Keep that directory short and mode 700 (`mktemp -d /tmp/…`): a long socket path fails, and the
   door serves no socket in a folder others can reach. `ep0ch-core` has the whole recipe, mouse included.
-- **The door may be a session** (`ep0ch session list` says; README "Sessions: quit is detach"): it runs without a
-  terminal, and its control socket answers whether or not a terminal is attached. To see it as a terminal does,
+- **The person's door is a session** (`ep0ch session list` says; README "Sessions: quit is detach"): it runs
+  without a terminal, and its control socket answers whether or not a terminal is attached. To see it as a terminal does,
   `ep0ch session attach --watch` in a pane of your own (read-only, never the person's keys). Never attach to the
   person's session without `--watch`: your keys would be theirs. Ending it (`session.end`, `ep0ch session end`) is
   the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --yes`),
