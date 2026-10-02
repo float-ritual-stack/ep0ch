@@ -80,8 +80,14 @@ export async function servePtyHost(): Promise<never> {
   try { unlinkSync(path); } catch { /* none */ }
   const held = new Map<number, Held>();
   let daemon: Socket | null = null;
-  // A daemon that stops reading isn't buffered for without end: what it misses is in the ring for its replay.
-  const send = (b: Buffer) => { if (daemon && !daemon.destroyed && daemon.writableLength < RING) daemon.write(b); };
+  // A daemon that stops reading isn't buffered for without end: a program's output it misses is in the ring, sent
+  // whole again (`r`) once it drains, so its emulator starts over from it rather than miss part of a sequence.
+  const dropped = new Set<number>();
+  const send = (b: Buffer, id?: number) => {
+    if (!daemon || daemon.destroyed) return;
+    if (id !== undefined && (dropped.has(id) || daemon.writableLength >= RING)) { dropped.add(id); return; }
+    daemon.write(b);
+  };
   let idle: Timer | null = null;
   /** Nobody to keep running for: no daemon and no program. */
   const checkIdle = () => {
@@ -98,7 +104,7 @@ export async function servePtyHost(): Promise<never> {
         const b = Buffer.from(d);
         h.ring.push(b); h.bytes += b.length;
         while (h.bytes > RING && h.ring.length > 1) { h.bytes -= h.ring.shift()!.length; h.trimmed = true; }
-        send(frame("o", id, b));
+        send(frame("o", id, b), id);
       },
     });
     held.set(id, h);
@@ -143,6 +149,11 @@ export async function servePtyHost(): Promise<never> {
             // took over: the old connection is let go (its daemon is going, or gone).
             if (daemon && daemon !== sock) daemon.destroy();
             daemon = sock;
+            dropped.clear();
+            sock.on("drain", () => {
+              for (const id of dropped) { const x = held.get(id); if (x && daemon === sock) sock.write(frame("r", id, replayOf(x))); }
+              dropped.clear();
+            });
             checkIdle();
             const list: HostPty[] = [...held.values()].map(({ id, key, argv, cols, rows, meta, pid, exited }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited }));
             sock.write(frame("l", 0, { proto: HOST_PROTOCOL, pid: process.pid, ptys: list }));
@@ -202,6 +213,8 @@ interface Entry {
   id: number; key: string | null; argv: string[]; cols: number; rows: number; meta: PtyMeta; pid?: number; exited: number | null;
   /** Where its output goes once a tile has it; till then it's kept to replay. */
   live: ((d: Uint8Array) => void) | null;
+  /** Where its whole output goes again, when the host had to drop some (the tile's emulator starts over). */
+  resync?: ((replay: Uint8Array) => void) | null;
   pending: Buffer[];
   done: (code: number) => void;
   exitedP: Promise<number>;
@@ -269,7 +282,9 @@ export class HostPtys implements PtyBackend {
     if (!e) return;
     switch (f.t) {
       case "r": case "o":
-        if (e.live) e.live(f.raw);
+        // Its output again, whole, after the host dropped some (this daemon fell behind): the tile starts over from it.
+        if (f.t === "r" && e.adopted && e.resync) e.resync(f.raw);
+        else if (e.live) e.live(f.raw);
         else { e.pending.push(f.raw); let n = e.pending.reduce((a, b) => a + b.length, 0); while (n > RING && e.pending.length > 1) n -= e.pending.shift()!.length; }
         break;
       case "p": e.pid = f.json.pid; break;
@@ -295,6 +310,7 @@ export class HostPtys implements PtyBackend {
       resize: (cols, rows) => { e.cols = cols; e.rows = rows; send(frame("z", e.id, { cols, rows })); },
       kill: sig => send(frame("k", e.id, { signal: sig ?? "SIGTERM" })),
       close: () => { this.entries.delete(e.id); send(frame("f", e.id)); },
+      set onResync(f: ((replay: Uint8Array) => void) | null) { e.resync = f; },
     };
   }
 

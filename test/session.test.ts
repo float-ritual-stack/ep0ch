@@ -485,7 +485,7 @@ describe("a terminal tile adopting a kept program", () => {
       kind: "host" as const, spawn: () => { throw new Error("not this test"); }, meta() {}, holds: () => true,
       adopt: (key: string) => (key === "desk.json:t5" ? { proc, replay: Buffer.from(replay), cols: 30, rows: 8, argv: ["sh"], meta: { cmd: ["sh"], socket: null }, exited } : null),
     };
-    return { backend, writes, sizes };
+    return { backend, writes, sizes, proc };
   }
   const pane = () => { const p = new PtyPane({ cmd: ["sh"] }); p.home = "desk.json"; p.tileId = "t5"; p.init({ redraw() {}, ctx: { flash() {} } } as any); return p; };
 
@@ -501,6 +501,11 @@ describe("a terminal tile adopting a kept program", () => {
       expect(k.sizes).toEqual([[30, 7], [30, 8]]);           // the same size: a resize away and back
       expect(mouseBytes({ kind: "mouse", action: "down", button: 0, x: 1, y: 1 }, 1, 1, (p as any).sgr)).toBe("\x1b[<0;2;2M");
       p.input("x");
+      expect(k.writes).toEqual(["x"]);
+      // The host dropped some output (the daemon fell behind) and sent all it kept again: the tile starts over from it.
+      (k.proc as any).onResync(Buffer.from("seed list\r\nchard, beans\r\n\x1b[6n"));
+      await until(() => p.text().join("\n").includes("chard, beans"), "the tile started over", 2000);
+      expect(p.text().filter(l => l.includes("seed list"))).toHaveLength(1);
       expect(k.writes).toEqual(["x"]);
     } finally { usePtyBackend(localPtys); }
   });

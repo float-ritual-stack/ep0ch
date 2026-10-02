@@ -530,7 +530,7 @@
       "built": "PtyPane over a PtyBackend (Bun.Terminal in this process, or a session's terminal host) and @xterm/headless; tileEnv is the one list of what a program doesn't inherit. A terminal's actions belong to its kind (PTY_ACTIONS: tile.type, tile.restart, tile.enter, tile.leave, tile.herdr, #105).",
       "refs": [
         { "r": "door", "p": "src/desk/pty.ts", "l": 127, "m": "export class PtyPane" },
-        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 66, "m": "new Bun.Terminal" },
+        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 68, "m": "new Bun.Terminal" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 27, "m": "export const PTY_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 108, "m": "export function tileEnv" }
       ],
@@ -589,8 +589,8 @@
       "built": "Bun can't pass a pty between processes, so the ptys live in a host process of their own (pty.sock) behind the PtyBackend seam; PtyPane adopts by its tile (keptAs). The restore is a checkpoint: the screens open as the actions that open them, run again only where the ActionDef declares replay safe, and the edits open on top; each screen's layout is its own saved state.",
       "refs": [
         { "r": "door", "p": "src/session/pty-host.ts", "l": 71, "m": "export async function servePtyHost" },
-        { "r": "door", "p": "src/session/pty-host.ts", "l": 216, "m": "export class HostPtys" },
-        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 63, "m": "export const localPtys" },
+        { "r": "door", "p": "src/session/pty-host.ts", "l": 229, "m": "export class HostPtys" },
+        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 65, "m": "export const localPtys" },
         { "r": "door", "p": "src/session/restore.ts", "l": 54, "m": "export class Checkpoints" },
         { "r": "door", "p": "src/session/restore.ts", "l": 89, "m": "export async function restore" }
       ],

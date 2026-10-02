@@ -17,6 +17,8 @@ export interface PtyProc {
   kill(signal?: NodeJS.Signals): void;
   /** Let go of it: the pty is closed and, under a host, the program forgotten (killed if it still runs). */
   close(): void;
+  /** A host's: its whole kept output again, when the host had to drop some of it (the tile starts over from it). */
+  onResync?: ((replay: Uint8Array) => void) | null;
 }
 
 /** What a tile remembers of its program across a handoff (the host keeps it beside the pty). */

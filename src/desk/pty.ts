@@ -238,6 +238,13 @@ export class PtyPane implements Pane {
       modes(Buffer.from(d).toString("latin1"), true);
       term.write(d, () => this.soon());
     };
+    // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
+    this.resync = replay => {
+      replaying = true;
+      (term as unknown as { reset(): void }).reset();
+      modes(Buffer.from(replay).toString("latin1"), false);
+      term.write(replay, () => { replaying = false; this.soon(); });
+    };
     // A program no layout brings back (a ctrl+e editor, a showcase's exhibit) runs here, and ends with this process.
     const backend = this.keptAs ? ptyBackend() : localPtys;
     this.ownProcess = backend.kind === "local";
@@ -296,6 +303,7 @@ export class PtyPane implements Pane {
 
   /** It runs: kept with the live ones until it exits. */
   private watch(proc: PtyProc) {
+    proc.onResync = replay => this.resync?.(replay);
     LIVE.add(this);
     const socket = this.socket;
     void proc.exited.then(code => this.ended(proc, code, socket));
@@ -315,6 +323,8 @@ export class PtyPane implements Pane {
     f?.(this.exited);
   }
 
+  /** Start the emulator over from what the program wrote (a host's resync). */
+  private resync: ((replay: Uint8Array) => void) | null = null;
   /** What the terminal host keeps with the program for the next daemon: its command, nvim's socket, a Herdr attach. */
   private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane }; }
   private remember() { const k = this.keptAs; if (k && this.running) ptyBackend().meta(k, this.meta()); }
