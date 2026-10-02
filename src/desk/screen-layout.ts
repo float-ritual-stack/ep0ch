@@ -1121,7 +1121,8 @@ export function hostLayer(o: { tabs: string[]; names?: ReadonlyMap<string, strin
   const edge = o.edge ?? "down", share = Math.max(0.05, Math.min(0.95, o.share ?? 0.5));
   const active = Math.max(0, o.tabs.indexOf(o.shown ?? o.tabs[0]!));
   const kid: LNode<string> = o.tabs.length === 1 ? leaf(o.tabs[0]!) : { t: "tabs", ids: [...o.tabs], active, policy: {} };
-  const drawer: Drawer<string> = { t: "drawer", kid, edge, open: !!o.open, policy: { stays: true } };
+  // It stays up when the keys go back to the screen; at least a frame and a row of what it shows.
+  const drawer: Drawer<string> = { t: "drawer", kid, edge, open: !!o.open, policy: { stays: true, min: 4 } };
   const first = edge === "left" || edge === "up";
   const tree: LNode<string> = { t: "split", dir: edge === "left" || edge === "right" ? "row" : "col", kids: first ? [drawer, leaf(HOST_SCREEN)] : [leaf(HOST_SCREEN), drawer], weights: first ? [share, 1 - share] : [1 - share, share], key: "host" };
   const names = new Map<string, string>([[HOST_SCREEN, HOST_SCREEN], ...o.tabs.map(t => [t, o.names?.get(t) ?? t] as [string, string])]);

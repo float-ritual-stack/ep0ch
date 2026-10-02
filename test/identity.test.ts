@@ -12,7 +12,7 @@ import { App } from "../src/app";
 import { startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { attachTitle } from "../src/desk/herdr-agent";
-import { builtin, withDailyAgent } from "../src/desk/tiles";
+import { builtin, withoutAgentTile } from "../src/desk/tiles";
 import { leaf, splitOf, revive, serialize, type LNode } from "../src/desk/layout";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -39,25 +39,22 @@ describe("ids in the saved form", () => {
 
 describe("the daily agent tile in a saved layout", () => {
   const spec = (l: Record<string, unknown>) => ({ root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "pty", name: "claude", ...l }, { t: "leaf", kind: "detail", name: "middle" }], weights: [1, 1] } }) as any;
-  const claude = (s: any) => s.root.kids[0];
-  test("a flagged tile, or the plain claude default in a daily desk, runs what EP0CH_DAILY_AGENT and EP0CH_DAILY_CWD say now", () => {
-    const was = { agent: process.env.EP0CH_DAILY_AGENT, cwd: process.env.EP0CH_DAILY_CWD };
-    process.env.EP0CH_DAILY_AGENT = "garden-agent --attach";
-    delete process.env.EP0CH_DAILY_CWD;
-    try {
-      expect(claude(withDailyAgent(spec({ cmd: ["claude"] }), "daily"))).toMatchObject({ agent: true, cmd: ["garden-agent", "--attach"] });
-      expect(claude(withDailyAgent(spec({ cmd: ["old-agent"], cwd: "/plot", agent: true }), "garden"))).toEqual({ t: "leaf", kind: "pty", name: "claude", agent: true, cmd: ["garden-agent", "--attach"] });
-      // Not the agent tile: another layout, another name, or a command the person changed.
-      for (const [l, from] of [[{ cmd: ["claude"] }, "garden"], [{ cmd: ["claude"] }, undefined], [{ cmd: ["claude", "--resume"] }, "daily"], [{ cmd: ["claude"], name: "helper" }, "daily"]] as const) {
-        const s = spec(l);
-        expect(withDailyAgent(s, from)).toBe(s);
-      }
-      const leaves = (n: any): any[] => (n.kids ? n.kids.flatMap(leaves) : n.tabs ? n.tabs.flatMap(leaves) : [n]);
-      expect(leaves(builtin("daily")!.root).find(l => l.name === "claude")).toMatchObject({ agent: true, cmd: ["garden-agent", "--attach"] });
-    } finally {
-      if (was.agent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = was.agent;
-      if (was.cwd !== undefined) process.env.EP0CH_DAILY_CWD = was.cwd;
+  test("the agent has one home, the host layer: a flagged tile, or the plain claude default in a daily desk, is left out, the host beside", () => {
+    for (const [l, from] of [[{ cmd: ["claude"] }, "daily"], [{ cmd: ["old-agent"], cwd: "/plot", agent: true }, "garden"]] as const) {
+      const s = withoutAgentTile(spec(l), from);
+      expect(s.root).toMatchObject({ kids: [{ t: "leaf", kind: "detail", name: "middle" }] });
+      expect(s.policy).toEqual({ host: "beside" });
     }
+    // Not the agent tile: another layout, another name, or a command the person changed. A screen that says where
+    // the host layer goes keeps its word.
+    for (const [l, from] of [[{ cmd: ["claude"] }, "garden"], [{ cmd: ["claude"] }, undefined], [{ cmd: ["claude", "--resume"] }, "daily"], [{ cmd: ["claude"], name: "helper" }, "daily"]] as const) {
+      const s = spec(l);
+      expect(withoutAgentTile(s, from)).toBe(s);
+    }
+    expect(withoutAgentTile({ ...spec({ agent: true }), policy: { host: "over" } }, "daily").policy).toEqual({ host: "over" });
+    const leaves = (n: any): any[] => (n.kids ? n.kids.flatMap(leaves) : n.tabs ? n.tabs.flatMap(leaves) : [n]);
+    expect(leaves(builtin("daily")!.root).find(l => l.name === "claude")).toBeUndefined();
+    expect(builtin("daily")!.policy).toEqual({ host: "beside" });
   });
 });
 
@@ -194,6 +191,9 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
   });
 
   test("F18: the Herdr agent tile is flagged by tile.herdr, not by what its program puts in its title", async () => {
+    // A terminal tile of the person's own (the agent is the host layer's, PIE-513, not a tile here).
+    await mine("tile.open", { kind: "pty", name: "claude", cmd: "sh" }, "middle");
+    await until(() => !!D().panes.get([...D().names].find(([, n]: any) => n === "claude")![0])?.running, "its shell");
     // The program says the attach title itself: that no longer makes the door think the agent outlives it.
     await act("tile.type", { text: `printf '\\033]2;${attachTitle("door-claude")}\\007'\n` }, "claude");
     await Bun.sleep(300);
@@ -208,16 +208,19 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     await expect(act("tile.herdr", { pane: "door-claude" }, "tree")).rejects.toThrow(/tree is an outline tile: tile.herdr is for a terminal tile/);
     await act("tile.herdr", { on: false }, "claude");
     expect(pane.herdr).toBeNull();
+    await daily();
   });
 
-  test("F18: an agent's open from a tile lands where that tile's opens go (the daily claude tile links to middle)", async () => {
+  test("F18: an agent's open from a tile lands where that tile's opens go (the daily now tile links to middle); from the host's agent, where an agent's open lands", async () => {
     const g = await get();
-    expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
-    const o = await act("open", { id: notes.shed.id, from: "claude" }) as any;
+    expect(g.tiles.find((t: any) => t.name === "now").link).toBe("middle");
+    const o = await act("open", { id: notes.shed.id, from: "now" }) as any;
     expect(o).toMatchObject({ reader: "middle", id: notes.shed.id });
     // Linked elsewhere, the open follows the link: the caller never named middle.
-    await act("tile.link", { to: "side" }, "claude");
-    expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("side");
+    await act("tile.link", { to: "side" }, "now");
+    expect((await act("open", { id: notes.shed.id, from: "now" }) as any).reader).toBe("side");
+    // The host layer's agent (EP0CH_TILE=claude) has no tile here: its open lands where `ep0ch open` puts one.
+    expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).id).toBe(notes.shed.id);
     await expect(act("open", { id: notes.shed.id, from: "nowhere" })).rejects.toThrow(/no tile nowhere/);
     await daily();
   });
@@ -266,15 +269,11 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     app.push(desk); app.redraw(); desk.render(D().ctx);
   };
 
-  test("a daily desk.json saved before ids gets the claude tile's link, so open from=claude lands in middle, not the first reader", async () => {
+  test("a daily desk.json saved before ids gets the links the daily layout has, so the now tile's opens land in middle", async () => {
     fromSaved(oldDaily(false));
     const g = await get();
-    expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
     expect(g.tiles.find((t: any) => t.name === "now").link).toBe("middle");
-    expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("middle");
-    // Saved with ids, a desk whose claude tile has no link keeps none: the person's own choice.
-    fromSaved(oldDaily(true));
-    expect((await get()).tiles.find((t: any) => t.name === "claude").link).toBeUndefined();
+    expect((await act("open", { id: notes.shed.id, from: "now" }) as any).reader).toBe("middle");
     // Review: a "daily" saved in layouts.json before ids is loaded by name, and gets the link the same way.
     const layouts = join(state(), "layouts.json");
     const had = await Bun.file(layouts).exists() ? await Bun.file(layouts).text() : null;
@@ -282,9 +281,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
       writeFileSync(layouts, JSON.stringify({ ...(had ? JSON.parse(had) : {}), daily: { ...oldDaily(false), name: "daily" } }));
       await mine("layout.load", { name: "daily" });
       const g = await get();
-      expect(g.tiles.map((t: any) => t.name)).toEqual(["claude", "tree", "now", "middle"]);
-      expect(g.tiles.find((t: any) => t.name === "claude").link).toBe("middle");
-      expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).reader).toBe("middle");
+      expect(g.tiles.find((t: any) => t.name === "now").link).toBe("middle");
     } finally { if (had === null) rmSync(layouts, { force: true }); else writeFileSync(layouts, had); }
     await daily();
   });
@@ -312,31 +309,22 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     }
   };
 
-  test("the daily agent tile runs EP0CH_DAILY_AGENT when restored, not the command it was saved with; a changed command stays", async () => {
+  test("a daily desk saved with the agent tile comes back without it (the agent is the host layer's), its screen beside it; a changed command stays", async () => {
     await withAgent("sh -s", state(), async () => {
-      // Saved before the flag, with the plain default: it's the agent tile (the migration rule in withDailyAgent).
+      // Saved before the flag, with the plain default: it's the agent tile, and it goes (the rule in withoutAgentTile).
       fromSaved(plainDaily(["claude"]));
-      expect(await cmdOf("claude")).toMatchObject({ cmd: ["sh", "-s"], cwd: state() });
+      expect([...D().panes.values()].some((p: any) => p.kind === "pty" && p.run.label === "claude")).toBe(false);
       expect((await cmdOf("draft")).cmd).toEqual(["tail", "-f", join(state(), "draft.md")]);
-      // Saved again, it carries the flag; restored under another agent, it runs that one.
-      await mine("layout.even");
-      const saved = JSON.parse(await Bun.file(join(state(), "desk.json")).text());
-      expect(JSON.stringify(saved)).toContain(`"agent":true`);
-    });
-    await withAgent("sh -e", undefined, async () => {
-      fromSaved(JSON.parse(await Bun.file(join(state(), "desk.json")).text()));
-      const t = await cmdOf("claude");
-      expect(t.cmd).toEqual(["sh", "-e"]);
-      expect(t.cwd).toBeUndefined();
+      expect((await get()).policy).toEqual({ host: "beside" });
       // layout.load of a daily saved in layouts.json the same way.
       const layouts = join(state(), "layouts.json");
       const had = await Bun.file(layouts).exists() ? await Bun.file(layouts).text() : null;
       try {
         writeFileSync(layouts, JSON.stringify({ ...(had ? JSON.parse(had) : {}), daily: { ...plainDaily(["claude"]), name: "daily" } }));
         await mine("layout.load", { name: "daily" });
-        expect((await cmdOf("claude")).cmd).toEqual(["sh", "-e"]);
+        expect([...D().panes.values()].some((p: any) => p.kind === "pty" && p.run.label === "claude")).toBe(false);
       } finally { if (had === null) rmSync(layouts, { force: true }); else writeFileSync(layouts, had); }
-      // A command the person changed isn't the default: it stays theirs.
+      // A command the person changed isn't the agent: it stays theirs, a terminal tile like any other.
       fromSaved(plainDaily(["sh", "-u"]));
       expect((await cmdOf("claude")).cmd).toEqual(["sh", "-u"]);
     });
@@ -393,5 +381,16 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
       expect((await opening as any).reader).toBe("middle");
     } finally { (board as any).get = slow; }
     await daily();
+  });
+});
+
+describe("the agent tile left out wherever a save put it", () => {
+  test("a float holding it goes too; a layout of nothing but it comes back as the desk", () => {
+    const agent = { t: "leaf", kind: "pty", name: "claude", cmd: ["door-claude"], agent: true } as any;
+    const s = withoutAgentTile({ root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "detail", name: "middle" }, { t: "leaf", kind: "tree", name: "tree" }], weights: [1, 1] }, floats: [{ tile: agent, rect: { col: 1, row: 1, cols: 30, rows: 10 } }] } as any, "garden");
+    expect(s.floats).toEqual([]);
+    const only = withoutAgentTile({ root: agent } as any, "garden");
+    expect(JSON.stringify(only.root)).not.toContain("door-claude");
+    expect(JSON.stringify(only.root)).toContain(`"kind":"tree"`);
   });
 });

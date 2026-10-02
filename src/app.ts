@@ -18,7 +18,7 @@ import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, dockRunner, overlay, type DockRun } from "./dock";
-import { shareAgent, sharedAgent } from "./desk/tiles";
+import type { HostMode } from "./desk/screen-layout";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -125,6 +125,11 @@ export interface Screen {
   viewState?(): ViewState;
   /** No agent drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDock?: boolean;
+  /**
+   * Where the host layer (the agent drawer) may appear over this screen, as its spec says (PIE-513, its policy's
+   * `host`): `over` it (the default), `beside` it (the screen drawn shorter), or `none` (it keeps the whole screen).
+   */
+  hostMode?(): HostMode;
 }
 
 /**
@@ -184,10 +189,9 @@ export class App implements Ctx {
     this.started = now();
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
-    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms) });
+    // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
+    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1) });
     this.dockRun = dockRunner(this.dock, this, () => this.stack.at(-1));
-    // The daily layout's agent tile is the dock's (one attach to its Herdr pane per door).
-    shareAgent(this.dock);
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
     // Raw input while the person types in the agent drawer or a terminal tile: the drawer first, then the
@@ -199,7 +203,14 @@ export class App implements Ctx {
     this.timer = setInterval(() => this.tick(), 33);
   }
 
-  get t() { return this.term.info; }
+  /**
+   * The screen layer's terminal: the whole of it, or (the host layer pulled up beside a screen that asks for that) the
+   * rows above the drawer. Screens read their size only here, so their drawing, their hit rows and their keys agree.
+   */
+  get t() {
+    const i = this.term.info, beside = this.dock.besideRows(i.rows, i.cols);
+    return beside ? { ...i, rows: Math.max(2, i.rows - beside) } : i;
+  }
   screens(): readonly Screen[] { return this.stack; }
   idleFor(): number { return Date.now() - this.lastInput; }
   dockHoldsKeys(): boolean { return this.dock.shown && this.dock.entered; }
@@ -483,7 +494,6 @@ export class App implements Ctx {
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
-    if (sharedAgent() === this.dock) shareAgent(null);
     this.kitty.dispose();
     this.done();
   }
@@ -640,7 +650,8 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
-    // The agent drawer (PIE-498) is laid over the screen's bottom rows after it renders at its full size.
+    // The agent drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
+    // its full size under it; beside one, the screen drew in the rows above it (App.t).
     this.dock.active = !s.noDock;
     const frame = s.render(this);
     let lines = frame.lines.slice(0, rows - 1);

@@ -58,7 +58,7 @@ The three routes:
 
     ssh:pts/5 › door:1388380/desk/t1:claude                               # plain ssh: a door, a tile
     ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude                 # the door in a Herdr pane
-    ssh:pts/5 › herdr:w1:p1 › door:1388380/daily/t3:claude › herdr:door-claude   # the daily agent in Herdr
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-claude   # the agent drawer's agent in Herdr
 
 The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 launch place, and the agent's Herdr pane keeps the door that made it while another door shows it.
@@ -155,16 +155,18 @@ These change what the person looks at, so an agent's is a visible, attributed mo
     ep0ch act list.read --as claude-7
     ep0ch act list.open n=3 --as claude-7
 
-### The agent drawer (PIE-498)
+### The agent drawer: the host layer (PIE-498, PIE-513)
 
-Also on every screen but the logon: the agent drawer, the App's one agent tile, pulled up from the status bar's
-`▲ claude` chip over whatever screen is shown. `peek` gives its state as `dock` (`open`, `entered`, `share`,
-`rect`, `state`, `openedBy`, `herdr`, and its `terminal` as a tile gives it).
+Also on every screen but the logon: the host layer's drawer, whose first tab is the App's one agent tile, pulled
+up from the status bar's `▲ claude` chip over (or beside) whatever screen is shown, as that screen's policy says
+(`host`: `over`, `beside`, `none`). The agent has no tile on any screen. `peek` gives its state as `dock` (`open`,
+`entered`, `share`, `host`, `rect`, `state`, `openedBy`, `herdr`, and its `terminal` as a tile gives it).
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
-| `agent.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
-| `agent.height` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
+| `host.toggle` (`agent.toggle`) | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
+| `host.size` (`agent.height`) | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
+| `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the drawer | refused while the person types in it, and while it isn't running; said on the status bar. The agent is no screen's tile, so `tile.type` doesn't reach it |
 | `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
 | `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: a new `door-claude` pane). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
 
@@ -190,7 +192,8 @@ thing after someone else's change.
   rule with a tile named `2` (or `t2`, or any name the rule refuses, such as one with a space) loads with that
   tile renamed to its kind (`detail`, or `detail2` when taken), and its links, sources and focus follow. A
   `desk.json` saved from the `daily` layout before ids, or a `daily` saved in `layouts.json` then, gets the
-  links that layout has gained since (the claude tile's, to `middle`), on tiles that have none.
+  links that layout has gained since (the now tile's, to `middle`), on tiles that have none. The old daily agent
+  tile is left out: the agent is the host layer's.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
 - **`tile=<tile>`** (or `reader=`, its older name: both are resolved in one place, `parseActArgs` and the
   control socket) takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
@@ -290,8 +293,8 @@ at, and what it does while they're typing:
 | `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
 | `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
 | `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
-| `agent.toggle open=true` | no: the drawer comes up over the screen, the keys stay where they were | refused, and within 2s of their last key |
-| `agent.toggle open=false`, `agent.height` | no | refused while they're typing in the drawer |
+| `host.toggle open=true` | no: the drawer comes up over (or beside) the screen, refused on a screen whose `host` is `none`; the keys stay where they were | refused, and within 2s of their last key |
+| `host.toggle open=false`, `host.size` | no | refused while they're typing in the drawer |
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |

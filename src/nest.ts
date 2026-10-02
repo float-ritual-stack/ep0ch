@@ -1,6 +1,6 @@
 // Where am I: EP0CH_NEST, the stack of layers a program runs in, outermost first, one line.
 //
-//   ssh:pts/5 › herdr:w1:p1 › door:1388380/daily/t3:claude › herdr:door-claude
+//   ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-claude
 //
 // Each layer appends itself as it starts the next, since each one only knows its own variables:
 // - a door, in each terminal tile's environment (`tileEnv`): `door:<pid>/<layout or screen>/<tile id>:<tile name>`;

@@ -13,7 +13,7 @@ import { PTY_ACTIONS } from "./pty-actions";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
 import { HUB_SOURCE, laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
-import { DetailPane, dailyDraft, editor, sharedAgent, shell, words } from "./tiles";
+import { DetailPane, dailyDraft, editor, shell, words } from "./tiles";
 import { TREE_ACTIONS } from "./tree";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
@@ -101,10 +101,7 @@ const builtins = (): TileKind[] => [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },
     ],
-    make: s => {
-      const shared = s.agent ? sharedAgent()?.paneFor(s) : null;
-      return shared ?? new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.agent ? { agent: true } : {}) });
-    },
+    make: s => new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name }),
     actions: PTY_ACTIONS,
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
     press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || (k.kind === "char" && !k.ctrl && k.ch === "e") ? { action: "tile.enter" } : null),

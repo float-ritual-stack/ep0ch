@@ -106,7 +106,7 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
-/** `agent`: the daily layout's agent tile, saved with that flag so its program is read again when it's restored (`withDailyAgent`). */
+/** `agent`: the host layer's agent (the dock's one tile, PIE-513), which reads its program from EP0CH_DAILY_AGENT. */
 export interface PtySpec {
   cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean;
   /** Variables the program gets on top of a terminal tile's own (an extension's tile: its outline and socket, PIE-512). */

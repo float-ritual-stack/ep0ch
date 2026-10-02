@@ -1,17 +1,21 @@
-// The dock, first slice (PIE-498): the agent that stays with the person on every screen. One terminal tile
-// (`PtyPane`, the terminal tile's own code) belongs to the App, not to a screen. It runs what the daily
-// layout's agent runs (`dailyAgent()`: the Herdr launcher on float-2, so the agent lives in a Herdr pane and
-// outlives the door), and it starts the first time it's pulled up. A chip on the status bar (`▲ claude`)
-// pulls it up as a drawer over the lower part of whatever screen is shown; the screen under it never
-// reflows: it's drawn at its full size and the drawer is laid over its bottom rows, as the desk's drawers
-// slide over its tiles without moving them.
+// The host layer (PIE-513; the dock's first slice was PIE-498): what stays with the person on every screen, above
+// the screen layer that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in
+// src/desk/screen-layout.ts): a slot for whatever screen is shown, beside a real drawer of tabs whose first tab is
+// the agent, one terminal tile (`PtyPane`, the terminal tile's own code) that belongs to the App, not to a screen.
+// It runs what `dailyAgent()` says (the Herdr launcher on float-2, so the agent lives in a Herdr pane and outlives
+// the door), and it starts the first time it's pulled up. A chip on the status bar (`▲ claude`) pulls the drawer
+// up. Where it appears is the screen's to say (its policy's `host`): `over` its lower rows, the screen drawn at
+// its full size under it (the default); `beside` it, the screen drawn shorter (the daily desk); or `none`.
 //
-// The daily layout's agent tile is this same instance (`shareAgent` in src/desk/tiles.ts): one door never
-// attaches to the Herdr pane twice (Herdr allows one attached client per terminal, and a second attach from
-// the same door would only watch). While the drawer shows it, the desk's tile says so instead of drawing it
-// at a second size, so the program isn't resized back and forth each paint.
+// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout's agent tile is
+// gone; a layout saved with one comes back without it, `withoutAgentTile`). One door never attaches to the
+// Herdr pane twice. The person's keys move through the host layer's own transitions: pulled up by the person,
+// they go to the agent; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly
+// as they left it. An agent's pull never takes them.
 //
-// Everything is an action (`DOCK_ACTIONS`: `agent.toggle`, `agent.height`, `agent.knows`, `agent.restart`): the
+// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`, older names
+// `agent.toggle`, `agent.height`, `agent.enter`, `agent.leave`; and the agent's own `agent.type`, `agent.knows`,
+// `agent.restart`): the
 // chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
 // agent over `act`. An agent may pull it up
 // only under the shell's rule (`agentMayMove`: never while the person types, never within 2s of their last
@@ -26,13 +30,14 @@
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { agentConfig, herdrBin, herdrRunner, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
-import { DOCK_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
+import { DOCK_NAME, DOCK_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
 import { alive } from "./state";
 import { controlPath } from "./control";
 import type { DeskApi } from "./desk/panes";
 import { ESCAPE_CHORD, isEscapeChord, PtyPane } from "./desk/pty";
 import { rawKey } from "./kbd";
-import { dailyAgent, type SharedAgent } from "./desk/tiles";
+import { dailyAgent } from "./desk/tiles";
+import { apply as applyLayout, shown as shownTiles, hostDrawer, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { agentMayMove } from "./screens";
 import { USER, type Actor } from "./socket";
@@ -42,13 +47,11 @@ import type { Key } from "./term";
 
 /** The dock agent's tile id and name: what `EP0CH_TILE_ID` and `EP0CH_TILE` tell its program (never a desk id, `t<n>`). */
 export { DOCK_TILE_ID };
-export const DOCK_NAME = "claude";
+export { DOCK_NAME };
 /** The drawer's height, as a share of the rows above the status bar: at least this, at most that. */
 export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
 /** alt+A steps through these. */
 export const HEIGHT_STEPS = [0.4, 0.5, 0.6, 0.75] as const;
-/** A drawer is never shorter than this many rows (its frame and two of the program's). */
-const MIN_ROWS = 4;
 /** A second ctrl+] within this long is the chord's second press (the terminal tile's window too). */
 const CHORD_MS = 1500;
 /** How long after the program's last output the chip still says `working` (no Herdr status to ask). */
@@ -75,16 +78,21 @@ export interface DockHost {
   /** Only the status bar changed (the chip): repaint it alone when the screen allows. */
   statusChanged(): void;
   flash(msg: string, ms?: number): void;
+  /** The screen shown (the screen layer): where it lets the host layer appear, whether the person types in it. */
+  screen?(): Screen | undefined;
 }
 
 const clamp = (share: number) => Math.max(MIN_SHARE, Math.min(MAX_SHARE, share));
 const isAlt = (k: Key, ch: string) => k.kind === "alt" && k.ch === ch;
 
-export class AgentDock implements SharedAgent {
-  open = false;
-  share = 0.5;
-  /** The person is in the drawer: every key but ctrl+], alt+a and alt+A is the agent's. Never set by an agent. */
-  entered = false;
+export class AgentDock {
+  /**
+   * The host layer: a slot for the screen shown beside a drawer of tabs (the agent its first). One value on the layout
+   * engine, changed only by its operations (`do`): pulled up, put away, sized, the keys in it or back on the screen.
+   */
+  private layer: LayoutState<string>;
+  /** Where the person's keys are in the host layer: the screen slot, or the agent (the module's answer each time). */
+  private keys: string = HOST_SCREEN;
   /** Who pulled it up, when that was an agent (said in the drawer's title until the person uses it). */
   openedBy: Actor | null = null;
   /** The screen shown lets the drawer be drawn (not the logon or the logoff). Set by the App before each paint. */
@@ -93,7 +101,6 @@ export class AgentDock implements SharedAgent {
   rect: Rect | null = null;
   chipAt: { from: number; to: number; row: number } | null = null;
   private p: PtyPane | null = null;
-  private viewers = new Set<{ redraw(): void }>();
   /**
    * ctrl+]: when the person last left the drawer with it (a second one within CHORD_MS goes back in and sends
    * the agent a ctrl+], as a terminal tile's does), and when one last went by to the screen (its own second).
@@ -119,13 +126,53 @@ export class AgentDock implements SharedAgent {
   /** `persist`: read and write dock.json (a test's dock may not). `herdr`: how Herdr is asked (a fake in tests). */
   constructor(private readonly host: DockHost, private readonly persist = true, private readonly herdr: HerdrRun | null = defaultHerdr()) {
     const s = persist ? readState<Partial<DockSaved>>("dock.json") : null;
-    if (s && typeof s === "object") {
-      this.open = s.open === true;
-      if (typeof s.share === "number" && Number.isFinite(s.share)) this.share = clamp(s.share);
-    }
+    const open = !!s && typeof s === "object" && s.open === true;
+    const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
+    this.layer = hostLayer({ tabs: [DOCK_TILE_ID], names: new Map([[DOCK_TILE_ID, DOCK_NAME]]), share, open });
   }
 
-  // ── the one agent tile (SharedAgent: the desk's daily agent tile is this one) ──
+  // ── the host layer, on the layout engine ──
+
+  /** The drawer is pulled up. */
+  get open(): boolean { return !!hostDrawer(this.layer)?.open; }
+  /** How much of the rows above the status bar the drawer has when it's up (its share of the host layer's split). */
+  get share(): number {
+    const t = this.layer.tree;
+    if (t.t !== "split") return 0.5;
+    const i = t.kids.findIndex(k => k.t === "drawer"), sum = t.weights.reduce((a, w) => a + w, 0) || 1;
+    return Math.round(((t.weights[i] ?? 0.5) / sum) * 1000) / 1000;
+  }
+  /** The person is in the drawer: every key but ctrl+], alt+a and alt+A is the agent's. Never set by an agent. */
+  get entered(): boolean { return this.keys !== HOST_SCREEN && this.open && this.mode !== "none"; }
+  /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a dock: none). */
+  get mode(): HostMode { const s = this.host.screen?.(); return s?.noDock ? "none" : s?.hostMode?.() ?? "over"; }
+  /** What the host layer's tiles are: the screen slot (it never closes or moves), the agent's terminal. */
+  private facts(id: string): TileFacts {
+    if (id === HOST_SCREEN) return { kind: "screen", policy: { closable: false, draggable: false } };
+    return { kind: "pty", ...(this.p?.running ? { running: this.p.run.cmd[0] ?? "the agent" } : {}) };
+  }
+  /** Who acts, and where the person is: in the agent, or typing in the screen (whose rule the screen keeps). */
+  private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
+    const screen = this.host.screen?.();
+    const busy = actor.kind === "agent" && (this.entered || !!screen?.holdsKeys?.() || !!screen?.rawKeys?.());
+    return {
+      actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy },
+    };
+  }
+  /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
+  private do(op: Op<string>, actor: Actor) {
+    const r = applyLayout(this.layer, op, this.ctx(actor, this.rows, this.cols));
+    if (!r.ok) throw new ActionRefused(r.refused);
+    this.layer = r.state;
+    this.keys = r.focus;
+    return r;
+  }
+  /** The terminal's size as last drawn (the host layer's room). */
+  private rows = 30;
+  private cols = 100;
+
+  // ── the one agent tile (the host layer's first tab) ──
 
   /**
    * The agent's tile, made the first time it's asked for; its program starts when it's first drawn. It runs what
@@ -146,27 +193,16 @@ export class AgentDock implements SharedAgent {
   get tile(): PtyPane | null { return this.p; }
   /** Its program has been started (it runs, or it ran and exited). */
   private get started(): boolean { return !!this.p && (this.p.running || this.p.exited !== null); }
-  /**
-   * The daily layout's agent tile `spec` wants: this one when it runs the same program (the usual case: both are
-   * `dailyAgent()`), else null and the tile gets its own (a command the person changed, or one set since this started).
-   */
-  paneFor(spec: { cmd?: string[]; cwd?: string }): PtyPane | null {
-    const p = this.pane();
-    return !spec.cmd?.length || same(p, { cmd: spec.cmd, cwd: spec.cwd }) ? p : null;
+  /** The drawer is drawn now: pulled up, on a screen that lets the host layer appear. */
+  get shown(): boolean { return this.open && this.active && this.mode !== "none"; }
+  /** Drawn beside the screen (the screen shorter), not over it: the rows it takes from the screen, else 0. */
+  besideRows(rows: number, cols: number): number {
+    if (!this.shown || this.mode !== "beside") return 0;
+    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: rows - 1 }, "beside").drawer;
+    return d?.rows ?? 0;
   }
-  isShared(p: unknown): boolean { return !!p && p === this.p; }
-  /** The drawer shows it now: a desk tile of the same program draws a note instead (one size at a time). */
-  drawnElsewhere(p: unknown): boolean { return this.isShared(p) && this.shown; }
-  personIn(p: unknown): boolean { return this.isShared(p) && this.shown && this.entered; }
-  watch(v: { redraw(): void }) { this.viewers.add(v); }
-  unwatch(v: { redraw(): void }) { this.viewers.delete(v); }
 
-  get shown(): boolean { return this.open && this.active; }
-
-  private changed() {
-    for (const v of this.viewers) v.redraw();
-    if (this.shown) this.host.redraw(); else this.host.statusChanged();
-  }
+  private changed() { if (this.shown) this.host.redraw(); else this.host.statusChanged(); }
 
   // ── what it's doing ──
 
@@ -301,22 +337,25 @@ export class AgentDock implements SharedAgent {
 
   // ── actions ──
 
-  /** Pull it up or put it away. The person's pull enters it (their keys go to the agent); an agent's never does. */
+  /**
+   * Pull it up or put it away, by the host layer's drawer operation: the person's pull gives the agent their keys
+   * (the module's transition), an agent's never does; put away, the keys go back to the screen slot. On a screen
+   * that keeps the whole screen (host none) it's refused, with why.
+   */
   set(open: boolean, actor: Actor) {
-    if (open) {
-      this.pane();
-      this.open = true;
-      if (actor.kind === "agent") { if (!this.entered) this.openedBy = actor; }
-      else { this.entered = true; this.openedBy = null; }
-    } else {
-      this.open = false; this.entered = false; this.openedBy = null; this.capture = null; this.dragging = false;
-    }
+    if (open) this.pane();
+    this.do({ op: "drawer", tile: DOCK_TILE_ID, open }, actor);
+    if (open && actor.kind !== "agent") this.do({ op: "focus", tile: DOCK_TILE_ID }, actor);
+    if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
+    else { this.openedBy = null; this.capture = null; this.dragging = false; }
     this.save();
     this.host.redraw();
   }
 
-  height(share: number) {
-    this.share = clamp(share);
+  /** Its height, by the host layer's own split (the drawer's share, the screen slot the rest), for `actor`. */
+  height(share: number, actor: Actor = USER) {
+    const s = clamp(share), t = this.layer.tree;
+    if (t.t === "split" && t.id) this.do({ op: "shares", split: t.id, shares: t.kids.map(k => (k.t === "drawer" ? s : 1 - s)) }, actor);
     this.save();
     this.host.redraw();
   }
@@ -326,7 +365,7 @@ export class AgentDock implements SharedAgent {
   describe() {
     const p = this.p;
     return {
-      open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100,
+      open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
       rect: this.shown ? this.rect : null, state: this.state(), tile: { id: DOCK_TILE_ID, name: DOCK_NAME },
       knows: this.knows ? { ...this.knows, pid: this.knowsPid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
@@ -343,11 +382,16 @@ export class AgentDock implements SharedAgent {
 
   // ── drawing ──
 
-  /** The drawer's rows over a screen `rows` tall (the last row is the status bar): where it starts and how many. */
+  /**
+   * The drawer's rows over (or beside) a screen `rows` tall (the last row is the status bar): the host layer placed
+   * by the layout engine, as the screen shown lets it appear. At least a frame and a row of the program, while room.
+   */
   place(cols: number, rows: number): Rect {
+    this.rows = rows; this.cols = cols;
     const room = rows - 1;
-    const h = Math.max(Math.min(MIN_ROWS, room), Math.min(room - 1, Math.round(room * this.share)));
-    return { col: 0, row: room - h, cols, rows: h };
+    // The engine's answer as it is (the drawer's own `min` keeps a frame and a row): `besideRows` reads the same one.
+    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: room }, this.mode === "none" ? "over" : this.mode).drawer;
+    return d ?? { col: 0, row: room, cols, rows: 0 };
   }
 
   /** The drawer, full width, laid over the screen's bottom rows: its lines, from row `rect.row`. */
@@ -386,8 +430,8 @@ export class AgentDock implements SharedAgent {
     return (s: string) => {
       // As legacy ESC-and-a-letter or as a Kitty keyboard report (src/kbd.ts).
       const k = rawKey(s);
-      if (k?.kind === "alt" && k.ch === "a") return run("agent.toggle", { open: false });
-      if (k?.kind === "alt" && k.ch === "A") return run("agent.height", { share: nextStep(this.share) });
+      if (k?.kind === "alt" && k.ch === "a") return run("host.toggle", { open: false });
+      if (k?.kind === "alt" && k.ch === "A") return run("host.size", { share: nextStep(this.share) });
       p.inputRaw(s);
     };
   }
@@ -398,23 +442,23 @@ export class AgentDock implements SharedAgent {
     if (k.kind === "mouse") return this.mouse(k, rows, run);
     if (this.shown && this.entered) {
       const p = this.pane();
-      if (isEscapeChord(k)) { run("agent.leave", {}); return true; }
-      if (isAlt(k, "a")) { run("agent.toggle", { open: false }); return true; }
-      if (isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
+      if (isEscapeChord(k)) { run("host.leave", {}); return true; }
+      if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }
+      if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
       if (!p.running) {
-        if (k.kind === "enter") run("agent.enter", { restart: true });
+        if (k.kind === "enter") run("host.enter", { restart: true });
         else this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the ${screen?.title ?? "screen"}`);
         return true;
       }
       if (k.kind === "paste") p.paste(k.text); else p.typed(k);
       return true;
     }
-    if (isAlt(k, "a")) { run("agent.toggle", {}); return true; }
+    if (isAlt(k, "a")) { run("host.toggle", {}); return true; }
     if (isAlt(k, "R")) { run("agent.restart", {}); return true; }
     if (this.shown && isEscapeChord(k)) return this.chordBack(screen, run);
-    if (this.shown && isAlt(k, "A")) { run("agent.height", { share: nextStep(this.share) }); return true; }
+    if (this.shown && isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
-    if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("agent.toggle", { open: false }); return true; }
+    if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("host.toggle", { open: false }); return true; }
     return false;
   }
 
@@ -425,9 +469,9 @@ export class AgentDock implements SharedAgent {
    */
   private chordBack(screen: Screen | undefined, run: DockRun): boolean {
     const now = Date.now();
-    if (now - this.leftAt < CHORD_MS && this.p?.running) { run("agent.enter", { send: "\x1d" }); return true; }
+    if (now - this.leftAt < CHORD_MS && this.p?.running) { run("host.enter", { send: "\x1d" }); return true; }
     if (screen?.rawKeys?.() || now - this.passedAt < CHORD_MS) { this.passedAt = now; return false; }
-    run("agent.enter", {});
+    run("host.enter", {});
     return true;
   }
 
@@ -438,7 +482,10 @@ export class AgentDock implements SharedAgent {
   enter(send?: string, restart = false): { entered: boolean; restarted?: boolean } {
     if (!this.shown) throw new ActionRefused("the agent drawer is put away · alt+a pulls it up");
     const p = this.pane();
-    this.leftAt = 0; this.entered = true; this.openedBy = null;
+    this.leftAt = 0; this.openedBy = null;
+    // Into the tab the drawer shows (the agent, its first).
+    const dr = hostDrawer(this.layer);
+    this.do({ op: "focus", tile: (dr && shownTiles(dr.kid)[0]) ?? DOCK_TILE_ID }, USER);
     if (!p.running && p.exited !== null) {
       if (restart) { p.restart(); this.host.redraw(); return { entered: true, restarted: true }; }
       this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
@@ -453,7 +500,9 @@ export class AgentDock implements SharedAgent {
   /** The person's keys go back to the screen (ctrl+], a click above the drawer); the drawer stays up. */
   leave(screen: Screen | undefined, said = true): { entered: boolean } {
     if (!this.entered) throw new ActionRefused("the person isn't in the agent drawer");
-    this.entered = false; this.leftAt = Date.now();
+    // Back to the screen slot: the screen's own focus is as they left it.
+    this.do({ op: "focus", tile: HOST_SCREEN }, USER);
+    this.leftAt = Date.now();
     if (said) this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${DOCK_NAME}) · Esc or alt+a puts it away`);
     this.host.redraw();
     return { entered: false };
@@ -463,7 +512,7 @@ export class AgentDock implements SharedAgent {
     const p = this.p;
     if (this.dragging) {
       // Dragged past the ends (onto the status row, or the top): as far as it goes, not a refusal.
-      if (k.action === "drag") { const room = rows - 1; run("agent.height", { share: clamp((room - Math.max(1, k.y)) / room) }); }
+      if (k.action === "drag") { const room = rows - 1; run("host.size", { share: clamp((room - Math.max(1, k.y)) / room) }); }
       if (k.action === "up") this.dragging = false;
       return true;
     }
@@ -476,7 +525,7 @@ export class AgentDock implements SharedAgent {
     const chip = this.chipAt;
     if (chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to) {
       // ⟳, the chip's last cell when it offers one, restarts the agent; anywhere else on the chip toggles the drawer.
-      if (k.action === "down") run(this.offersRestart && k.x >= chip.to - 1 ? "agent.restart" : "agent.toggle", {});
+      if (k.action === "down") run(this.offersRestart && k.x >= chip.to - 1 ? "agent.restart" : "host.toggle", {});
       return true;
     }
     const r = this.shown ? this.rect : null;
@@ -484,14 +533,14 @@ export class AgentDock implements SharedAgent {
     const inside = k.y >= r.row && k.y < r.row + r.rows;
     if (!inside) {
       // A click on the screen above hands the keys back to it; the drawer stays up.
-      if (k.action === "down" && this.entered) run("agent.leave", { quiet: true });
+      if (k.action === "down" && this.entered) run("host.leave", { quiet: true });
       return false;
     }
     if (k.action === "down" && k.y === r.row) { this.dragging = true; return true; }
     const x = k.x - r.col - 1, y = k.y - r.row - 1;
     const pane = this.pane();
     if (k.action === "down") {
-      if (!this.entered) run("agent.enter", {});
+      if (!this.entered) run("host.enter", {});
       if (pane.wantsMouse() && y >= 0 && x >= 0) { this.capture = r; pane.mouse(k, x, y); }
       this.host.redraw();
       return true;
@@ -510,7 +559,7 @@ export function nextStep(share: number): number {
 }
 
 /** How the dock's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DockRun = (name: "agent.toggle" | "agent.height" | "agent.restart" | "agent.enter" | "agent.leave", args: Record<string, unknown>) => void;
+export type DockRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
 export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
@@ -521,20 +570,22 @@ function defaultHerdr(): HerdrRun | null {
 }
 
 export interface DockOn { dock: AgentDock; ctx: Ctx; here: Screen | undefined }
-type DockArgs = { "agent.toggle": { open?: boolean }; "agent.height": { share: number }; "agent.restart": Record<string, never>; "agent.knows": Record<string, never>; "agent.enter": { send?: string; restart?: boolean }; "agent.leave": { quiet?: boolean } };
+type DockArgs = { "agent.type": { text: string }; "host.toggle": { open?: boolean }; "host.size": { share: number }; "agent.restart": Record<string, never>; "agent.knows": Record<string, never>; "host.enter": { send?: string; restart?: boolean }; "host.leave": { quiet?: boolean } };
 
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
-  "agent.enter": {
+  "host.enter": {
+    aliases: ["agent.enter"],
     summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" }, restart: { type: "boolean", optional: true, about: "run an agent that exited again, as ⏎ on it does" } },
     run({ send, restart }, { dock }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("going into the drawer takes the person's keys; an agent pulls it up with agent.toggle and leaves their keys where they are");
+      if (actor.kind === "agent") throw new ActionRefused("going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are");
       return dock.enter(send, restart);
     },
   },
-  "agent.leave": {
+  "host.leave": {
+    aliases: ["agent.leave"],
     summary: "the person's keys go back to the screen from the agent drawer; the drawer stays up. The person's only",
     keys: "ctrl+], click on the screen above the drawer",
     args: { quiet: { type: "boolean", optional: true, about: "say nothing on the status bar (a click away)" } },
@@ -543,8 +594,9 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
       return dock.leave(here, !quiet);
     },
   },
-  "agent.toggle": {
-    summary: "pull the agent drawer up over the screen, or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen",
+  "host.toggle": {
+    aliases: ["agent.toggle"],
+    summary: "pull the host layer's drawer (the agent, its first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
     args: { open: { type: "boolean", optional: true, about: "true pulls it up, false puts it away; left out, it toggles" } },
     run({ open }, { dock, ctx, here }, actor) {
@@ -559,14 +611,15 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
       return { open: dock.open, entered: dock.entered, share: dock.share, state: dock.state() };
     },
   },
-  "agent.height": {
-    summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); the screen under it doesn't move",
+  "host.size": {
+    aliases: ["agent.height"],
+    summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
     args: { share: { type: "number", about: "0.2 to 0.9 (0.5: half the screen)" } },
     run({ share }, { dock }, actor) {
       if (!(share > 0 && share <= 1)) throw new ActionRefused(`share is a fraction of the screen, 0.2 to 0.9, not ${share}`);
       if (actor.kind === "agent" && dock.entered) throw new ActionRefused("the person is typing in the agent drawer; an agent doesn't resize it under them");
-      dock.height(share);
+      dock.height(share, actor);
       return { share: dock.share, open: dock.open };
     },
   },
@@ -585,6 +638,19 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
       const r = await dock.restart();
       if (actor.kind === "agent") ctx.flash(`restarted ${DOCK_NAME}`, 6000);
       return r;
+    },
+  },
+  "agent.type": {
+    summary: "send the agent (▲ claude, the host layer's agent) text as typed: \\n is ⏎, \\e Esc. The agent lives in the host layer, never as a tile on a screen, so this is how another agent types to it (tile.type types into a screen's terminal tile). Refused while the person is typing in it, and while it isn't running",
+    keys: "the person types in the drawer (ctrl+], a click in it)",
+    args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
+    run({ text }, { dock, ctx }, actor) {
+      const p = dock.tile;
+      if (!p?.running) throw new ActionRefused(`${DOCK_NAME} isn't running · alt+a pulls it up and starts it`);
+      if (actor.kind === "agent" && dock.shown && dock.entered) throw new ActionRefused(`the person is typing in ${DOCK_NAME} in the agent drawer; an agent doesn't type there`);
+      p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
+      if (actor.kind === "agent") ctx.flash(`typed to ${DOCK_NAME}`, 4000);
+      return { tile: DOCK_NAME, chars: text.length };
     },
   },
   "agent.knows": {

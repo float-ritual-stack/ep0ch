@@ -194,7 +194,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     (Desk as any).kept = null;
     // The agent drawer is the App's, over every screen: put away, its program ended.
     const dock = A().dock;
-    dock.open = false; dock.entered = false; dock.openedBy = null;
+    // Put away by its own operation (the host layer changes only through the layout engine).
+    if (dock.open) dock.set(false, { kind: "user" });
+    dock.openedBy = null;
     try { dock.p?.dispose?.(); } catch { /* gone */ }
     dock.p = null;
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.

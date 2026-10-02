@@ -136,15 +136,16 @@ yourself (path 1): `/exit`, then `claude --continue`.
   wait until they save or close it. The draft actions (`draft.*`, `session.leave`) work only in a draft you
   opened and alone typed in.
 - Test data belongs in scratch services with fictional notes, never a real outline.
-- Moving the person's screen (`screen.open`, `screen.back`, `list.*`, `agent.toggle open=true`) waits until
+- Moving the person's screen (`screen.open`, `screen.back`, `list.*`, `host.toggle open=true`) waits until
   they've been idle 2s and aren't typing, and is said on their status bar. `screen.shell` (drop to shell) is
   theirs only: yours is refused. Use a terminal tile (`tile.open kind=pty`) for a program of your own.
 
 ## Useful actions beyond notes
 
-- **The agent drawer** (every screen): `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`,
-  `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put it away, resize it or
-  restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
+- **The agent drawer** (every screen; the host layer's, PIE-513): `host.toggle [open=true|false]`, `host.size
+  share=0.2…0.9` (older names `agent.toggle`, `agent.height`), `agent.type text=…` (the agent is no screen's tile,
+  so `tile.type` doesn't reach it), `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put
+  it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
 - **The outline tree's links:** `tree.links tile=<tree tile> n=<row>` shows a row's outlinks, resources and
   backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
