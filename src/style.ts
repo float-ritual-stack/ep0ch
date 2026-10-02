@@ -1,7 +1,7 @@
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
 import { glyph, VGA_RGB, type Cell } from "./ansi";
-import { contrast, theme, type Rgb, type Theme } from "./theme";
+import { contrast, luminance, theme, type Rgb, type Theme } from "./theme";
 
 const rgb = (i: number) => theme().palette[i & 15]!.join(";");
 export const fg = (i: number) => `\x1b[38;2;${rgb(i)}m`;
@@ -11,13 +11,19 @@ export const fgRgb = (c: Rgb) => `\x1b[38;2;${c.join(";")}m`;
 export const bgRgb = (c: Rgb) => `\x1b[48;2;${c.join(";")}m`;
 /** One of the theme's tints as a background: a selection, an agent's, the ruler, a thread, an embed, an idle row. */
 export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
+/** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
+export const CHIP_MAX_LUMINANCE = 0.3;
 /**
- * A chip: `text` on a palette background. Where the theme keeps chips legible (calm, night) and `text` reads under
- * 4.5:1 there, the ground or white is drawn instead, whichever reads better; classic draws what was asked.
+ * A chip: `text` on a palette background. Where the theme keeps chips legible (calm, night): a light background
+ * (yellow, light cyan) is never a bright patch, the chip is drawn as that colour's text on the idle tint; and when
+ * `text` reads under 4.5:1 on the chip, the ground or white is drawn instead, whichever reads better. Classic draws
+ * what was asked.
  */
 export function chip(back: number, text: number = C.white): string {
-  const t = theme(), b = t.palette[back & 15]!;
+  const t = theme();
+  const b = t.palette[back & 15]!;
   let f = t.palette[text & 15]!;
+  if (t.legibleChips && luminance(b) > CHIP_MAX_LUMINANCE) return bgRgb(t.tint.idle) + fgRgb(b);
   if (t.legibleChips && contrast(f, b) < 4.5) {
     const light = t.palette[C.white]!, dark = t.palette[C.black]!;
     f = contrast(light, b) >= contrast(dark, b) ? light : dark;

@@ -182,7 +182,7 @@ const xcolor = ([r, g, b]: Rgb) => `rgb:${hex2(r)}/${hex2(g)}/${hex2(b)}`;
  * again (OSC 110, 111). A terminal that doesn't know them ignores them.
  */
 export function groundSeq(t: Theme = active): string {
-  if (!t.ground || !t.text) return "\x1b]110\x1b\\\x1b]111\x1b\\";
+  if (!t.ground || !t.text) return "\x1b]110\x1b\\\x1b]111\x1b\\";   // term.ts GROUND_RESET
   return `\x1b]10;${xcolor(t.text)}\x1b\\\x1b]11;${xcolor(t.ground)}\x1b\\`;
 }
 

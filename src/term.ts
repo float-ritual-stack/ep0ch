@@ -73,9 +73,10 @@ export const GROUND_RESET = "\x1b]110\x1b\\\x1b]111\x1b\\";
 
 /**
  * Everything `start` turns on, turned off: the Kitty keyboard protocol (popped on the alternate screen, where it
- * was pushed), paste, mouse, colours (the theme's ground too), wrap, the cursor, then the normal screen.
+ * was pushed), paste, mouse, colours, wrap, the cursor, then the normal screen. A theme's ground is given back
+ * apart (Term.stop), only when one was set: a person's own OSC 10/11 colours stay theirs under classic.
  */
-export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m" + GROUND_RESET + "\x1b[?7h\x1b[?25h\x1b[?1049l";
+export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
 
 /**
  * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
@@ -85,7 +86,7 @@ export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m" +
 function terminalGuard(): { dismiss(): void } | null {
   try {
     const p = Bun.spawn(["sh", "-c", `trap '' INT QUIT HUP TERM; read -r _; printf '%s' "$EP0CH_TERM_RESET"; stty sane </dev/tty 2>/dev/null`], {
-      stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { PATH: process.env.PATH ?? "/usr/bin:/bin", EP0CH_TERM_RESET: TERM_RESET },
+      stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { PATH: process.env.PATH ?? "/usr/bin:/bin", EP0CH_TERM_RESET: TERM_RESET + GROUND_RESET },
     });
     p.unref();
     // Through the Subprocess, which knows when it has exited: never a signal to a pid the OS reused. `read` is
@@ -135,7 +136,12 @@ export class Term {
   private guard: { dismiss(): void } | null = null;
   /** The theme's ground (OSC 10 and 11, src/theme.ts groundSeq): set again on every resume, given back by TERM_RESET. */
   private ground = "";
-  setGround(seq: string): void { this.ground = seq; this.write(seq); }
+  setGround(seq: string): void {
+    // Classic sets no ground: its reset is sent only to undo one this door set.
+    if (seq === GROUND_RESET && !this.ground) return;
+    this.ground = seq === GROUND_RESET ? "" : seq;
+    this.write(seq);
+  }
 
   async start(): Promise<void> {
     this.guard = terminalGuard();
@@ -161,7 +167,7 @@ export class Term {
    * the writes fail, and what the door does after stopping (drafts, the socket, the last call) still runs.
    */
   stop(): void {
-    try { this.write(`\x1b[2J${TERM_RESET}`); } catch { /* no terminal to reset */ }
+    try { this.write(`\x1b[2J${TERM_RESET}${this.ground ? GROUND_RESET : ""}`); } catch { /* no terminal to reset */ }
     try { process.stdin.setRawMode?.(false); } catch { /* the same */ }
     try { process.stdin.pause(); } catch { /* the same */ }
     this.guard?.dismiss(); this.guard = null;

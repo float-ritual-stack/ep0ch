@@ -77,7 +77,7 @@ export class Mirror {
     if (m) {
       const c = [m[2], m[3], m[4]].map(h => parseInt(h!, 16));
       if (m[1] === "10") { if (this.fg === this.defaultFg) this.fg = c; this.defaultFg = c; } else this.ground = c;
-    } else if (body === "110") this.defaultFg = [170, 170, 170];
+    } else if (body === "110") { const c = [170, 170, 170]; if (this.fg === this.defaultFg) this.fg = c; this.defaultFg = c; }
     else if (body === "111") this.ground = [0, 0, 0];
   }
   /** The colours a cell is drawn in: its own, or the terminal's default background. */

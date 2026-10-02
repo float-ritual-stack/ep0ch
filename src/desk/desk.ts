@@ -20,7 +20,7 @@ import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surf
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
 import { keyName, specData, type ScreenSpec } from "./screen-spec";
-import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width } from "../style";
+import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width, tint } from "../style";
 import { themed } from "../theme";
 import type { Key } from "../term";
 import { colourBody, wrap } from "../text";
@@ -1219,7 +1219,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
         const on = i === set.active;
-        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? bg(focused ? C.blue : C.dark) + fg(C.white) : fg(C.grey), t);
+        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? (focused ? bg(C.blue) : tint("idleRow")) + fg(C.white) : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as it always did: its number, then its title.
@@ -1288,7 +1288,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       // A drop the policy refuses is outlined in red, with the reason in place of what it would do.
       const why = d.drop.refused;
       const c = why ? C.lred : C.yellow;
-      canvas.box(g, fg(c), `${fg(C.black)}${bg(c)} ${why ? `✕ ${why}` : d.drop.label} ${RESET}`, "");
+      canvas.box(g, fg(c), `${chipStyle(c, C.black)} ${why ? `✕ ${why}` : d.drop.label} ${RESET}`, "");
       if (d.drop.kind === "tabs" && !why) canvas.text(g.col + 1, g.row + 1, `${fg(C.yellow)}${"▀".repeat(Math.max(0, g.cols - 2))}${RESET}`, Math.max(0, g.cols - 2));
     }
     const label = ` ⠿ ${this.nameOf(d.src)} `;

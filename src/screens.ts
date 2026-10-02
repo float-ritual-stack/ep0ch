@@ -514,7 +514,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
     run({ name }, { ctx }) {
       const want = themeNamed(name);
       if (!want) throw new ActionRefused(`no theme ${JSON.stringify(name)}; the themes: ${THEME_NAMES.join(", ")}`);
-      ctx.setTheme?.(want);
+      if (!ctx.setTheme) throw new ActionRefused("this screen can't change the door's theme");
+      ctx.setTheme(want);
       return { theme: theme().name };
     },
   },
@@ -524,7 +525,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
     touches: "screen", replay: "safe", says: out => `· switched the theme to ${out.theme}`,
     args: {},
     run(_, { ctx }) {
-      ctx.setTheme?.(nextTheme());
+      if (!ctx.setTheme) throw new ActionRefused("this screen can't change the door's theme");
+      ctx.setTheme(nextTheme());
       return { theme: theme().name };
     },
   },

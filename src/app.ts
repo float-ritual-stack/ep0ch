@@ -342,7 +342,11 @@ export class App implements Ctx {
   /** What the toast says and until when (App.copy); the tick takes it away. */
   toast: { text: string; until: number } | null = null;
   /** The terminal's default text and background are the theme's (OSC 10, 11), so uncoloured cells sit on its ground. */
+  private grounded = false;
   private ground() {
+    // Classic sets no ground; its reset only undoes one this door set (a person's own OSC 10/11 colours stay).
+    if (!theme().ground && !this.grounded) return;
+    this.grounded = !!theme().ground;
     const t = this.term as Partial<Term>;
     if (t.setGround) t.setGround(groundSeq());
     else this.term.write(groundSeq());

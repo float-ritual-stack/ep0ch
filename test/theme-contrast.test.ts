@@ -10,13 +10,14 @@ import type { Msg } from "../src/board";
 import { Mirror } from "../src/mirror";
 import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
-import { chip } from "../src/style";
+import { readFileSync } from "node:fs";
+import { chip, CHIP_MAX_LUMINANCE } from "../src/style";
 import { MainMenu, MENU_SCREENS } from "../src/screens";
 import { SEED } from "../src/showcase/seed";
 import { SocketBoard, type Actor } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { rowBytes, type Key } from "../src/term";
-import { contrast, groundSeq, setTheme, THEME_NAMES, THEMES, type Rgb, type ThemeName } from "../src/theme";
+import { contrast, groundSeq, luminance, setTheme, THEME_NAMES, THEMES, type Rgb, type ThemeName } from "../src/theme";
 import { outliner, Scratch, until } from "./scratch";
 
 /** The glyphs that draw lines and areas, not words: box drawing (U+2500-257F) and block elements (U+2580-259F). */
@@ -109,7 +110,8 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
       if (!s) continue;
       app.push(s);
       await look(`menu ${key} (${s.title})`);
-      for (const k of ["tab", "down"] as const) { A.key({ kind: k } as Key); await look(`menu ${key} (${s.title}) after ${k}`); }
+      // The screens with lanes, tiles and columns: once more with the keys moved (a selection, the focus on another tile).
+      if ("DKQC".includes(key)) for (const k of ["tab", "down"] as const) { A.key({ kind: k } as Key); await look(`menu ${key} (${s.title}) after ${k}`); }
       try { s.dispose?.(); } catch { /* gone */ }
       A.stack.splice(1);
     }
@@ -195,6 +197,26 @@ describe("the palettes themselves (every background, not only the ones these scr
   }
   test("all three are dark: no theme's ground, bars or tints is light", () => {
     for (const t of Object.values(THEMES)) for (const c of [t.ground ?? [0, 0, 0], t.palette[0]!, t.palette[1]!, ...Object.values(t.tint)] as Rgb[]) expect(contrast(c, [0, 0, 0])).toBeLessThan(3);
+  });
+  test("no light surface: a chip on a light colour is that colour's text on a dark tint, and no screen paints a light background", () => {
+    for (const name of ["calm", "night"] as const) {
+      setTheme(name);
+      try {
+        for (let back = 0; back < 16; back++) for (const want of [0, 15]) {
+          const b = [...chip(back, want).matchAll(/\x1b\[48;2;(\d+);(\d+);(\d+)m/g)].map(m => [1, 2, 3].map(k => Number(m[k])) as unknown as Rgb)[0]!;
+          expect(luminance(b)).toBeLessThanOrEqual(CHIP_MAX_LUMINANCE);
+        }
+      } finally { setTheme("calm"); }
+    }
+    // A background in a light palette colour, drawn straight (not through chip): only the one-cell text cursor.
+    const CURSOR = new Set(["src/edit.ts", "src/surface/props-panel.ts"]);
+    const light = /bg\(C\.(dark|grey|white|yellow|lcyan|lgreen|lred|lmagenta|lblue)\)/;
+    const found: string[] = [];
+    for (const f of new Bun.Glob("src/**/*.ts").scanSync(".")) {
+      if (CURSOR.has(f)) continue;
+      readFileSync(f, "utf8").split("\n").forEach((l, i) => { if (light.test(l)) found.push(`${f}:${i + 1}`); });
+    }
+    expect(found).toEqual([]);
   });
   test("classic is the VGA palette, exactly", () => {
     expect(THEMES.classic.palette).toBe(VGA_RGB);
