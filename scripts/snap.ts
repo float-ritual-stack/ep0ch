@@ -11,7 +11,7 @@ const privateSocket = (name: string) => join(mkdtempSync(join(tmpdir(), "ep0ch-s
 import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
 import { boardScreen } from "../src/desk/screen-specs";
 import { SocketBoard, USER } from "../src/socket";
 import * as BV from "../test/board-view";
@@ -994,7 +994,7 @@ if (scenario === "board") {
   board.close(); process.exit(0);
 }
 if (scenario === "river") {
-  app.push(new MainMenu()); app.push(new River());
+  app.push(new MainMenu()); app.push(openScreen("river"));
   await snap("1-library", 3000);
   press({ kind: "enter" });                         // Pi Outliner Workboard beside Library
   await snap("2-opened", 3000);
@@ -1022,7 +1022,7 @@ if (scenario === "river-write") {
   await mk(plot.id, "Fix the gate latch [stage::doing]\nIt swings open.");
   await mk(beans.id, "Canes bought\nTwenty, from the market.");
   board.subscribe(e => app.event(e));
-  const R = new River(), S = R as any;
+  const R = openScreen("river");
   app.push(new MainMenu()); app.push(R);
   const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("river-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
@@ -1034,7 +1034,7 @@ if (scenario === "river-write") {
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   await snap("1-library", 2500);
   await act("open", { id: plot.id });
-  const opened = await act("open", { id: beans.id }, "2");
+  const opened = await act("open", { id: beans.id, from: (await act("layout.get")).result.tiles.at(-1).name });
   const beansR = opened.result.reader;
   await snap("2-columns", 1500);
   // The agent's opens left the person in the Library; they walk over to the beans column.
@@ -1065,8 +1065,8 @@ if (scenario === "river-write") {
   // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
   ch("h"); ch("h");
   await snap("10-draft-kept-wide", 600);
-  console.log(`  unsaved: ${R.unsaved()} · columns: ${JSON.stringify(S.describe().columns.map((c: any) => [c.n, c.cover]))}`);
-  const kept = R.keepDrafts();
+  console.log(`  unsaved: ${R.unsaved?.()} · columns: ${JSON.stringify(((R.describe?.() ?? {}) as { panes?: { name: string; cover?: string }[] }).panes?.map(c => [c.name, c.cover ?? "full"]))}`);
+  const kept = R.keepDrafts?.() ?? [];
   console.log(`  kept: ${kept.join(", ")}`);
   const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
   for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);

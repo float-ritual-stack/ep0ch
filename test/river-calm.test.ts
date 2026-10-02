@@ -4,7 +4,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { River } from "../src/river/river";
+import type { Desk } from "../src/desk/desk";
+import { openScreen } from "../src/desk/screen-specs";
+import { view } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -15,29 +17,29 @@ const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, river: River;
+  let board: SocketBoard, app: App, river: Desk;
   let key: (k: Key) => void = () => {};
   const notes: Record<string, any> = {};
   const AS = "calm-agent-1";
-  const R = () => river as any;
+  const V = () => view(river);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
-  const draw = (): string[] => R().render(app).lines;
-  /** Every column's place and every pane's clickable place, as drawn now. */
-  const geometry = () => { draw(); return JSON.stringify({ cols: R().colRects, panes: R().hits.map((h: any) => [h.col, h.pane, h.rect, h.cover]), tops: R().panes().map((p: any) => p.top) }); };
-  const cols = () => (app.describe() as any).state.columns as any[];
-  const titleAt = (n: number) => cols()[n - 1].panes[0].title as string;
-  const focusedTitle = () => cols().find(c => c.focused).panes[0].title as string;
-  const wideTitle = () => cols().find(c => c.wide).panes[0].title as string;
-  const coverOfTitle = (t: string) => cols().find(c => c.panes[0].title === t)?.cover;
-  const rectOf = (t: string) => { draw(); const i = cols().findIndex(c => c.panes[0].title === t); return R().colRects.find((c: any) => c.col === i).rect; };
+  const draw = (): string[] => river.render(river.ctx).lines;
+  /** Every column's place and how it shows, and every scroll, as drawn now. */
+  const geometry = () => { draw(); return JSON.stringify(V().tiles.map(c => [c.titleOf(), river.rectOf(c), V().coverOf(c), c.top])); };
+  const focusedTitle = () => V().focusedTitle();
+  const wideTitle = () => V().wideTitle();
+  const coverOfTitle = (t: string) => { draw(); return V().coverOf(t); };
+  const rectOf = (t: string) => { draw(); return V().rectOf(t); };
   const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
-  /** The person's jump (`/`) to a note by title: it opens beside the focused column, as ⏎ does. */
+  /** The person's go to (`g`, the desk's search) a note by title: it opens in the next column, as ⏎ does. */
   const jump = async (title: string) => {
-    key(char("/"));
+    key(char("g"));
     for (const c of title) key(char(c));
+    await until(() => plain(draw().join("\n")).includes(title), `${title} found`);
+    await Bun.sleep(400);
     key({ kind: "enter" });
-    await until(() => cols().some(c => c.panes[0].title === title && c.focused), `the ${title} column`);
+    await until(() => focusedTitle() === title, `the ${title} column`);
   };
 
   beforeAll(async () => {
@@ -52,10 +54,9 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     const term = { info: { cols: 220, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    river = new River();
+    river = openScreen("river") as Desk;
     app.push(new MainMenu()); app.push(river);
-    await until(() => (R().cols[0]?.panes[0].items?.length ?? 0) >= 3, "the Library", 10_000);
-    await until(() => R().idx.loaded, "the index", 10_000);
+    await until(() => (V().column(1)?.items?.length ?? 0) >= 3, "the Library", 10_000);
     // Evan's sequence: several columns open, the last one wide.
     await jump("Mailroom");
     await jump("Harbour log");
@@ -92,9 +93,8 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   test("a peek column draws its note's text at reading width, covered by its neighbour like a drawer, and dimmed", () => {
     const g = rectOf("How the Mailroom works");
     click(g.col + 3, g.row + 12);                                // the keys elsewhere: the peek is fully dimmed
-    const lines = draw(), i = cols().findIndex(c => c.panes[0].title === "Mailroom");
-    const r = R().colRects.find((c: any) => c.col === i).rect;
-    expect(cols()[i].cover).toBe("peek");
+    const lines = draw(), r = V().rectOf("Mailroom");
+    expect(coverOfTitle("Mailroom")).toBe("peek");
     const slice = (l: string) => plain(l).slice(r.col, r.col + r.cols);
     const body = lines.slice(r.row + 1, r.row + r.rows - 1).map(slice).join("\n");
     expect(body).toContain("Where quick notes land");        // the note's body, not only headings
@@ -136,34 +136,34 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   test("an agent's river actions never move the person's focus; its widen shifts the layout, attributed", async () => {
     const r = rectOf("Harbour log");
     click(r.col + 3, r.row + 10);
-    const focus = () => R().cols[R().focus].uid;
+    const focus = () => V().focused;
     const was = focus();
-    const opened: any = await act("open", { id: notes.ferry.id }, "1");
+    const opened: any = await act("open", { id: notes.ferry.id, from: V().name(V().column(1)) });
     expect(focus()).toBe(was);
     expect(await act("widen", {}, opened.reader)).toMatchObject({ wide: true });
     expect(focus()).toBe(was);
     expect(wideTitle()).toBe("Ask about the ferry");
     expect((app as any).message as string).toContain(`an agent (${AS}) widened`);
-    await act("pin", { docked: true }, "2");
-    await act("select", { id: notes.door.id }, cols().findIndex(c => c.panes[0].title === "Mailroom") + 1 + "");
-    await act("replies", { open: true }, "1");
-    await act("close", {}, opened.reader);
+    await act("tile.dock", { on: true }, V().name(V().column(2)));
+    await act("column.select", { id: notes.door.id }, V().name(V().byTitle("Mailroom")!));
+    await act("replies", { open: true }, V().name(V().column(1)));
+    await act("tile.close", {}, opened.reader);
     expect(focus()).toBe(was);
-    await act("pin", { docked: false }, "2");
+    await act("tile.dock", { on: false }, V().name(V().column(2)));
   });
 
   test("back and forward go between the columns a follow opened; back to a full column moves only the keys", async () => {
     const m = rectOf("Mailroom");
     click(m.col, m.row);                                         // widen the Mailroom by its header
-    await until(() => R().cols.some((c: any) => c.panes[0].items?.length), "the replies");
-    const mail = R().cols.findIndex((c: any) => c.panes[0].source.id === notes.mail.id);
-    R().cols[mail].panes[0].sel = R().flat(R().cols[mail].panes[0]).findIndex((x: any) => x.m.id === notes.door.id);
+    const mail = V().byNote(notes.mail.id)!;
+    await until(() => !!mail.items?.length, "the replies");
+    mail.sel = mail.flat().findIndex(x => x.m.id === notes.door.id);
     key({ kind: "enter" });                                      // open the door note beside
     await until(() => focusedTitle() === "Paint the boathouse door", "the door column");
-    await until(() => !!R().cols[R().focus].panes[0].surface.msg, "its note");
+    await until(() => !!V().focused.surface.msg, "its note");
     draw();
     key(char("]")); key({ kind: "enter" });                     // follow its link to the log
-    await until(() => focusedTitle() === "Harbour log" && R().cols[R().focus].from !== undefined, "the followed log");
+    await until(() => focusedTitle() === "Harbour log" && V().focus > V().columns.findIndex(c => c.titleOf() === "Paint the boathouse door"), "the followed log");
     expect(plain(draw().join("\n"))).toContain("← back · Paint the boathouse door");
     const before = geometry();
     key({ kind: "backspace" });
@@ -175,7 +175,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
 
   test("w or a header click on the column that's already wide moves nothing", () => {
     // The keys in a peek, then in the wide column: before, a widen here made the peek the kept column.
-    const peek = cols().find(c => c.cover === "peek")!.panes[0].title as string;
+    const peek = V().columns.find(c => V().coverOf(c) === "peek")!.titleOf();
     const p = rectOf(peek);
     click(p.col + 3, p.row + 10);
     const wide = wideTitle(), r = rectOf(wide);
@@ -193,7 +193,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     t.cols = 120;                                                // narrow enough for spines
     try {
       draw();
-      const spine = cols().find(c => c.cover === "spine")!.panes[0].title as string;
+      const spine = V().columns.find(c => V().coverOf(c) === "spine")!.titleOf();
       const s = rectOf(spine);
       click(s.col + 1, s.row + 15);                              // the middle of the spine, not its top cell
       expect(focusedTitle()).toBe(spine);
@@ -203,9 +203,9 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   });
 
   test("a peek reuses its note's digest from frame to frame, and a change to the note still shows", async () => {
-    const i = cols().findIndex(c => c.cover === "peek" && c.panes[0].source.kind === "block");
-    expect(i).toBeGreaterThanOrEqual(0);
-    const p = R().cols[i].panes[0], s = p.surface;
+    const p = V().columns.find(c => V().coverOf(c) === "peek" && c.source.kind === "block")!;
+    expect(p).toBeTruthy();
+    const s = p.surface as any;
     const real = s.digest.bind(s);
     let calls = 0;
     s.digest = (...a: any[]) => { calls++; return real(...a); };
@@ -214,7 +214,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
       for (let n = 0; n < 5; n++) draw();
       expect(calls).toBe(0);                                     // nothing changed: the peek's note isn't rendered again
       // Another client's edit of that note reaches the covered column.
-      const id = p.source.id, now = (await board.request("blocks.context", { blockId: id })).selected;
+      const id = (p.source as { id: string }).id, now = (await board.request("blocks.context", { blockId: id })).selected;
       await board.request("update", { blockId: id, text: now.text + "\n\nA line added from the quay.", expectedRevision: now.revision, mutation: { author: "agent", actorId: "calm-writer" } });
       await until(() => plain(draw().join("\n")).includes("A line added from"), "the edit in the peek", 5000);
       expect(calls).toBeGreaterThan(0);

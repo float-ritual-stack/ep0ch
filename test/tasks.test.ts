@@ -8,9 +8,10 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { outlineChanged as outlineChangedForTest } from "../src/refs";
 import type { Key } from "../src/term";
@@ -348,18 +349,18 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
   }, 40_000);
 
   test("in a river column: the note's body is the surface's, embeds nested, and [ ] reaches a step inside one", async () => {
-    const river = new River(), R = river as any;
+    const river = openScreen("river") as Desk, R = () => riverView(river);
     app.push(river);
     try {
-      await until(() => !!R.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await until(() => !!R().column(1)?.items?.length, "the Library", 10_000);
       await app.act({ action: "open", args: { id: n.plan.id } });
-      const col = () => R.cols.find((c: any) => c.panes[0].source?.id === n.plan.id);
+      const col = () => R().byNote(n.plan.id);
       await until(() => !!col(), "the plan's column");
-      R.focus = R.cols.indexOf(col());
-      const draw = () => (R.render(app).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
+      await river.dispatch.act({ action: "tile.focus", reader: R().name(col()!) }, USER);
+      const draw = () => (river.render(river.ctx).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
       await until(() => draw().includes("CYCLE") && draw().includes("» Allotment checklist ^t-d4e5f6"), "the embeds in the column", 10_000);
       expect(draw()).not.toContain("embed not expanded here");
-      const s = col().panes[0].surface as NoteSurface;
+      const s = col()!.surface as NoteSurface;
       // "Net the kale": an earlier test reworded it.
       for (let i = 0; i < 40 && !(s.describe().elements?.current?.label ?? "").includes("Net the kale"); i++) { key(char("]")); draw(); }
       expect(s.describe().elements!.current).toMatchObject({ kind: "task" });

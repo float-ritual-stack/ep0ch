@@ -198,7 +198,7 @@ thing after someone else's change.
   tile is left out: the agent is the host layer's.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
 - **`tile=<tile>`** (or `reader=`, its older name; `parseActArgs` and the control socket read either) takes a
-  name, an id, a number, an alias (a place: the board's `detail`, `float`, `lanes`, the river's `3` and `3.2`),
+  name, an id, a number, an alias (a place: the board's `detail`, `float`, `lanes`),
   `focused`, or a block id (the tile showing that note: the agent's own draft of it first, then one on screen
   holding an edit, one on screen, one off screen holding an edit, then a list selecting it; the focused tile
   wins a tie). One grammar on every screen, read once by the screen's dispatcher (PIE-514): the desk, the board,
@@ -228,6 +228,14 @@ thing after someone else's change.
   tile's own action. `peek` on the board is the desk's peek: `focus` (`lanes`, or the tile), `details`, `floats`,
   `readers`, `collapsedReaders`, the lanes' model (`hub`, `lanes`, `composer`, `steps`, `mover`, …), `outline` (the
   outline drawer: `open`, `pinned`, `side`, `rows`) and `backlinks`; `tree` is the layout, by tile name.
+- **The river is a screen spec on the desk** (PIE-515): its columns are `river.column` tiles in a flow, named as
+  any tile (`library`, then `column`, `column2`…; the older `r7`, `3` and `3.2` are gone). `open id= from=<column>`
+  opens a note in the column after it (`fresh=true`: a new one even when a column has the note); an `open` naming
+  no tile lands after the column with the person's keys. Its own actions are the column kind's (`column.select`,
+  `column.replies`, `column.scroll`, `column.filter`, `column.tag`, `column.split`, `column.copy`; `replies`,
+  `filter`, `tag`, `split`, `copy` still answer); the layout's are the desk's (`tile.widen`, alias `widen`;
+  `tile.dock` (the old `pin`); `tile.close`; `tile.travel dir=back|forward`, the person's). The old `jump` is `search`
+  then `open`.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
     ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since
@@ -241,8 +249,8 @@ Every action says what it touches, and the dispatcher checks it once, the same w
 | Touches | An agent's is refused when | Examples |
 |---|---|---|
 | `nothing` | never (it reads, or answers, or acts out of the person's sight) | `layout.get`, `view.get`, `open`, `block.mark`, `search` |
-| `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `link.select`, a river column's `select` and `close` |
-| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in, never their tab hidden, never their focus floated or closed; a change that would move their keys (shutting the drawer they're in, loading a layout) waits as a `screen` touch does. The river has no layout engine yet (PIE-515): its `split`, `pin` and `widen` never move their keys, and its `close` is a `tile` touch | `layout.move`, `tile.open`, `tile.close`, `tile.pin`, `tile.float`, `tile.drawer` |
+| `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `link.select`, a river column's `column.select` by row and `column.scroll` |
+| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in, never their tab hidden, never their focus floated or closed; a change that would move their keys (shutting the drawer they're in, loading a layout) waits as a `screen` touch does. The river's columns are a flow on it (PIE-515): `tile.widen`, `tile.dock` and `column.split` never move their keys | `layout.move`, `tile.open`, `tile.close`, `tile.pin`, `tile.float`, `tile.drawer` |
 | `draft` | the draft session's rule (`draftRule` in `src/draft-session.ts`): not a draft the person opened or typed in, not a note they have open in a draft | `edit.text`, `edit.save`, `comment.send`, `task.status` |
 | `screen` | the person is away (not logged on, or in the door's shell or editor), busy (typing anywhere), or touched a key or the mouse within the last 2s (`SHELL_IDLE_MS`) | `screen.open`, `tile.focus`, `marks.next`, `brief.step`, `board.hub id=`, `host.toggle open=true` |
 
@@ -273,11 +281,13 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `layout.even`, `layout.swap` | `to` | |
 | `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` (`pane.close`) | `tile` | never the person's tile, never a running program |
-| `tile.focus` (`focus`) | `tile` | refused while the person is typing, and within 2s of their last key |
+| `tile.focus` (`focus`) | `tile`, `dir` (left, right, up, down: the tile that way; in a flow, the column before or after) | refused while the person is typing, and within 2s of their last key |
 | `tile.link` | `tile`, `to` | |
 | `tile.pin` (`pane.pin`) | `tile`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
 | `tile.collapse` (`reader.collapse`: `on=true`; `reader.expand`: `on=false`) | `tile`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
 | `tile.widen` | `tile` | gives the tile's flow column the wide place (a flow is the river's columns as a container); the person's keys stay where they are; said on screen. Refused outside a flow and where the flow is locked |
+| `tile.dock` | `tile`, `on` (default toggles) | docks the tile's flow column so it resists compression (the river's `p`), or lets it go; said on screen. Refused outside a flow and where the flow is locked |
+| `tile.travel` | `tile`, `dir` (back, the default, or forward) | the person's keys go back to the column this one was opened from, or forward again (the river's alt+← alt+→ backspace). The person's: an agent's is refused, its way named (open beside) |
 | `tile.float` (`pane.float`), `float.place` | `tile`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or docked back; never the person's tile |
 | `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
 | `tile.drawer` | `tile`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
@@ -331,7 +341,7 @@ at, and what it does while they're typing:
 |---|---|---|
 | `tile.focus`, `focus` (the same action) | yes, that's what it's for | refused, and within 2s of their last key |
 | `marks.next` | to a tile showing the mark | refused, and within 2s of their last key |
-| `brief.step`, the river's `focus` | yes: another step, another column | refused, and within 2s of their last key |
+| `brief.step`, `tile.focus` on the river | yes: another step, another column | refused, and within 2s of their last key |
 | `link.select` in the reader that has the person's keys | it would move their selection | refused: `link.follow n=` or `tile=` another reader |
 | `layout.load` (`layout.restore`) | rebuilds the desk | refused, and within 2s of their last key |
 | `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused, and within 2s of their last key |
@@ -356,11 +366,11 @@ at, and what it does while they're typing:
 | `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
 | `tile.herdr` | no | allowed |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
-| the river's `select` by row, `column.scroll`, `filter` | no | refused on the column the person has the keys in, with the agent's way named (`select id=`, `jump`, `open`, `tag`); said on the status bar elsewhere |
+| the river's `column.select` by row, `column.scroll`, `column.filter` | no | refused on the column the person has the keys in, with the agent's way named (`column.select id=`, `search`, `open`, `column.tag`); said on the status bar elsewhere |
 | the board's `card.select` | no: an agent's selection is its own | allowed |
 | a board reader named by an agent (`tile=detail`, `tile=float`, a block id) | no: the person's keys stay on the lanes or where they were | allowed |
 | `board.hub id=` | yes: the board shown | refused while the person holds the keys; said on the status bar |
-| `search`, `jump query=`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
+| `search`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
 | `tile.enter`, `tile.leave`, `agent.enter`, `agent.leave`, `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `edit`, `edit.text`, `props.edit`, `task.status` or `task.undo` on a note the person has open in a draft in this door (in another reader) | no | refused (the draft session's agent rule, `agentRefusal` in `src/draft-session.ts`): a write underneath would make their save stale. It patches their draft instead (`draft.patch`), or waits until it's saved or closed. `edit.text` in the very reader the person is editing in replaces the draft's text, copying theirs out first. The rule knows this door's drafts; another door's are covered by the service's hold |

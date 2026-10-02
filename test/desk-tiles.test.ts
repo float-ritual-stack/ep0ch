@@ -57,7 +57,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => key({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
   const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
   /** The tree as a short string, as the unit tests write it. */
-  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.drawer ? `drawer(${s(n.kid)})` : `${n.split}(${n.kids.map(s).join(",")})`);
+  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.drawer ? `drawer(${s(n.kid)})` : `${n.split ?? (n.flow ? "flow" : "?")}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);
   let notes: Record<string, any> = {};
   const draft = () => join(scratch.root, "door", "draft.md");
@@ -287,16 +287,22 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await expect(mine("layout.load", { name: "nope" })).rejects.toThrow(/no layout nope/);
   });
 
-  test("the river layout is the River screen in a tile (one river, its own columns), a card preview following it", async () => {
+  test("the river layout is the river's columns on the desk (a flow, the Library first), a card preview following them", async () => {
     await mine("layout.load", { name: "river" });
-    expect(shape()).toBe("row(river,card,drawer(tabs(*claude,draft)))");  // the running programs, kept in a shut drawer
+    expect(shape()).toBe("row(flow(library),card,drawer(tabs(*claude,draft)))");  // the running programs, kept in a shut drawer
     expect([tile("claude").drawer, tile("draft").drawer]).toEqual(["shut", "shut"]);
-    expect(tile("river").kind).toBe("river");
+    expect(tile("library").kind).toBe("river.column");
     expect(tile("card").source).toBe("tile:river");
     render();
-    const drawn = D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
-    expect(drawn).toContain("river · ");
+    await until(() => D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").includes("Library"), "the Library column drawn");
     expect(D().rule).toBe("current");
+    // The person's pick in a column is what the card shows (the preview follows the river).
+    const lib = (D() as Desk).pane("library") as any;
+    await until(() => (lib.items?.length ?? 0) > 1, "the Library's notes", 10_000);
+    await mine("tile.focus", {}, "library");
+    await mine("column.select", { n: 2 }, "library");
+    const card = (D() as Desk).pane("card") as any;
+    await until(() => card.msg?.id === lib.flat()[1].m.id, "the card following the Library's pick", 5000);
   }, 20_000);
 
   test("an agent's tile actions leave the person's focus where it is; its new tab isn't shown over theirs", async () => {

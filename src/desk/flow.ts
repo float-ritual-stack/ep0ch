@@ -5,9 +5,9 @@
 //
 // Focus and the layout are two things: moving the person's keys between columns never moves a column. The anchor
 // moves only on an explicit shift (widen), an open that would not otherwise show the new column full, or a key move
-// to a column the strip doesn't show at all. Ported from the River screen's own model (`src/river/river.ts`:
-// `Col`'s pinned (a docked column), from and ahead, `layout()`'s squeeze, `place()`, `widen()`, `close()`, back and forward), so the river
-// can become a screen on the one engine (PIE-515).
+// to a column the strip doesn't show at all. Ported from the River screen's own model (its docked columns, from and
+// ahead, squeeze, place, widen, close, back and forward), so the river became a screen on the one engine (PIE-515:
+// `src/river/column.ts`, a flow of river columns).
 //
 // Internal to the module: `screen-layout.ts` is its interface. Columns are named by a tile in them (tile ids are
 // never reused), so the bookkeeping survives every tree change that keeps the tile.

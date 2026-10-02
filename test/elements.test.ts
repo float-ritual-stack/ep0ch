@@ -11,9 +11,10 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
@@ -400,23 +401,25 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
 
   test("the river: alt+⏎ on a selected link opens the link in a new column, not the card", async () => {
     if ((app as any).stack.at(-1) instanceof Desk) app.pop();
-    const river = new River(), R = river as any;
+    const river = openScreen("river") as Desk, V = () => riverView(river);
     app.push(river);
     try {
       await act("open", { id: n.jobs.id }, undefined, AS);
-      await until(() => R.cols.some((c: any) => c.panes[0].source.kind === "block" && c.panes[0].source.id === n.jobs.id), "the jobs column");
-      R.focus = R.cols.findIndex((c: any) => c.panes[0].source.kind === "block" && c.panes[0].source.id === n.jobs.id);
-      await until(() => !!R.paneS?.items, "the column's rows");
-      river.render(R.ctx);
+      await until(() => !!V().byNote(n.jobs.id), "the jobs column");
+      const p = V().byNote(n.jobs.id)!;
+      river.focusPane(p, USER);
+      await until(() => !!p.items, "the column's rows");
+      river.render(river.ctx);
       key(char("]"));                                                    // the river steps links (it draws its own body)
-      const p = R.paneS;
       expect(p.surface.describe().links.find((l: any) => l.selected)).toBeTruthy();
-      const cols = R.cols.length;
+      const cols = V().columns.length;
       key({ kind: "alt-enter" });
-      await until(() => R.cols.length === cols + 1, "a new column");
-      const opened = R.cols.at(-1)?.panes[0].source;
-      expect([n.plan.id, n.beans.id, n.shed.id]).toContain(opened?.id);
-      expect(opened?.id).not.toBe(n.jobs.id);
+      await until(() => V().columns.length === cols + 1, "a new column");
+      // The new column holds the link's note (the person's keys went to it), not the jobs card.
+      await until(() => !!(river.focusedPane() as ReaderPane).msg, "the new column's note");
+      const id = (river.focusedPane() as ReaderPane).msg!.id;
+      expect([n.plan.id, n.beans.id, n.shed.id]).toContain(id);
+      expect(id).not.toBe(n.jobs.id);
     } finally { app.pop(); }
   }, 30_000);
 });

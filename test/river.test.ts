@@ -1,33 +1,39 @@
 // The river's columns host the shared note surface: edit, quote a passage, comment, reply and resolve
 // from a column by keys and by agent, with the same code as the board's readers. Scratch services only.
+// PIE-515: the River is a screen spec on the desk; its columns are `river.column` tiles in a flow, named as any tile
+// (`library`, `column2`…), and widen, dock, close, back and forward are the engine's tile actions.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { BANNER_MS, River, RIVER_ACTIONS, riverPosition } from "../src/river/river";
+import type { Desk } from "../src/desk/desk";
+import { openScreen } from "../src/desk/screen-specs";
+import { BANNER_MS, COLUMN_ACTIONS, type RiverColumn } from "../src/river/column";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { view } from "./river-view";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
-test("every river action has keys and a summary", () => {
-  const list = RIVER_ACTIONS.list();
-  expect(list.map(a => a.name)).toEqual(["open", "focus", "select", "replies", "split", "pin", "widen", "close", "column.scroll", "filter", "tag", "jump", "back", "forward", "copy"]);
+test("every river column action has keys and a summary", () => {
+  const list = COLUMN_ACTIONS.list();
+  expect(list.map(a => a.name)).toEqual(["column.select", "column.replies", "column.scroll", "column.filter", "column.tag", "column.split", "column.copy"]);
   for (const a of list) { expect(a.summary.length).toBeGreaterThan(10); expect(a.keys).toBeTruthy(); }
 });
 
 describe.skipIf(!outliner)("river columns host the note surface, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, app: App, river: River;
+  let board: SocketBoard, other: SocketBoard, app: App, river: Desk;
   const notes: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const type = (s: string) => { for (const c of s) key(char(c)); };
   const AS = "river-agent-3";
-  const R = () => river as any;
+  const V = () => view(river);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => river.dispatch.act({ action, args, reader }, USER);
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const lastBy = async (id: string, author: "agent" | "user") => {
@@ -36,10 +42,10 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     return e && [e.author, e.actorId];
   };
   const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
-  const column = (n: number) => R().cols[n - 1];
-  const surfaceOf = (n: number) => column(n).panes[column(n).pane].surface;
+  const column = (n: number) => V().column(n);
+  const surfaceOf = (n: number) => column(n).surface as any;
   // Screen text without colours (a failed toContain then prints something readable).
-  const screen = () => (R().render(app).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "");
+  const screen = () => (river.render(river.ctx).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "");
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");   // before the river reads river.json
@@ -53,9 +59,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    river = new River();
+    river = openScreen("river") as Desk;
     app.push(new MainMenu()); app.push(river);
-    await until(() => !!column(1)?.panes[0].items?.length, "the Library", 10_000);
+    await until(() => !!column(1)?.items?.length, "the Library", 10_000);
   }, 30_000);
 
   afterAll(async () => {
@@ -64,33 +70,34 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     delete process.env.EP0CH_STATE;
   });
 
-  const panesNow = (): any[] => R().panes();
-  const paneOf = (reader: string) => panesNow().find(p => `r${p.id}` === reader);
-  const readerOf = (id: string) => ((app.describe() as any).state.columns.flatMap((c: any) => c.panes).find((p: any) => p.source.kind === "block" && p.source.id === id))?.reader as string;
-  const coverOf = (reader: string) => (app.describe() as any).state.columns.find((c: any) => c.panes.some((p: any) => p.reader === reader))?.cover;
-  const focusedUid = () => R().cols[R().focus].uid;
+  const paneOf = (reader: string) => V().tiles.find(c => V().name(c) === reader)!;
+  const readerOf = (id: string) => { const c = V().byNote(id); return c ? V().name(c) : undefined; };
+  const coverOf = (reader: string) => { screen(); return V().coverOf(paneOf(reader)); };
+  const focused = () => V().focused;
+  const lib = () => V().name(column(1));
   const focusOnReader = (reader: string) => {   // the person's h l, never the agent's `focus`
-    const target = R().cols.findIndex((c: any) => c.panes.some((p: any) => `r${p.id}` === reader));
-    for (let i = 0; i < 20 && R().focus > target; i++) key(char("h"));
-    for (let i = 0; i < 20 && R().focus < target; i++) key(char("l"));
-    expect(R().focus).toBe(target);
+    const target = V().columns.indexOf(paneOf(reader));
+    for (let i = 0; i < 20 && V().focus > target; i++) key(char("h"));
+    for (let i = 0; i < 20 && V().focus < target; i++) key(char("l"));
+    expect(V().focus).toBe(target);
   };
   const readOnReader = (reader: string) => { focusOnReader(reader); key(char("w")); };   // the keys there, then the person's widen
   let beansR = "";
 
-  test("an agent's open returns a stable reader id and leaves the person's focus; the person moves there and edits with e", async () => {
+  test("an agent's open lands in the next column and leaves the person's focus; the person moves there and edits with e", async () => {
     const o: any = await act("open", { id: notes.beans.id });
-    expect(o).toMatchObject({ at: "2", id: notes.beans.id });
-    expect(o.reader).toMatch(/^r\d+$/);
+    expect(o).toMatchObject({ id: notes.beans.id });
     beansR = o.reader;
-    expect(R().focus).toBe(0);                                   // still the Library: the agent didn't take the keys
+    expect(V().columns.map(c => V().name(c))).toEqual([lib(), beansR]);
+    expect(V().focus).toBe(0);                                   // still the Library: the agent didn't take the keys
     key(char("l"));
-    expect(R().focus).toBe(1);
-    await until(() => !!column(2).panes[0].root, "the column's note");
+    expect(V().focus).toBe(1);
+    await until(() => !!column(2).root, "the column's note");
     key(char("e"));
     await until(() => !!surfaceOf(2).draft, "the draft");
     expect(screen()).toContain("editing · Stake the beans");
-    expect((app.describe() as any).state.columns[1]).toMatchObject({ cover: "full", panes: [{ reader: beansR, at: "2", note: { id: notes.beans.id }, surface: { editing: { dirty: false } } }] });
+    expect(coverOf(beansR)).toBe("full");
+    expect(column(2).describe()).toMatchObject({ note: { id: notes.beans.id }, editing: { dirty: false } });
     key({ kind: "down" }); key({ kind: "end" }); type(" Two per plant.");
     expect(river.unsaved()).toBe(true);
     key(ctrl("s"));
@@ -103,40 +110,40 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("i opens the property panel in a river column; it holds the person's keys, a value field takes typing, Esc steps out", async () => {
     focusOnReader(beansR);
-    const at = R().focus, S = () => surfaceOf(at + 1);
+    const at = V().focus, S = () => surfaceOf(at + 1);
     key(char("i"));
     await until(() => !!S().panel, "the panel");
     key(char("h"));                                              // a panel key, not a column move
-    expect(R().focus).toBe(at);
+    expect(V().focus).toBe(at);
     // an agent doesn't start an edit under the person's open panel
-    await expect(act("edit.text", { text: "agent text" }, beansR)).rejects.toThrow(/property panel open/);
+    await expect(act("edit.text", { text: "agent text" }, beansR)).rejects.toThrow(/property panel/);
     expect(S().draft).toBeNull();
     key({ kind: "enter" });                                      // edit the selected value
     await until(() => !!S().panel?.field, "the value field");
     const before = S().panel.field.text;
     type("zz");
     expect(S().panel.field.text).toBe(before + "zz");           // typing reaches the field, not the river
-    expect(R().focus).toBe(at);
+    expect(V().focus).toBe(at);
     key({ kind: "esc" });                                        // closes the field, not the river
     expect(S().panel?.field ?? null).toBeNull();
     key({ kind: "esc" });                                        // closes the panel
     expect(S().panel).toBeNull();
     expect((app.describe() as any).screen).toBe(river.title);    // still in the river
     key(char("h"));
-    expect(R().focus).toBe(at - 1);
+    expect(V().focus).toBe(at - 1);
     key(char("l"));
   });
 
-  test("an agent's focus on the pane the person is typing in leaves them in their edit", async () => {
+  test("an agent's focus on the column the person is typing in leaves them in their edit", async () => {
     focusOnReader(beansR);
-    const at = R().focus, S = () => surfaceOf(at + 1);
+    const at = V().focus, S = () => surfaceOf(at + 1);
     key(char("e"));
     await until(() => !!S().draft, "the draft");
-    // Moving their keys while they type is refused (the actor rule), even onto the pane they're in.
-    await expect(act("focus", {}, beansR)).rejects.toThrow(/edit, a comment or the property panel on the river.*not moved/);
+    // Moving their keys while they type is refused (the actor rule), even onto the column they're in.
+    await expect(act("focus", {}, beansR)).rejects.toThrow(/not moved/);
     key({ kind: "end" }); type("Q");                             // still the person's edit: typed, not a river key
     expect(S().draft.text).toContain("Q");
-    expect(R().focus).toBe(at);
+    expect(V().focus).toBe(at);
     key({ kind: "esc" }); key({ kind: "esc" });                  // discard (copied out) and close
     await until(() => !S().draft, "closed");
   });
@@ -156,30 +163,30 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("an agent's edit in the focused column doesn't take the person's keys; its line clears on their next key there", async () => {
     const text = (await current(notes.beans.id)).text.replace("Tie them loosely", "Tie them loosely with twine");
-    expect(await act("edit.text", { text }, beansR)).toMatchObject({ reader: beansR, at: "2", dirty: true });
+    expect(await act("edit.text", { text }, beansR)).toMatchObject({ dirty: true });
     // h and l still move between columns; nothing is typed into the agent's draft.
     key(char("h"));
-    expect(R().focus).toBe(0);
+    expect(V().focus).toBe(0);
     key(char("l"));
-    expect(R().focus).toBe(1);
+    expect(V().focus).toBe(1);
     expect(surfaceOf(2).draft.text).toBe(text);
     expect(screen()).toContain("enter an agent's (river-agent-3) edit");
     // x doesn't close it and says how to get in.
     key(char("x"));
-    expect(column(2)).toBeTruthy();
+    expect(paneOf(beansR)).toBeTruthy();
     expect((app as any).message).toContain("e or ⏎ enters it");
-    expect(await act("edit.save", {}, beansR)).toMatchObject({ reader: beansR, saved: true });
+    expect(await act("edit.save", {}, beansR)).toMatchObject({ saved: true });
     expect(await lastBy(notes.beans.id, "agent")).toEqual(["agent", AS]);
     expect(screen()).toContain(`an agent (${AS}) saved this note`);
     key(char("j"));                                              // the person acts in that column: read
     expect(screen()).not.toContain(`an agent (${AS}) saved this note`);
-    const c: any = await act("comment", { quote: "the wind is strong there", body: "Stake on the lee side." }, notes.beans.id.slice(0, 8));
-    expect(c).toMatchObject({ reader: beansR, sent: "comment" });
-    const mine = (await threads(notes.beans.id)).find(x => x.body === "Stake on the lee side.");
-    expect(mine.originalTarget.anchor.exact).toBe("the wind is strong there");
-    expect([mine.block.author, mine.block.actorId]).toEqual(["agent", AS]);
-    expect(await act("reply", { thread: mine.block.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
-    expect(await act("resolve", { thread: mine.block.id }, beansR)).toMatchObject({ lifecycle: "resolved" });
+    const c: any = await act("comment", { quote: "the wind is strong there", body: "Stake on the lee side." }, beansR);
+    expect(c).toMatchObject({ sent: "comment" });
+    const mine_ = (await threads(notes.beans.id)).find(x => x.body === "Stake on the lee side.");
+    expect(mine_.originalTarget.anchor.exact).toBe("the wind is strong there");
+    expect([mine_.block.author, mine_.block.actorId]).toEqual(["agent", AS]);
+    expect(await act("reply", { thread: mine_.block.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
+    expect(await act("resolve", { thread: mine_.block.id }, beansR)).toMatchObject({ lifecycle: "resolved" });
     await act("comment.close", {}, beansR);
   });
 
@@ -210,17 +217,17 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((app as any).message).toContain(d.savedCopy);
   });
 
-  test("after an agent's focus moves the person away, coming back by h l doesn't put their keys in the edit", async () => {
+  test("after the person moves away, coming back by h l doesn't put their keys in the edit", async () => {
     key(char("e"));                                              // the person's own edit in the beans column
     await until(() => !!surfaceOf(2).draft, "the draft");
     key(char("x"));                                              // in it: x is typed
     expect(surfaceOf(2).draft.text).toContain("x");
     // An agent doesn't move their keys out of their edit (the actor rule); the person's own move does.
-    await expect(act("focus", {}, "1")).rejects.toThrow(/not moved/);
-    await R().dispatch.act({ action: "focus", reader: "1" }, { kind: "user" });
-    expect(R().focus).toBe(0);
+    await expect(act("focus", {}, lib())).rejects.toThrow(/not moved/);
+    await mine("focus", {}, lib());
+    expect(V().focus).toBe(0);
     key(char("l"));
-    expect(R().focus).toBe(1);
+    expect(V().focus).toBe(1);
     const before = surfaceOf(2).draft.text;
     key(char("q"));
     expect(surfaceOf(2).draft.text).toBe(before);
@@ -230,138 +237,99 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   });
 
   test("in the Library the selected note is the one e and C act on", async () => {
-    expect(await act("select", { id: notes.squash.id }, "1")).toMatchObject({ at: "1", selected: notes.squash.id });
-    expect(await act("edit.text", { text: "Plant the squash [stage::queued]\nBy the compost heap, in June." }, "1")).toMatchObject({ at: "1", dirty: true });
+    expect(await act("column.select", { id: notes.squash.id }, lib())).toMatchObject({ selected: notes.squash.id });
+    await until(() => surfaceOf(1).msg?.id === notes.squash.id, "the Library's note");
+    expect(await act("edit.text", { text: "Plant the squash [stage::queued]\nBy the compost heap, in June." }, lib())).toMatchObject({ dirty: true });
     expect(surfaceOf(1).draft.blockId).toBe(notes.squash.id);
-    await expect(act("close", {}, "1")).rejects.toThrow("editing");
-    expect(await act("edit.save", {}, "1")).toMatchObject({ saved: true });
+    await expect(act("tile.close", {}, lib())).rejects.toThrow(/edit|keeps/);
+    expect(await act("edit.save", {}, lib())).toMatchObject({ saved: true });
     expect((await current(notes.squash.id)).text).toContain("in June.");
   });
 
-  test("column numbers shift; an agent's edit carries on only in the pane that holds it", async () => {
-    const uid = focusedUid();
+  test("a column keeps its name as columns open around it; an agent's edit carries on only in the column that holds it", async () => {
+    const was = focused();
     const text = (await current(notes.beans.id)).text + "\nPositional.";
-    expect(await act("edit.text", { text }, "2")).toMatchObject({ reader: beansR, at: "2" });
-    // A column opens before it: the beans column is 3 now, and the person's focus stays on it.
-    const peas: any = await act("open", { id: notes.peas.id }, "1");
-    expect(peas.at).toBe("2");
-    expect(focusedUid()).toBe(uid);
+    expect(await act("edit.text", { text }, beansR)).toMatchObject({ dirty: true });
+    // A column opens after the Library, before the beans: the beans column keeps its name, and the person's focus stays.
+    const peas: any = await act("open", { id: notes.peas.id, from: lib() });
+    expect(V().columns.map(c => V().name(c)).indexOf(peas.reader)).toBe(1);
+    expect(focused()).toBe(was);
     await until(() => !!paneOf(peas.reader).root, "the peas column");
-    // The agent's old number now names the peas column: refused, and told the pane's id.
-    await expect(act("edit.text", { text }, "2")).rejects.toThrow(`tile ${beansR}`);
-    await expect(act("edit.save", {}, "2")).rejects.toThrow(`tile ${beansR}`);
     expect(paneOf(peas.reader).surface.draft).toBeNull();
-    expect(await act("edit.close", { discard: true }, beansR)).toMatchObject({ reader: beansR, at: "3", closed: true });
-    expect(await act("close", {}, peas.reader)).toMatchObject({ closed: peas.reader });
+    expect(await act("edit.close", { discard: true }, beansR)).toMatchObject({ closed: true });
+    expect(await act("tile.close", {}, peas.reader)).toMatchObject({ tile: peas.reader });
     expect(readerOf(notes.peas.id)).toBeUndefined();
   });
 
-  test("an agent's up, link.follow and split leave the person's focus and pane", async () => {
-    const uid = focusedUid();
-    const shoot: any = await act("open", { id: notes.shoot.id }, beansR);
-    expect(focusedUid()).toBe(uid);
+  test("an agent's up, link.follow and column.split leave the person's focus and column", async () => {
+    const was = focused();
+    const shoot: any = await act("open", { id: notes.shoot.id, from: beansR });
+    expect(focused()).toBe(was);
     await until(() => !!paneOf(shoot.reader).root, "the shoot column");
-    if (coverOf(shoot.reader) !== "full") expect(await act("pin", { docked: true }, shoot.reader)).toMatchObject({ docked: true });
-    expect(focusedUid()).toBe(uid);
+    if (coverOf(shoot.reader) !== "full") expect(await act("tile.dock", { on: true }, shoot.reader)).toMatchObject({ docked: true });
+    expect(focused()).toBe(was);
     expect(await act("up", {}, shoot.reader)).toMatchObject({ opened: notes.peas.id });
-    expect(focusedUid()).toBe(uid);
-    const peasR = readerOf(notes.peas.id);
+    expect(focused()).toBe(was);
+    const peasR = readerOf(notes.peas.id)!;
     expect(peasR).toBeTruthy();
     await until(() => !!paneOf(peasR).root, "the parent's column");
     // The peas column may be squeezed now; docking widens it without moving the person.
-    await act("pin", { docked: false }, shoot.reader);
-    if (coverOf(peasR) !== "full") await act("pin", { docked: true }, peasR);
+    await act("tile.dock", { on: false }, shoot.reader);
+    if (coverOf(peasR) !== "full") await act("tile.dock", { on: true }, peasR);
     expect(await act("link.follow", { n: 1 }, peasR)).toMatchObject({ opened: notes.beans.id });
-    expect(focusedUid()).toBe(uid);
-    const sp: any = await act("split", {}, "1");
-    expect(R().cols[0].pane).toBe(0);
-    expect(R().cols[0].panes).toHaveLength(2);
-    expect(sp.reader).toMatch(/^r\d+$/);
-    await act("close", {}, sp.reader);
-    expect(R().cols[0].panes).toHaveLength(1);
-  });
-
-  test("a block id prefers the full-width column opened on the note over a list selecting it", async () => {
-    const peasR = readerOf(notes.peas.id);
-    await act("select", { id: notes.peas.id }, "1");
-    for (let i = 0; i < 20 && R().focus > 0; i++) key(char("h"));                        // the person is in the Library
-    if (coverOf(peasR) !== "full") await act("pin", { docked: true }, peasR);
-    expect(coverOf(peasR)).toBe("full");
-    expect(await act("link.select", { n: 1 }, notes.peas.id)).toMatchObject({ reader: peasR });
+    expect(focused()).toBe(was);
+    await act("column.select", { id: notes.beans.id }, lib());
+    const sp: any = await act("column.split", {}, lib());
+    expect(V().stack(1).map(c => V().name(c))).toEqual([lib(), sp.tile]);
+    expect(focused()).toBe(was);
+    await act("tile.close", {}, sp.tile);
+    expect(V().stack(1)).toHaveLength(1);
   });
 
   test("clicking or wheeling a card clears a selected link, so ⏎ opens the clicked card", async () => {
-    const peasR = readerOf(notes.peas.id), p = paneOf(peasR);
+    const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
     await until(() => (p.items?.length ?? 0) >= 2, "the peas replies");
+    await mine("focus", {}, lib());
+    await act("widen", {}, peasR);
     await act("link.select", { n: 1 }, peasR);
-    expect(R().linked(p)).toBe(true);
+    expect(p.surface.describe().links.some(l => l.selected)).toBe(true);
     screen();
-    const hit = R().hits.find((h: any) => R().cols[h.col].panes[h.pane] === p);
-    const other = p.sel === 0 ? 1 : 0;
-    const y = hit.rect.row + hit.rows.findIndex((r: any) => r.card === other);
-    key({ kind: "mouse", action: "down", button: 0, x: hit.rect.col + 2, y });
+    const r = river.rectOf(p)!, rows = screen().split("\n");
+    const other = p.sel === 0 ? 1 : 0, title = p.flat()[other]!.m.text.split("\n")[0]!;
+    const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows && l.slice(r.col, r.col + r.cols).includes(title));
+    key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y }); key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y });
     expect(p.sel).toBe(other);
-    expect(R().linked(p)).toBe(false);
-    const clicked = R().flat(p)[other].m.id;
+    expect(p.surface.describe().links.some(l => l.selected)).toBe(false);
+    const clicked = p.flat()[other]!.m.id;
     key({ kind: "enter" });
-    expect(R().cols[R().focus].panes[0].source.id).toBe(clicked);
+    await until(() => (focused().source as { id?: string }).id === clicked, "the clicked card's column");
     // The wheel too.
+    await mine("focus", {}, lib());
     await act("link.select", { n: 1 }, peasR);
     screen();
-    const h2 = R().hits.find((h: any) => R().cols[h.col].panes[h.pane] === p);
-    key({ kind: "mouse", action: "wheel-down", button: 0, x: h2.rect.col + 2, y: h2.rect.row + 1 });
-    expect(R().linked(p)).toBe(false);
+    const r2 = river.rectOf(p)!;
+    key({ kind: "mouse", action: "wheel-down", button: 0, x: r2.col + 2, y: r2.row + 2 });
+    expect(p.surface.describe().links.some(l => l.selected)).toBe(false);
   });
 
   test("a property notice and an agent line in a column the person isn't in clear once shown a while", async () => {
-    const peasR = readerOf(notes.peas.id), p = paneOf(peasR);
+    const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
+    await mine("focus", {}, lib());
+    if (coverOf(peasR) !== "full") await act("tile.dock", { on: true }, peasR);
     const text = (await current(notes.peas.id)).text.replace("Sow the peas", "Sow the peas [stage::doing]");
     await act("edit.text", { text }, peasR);
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: false });   // the property warning first
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: true });
     expect(screen()).toContain("properties changed: +stage=doing");
     expect(screen()).toContain(`an agent (${AS}) saved this note`);
-    expect(R().paneS).not.toBe(p);                              // the person is in the column they opened last
+    expect(focused()).not.toBe(p);
     key(char("j"));                                              // elsewhere, and not long after: still there
     expect(screen()).toContain("properties changed: +stage=doing");
-    p.shown.at -= BANNER_MS;
+    (p as unknown as { shown: { at: number } }).shown.at -= BANNER_MS;
     key(char("k"));
     expect(screen()).not.toContain("properties changed: +stage=doing");
     expect(screen()).not.toContain(`an agent (${AS}) saved this note`);
-  });
-
-  test("an edit already open in a compressed column still takes its agent's actions; starting one there says pin, not focus", async () => {
-    const cols = () => (app.describe() as any).state.columns;
-    const dockOnly = async (reader: string) => {   // at 180 cells: the wide column and one docked one are full
-      for (const c of cols()) if (c.pinned && c.panes[0].reader !== reader) await act("pin", { docked: false }, c.panes[0].reader);
-      await act("pin", { docked: true }, reader);
-    };
-    const shootR = readerOf(notes.shoot.id);
-    readOnReader(beansR);
-    await dockOnly(shootR);
-    expect(coverOf(shootR)).toBe("full");
-    const text = (await current(notes.shoot.id)).text + "\nSqueezed.";
-    await act("edit.text", { text }, shootR);
-    await act("pin", { docked: false }, shootR);
-    // Two docked columns after it, the person elsewhere: the column holding the agent's edit is squeezed.
-    for (const id of [notes.squash.id, notes.beans.id]) {
-      const o: any = await act("open", { id, duplicate: true }, String(R().cols.length));
-      await act("pin", { docked: true }, o.reader);
-    }
-    expect(coverOf(shootR)).not.toBe("full");
-    expect(await act("edit.text", { text: text + " Still mine." }, shootR)).toMatchObject({ reader: shootR, dirty: true });
-    expect(await act("edit.save", {}, shootR)).toMatchObject({ saved: true });
-    expect((await current(notes.shoot.id)).text).toContain("Squeezed. Still mine.");
-    // Starting something new in a squeezed column is refused, pointing at pin (which doesn't move the person).
-    const squeezed = cols().find((c: any) => c.cover !== "full" && !c.pinned && !c.focused);
-    const r = squeezed.panes[0].reader;
-    const refusal = await act("edit.text", { text: "x" }, r).then(() => "", (e: Error) => e.message);
-    expect(refusal).toContain(`pin tile=${r}`);
-    expect(refusal).not.toContain("focus");
-    const uid = focusedUid();
-    await dockOnly(r);
-    expect(coverOf(r)).toBe("full");
-    expect(focusedUid()).toBe(uid);
+    await act("tile.dock", { on: false }, peasR);
   });
 
   test("another client's save marks the column's draft, never replaces it; leaving copies it out", async () => {
@@ -369,7 +337,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("edit.text", { text: (await current(notes.beans.id)).text + "\nMine, unsaved." }, beansR);
     const now = await current(notes.beans.id);
     await other.request("update", { blockId: notes.beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "other-writer" } });
-    const s = paneOf(beansR).surface;
+    const s = paneOf(beansR).surface as any;
     await until(() => s.draft?.changedElsewhere, "changed elsewhere", 8000);
     expect(s.draft.text).toContain("Mine, unsaved.");
     expect(screen()).toContain("editing · unsaved");
@@ -381,22 +349,22 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("edit.close", { discard: true }, beansR);
     expect(river.unsaved()).toBe(false);
   });
+
   test("a column shows the whole note and scrolls like a reader; it jumps to a reply only when you move to it (PIE-465)", async () => {
     const lines = Array.from({ length: 70 }, (_, i) => `Row ${i + 1} of the long seed list.`);
     const long = await create(null, `The long seed list\n${lines.join("\n")}`);
     await create(long.id, "Order more\nFrom the usual place.");
     const r = (await act("open", { id: long.id })) as { reader: string };
-    await R().dispatch.act({ action: "focus", reader: r.reader }, { kind: "user" });     // the person goes to it
+    await mine("focus", {}, r.reader);                           // the person goes to it
     await act("widen", {}, r.reader);
     const p = paneOf(r.reader);
     await until(() => (p.items?.length ?? 0) >= 1, "the long note's reply");
     let s = screen();
-    expect(s).not.toContain("more lines");
     expect(s).toContain("Row 1 of the long seed list.");     // opens at the top of the note, not at its reply
     expect(p.top).toBe(0);
     // The wheel scrolls the column by lines, to the end of the note.
-    const hit = R().hits.find((h: any) => R().cols[h.col].panes[h.pane] === p);
-    for (let i = 0; i < 30; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: hit.rect.col + 2, y: hit.rect.row + 1 });
+    const rect = river.rectOf(p)!;
+    for (let i = 0; i < 30; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: rect.col + 2, y: rect.row + 2 });
     s = screen();
     expect(s).toContain("Row 70 of the long seed list.");
     const scrolled = p.top;
@@ -411,68 +379,79 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(p.top).toBeGreaterThan(0);
   });
 
-  test("an agent's filter, jump and tag (PIE-506) work through act, are said on the status bar, and leave the person's keys where they are", async () => {
-    focusOnReader("r1");                                         // the person's keys on the Library
-    const focus = R().focus, uid = focusedUid();
+  test("an agent's filter and same-property column work through act, are said on the status bar, and leave the person's keys where they are", async () => {
+    focusOnReader(lib());                                        // the person's keys on the Library
+    const was = focused();
     // The column the person has the keys in is theirs: its filter, scroll and cursor aren't an agent's to move.
-    await expect(act("filter", { query: "squash" }, "1")).rejects.toThrow("column 1 has the person's keys");
-    await expect(act("column.scroll", { by: 3 }, "1")).rejects.toThrow("column 1 has the person's keys");
-    await expect(act("select", { by: 1 }, "1")).rejects.toThrow("column 1 has the person's keys");
-    // A column of its own beside (peas lists its two replies): filtered, said on the status bar.
-    const own = (await act("open", { id: notes.peas.id, duplicate: true }, "1")) as { reader: string };
+    await expect(act("filter", { query: "squash" }, lib())).rejects.toThrow("has the person's keys");
+    await expect(act("column.scroll", { by: 3 }, lib())).rejects.toThrow("has the person's keys");
+    await expect(act("column.select", { by: 1 }, lib())).rejects.toThrow("has the person's keys");
+    // A column of its own (peas lists its two replies): filtered, said on the status bar.
+    const own = (await act("open", { id: notes.peas.id, from: lib(), fresh: true })) as { reader: string };
     await until(() => (paneOf(own.reader).items?.length ?? 0) === 2, "the peas' replies");
     const out = (await act("filter", { query: "Thin" }, own.reader)) as { filter: string; listed: number };
     expect(out.filter).toBe("Thin");
     expect(out.listed).toBe(1);
-    expect((app as any).message).toContain(`an agent (${AS}) filtered column`);
-    expect(focusedUid()).toBe(uid);
-    expect(R().holdsKeys()).toBe(false);                         // the person's filter input was never opened
-    await act("close", {}, own.reader);
-    // jump: query alone lists; n opens the match beside the column, the person's focus stays.
-    const listed = (await act("jump", { query: "Plant the squash" })) as { matches: { id: string }[] };
-    expect(listed.matches[0]!.id).toBe(notes.squash.id);
-    const opened = (await act("jump", { query: "Plant the squash", n: 1, duplicate: true })) as { reader: string };
+    expect((app as any).message).toContain(`an agent (${AS}) filtered`);
+    expect(focused()).toBe(was);
+    expect(river.holdsKeys()).toBe(false);                       // the person's filter input was never opened
+    await act("tile.close", {}, own.reader);
+    // search lists notes; open from= puts one in the next column, the person's focus stays.
+    const found = (await act("search", { query: "Plant the squash" })) as { hits: { id: string }[] };
+    expect(found.hits[0]!.id).toBe(notes.squash.id);
+    const opened = (await act("open", { id: notes.squash.id, from: lib(), fresh: true })) as { reader: string };
     expect(paneOf(opened.reader).source).toMatchObject({ kind: "block", id: notes.squash.id });
-    expect((app as any).message).toContain(`an agent (${AS}) jumped to a note`);
-    expect(focusedUid()).toBe(uid);
-    expect(R().focus).toBe(focus);
-    await act("close", {}, opened.reader);
+    expect(focused()).toBe(was);
+    await act("tile.close", {}, opened.reader);
     // tag: a #queued column of the beans' stage, beside the Library; the person stays on the Library.
-    await act("select", { id: notes.beans.id }, "1");
-    const tag = (await act("tag", { key: "stage" }, "1")) as { reader: string; value: string };
+    await act("column.select", { id: notes.beans.id }, lib());
+    const tag = (await act("tag", { key: "stage" }, lib())) as { tile: string; value: string };
     expect(tag.value).toBe("queued");
-    expect(focusedUid()).toBe(uid);
-    await act("close", {}, tag.reader);
+    expect(paneOf(tag.tile).titleOf()).toBe("#queued");
+    expect(focused()).toBe(was);
+    await act("tile.close", {}, tag.tile);
     // back is the person's: an agent's is refused, with its way (open beside) named.
-    await expect(act("back", {}, "1")).rejects.toThrow("an agent opens beside");
+    await expect(act("tile.travel", {}, lib())).rejects.toThrow("an agent opens beside");
   });
 
-  test("the person's f, # and / end in the same actions as an agent's", async () => {
-    focusOnReader("r1");
-    key(char("f")); type("squash");
-    expect(R().holdsKeys()).toBe(true);                          // typing a filter holds the keys
+  test("the person's / filters this column and # offers the note's properties; both end in the same actions as an agent's", async () => {
+    readOnReader(lib());
+    key(char("/")); type("squash");
+    expect(river.holdsKeys()).toBe(true);                        // typing a filter holds the keys
+    expect(screen()).toContain("type:hub -status:done author:codex word");
     key({ kind: "enter" });
-    await until(() => R().paneS.filter.length === 1, "the filter");
-    expect(R().holdsKeys()).toBe(false);
-    key(char("f"));
+    await until(() => focused().filter.length === 1, "the filter");
+    expect(river.holdsKeys()).toBe(false);
+    key(char("/"));
     for (let i = 0; i < 10; i++) key({ kind: "backspace" });
     key({ kind: "enter" });
-    await until(() => R().paneS.filter.length === 0, "the filter cleared");
-    key(char("?"));
-    expect(R().holdsKeys()).toBe(true);                          // the help overlay holds the keys until any key
-    key(char("x"));
-    expect(R().holdsKeys()).toBe(false);
-  });
-});
-
-describe("naming a river reader by position", () => {
-  test("column and pane numbers are short; an id starting with eight digits stays a block id", () => {
-    const at = (sel: string) => { const m = riverPosition(sel); return m ? [m[1], m[2] ?? null] : null; };
-    expect(at("3")).toEqual(["3", null]);
-    expect(at("2.1")).toEqual(["2", "1"]);
-    expect(riverPosition("12345678")).toBeNull();
-    expect(riverPosition("12345678-9abc")).toBeNull();
+    await until(() => focused().filter.length === 0, "the filter cleared");
+    // #: the selected note's properties to follow (same property), or why there are none.
+    await act("column.select", { id: notes.squash.id }, lib());
+    await mine("column.select", { id: notes.squash.id }, lib());
+    key(char("#"));
+    expect(screen()).toContain("same property");
+    expect(screen()).toContain("stage:: queued");                 // in the hint row
+    key({ kind: "esc" });
+    await mine("column.select", { id: notes.peas.id }, lib());
+    key(char("#"));
+    expect(screen()).toContain("this note has no properties to follow");
+    key({ kind: "esc" });
+    expect(river.holdsKeys()).toBe(false);
   });
 
+  test("in a note column f and ( ) fold and [ ] move between its elements, as in every reader", async () => {
+    const r = readerOf(notes.peas.id)!;
+    await mine("focus", {}, r);
+    await mine("tile.widen", {}, r);
+    screen();
+    const s = paneOf(r).surface as any;
+    key(char("]"));
+    expect(s.describe().links.some((l: any) => l.selected) || s.currentKind() !== null).toBe(true);
+    key(char("["));
+    key({ kind: "esc" });
+    key(char("f"));                                              // the folds key, never the filter now
+    expect(focused().mode).toBe("");
+    expect(river.holdsKeys()).toBe(false);
+  });
 });
-

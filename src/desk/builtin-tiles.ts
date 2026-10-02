@@ -13,6 +13,7 @@ import { PTY_ACTIONS } from "./pty-actions";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
 import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
+import { riverColumnKind } from "../river/column";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
 import { DetailPane, dailyDraft, editor, shell, words } from "./tiles";
 import { TREE_ACTIONS } from "./tree";
@@ -176,6 +177,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of builtins()) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind()]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

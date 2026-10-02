@@ -10,7 +10,8 @@ import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
 import * as BV from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { completionTargetAtCursor, pageAddressCompletion } from "../src/completion";
 import { Draft } from "../src/edit";
@@ -505,15 +506,15 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   });
 
   test("the river's column", async () => {
-    const river = new River(), R = river as any;
+    const river = openScreen("river") as Desk, V = () => riverView(river);
     app.push(river);
     try {
-      await until(() => !!R.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await until(() => !!V().column(1)?.items?.length, "the Library", 10_000);
       await app.act({ action: "open", args: { id: beans.id } });
       key(char("l"));
-      await until(() => !!R.cols[1]?.panes[0].root, "the column's note");
+      await until(() => !!V().column(2)?.root, "the column's note");
       key(char("e"));
-      await clickSeeds(() => R.cols[1].panes[0].surface.draft);
+      await clickSeeds(() => V().column(2).surface.draft);
     } finally { app.pop(); }
   });
 });

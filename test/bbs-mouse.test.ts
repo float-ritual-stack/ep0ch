@@ -10,7 +10,7 @@ import { shellRunner } from "../src/drop";
 import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, LastCallers, Logon, MainMenu, MessageList, MessageReader, Stats, WhoOnline } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
-import { River } from "../src/river/river";
+import { Desk } from "../src/desk/desk";
 import type { Activity } from "../src/socket";
 import type { Key } from "../src/term";
 
@@ -176,7 +176,8 @@ describe.skipIf(!art)("the main menu never logs off by Esc (PIE-489)", () => {
     s.key({ kind: "esc" });
     expect(s.stack.length).toBe(1);
     s.key({ kind: "char", ch: "q" });
-    expect(s.top()).toBeInstanceOf(River);
+    expect(s.top()).toBeInstanceOf(Desk);
+    expect((s.top() as Desk).spec.name).toBe("river");
     expect(s.stack.length).toBe(2);
     s.stack.pop();
     s.key({ kind: "char", ch: "G" });

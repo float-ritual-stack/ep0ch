@@ -13,7 +13,8 @@ import { boardScreen } from "../src/desk/screen-specs";
 import * as BV from "./board-view";
 import { Desk, searchPreviewLines } from "../src/desk/desk";
 import { renderGraph } from "../src/graphs";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -138,9 +139,9 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
   });
 
   test("the river says 1 reply, not 1 replies", async () => {
-    const river = new River();
+    const river = openScreen("river") as Desk;
     app.push(river);
-    await until(() => ((river as any).cols[0]?.panes[0].items?.length ?? 0) >= 3, "the Library", 10_000);
+    await until(() => (riverView(river).column(1)?.items?.length ?? 0) >= 3, "the Library", 10_000);
     await until(() => lines().join("\n").includes("» 1 reply"), "the Pantry's one reply", 10_000);
     expect(lines().join("\n")).not.toContain("1 replies");
     app.pop();

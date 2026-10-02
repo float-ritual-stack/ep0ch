@@ -9,8 +9,8 @@ import { ActionRefused, ActionSet } from "../surface/actions";
 import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./screen-layout";
 import { tileNoun, type TileKindName } from "./tile-kinds";
 
-export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
-const WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"];
+export type Where = Dir | "tabs" | "next" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
+const WHERE = ["left", "right", "up", "down", "tabs", "next", "edge-left", "edge-right", "edge-up", "edge-down"];
 export const whereOf = (s: string | undefined, action: string, dflt: Where): Where => {
   if (s === undefined) return dflt;
   if (WHERE.includes(s)) return s as Where;
@@ -43,6 +43,9 @@ export interface TileHost {
   pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | "other" | undefined, actor: Actor, container?: string): TileDone;
   collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
   widenTile(sel: string | undefined, actor: Actor): TileDone;
+  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor): TileDone;
+  dockTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
+  neighbourOf(sel: string | undefined, dir: Dir): string;
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone;
   lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean };
   setPolicy(sel: string | undefined, node: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy };
@@ -106,10 +109,12 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.zoom": { on?: boolean };
   "tile.float": Record<string, never>;
   "tile.link": { to?: string };
-  "tile.focus": Record<string, never>;
+  "tile.focus": { dir?: string };
   "tile.pin": { on?: boolean; edge?: string; container?: string };
   "tile.collapse": { on?: boolean };
   "tile.widen": Record<string, never>;
+  "tile.travel": { dir?: string };
+  "tile.dock": { on?: boolean };
   "float.place": { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number };
   "layout.lock": { on?: boolean };
   "layout.policy": PolicyArgs;
@@ -181,7 +186,7 @@ export const TILE_ACTIONS = new ActionSet<{
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
       to: { type: "string", optional: true, tile: true, about: "the tile it opens beside (default the focused one; tile= also names it)" },
-      where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" },
+      where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
     async run({ kind, to, where, ...t }, { d, reader }, actor) {
       const r = await d.openTile({ kind: kind as TileKindName, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
@@ -250,9 +255,10 @@ export const TILE_ACTIONS = new ActionSet<{
     // The desk's older `focus` answered { focus }.
     aliases: [{ name: "focus", answer: (r: TileDone) => ({ ...r, focus: r.tile }) }],
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
-    args: {},
-    run(_, { d, reader }, actor) {
-      const r = d.focusTile(reader, actor);
+    args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
+    run({ dir }, { d, reader }, actor) {
+      if (dir !== undefined && !isDir(dir)) throw new ActionRefused(`tile.focus: dir is left, right, up or down, not ${dir}`);
+      const r = d.focusTile(dir ? d.neighbourOf(reader, dir) : reader, actor);
       return r;
     },
   },
@@ -285,9 +291,27 @@ export const TILE_ACTIONS = new ActionSet<{
       return r;
     },
   },
+  "tile.travel": {
+    summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
+    keys: "on the river: alt+← backspace the mouse's back button, a click on ← back (back); alt+→ the forward button, a click on forward → (forward)",
+    touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
+    args: { dir: { type: "string", optional: true, about: "back or forward; default back" } },
+    run({ dir }, { d, reader }, actor) {
+      if (dir !== undefined && dir !== "back" && dir !== "forward") throw new ActionRefused(`tile.travel: dir is back or forward, not ${dir}`);
+      return d.travelTile(reader, dir === "forward" ? 1 : -1, actor);
+    },
+  },
+  "tile.dock": {
+    summary: "dock tile=<tile>'s column in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
+    keys: "on the river: p",
+    touches: "shape", replay: "safe", says: r => `${r.docked ? "docked" : "undocked"} ${r.tile}`,
+    args: { on: { type: "boolean", optional: true, about: "true docks, false lets it go; default toggles" } },
+    run({ on }, { d, reader }, actor) { return d.dockTile(reader, on, actor); },
+  },
   "tile.widen": {
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
-    keys: "^W W; a click on a flow column's spine",
+    keys: "^W W; a click on a flow column's spine or header; on the river: w",
+    aliases: [{ name: "widen", keys: "the river's w" }],
     touches: "shape", replay: "safe", says: r => `widened ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {

@@ -10,7 +10,8 @@ import { renderDoc, type DocEnv } from "../src/doc";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { extractLinks, LINK_END, linkTag, pad, width } from "../src/style";
@@ -313,21 +314,20 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   }, 20_000);
 
   test("a river column opens a clicked link in a column beside it", async () => {
-    const river = new River();
+    const river = openScreen("river") as Desk, R = () => riverView(river);
     app.push(river);
-    const R = river as any;
     try {
-      await until(() => !!R.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await until(() => !!R().column(1)?.items?.length, "the Library", 10_000);
       await app.act({ action: "open", args: { id: n.jobs.id }, as: "test-agent-415" });
-      const col = () => R.cols.findIndex((c: any) => c.panes[0].source.kind === "block" && c.panes[0].source.id === n.jobs.id);
-      await until(() => col() >= 0 && !!R.rootOf(R.cols[col()].panes[0]), "the column");
-      const rectOf = () => { river.render(app as any); return R.colRects.find((c: any) => c.col === col()).rect as Rect; };
-      await until(() => { try { where(river.render(app as any).lines, "Garden plan", rectOf()); return true; } catch { return false; } }, "the column drawn with titles");
-      const before = R.cols.length;
-      click(where(river.render(app as any).lines, "Stake the beans", rectOf()));
-      await until(() => R.cols.some((c: any) => c.panes[0].source.kind === "block" && c.panes[0].source.id === n.beans.id), "a column for the block");
-      expect(R.cols.length).toBe(before + 1);
-      expect(R.cols[R.focus].panes[0].source.id).toBe(n.beans.id);
+      const col = () => R().byNote(n.jobs.id);
+      await until(() => !!col()?.root, "the column");
+      const rectOf = () => { river.render(river.ctx); return river.rectOf(col()!)! as Rect; };
+      await until(() => { try { where(river.render(river.ctx).lines, "Garden plan", rectOf()); return true; } catch { return false; } }, "the column drawn with titles");
+      const before = R().columns.length;
+      click(where(river.render(river.ctx).lines, "Stake the beans", rectOf()));
+      await until(() => !!R().byNote(n.beans.id), "a column for the block");
+      expect(R().columns.length).toBe(before + 1);
+      expect((R().focused.source as { id?: string }).id).toBe(n.beans.id);
     } finally { app.pop(); }
   }, 20_000);
 });

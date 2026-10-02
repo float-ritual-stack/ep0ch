@@ -42,8 +42,8 @@ export type {
   Axis, BinaryForm, Columns, Container, Dir, Divider, Drawer, Effective, Float, Flow, FlowForm, Grab, HostMode, Line, LNode, NaryForm, OpenRule, Place, Placed, PlacedDrawer, PlacedScreen, PlaceOpts, Policy, Split, Tabs,
 } from "./layout";
 export type { Cover } from "./flow";
-/** The flow's squeeze, for a screen that lays out its own columns until it's a preset of the tree (the River, PIE-515). */
-export { squeeze, fullWidth, PEEK } from "./flow";
+/** The flow's squeeze, and where back and forward go from a column (its trail). */
+export { squeeze, fullWidth, PEEK, travelTarget, tileOfColumn } from "./flow";
 
 /** A screen's layout: everything about where its tiles are, and nothing about what they show. */
 export interface LayoutState<I = number> {

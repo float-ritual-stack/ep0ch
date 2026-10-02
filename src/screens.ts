@@ -14,7 +14,6 @@ import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import type { Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
-import { River } from "./river/river";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
 import { ago, bbsDate, rule, wrap } from "./text";
@@ -230,7 +229,7 @@ const ITEMS: MenuItem[] = [
   { key: "L", label: "Lastcall", open: () => new LastCallers() },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
-  { key: "Q", label: "Quay", open: () => new River(), one: "river" },
+  { key: "Q", label: "Quay", open: () => openScreen("river"), one: "river" },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
   { key: "D", label: "Desk", open: () => openScreen("desk"), one: "desk" },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
