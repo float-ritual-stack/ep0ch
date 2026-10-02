@@ -6,13 +6,13 @@ import { join } from "node:path";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
 import { briefDate, findBriefs, orderBriefs, type BriefReader } from "../src/brief/brief";
-import type { Desk } from "../src/desk/desk";
+import { Desk } from "../src/desk/desk";
 import { presentLinks } from "../src/refs";
 import { Logon, MainMenu } from "../src/screens";
 import { skillCommand, skillsIn } from "../src/skills";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens } from "../src/start";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -48,7 +48,7 @@ describe("where the door opens", () => {
   test("--brief opens the newest brief over the main menu; the other flags as before", () => {
     const s = startScreens(["--brief"], {}, logon);
     expect(s.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "brief"]);
-    expect(startScreens(["--board", "--brief"], {}, logon)[1]).toBeInstanceOf(DeliveryBoard);
+    expect(startScreens(["--board", "--brief"], {}, logon)[1]).toBeInstanceOf(Desk);
   });
   test("EP0CH_LANDING=brief lands on the brief after the logon; unset or anything else, the logon then the menu", () => {
     expect(startScreens([], { EP0CH_LANDING: "brief" }, logon).map(x => x.title)).toEqual(["logon, then daily brief"]);

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import { foldPoints, renderDoc, type DocEnv } from "../src/doc";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -382,9 +382,9 @@ describe("review fixes (PR #13)", () => {
 
 describe.skipIf(!outliner)("folds in the board's readers, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, card: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any, card: any;
   let key: (k: Key) => void = () => {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: "test-agent-410" }) as Promise<any>;
   /** The person's own action (their ⏎ on a card: the reader gets their keys), through the board's dispatcher. */
   const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, reader }, { kind: "user" }) as Promise<any>;
@@ -402,7 +402,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 1 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
   }, 30_000);

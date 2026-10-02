@@ -8,7 +8,8 @@ import { connect } from "node:net";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { startControl } from "../src/control";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { pickParent } from "../src/desk/writes";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -47,11 +48,11 @@ describe("where a new card goes", () => {
 
 describe.skipIf(!outliner)("writing from the board, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, app: App, b: DeliveryBoard, hub: any, queue: any, queue2: any, elsewhere: any, chores: any;
+  let board: SocketBoard, other: SocketBoard, app: App, b: Desk, hub: any, queue: any, queue2: any, elsewhere: any, chores: any;
   const cards: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const AS = "test-agent-406";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}) => app.act({ action, args, as: AS });
   const make = (parentId: string | null, text: string) => other.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
@@ -103,7 +104,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 6 && B().lanes.every((l: any) => l.items), "the lanes", 10_000);
   }, 30_000);
@@ -245,7 +246,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
     expect(q.items[q.sel].id).toBe(queuedSel);
     expect(B().describe().lanes.find((l: any) => l.name === "Queued").collapsed).toBe(true);
-    expect(JSON.stringify(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).layout)).toContain(`"name":"Queued","id":"t${B().laneIds()[laneIndex("Queued")]}","view":"${B().lanes[laneIndex("Queued")].view}","collapsed":true`);
+    expect(JSON.stringify(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).root)).toContain(`"name":"Queued","id":"t${B().tileNum("Queued")}","view":"${B().lanes[laneIndex("Queued")].view}","collapsed":true`);
     await act("lane.collapse", { lane: "Queued", on: false });
     // An agent trashes and restores another card in the person's lane: the person stays on theirs.
     await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id });
@@ -493,6 +494,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const theirs = "it's open for editing with unsaved changes · save (ctrl+s) or close (esc) the edit first";
     await expect(B().dispatch.act({ action: "step.set", args: { card: cards.shelf.id, step: "2" } }, { kind: "user" })).rejects.toThrow(theirs);
     BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);
+    press({ kind: "char", ch: "e" });                                     // back in the edit (the keys went away from it)
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(b.unsaved()).toBe(false);
   });

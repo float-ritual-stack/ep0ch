@@ -73,7 +73,8 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   the board's columns are `hub:<id>`); a screen is a **spec** on the desk, the one screen host (PIE-515,
   `src/desk/screen-spec.ts`: containers with policy, tiles by kind, a key map naming actions, a hint, a band, where
   opens land), never a subclass and never a second layout host. What a screen does beyond layout goes in its
-  tiles' kinds (a kind's actions, `peek`, `band`, `take`, its default policy) or a policy field; a spec stays plain
+  tiles' kinds (a kind's actions, `peek`, `band`, `take`, its default policy), a columns source's model (the board's
+  lanes: `TileSource.model`, `src/desk/lanes.ts`) or a policy field; a spec stays plain
   data (`specData`/`readSpec`), because a screen note can't hold an override.
 - **A layout changes one way:** an operation of the screen-layout module (`src/desk/screen-layout.ts`,
   `apply(state, op, ctx)`): one step for one actor, the new state or a refusal with its reason. Its rules

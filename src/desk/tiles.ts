@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
+import { subject } from "../board";
 import { leaf, serializeTree, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
@@ -255,7 +256,17 @@ export class DetailPane extends ReaderPane {
   /** The page it's pinned to, if any: it shows that page each time it starts, not the last note it held. */
   page: string | null = null;
   constructor() { super(true); this.holdOn(); }
-  override title(): string { return this.msg ? "detail" : "detail · empty"; }
+  /** Opened into a container (the board's readers row): what it's called there ("detail 1"); null otherwise. */
+  label: string | null = null;
+  /** Set by the desk as it draws: an open there lands here (shown when there are two or more), and it floats. */
+  opensHere = false;
+  floating = false;
+  override title(): string {
+    if (this.label === null) return this.msg ? "detail" : "detail · empty";
+    // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
+    if (this.floating) return this.msg ? subject(this.msg) : "float";
+    return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", this.surface.state()].filter(Boolean).join(" · ");
+  }
   override select() {}
   spec(): Record<string, unknown> { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
 }

@@ -10,10 +10,11 @@ import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
 import { TILE_ACTIONS } from "../src/desk/tile-actions";
-import { BOARD_ACTIONS, DeliveryBoard } from "../src/desk/delivery";
+import { BOARD_ACTIONS } from "../src/desk/lanes";
+import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { drawSpine, spineImage } from "../src/spine";
 import { C, fg, RESET } from "../src/style";
 import { Term, type Key } from "../src/term";
@@ -84,11 +85,11 @@ test("the board's collapse and expand are tile.collapse, by their older names to
 
 describe.skipIf(!outliner)("board readers collapse to spines, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, app: App, b: DeliveryBoard, hub: any;
+  let board: SocketBoard, other: SocketBoard, app: App, b: Desk, hub: any;
   const cards: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const AS = "spine-agent-440";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
@@ -96,9 +97,9 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   const hints = () => frame().at(-1)!;
   const rect = (region: string) => { b.render(B().ctx); return BV.rectOf(b, region); };
   /** A pane's fold, as the desk keeps it (its tile id). */
-  const folded = (p: any) => B().collapsed.get(B().idOf(p));
-  const foldedLanes = () => B().laneIds().filter((id: number) => B().collapsed.has(id)).length;
-  const foldedReaders = () => [...B().collapsed.keys()].filter((id: number) => !B().isLane(id)).length;
+  const folded = (p: any) => B().folded(p);
+  const foldedLanes = () => B().lanes.filter((l: any) => B().folded(l)).length;
+  const foldedReaders = () => [...B().collapsed].filter(n => !B().lanes.some((l: any) => B().name(l) === n)).length;
   /** A folded reader's spine: its tile, drawn three columns wide. */
   const spine = (region: string): any => { b.render(B().ctx); const r = BV.rectOf(b, region); return r && r.cols === 3 ? r : undefined; };
   const click = (r: { col: number; row: number; cols: number; rows: number }) => {
@@ -108,14 +109,14 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), "the whole note");
   const state = () => JSON.parse(readFileSync(join(scratch.root, "door", "delivery.json"), "utf8"));
   /** The names of the tiles saved folded in the board's layout. */
-  const savedFolds = (): string[] => { const out: string[] = []; const walk = (n: any) => { if (!n || typeof n !== "object") return; if (n.t === "leaf") { if (n.collapsed) out.push(n.name); return; } for (const k of [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b]) walk(k); }; walk(state().layout?.root); return out; };
+  const savedFolds = (): string[] => { const out: string[] = []; const walk = (n: any) => { if (!n || typeof n !== "object") return; if (n.t === "leaf") { if (n.collapsed) out.push(n.name); return; } for (const k of [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b]) walk(k); }; walk(state().root); return out; };
   /** A new board on the same hub, nothing collapsed, the lanes loaded and the preview on the first Queued card. */
   const fresh = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard || (app as any).stack.at(-1) instanceof Desk) app.pop();
-    b = new DeliveryBoard(hub.id);
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
-    B().collapsed.clear(); B().save();
+    if (B().collapsed.size) await b.dispatch.act({ action: "tile.collapse", reader: "all", args: { on: false } }, USER);
     await whole(B().preview);
   };
   /** The preview and one detail on another card. */
@@ -205,8 +206,8 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await fresh();
     key({ kind: "tab" }); key(char("c"));
     expect(savedFolds()).toEqual(["preview"]);
-    const again = new DeliveryBoard(hub.id);
-    expect((again as any).collapsed.has((again as any).idOf((again as any).preview))).toBe(true);
+    const again = boardScreen(hub.id);
+    expect(!!BV.view(again).folded("preview")).toBe(true);
     key(char("c"));
   });
 
@@ -349,14 +350,14 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     (app as any).video = "kitty";
     try {
       const keys = b.render(B().ctx).placements!.map(p => p.key);
-      expect(keys).toContain(`spine:${B().laneIds()[0]}`);
-      expect(keys).toContain(`spine:${B().idNamed("preview")}`);
+      expect(keys).toContain(`spine:${B().tileNum(B().lanes[0])}`);
+      expect(keys).toContain(`spine:${B().tileNum("preview")}`);
     } finally { (app as any).video = "cells"; }
     key({ kind: "alt", ch: "c" });
   });
 
   test("the desk: C comments in its reader, and c says what it does now", async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     const desk = new Desk();
     app.push(desk);
     desk.openBlock((await board.get(cards.gate.id))!);

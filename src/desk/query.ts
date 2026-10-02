@@ -1,10 +1,10 @@
 // Query tiles (PIE-511): one saved view's cards (a virtual branch, as the service reads it with `views.read`),
 // with its own cursor. A board lane is one; so is a query tile opened on the desk (`^W o q`, `tile.open
 // kind=query view=<id>`). Where its cards open is the desk's rule (its link, its container's opens-into); the
-// board adds moving cards between its lanes, writing new ones and the rest (src/desk/delivery.ts).
+// board adds moving cards between its lanes, writing new ones and the rest (src/desk/lanes.ts).
 //
 // The board's lanes come from data: a columns container whose `source` is `hub:<id>` holds one query tile per
-// view under that hub (HUB_SOURCE). The desk asks the source and keeps each tile by its view, so a lane's
+// view under that hub (HUB_SOURCE, src/desk/lanes.ts). The desk asks the source and keeps each tile by its view, so a lane's
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
@@ -18,8 +18,6 @@ import { readView, type ViewRead } from "../views";
 import { summarySegments, viewSummaryKeys } from "../props";
 import { wheelRows } from "../scroll";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
-import type { TileSource } from "./tile-kinds";
-import type { TileSpec } from "./tiles";
 
 /** Stage-named lanes get the delivery order; anything else keeps the hub's own order. */
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
@@ -62,27 +60,6 @@ export function laneTileName(lane: string): string {
   return s || "lane";
 }
 
-/**
- * The hub source: `hub:<block id>`'s views as query tiles, in lane order. A view added, renamed or taken
- * away under the hub (a change whose parent is the hub, or was) asks it again.
- */
-export const HUB_SOURCE: TileSource = {
-  name: "hub",
-  about: "a hub's views (its virtual-branch children), one query tile each, in lane order",
-  drop: "take its view out of the hub in the outline (move it elsewhere or trash it)",
-  async tiles(arg, desk) {
-    if (!arg) return { tiles: [] };
-    const [hub, kids] = await Promise.all([desk.ctx.board.get(arg), desk.ctx.board.children(arg)]);
-    const defs = laneDefs(kids);
-    return {
-      ...(hub ? { title: subject(hub) } : {}),
-      tiles: defs.map(d => ({ spec: { t: "leaf", kind: "query", name: laneTileName(subject(d)), view: d.id } as TileSpec, prime: (p: Pane) => { if (p instanceof QueryPane) p.define(d); } })),
-    };
-  },
-  affects: (c, arg) => !!arg && c.kind !== "reorder" && c.kind !== "annotate" && c.kind !== "draft" && (c.parentId === arg || c.previousParentId === arg || c.blockId === arg),
-  key: s => (s.kind === "query" && s.view ? `query:${s.view}` : null),
-};
-
 /** A card's place in the lane, or what's being dragged over it (for its frame). */
 export type DropShown = { plan: MovePlan | null } | null;
 
@@ -106,6 +83,8 @@ export class QueryPane implements Pane {
    * alone on a desk it asks again itself, once per burst of changes.
    */
   managed = false;
+  /** What it's a lane of (the board's lanes, the hub source's model in src/desk/lanes.ts): its keys and mouse are theirs. */
+  model: { laneKeys(k: Key): boolean; laneMouse(k: Extract<Key, { kind: "mouse" }>): boolean } | null = null;
   /** The board's hint for its lanes (c collapse · H L move); the tile's own otherwise. */
   boardHint: string | null = null;
   private asked = 0;
@@ -233,6 +212,8 @@ export class QueryPane implements Pane {
   private run(desk: DeskApi, name: "query.pick" | "query.reload", args: Record<string, unknown>) { runOwn(QUERY_ACTIONS, name, args, { pane: this, desk }); }
 
   key(k: Key, desk: DeskApi): boolean {
+    // A lane on the board: the lanes' keys (its model's).
+    if (this.model) return this.model.laneKeys(k);
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     const by = k.kind === "down" || c === "j" ? 1 : k.kind === "up" || c === "k" ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
     if (by) { if (this.items?.length) this.run(desk, "query.pick", { by }); return true; }
@@ -242,6 +223,8 @@ export class QueryPane implements Pane {
   }
   /** A click picks a card; a click on the selected card opens it; the wheel moves the cursor. */
   mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi): boolean {
+    // A lane on the board: a card pressed, dragged to another lane, clicked again to open; the wheel (its model's).
+    if (this.model) return this.model.laneMouse(k);
     if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.items?.length) this.run(desk, "query.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const i = this.rowAt(y);

@@ -6,7 +6,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import { River } from "../src/river/river";
 import { Conferences, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -67,8 +68,8 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
 
     test("the board's Esc chain stops at the menu: one Esc too many does nothing", async () => {
       home();
-      app.push(new DeliveryBoard(hub.id));
-      await until(() => A().stack.at(-1).lanes?.[0]?.items, "the lanes", 10_000);
+      app.push(boardScreen(hub.id));
+      await until(() => BV.view(A().stack.at(-1)).lanes?.[0]?.items, "the lanes", 10_000);
       for (let i = 0; i < 6; i++) key(ESC);
       expect(titles()).toEqual(["main menu"]);
       await Bun.sleep(1800);
@@ -86,8 +87,8 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
   describe("F2: q is back on every screen", () => {
     test("q on the board's lanes goes back to the menu", async () => {
       home();
-      app.push(new DeliveryBoard(hub.id));
-      await until(() => A().stack.at(-1).lanes?.[0]?.items, "the lanes", 10_000);
+      app.push(boardScreen(hub.id));
+      await until(() => BV.view(A().stack.at(-1)).lanes?.[0]?.items, "the lanes", 10_000);
       expect(top().describe().focus).toBe("lanes");
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
@@ -280,7 +281,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
 
     test("an edit, a comment or the property panel the person is in holds their screen, however long they pause", async () => {
       home();
-      const b = new DeliveryBoard(hub.id), B = b as any;
+      const b = boardScreen(hub.id), B: any = BV.view(b);
       app.push(b);
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lanes and the preview", 10_000);
       const refused = async () => {

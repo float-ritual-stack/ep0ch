@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { renderDoc, type DocEnv } from "../src/doc";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
@@ -87,10 +87,10 @@ describe("link ranges: each rendered row stands alone (review of PIE-415)", () =
 
 describe.skipIf(!outliner)("clicking links and backlinks opens them, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, workId = "";
+  let board: SocketBoard, app: App, b: Desk, hub: any, workId = "";
   const n: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
@@ -114,8 +114,8 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   const shows = (region: string, text: string) => until(() => { try { where(frame(), text, rect(region)); return true; } catch { return false; } }, `"${text}" in ${region}`);
   /** A new board on the hub, the preview on the one Queued card (the note full of links). */
   const fresh = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
-    b = new DeliveryBoard(hub.id);
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
     await whole(B().preview, n.jobs.id);
@@ -193,10 +193,11 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     key({ kind: "enter" });
     await whole(B().details[0], n.jobs.id);
     key(char("o"));
-    const f = B().floats[0], fp = B().panes.get(f.id);
+    const f = B().floats[0], fp = f;
     await whole(fp, n.jobs.id);
-    await until(() => { try { where(frame(), "Stake the beans", f.rect); return true; } catch { return false; } }, "the float drawn");
-    click(where(frame(), "Stake the beans", f.rect));
+    const fr = () => B().describe().floats[0].rect;
+    await until(() => { try { where(frame(), "Stake the beans", fr()); return true; } catch { return false; } }, "the float drawn");
+    click(where(frame(), "Stake the beans", fr()));
     await until(() => fp.msg?.id === n.beans.id, "the block in the float");
   }, 20_000);
 
@@ -237,6 +238,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await fresh();
     key(char("b"));
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
+    await Bun.sleep(700);                                                     // a re-read the last changes queued has landed (it would replace the rows below)
     const L = B().linksTile, one = L.data.sources[0];
     // More sources than fit, one line each (PIE-442), under the status line; without facets, so one flat list.
     L.data = { ...L.data, sources: Array.from({ length: 40 }, (_, i) => ({ ...one, blockId: one.blockId, facets: undefined, title: `Source ${String(i).padStart(2, "0")}`, updatedAt: `2026-01-01T00:00:${String(59 - i).padStart(2, "0")}.000Z` })) };
@@ -244,7 +246,8 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     const r = rect("backlinks"), head = L.head, fit = r.rows - 2 - head;
     expect(fit).toBeGreaterThan(3);
     click({ x: r.col + 3, y: r.row + r.rows - 1 });                            // the bottom border
-    click({ x: r.col + 3, y: r.row + 1 });                                     // the status line's first part isn't a control
+    // The status line's first part isn't a control (on the header when it fits there: the header's title isn't either).
+    if (head) click({ x: r.col + 3, y: r.row + 1 });
     await Bun.sleep(50);
     expect(L.sel).toBe(0);
     expect(B().details.length).toBe(0);
@@ -282,7 +285,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   }, 20_000);
 
   test("the desk's reader opens a clicked link in its reader", async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     const desk = new Desk();
     app.push(desk);
     try {

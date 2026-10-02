@@ -14,7 +14,7 @@ import {
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkStatusPart, type BacklinkViewOptions,
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
 import { bg, C, fg, INPUT_CURSOR, pad, RESET, tint, width } from "../style";
 import { themed } from "../theme";
 import type { Key } from "../term";
@@ -106,7 +106,7 @@ export class BacklinksPane implements Pane {
     const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
     return `backlinks · ${subject(this.target).slice(0, 50)}${n}`;
   }
-  hint() { return "j k pick · ⏎ open · alt+⏎ fresh · s K w h n . view"; }
+  hint() { return this.draft !== null ? "type to filter the backlinks · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k pick · ⏎ open · alt+⏎ fresh · s K w h n . view"; }
   spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}) }; }
 
   init(desk: DeskApi) { this.sync(desk); }
@@ -192,11 +192,11 @@ export class BacklinksPane implements Pane {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
     const o = this.opts(), view = backlinkView(this.data, o), rows = this.rows();
-    const typing = this.draft;
-    const parts = backlinkStatusParts(view, o).filter(p => typing === null || p.control !== "filter");
-    if (typing !== null) parts.unshift({ text: `Filter: ${typing}${INPUT_CURSOR}`, control: "filter" });
-    if (this.data.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
-    const st = layoutBacklinkStatus(parts, w, Math.max(1, Math.floor(h / 2)), p => (typing !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey)));
+    // The status on the header when it fitted there (headControls), else its own lines at the top.
+    // Drawn without its header asking (a host that draws no headers): the status is its own.
+    if (!this.headAsked) this.inHead = false;
+    this.headAsked = false;
+    const st = this.inHead ? { segs: [], rows: 0 } : layoutBacklinkStatus(this.statusParts(), w, Math.max(1, Math.floor(h / 2)), p => this.sgrOf(p));
     const lines: string[] = Array.from({ length: st.rows }, () => "");
     const xs: number[] = Array.from({ length: st.rows }, () => 0);
     for (const s of st.segs) { lines[s.y] += " ".repeat(Math.max(0, s.x - xs[s.y]!)) + s.sgr + pad(s.text, s.cols) + RESET; xs[s.y] = s.x + s.cols; }
@@ -211,6 +211,30 @@ export class BacklinksPane implements Pane {
     if (!this.data.sources.length) lines.push(fg(C.dark) + " nothing links here yet" + RESET);
     else if (!rows.length) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };
+  }
+
+  /** The status line's parts: the filter (as it's typed), the view's controls, and how much the service sent. */
+  private statusParts(): BacklinkStatusPart[] {
+    const o = this.opts(), typing = this.draft;
+    const parts = backlinkStatusParts(backlinkView(this.data, o), o).filter(p => typing === null || p.control !== "filter");
+    if (typing !== null) parts.unshift({ text: `Filter: ${typing}${INPUT_CURSOR}`, control: "filter" });
+    if (this.data?.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
+    return parts;
+  }
+  private sgrOf(p: BacklinkStatusPart) { return this.draft !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey); }
+  /** The status went on the header this frame (its controls clicked there), and whether the header asked this frame. */
+  private inHead = false;
+  private headAsked = false;
+  /** The status on the header, when it fits there: each control a click, as its key. */
+  headControls(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void }[] | null {
+    this.inHead = false;
+    this.headAsked = true;
+    this.sync(desk);
+    if (!this.target || this.problem || !this.data) return null;
+    const parts = this.statusParts();
+    if (parts.reduce((n, p) => n + width(p.text) + 3, 0) > room) return null;
+    this.inHead = true;
+    return parts.map(p => ({ text: p.text, sgr: this.sgrOf(p), ...(p.control ? { press: () => this.run(desk, "backlinks.view", { step: p.control! }) } : {}) }));
   }
 
   /**
@@ -340,7 +364,54 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
   "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean };
   "backlinks.view": { filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string; step?: string };
   "backlinks.fold": { kind?: string };
+  "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BacklinksOn>("backlinks", {
+  "backlinks": {
+    summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) lists the backlinks of id (else of the note in the reader they read through), following the reader that shows it, its drawer sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
+    keys: "b",
+    touches: "nothing", replay: "safe",
+    args: {
+      id: { type: "string", optional: true, about: "the note whose backlinks to read; default the tile's" },
+      filter: { type: "string", optional: true, about: "text to match, as / filters" },
+      kind: { type: "string", optional: true, about: "one kind (its key or label), or all" },
+      stage: { type: "string", optional: true, about: "all, open, waiting, draft, active or done" },
+      resolved: { type: "boolean", optional: true, about: "show resolved comments" },
+      related: { type: "boolean", optional: true, about: "show this note and its descendants" },
+      sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },
+    },
+    async run(args, { pane: L, desk }, actor) {
+      const { id, ...want } = args;
+      const open = (desk.shownNow?.(L) ?? true) && !!L.target;
+      const same = !id || (open && (L.target!.id === id || (id.length >= 8 && L.target!.id.startsWith(id))));
+      const viewing = Object.values(want).some(v => v !== undefined);
+      const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions) => backlinkView(data, { ...o, kind: null }).kinds;
+      const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base)); } catch (e) { throw new ActionRefused((e as Error).message); } };
+      if (actor.kind !== "agent") {
+        // The person's b (or one naming a note): the list aims at it; their view options alone keep the list where it is.
+        if (id || !viewing || !open) {
+          const m = id ? await desk.ctx.board.get(id) : null;
+          if (id && !m) throw new ActionRefused(`no block ${id}`);
+          if (!desk.aimBacklinks) throw new ActionRefused("backlinks aim at a reader's note on a screen with readers");
+          await desk.aimBacklinks(L, m);
+        } else if (!L.data && L.target) await L.load(L.target, desk, true);
+        if (!viewing) return { backlinks: L.describe() };
+        const next = parse(L.options, L.data);
+        L.draft = null;
+        L.options = next;
+        desk.redraw();
+        return { backlinks: L.describe() };
+      }
+      if (!id && !open) throw new ActionRefused("no backlinks are listed here; id=<block id> reads a note's backlinks (b opens them on a reader's note)");
+      const target = same ? L.target! : await desk.ctx.board.get(id!);
+      if (!target) throw new ActionRefused(`no block ${id}`);
+      const data = same && L.data ? L.data : await desk.ctx.board.backlinks(target.id);
+      // The person's options carry over only for the note they're looking at; another note starts as Detail's.
+      const base = same ? { ...L.options } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: L.options.sortField, sortDirection: L.options.sortDirection };
+      const o = parse(base, data);
+      desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
+      return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? L.expanded : new Set()) } };
+    },
+  },
   "backlinks.fold": {
     summary: "open or fold a kind's group in a backlinks tile (kind=<its key or label>; default the selected row's), as . or space on it does; every group is open while a filter is set. The person's view: an agent's is refused",
     keys: ". space",

@@ -15,7 +15,6 @@ import type { Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
 import { River } from "./river/river";
-import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
 import { ago, bbsDate, rule, wrap } from "./text";
@@ -225,7 +224,7 @@ interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | nu
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
   { key: "J", label: "Join", open: () => new Conferences() },
-  { key: "K", label: "Kanban", open: () => new DeliveryBoard(), one: "board" },
+  { key: "K", label: "Kanban", open: () => openScreen("board"), one: "board" },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
   { key: "W", label: "Who's on", open: () => new WhoOnline() },
   { key: "L", label: "Lastcall", open: () => new LastCallers() },

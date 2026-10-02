@@ -17,7 +17,7 @@ export const SCREEN_KINDS: readonly ScreenKind[] = ["board", "river"];
 /** The screen for a kind, built when the tile is first shown (every module has loaded by then). */
 function make(kind: ScreenKind): Screen {
   // Loaded here, not at the top: the brief is built on the desk, which builds these tiles.
-  if (kind === "board") return new (require("./delivery").DeliveryBoard)();
+  if (kind === "board") return require("./screen-specs").boardScreen();
   return new (require("../river/river").River)();
 }
 

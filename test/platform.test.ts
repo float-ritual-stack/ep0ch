@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { forScreens } from "../src/app";
 import type { Msg } from "../src/board";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
 import { WhoOnline } from "../src/screens";
@@ -81,9 +82,9 @@ describe("review fixes without a service", () => {
       get: async () => { if (fail) throw new Error("socket closed"); return full; },
       comments: async () => [], ancestors: async () => [],
     };
-    const b = new DeliveryBoard("hub") as any;
-    b.ctx = { board, t: { cols: 100, rows: 30, cellW: 9, cellH: 16 }, redraw() {}, flash() {}, graphics: false };
-    const pane = b.preview as ReaderPane;
+    const b = boardScreen("hub");
+    b.ctx = { board, t: { cols: 100, rows: 30, cellW: 9, cellH: 16 }, redraw() {}, flash() {}, graphics: false } as never;
+    const pane = BV.view(b).preview as ReaderPane;
     pane.show({ ...full, text: "Paint the shed", partial: true }, b);
     await until(() => pane.unread !== "", "the failed read");
     expect(pane.render(80, 10, false, b).lines.join("\n")).toContain("couldn't read the note: socket closed");
@@ -200,10 +201,10 @@ describe("reconnecting to a fake service", () => {
 
 describe.skipIf(!outliner)("the board on this service's platform", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, b: DeliveryBoard;
+  let board: SocketBoard, other: SocketBoard, b: Desk;
   let hub: any, lanes: Record<string, any> = {}, cards: Record<string, any> = {};
   const flashes: string[] = [], states: string[] = [];
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const feed = () => board.supports("changes.since") === true;
   const served = () => board.supports("views.read") === true;
   const create = (parentId: string | null, text: string) => other.request("create", { parentId, text, author: "agent" });
@@ -244,7 +245,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     await mk("hose", "Mend the hose [type::chore] [stage::blocked] [priority::high]\nWaiting on a new washer.");
     await mk("note", "A loose note about compost\nNo properties at all.");
 
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     const ctx = { board, t: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, workspace: info.workspace, host: "test", flash: (m: string) => flashes.push(m), redraw() {}, pop() {}, cycleVideo() {}, suspend: (r: () => void) => r(), graphics: false };
     board.onConnection = (s, d) => states.push(`${s}: ${d}`);
     board.reconnectMs = 100;

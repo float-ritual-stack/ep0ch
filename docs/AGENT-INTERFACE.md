@@ -216,14 +216,18 @@ thing after someone else's change.
   Waiting is `waiting` beside `reader`; a pinned page is `pinned`. A screen's own actions are its tiles' kind's
   (`welcome.select`, `brief.step`, `waiting.pick`): `act` finds the one tile of that kind, and the answer names
   it (`tile: "welcome"`). `peek`'s `kind` is the screen's name.
-- **The board is a preset on the desk** (PIE-511): every tile has a name and every desk command works there.
+- **The board is a screen spec on the desk** (PIE-511, PIE-515): every tile has a name and every desk command works there.
   Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
   around it, so after `detail1` closes the other is still `detail2`, and floated (`tile.float`, `o`) it keeps it
   too. Its lanes are query tiles named by their lane (`Queued`, `Waiting-on`), in a columns container
   (`layout.get` says `columns: hub:<id>`) filled from the hub's views. The outline drawer holds `tree` over
   `tree-preview`, the backlinks drawer `backlinks` beside `backlinks-preview`. The older names still work:
   `tile=detail` (the one ⏎ opens into), `tile=float` (the top float), `tile=lanes` (the lane the cursor
-  is in), and for a note action `tile=tree` and `tile=backlinks` are the drawers' previews.
+  is in), and for a note action `tile=tree` and `tile=backlinks` are the drawers' previews. The outline drawer is
+  `tile.drawer` and `tile.pin` on `tile=tree` (the older `outline` action is gone); `backlinks` is the backlinks
+  tile's own action. `peek` on the board is the desk's peek: `focus` (`lanes`, or the tile), `details`, `floats`,
+  `readers`, `collapsedReaders`, the lanes' model (`hub`, `lanes`, `composer`, `steps`, `mover`, …), `outline` (the
+  outline drawer: `open`, `pinned`, `side`, `rows`) and `backlinks`; `tree` is the layout, by tile name.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
     ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since

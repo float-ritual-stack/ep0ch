@@ -185,7 +185,10 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
     const of = (a?.of ?? name) as K;
     const mapped = (a?.alias.map ? a.alias.map(args as Record<string, unknown>) : args) as M[K];
-    for (const t of tracers) t({ scope: this.scope, name: of, keys: this.keysOf(of), actor });
+    // The screen key that ran it names only the action it ran, not one that action runs in turn.
+    const bound = boundKey;
+    boundKey = null;
+    for (const t of tracers) t({ scope: this.scope, name: of, keys: [this.keysOf(of), bound].filter(Boolean).join("; ") || undefined, actor });
     const r = this.defs[of].run(mapped, host, actor);
     const answer = a?.alias.answer;
     return !answer ? r : r instanceof Promise ? r.then(x => answer(x)) : answer(r);
@@ -227,6 +230,14 @@ export function allActionSets(): ActionSet<any, any>[] {
 /** One action run, as a tracer sees it: which set, which action, the keys it declares, and who ran it. */
 export interface ActionRun { scope: string; name: string; keys?: string; actor: Actor }
 const tracers = new Set<(r: ActionRun) => void>();
+/** The screen's key map entry running now (a spec's `keys`): the key names the action it runs, as the action's own keys do. */
+let boundKey: string | null = null;
+/** Run `f` as screen key `key` (a spec's key map: the board's `t` runs tile.drawer): what runs, runs as that key. */
+export function asBoundKey<T>(key: string, f: () => T): T {
+  const was = boundKey;
+  boundKey = key;
+  try { return f(); } finally { boundKey = was; }
+}
 /**
  * Watch every action run, from any set, until the returned function is called. The parity test (PIE-506) uses
  * it to tell a key that ran an action from one that changed the screen by itself.

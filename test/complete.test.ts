@@ -7,13 +7,14 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { CommentSession } from "../src/comment";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
 import { completionTargetAtCursor, pageAddressCompletion } from "../src/completion";
 import { Draft } from "../src/edit";
-import { Refused, SocketBoard, type Actor } from "../src/socket";
+import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { COMPLETION_HINT, completerFor, completionKey, completionOf } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
@@ -447,7 +448,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
   test("the board's preview", async () => {
-    const b = new DeliveryBoard(hub.id), B = b as any;
+    const b = boardScreen(hub.id), B: any = BV.view(b);
     app.push(b);
     try {
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
@@ -457,7 +458,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   });
 
   test("the board's preview under a float: a click on the float's cells doesn't reach the popup (it leaves the edit)", async () => {
-    const b = new DeliveryBoard(hub.id), B = b as any;
+    const b = boardScreen(hub.id), B: any = BV.view(b);
     const was = (await board.get(beans.id))!.text;
     app.push(b);
     try {
@@ -473,9 +474,10 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const x = lines[y]!.indexOf("seeds · Seed list");
       expect(y).toBeGreaterThan(0);
       // A float drawn over the popup's rows (a note popped out earlier and dragged there).
-      const { ReaderPane } = await import("../src/desk/panes");
-      const fid = B.put(new ReaderPane());
-      B.apply({ op: "open", tile: fid, kind: "reader", name: "over", at: { kind: "float", rect: { col: x - 5, row: y - 2, cols: 30, rows: 6 } }, keys: false });
+      const run = (action: string, args: Record<string, unknown>, reader: string) => b.dispatch.act({ action, args, reader }, { kind: "agent", id: "float-maker" });
+      await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
+      await run("tile.float", {}, "over");
+      await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
       screen();                                                            // drawn before the person clicks
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
@@ -484,7 +486,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       expect(draft.lines.at(-1)).toBe("sow [[se");
       const saved = (await board.get(beans.id))!;
       expect(saved.text.split("\n").at(-1)).toBe("sow [[se");
-      B.closeId(fid);
+      await b.dispatch.act({ action: "tile.close", reader: "over" }, USER);
       await board.update(beans.id, was, saved.revision!);                  // the note as it was, for the next hosts
     } finally { app.pop(); }
   });

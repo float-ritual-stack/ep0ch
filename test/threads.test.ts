@@ -7,7 +7,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
@@ -44,10 +45,10 @@ describe("a thread inline, without a service", () => {
 
 describe.skipIf(!outliner)("comment threads inline, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, note: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any, note: any;
   const t = { canes: "", water: "" };
   let key: (k: Key) => void = () => {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const AS = "test-agent-420";
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
@@ -76,8 +77,8 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
   const markIn = (passage: string, colour: number) => { const l = frame()[markAt(passage).y]!; return l.slice(0, l.indexOf("▐")).split("\x1b[0m").at(-1)!.includes(fg(colour)); };
   const thread = (id: string) => P().surface.comments?.find(c => c.id === id);
   const fresh = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
-    b = new DeliveryBoard(hub.id);
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
     await until(() => P().msg?.id === note.id && !P().msg!.partial, "the whole note");
@@ -162,7 +163,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(P().surface.hint()).toContain("⏎ reply");
     key({ kind: "enter" });
     await until(() => P().surface.session?.mode === "compose", "the reply being written");
-    expect(B().entered.in(P())).toBe(true);                              // the person's keys go to it
+    expect(b.isIn(P())).toBe(true);                              // the person's keys go to it
     expect(P().surface.session!.target).toMatchObject({ kind: "reply" });
     for (const c of "Yes, those.") key(char(c));
     key({ kind: "char", ch: "s", ctrl: true });
@@ -232,7 +233,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await act("resolve", { thread: t.canes, open: true }, "preview", AS);
     await act("comment.close", {}, "preview", AS);
     // The person's own thread.toggle (the action the key and the click share) does it.
-    await NOTE_ACTIONS.run("thread.toggle", { thread: t.canes.slice(0, 8) }, { surface: P().surface, host: P().host(B()) } as any, USER);
+    await NOTE_ACTIONS.run("thread.toggle", { thread: t.canes.slice(0, 8) }, { surface: P().surface, host: P().host(b) } as any, USER);
     expect(P().surface.expanded.size).toBe(0);
     expect(P().surface.describe().comments!.threads.map(x => x.expanded)).toEqual([false, false]);
   }, 30_000);

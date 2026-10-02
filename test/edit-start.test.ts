@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
@@ -76,27 +76,26 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    const b = new DeliveryBoard(notes.yard.id, false) as any;
+    const b = boardScreen(notes.yard.id, false), V = BV.view(b);
     app.push(b);
     try {
-      await until(() => b.lanes.length === 2 && b.lanes.every((l: any) => l.items), "the lanes", 10_000);
+      await until(() => V.lanes.length === 2 && V.lanes.every((l: any) => l.items), "the lanes", 10_000);
       for (const s of STARTS) {
         BV.at(b, "lanes");
-        await until(() => b.preview.msg?.id === notes.hedge.id, "the preview shows the card");
-        const surface = b.preview.surface;
+        await until(() => V.preview.msg?.id === notes.hedge.id, "the preview shows the card");
+        const surface = V.preview.surface;
         // m isn't a lane key (it moves the card); the preview's own m is checked on the desk.
         if (s.name === "m") continue;
         const runs = await press(key, s.key, opened(surface, s.opens), `${s.name} opened in the preview`);
         expect(runs.filter(r => r.actor.kind === "user").map(r => r.name), s.name).toContain(s.action);
         expect(BV.where(b), s.name).toBe("preview");
         // ctrl+e: $EDITOR runs in a terminal tile beside the preview, which has the keys until it exits.
-        if (s.name !== "ctrl+e") await until(() => b.entered.in(b.preview), `${s.name}: the person is in the preview's session`);
+        if (s.name !== "ctrl+e") await until(() => b.isIn(V.preview), `${s.name}: the person is in the preview's session`);
         if (s.name === "ctrl+e") { await until(() => /no changes from true/.test(surface.draft?.note ?? ""), "$EDITOR came back", 5000); expect(BV.where(b)).toBe("preview"); }
         if (s.name === "I") expect(surface.panel.full).toBe(true);
         await closeAll(surface);
-        b.entered.clear();
       }
-    } finally { b.dispose?.(); }
+    } finally { b.dispose(); }
   }, 60_000);
 
   test("the desk's reader: e ctrl+e C m i I run the note's actions, and the reader takes the keys", async () => {

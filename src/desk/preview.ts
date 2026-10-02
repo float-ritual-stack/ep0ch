@@ -41,9 +41,11 @@ export class PreviewPane extends ReaderPane {
 
   /** What its title calls it in place of its source (the board's: "follows the board"). */
   label: string | null = null;
+  /** What the list it follows quotes of its selection (the backlinks: the mention), said in place of its label. */
+  quote = "";
   override title() {
     const f = this.fileNow();
-    const what = this.label ?? `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`;
+    const what = this.quote ? `"${this.quote}"` : this.label ?? `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`;
     return [what, this.surface.state()].filter(Boolean).join(" · ");
   }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }

@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import type { Msg } from "../src/board";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { readView } from "../src/views";
@@ -29,8 +30,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   let hub: any, cards: Record<string, any> = {};
   const flashes: string[] = [];
   const T = { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false };
-  let b: DeliveryBoard;
-  const B = () => b as any;
+  let b: Desk;
+  const B = () => BV.view(b);
   const create = (parentId: string | null, text: string) => sock.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const props = async (id: string) => (await current(id)).properties.map((p: any) => `${p.key}=${p.value}`);
@@ -100,7 +101,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await mk("draft", "Card draft [work-stage::queued]\nOpen for editing.");
     await mk("drag", "Card drag [work-stage::queued]\nDragged with the mouse.");
 
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     const ctx = { board: sock, t: T, workspace: info.workspace, host: "test", flash: (m: string) => flashes.push(m), redraw() {}, pop() {}, cycleVideo() {}, suspend: (r: () => void) => r(), graphics: false };
     await b.enter(ctx as any);
     await until(() => B().lanes.length === 10 && B().lanes.every((l: any) => l.items), "the lanes", 10_000);
