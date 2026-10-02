@@ -23,9 +23,10 @@
 // agent never enters it: its keys stay where they were. Whether it's open and how tall is saved in the door's state (dock.json), so it's still
 // there after a screen switch and after a restart; with Herdr it's the same session everywhere.
 //
-// The chip also says what the agent knows (src/desk/agent-env.ts): `door tools` when it started in a door after
-// the Outliner's Claude mod last changed; `started before update ⟳` (or `no door tools ⟳`) when it didn't, read
-// from the agent process's own environment and start time (in Herdr: the pane's process). ⟳ restarts it, keeping
+// The chip also says what the agent knows (src/desk/agent-env.ts): `door tools` when it started in a door (a mod
+// changed since reloads into it live); `started before update ⟳` when an older door started it without some of
+// the door's variables, or `no door tools ⟳`, read from the agent process's own environment (in Herdr: the
+// pane's process). ⟳ restarts it, keeping
 // the conversation; an agent's restart waits until the person isn't typing in it.
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
@@ -623,7 +624,7 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
   },
   "agent.restart": {
     summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (door-claude continues; a bare claude gets --continue). In Herdr it comes back in a new door-claude pane. An agent's restart is refused while the person types in it, and is said on screen",
-    keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started before an update, or without door tools); alt+R`,
+    keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
     says: () => ({ text: `· restarted ${DOCK_NAME}`, ms: 6000 }),
     args: {},
@@ -650,7 +651,7 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     },
   },
   "agent.knows": {
-    summary: "what the agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools), stale (started before the mod changed, or by an older door), no-door (no EP0CH_CONTROL) or unknown",
+    summary: "what the agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started by an older door, without its variables), no-door (no EP0CH_CONTROL) or unknown",
     keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
     touches: "nothing", replay: "safe",
     args: {},

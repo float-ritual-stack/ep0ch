@@ -203,15 +203,16 @@ describe("what a running agent knows", () => {
       updateMod(mod);
       const after = modStamp([mod])!;
       expect(after.file).toBe(join(mod, "hooks", "register.ts"));
-      expect(judgeAgent({ pid: t.pid!, env, startedAt: started }, after)).toMatchObject({ state: "stale" });
+      // A mod changed after the agent started reloads into it live (Claude Code 2.1.287+): still current.
+      expect(judgeAgent({ pid: t.pid!, env, startedAt: started }, after)).toMatchObject({ state: "current" });
     } finally { t.kill(); }
   });
 
-  test("judged: current, stale (older mod, or an older door's missing variables), no door tools, unknown", () => {
+  test("judged: current (even with a newer mod, which reloads live), stale (an older door's missing variables), no door tools, unknown", () => {
     const mod = { dir: "/o/claude-mod", at: 1_000_000, file: "/o/claude-mod/hooks/register.ts" };
     const full = { EP0CH_CONTROL: "/s/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t3", EP0CH_NEST: "door:1/daily/t3:claude", EP0CH_IN_DOOR: "1" };
     expect(judgeAgent({ pid: 1, env: full, startedAt: 2_000_000 }, mod).state).toBe("current");
-    expect(judgeAgent({ pid: 1, env: full, startedAt: 500_000 }, mod).state).toBe("stale");
+    expect(judgeAgent({ pid: 1, env: full, startedAt: 500_000 }, mod).state).toBe("current");
     // An older door's Herdr pane: EP0CH_CONTROL, EP0CH_TILE and EP0CH_NEST only.
     const old = judgeAgent({ pid: 1, env: { EP0CH_CONTROL: "/s/l", EP0CH_TILE: "claude", EP0CH_NEST: "x" }, startedAt: 2_000_000 }, mod);
     expect(old).toMatchObject({ state: "stale" });
@@ -225,7 +226,7 @@ describe("what a running agent knows", () => {
     expect(knowsLabel({ state: "unknown", why: "" })).toBe("");
   });
 
-  test("the chip says `door tools`, then `started before update ⟳` once the mod changes; a click on ⟳ restarts the agent alone, continuing", async () => {
+  test("the chip says `door tools`, still after the mod changes (it reloads live); when stale, a click on ⟳ restarts the agent alone, continuing", async () => {
     const mod = installMod();
     process.env.EP0CH_DAILY_AGENT = standin;
     const bystander = Bun.spawn(["sleep", "30"]);                     // never signalled
@@ -239,8 +240,10 @@ describe("what a running agent knows", () => {
       expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
       updateMod(mod);
       await d.app.dock.readKnows();
+      expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
+      // Stale is an older door's missing variables now; stand that in, then restart by ⟳.
+      (d.app.dock as any).knows = { state: "stale", why: "started by an older door, without EP0CH_TILE_ID" };
       expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · started before update ⟳$/);
-      expect(d.app.describe().dock).toMatchObject({ knows: { state: "stale", pid: first } });
 
       // ⟳ is the chip's last cell: a click there restarts; anywhere else on the chip still toggles the drawer.
       const shown = d.paint();
@@ -253,8 +256,7 @@ describe("what a running agent knows", () => {
       expect(starts()[1]!.argv).toBe("--continue");                     // a bare claude continues its conversation
       expect(starts()[1]!.env.EP0CH_CONTROL).toBe(starts()[0]!.env.EP0CH_CONTROL);
       expect(bystander.exitCode).toBeNull();
-      // Started after the mod changed: current again.
-      await Bun.sleep(1100); utimesSync(join(mod, "hooks", "register.ts"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+      // Restarted by this door: current again.
       await d.app.dock.readKnows();
       expect(d.app.dock.chipText()).toMatch(/door tools$/);
     } finally { d.app.quit(); d.app.dock.tile?.kill(); bystander.kill(); }
@@ -300,7 +302,7 @@ describe("what a running agent knows", () => {
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
-  test("ep0ch doctor lists door agents on an older mod (or without door tools) with the fix; a current one is ok", async () => {
+  test("ep0ch doctor: a newer mod leaves a door agent current; a stale one (older door) is listed with the fix", async () => {
     const mod = installMod();
     const t = await tile([standin], "claude", "t7", "daily");
     try {
@@ -309,7 +311,9 @@ describe("what a running agent knows", () => {
       expect(mine?.knows.state).toBe("current");
       updateMod(mod);
       found = await doorAgents(process.env, process.platform, [mod]);
-      const facts = { claude: { agents: found.filter(a => a.pid === t.pid) } } as unknown as Facts;
+      expect(found.find(a => a.pid === t.pid)?.knows.state).toBe("current");
+      const stale = found.filter(a => a.pid === t.pid).map(a => ({ ...a, knows: { state: "stale", why: "started by an older door" } }));
+      const facts = { claude: { agents: stale } } as unknown as Facts;
       const [check] = doorAgentChecks(facts);
       expect(check).toMatchObject({ group: "claude", name: `agent ${t.pid}`, status: "behind" });
       expect(check!.detail).toContain("door:");
