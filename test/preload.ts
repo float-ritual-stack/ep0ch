@@ -8,6 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
+// A door a test starts (`bun src/main.ts …`) runs in its own process, not as a session that would outlive the test
+// (test/session.test.ts starts its sessions itself).
+process.env.EP0CH_DAEMON = "0";
 
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
 process.env.XDG_STATE_HOME = dir;

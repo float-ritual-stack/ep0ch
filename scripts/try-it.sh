@@ -126,7 +126,7 @@ if [ "$showcase" = 1 ]; then
   echo "door → the showcase at $base (made-up notes; edits stay until --reset)"
   echo "      control socket: EP0CH_CONTROL=$base/door/door.sock"
   cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" OUTLINER_STATE_DIR="$base/state" \
-    OUTLINER_DOCUMENT_RENDERERS="$renderers" bun src/main.ts --ws "$sc_ws" --showcase
+    OUTLINER_DOCUMENT_RENDERERS="$renderers" bun src/main.ts --no-daemon --ws "$sc_ws" --showcase
   exit $?
 fi
 
@@ -137,7 +137,7 @@ if [ "$copy" = 0 ]; then
   sock="$state_base/$(hash_of "$ws")/outliner.sock"
   [ -S "$sock" ] || { echo "no service is running for $ws (no socket at $sock)" >&2; exit 1; }
   echo "door → $ws (its running service; edits, moves and comments are real)"
-  cd "$here" && exec bun src/main.ts --ws "$ws" --board $hub
+  cd "$here" && exec bun src/main.ts --no-daemon --ws "$ws" --board $hub
 fi
 
 # --copy: a private service on a copy of the database, never the live one.
@@ -155,4 +155,4 @@ mkdir -p "$tmp/state/$(hash_of "$copy_ws")"
 sqlite3 -readonly "$live" ".backup '$tmp/state/$(hash_of "$copy_ws")/outliner.sqlite'"
 serve "$tmp" "$copy_ws" "$tmp/server.log"
 echo "door → a private copy of $ws, served from $outliner (writes stay in the copy, deleted on exit)"
-cd "$here" && OUTLINER_STATE_DIR="$tmp/state" bun src/main.ts --ws "$copy_ws" --board $hub
+cd "$here" && OUTLINER_STATE_DIR="$tmp/state" bun src/main.ts --no-daemon --ws "$copy_ws" --board $hub

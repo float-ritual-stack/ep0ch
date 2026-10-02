@@ -20,7 +20,7 @@ import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { SessionTerm, type Link } from "../src/session/session-term";
-import { runEnv, sessionInfo } from "../src/session/client";
+import { doorMode, runEnv, sessionInfo } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
 import { sessionFile, sessionSocket, takeLock } from "../src/session/daemon";
 import { controlSocket } from "../src/control";
@@ -55,6 +55,22 @@ describe("the session protocol", () => {
     expect(() => new Frames().push(Buffer.from([0x5a, 0, 0, 0, 0]))).toThrow(/unknown frame type/);
     const big = Buffer.alloc(5); big.write("o", 0, "latin1"); big.writeUInt32BE(0xffffffff, 1);
     expect(() => new Frames().push(big)).toThrow(/over the limit/);
+  });
+});
+
+describe("the door is a session by default", () => {
+  test("`ep0ch` attaches (starting one when none runs); --no-daemon and EP0CH_DAEMON=0 open it in this terminal", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-mode-")), was = process.env.EP0CH_STATE;
+    process.env.EP0CH_STATE = dir;
+    try {
+      expect(await doorMode([], {})).toEqual({ mode: "attach", running: false });
+      expect(await doorMode(["--board"], { EP0CH_DAEMON: "1" })).toEqual({ mode: "attach", running: false });
+      expect(await doorMode(["--no-daemon"], {})).toEqual({ mode: "local", running: false });
+      expect(await doorMode([], { EP0CH_DAEMON: "0" })).toEqual({ mode: "local", running: false });
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

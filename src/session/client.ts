@@ -18,20 +18,18 @@ import { runProgram, Term } from "../term";
 import { codeVersion, LOCKED, serve } from "./daemon";
 import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
 import { forgetSession } from "./restore";
-import { sessionEnv, sessionSocket, startSession, TERMINAL_VARS, waitFor } from "./start";
+import { ask, sessionEnv, sessionInfo, sessionSocket, startSession, TERMINAL_VARS, waitFor } from "./start";
+export { sessionInfo };
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 
 /**
- * Whether `ep0ch` attaches to a session or opens the door in this terminal: a running session is attached to; with
- * none, EP0CH_DAEMON=1 (or `--daemon`) starts one; `--no-daemon` or EP0CH_DAEMON=0 opens the door here, as before.
+ * Whether `ep0ch` attaches to a session or opens the door in this terminal: the door is a session by default (the
+ * one in this state dir attached to, started first when none runs); `--no-daemon` or EP0CH_DAEMON=0 opens it here,
+ * in this terminal, as before sessions.
  */
 export async function doorMode(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ mode: "attach" | "local"; running: boolean }> {
   if (args.includes("--no-daemon") || env.EP0CH_DAEMON === "0") return { mode: "local", running: false };
-  const running = await listening(sessionSocket());
-  if (running) return { mode: "attach", running };
-  // A session whose daemon stopped left its programs in the terminal host: starting it again restores it.
-  if (await listening(ptyHostSocket())) return { mode: "attach", running: false };
-  return { mode: args.includes("--daemon") || env.EP0CH_DAEMON === "1" ? "attach" : "local", running };
+  return { mode: "attach", running: await listening(sessionSocket()) };
 }
 
 /** `ep0ch [door flags]` with sessions: the session in this state dir, started first when none runs; then attached. */
@@ -73,26 +71,6 @@ export function runEnv(session: Record<string, string> | undefined, here: Record
   out.EP0CH_NEST = appendNest(here.EP0CH_NEST, ...nestLayers(session?.EP0CH_NEST));
   if (!out.EP0CH_NEST) delete out.EP0CH_NEST;
   return out;
-}
-
-/** One request to the session, its first answer (not attached: `session list`, `session end`). */
-function ask(path: string, m: Parameters<typeof encode>[0], ms = 5000): Promise<DaemonMsg | null> {
-  return new Promise(res => {
-    const sock = connect(path);
-    const frames = new Frames<DaemonMsg>();
-    const t = setTimeout(() => { sock.destroy(); res(null); }, ms);
-    sock.on("connect", () => sock.write(encode(m)));
-    sock.on("data", (d: Buffer) => { const got = frames.push(d)[0]; if (got) { clearTimeout(t); sock.end(); res(got); } });
-    sock.on("error", () => { clearTimeout(t); res(null); });
-    sock.on("close", () => { clearTimeout(t); res(null); });
-  });
-}
-
-/** The session in this state dir, or null. */
-export async function sessionInfo(path = sessionSocket()): Promise<SessionInfo | null> {
-  if (!(await listening(path))) return null;
-  const r = await ask(path, { t: "query" });
-  return r?.t === "info" ? r.info : null;
 }
 
 const ago = (ms: number) => (ms < 90_000 ? `${Math.round(ms / 1000)}s` : ms < 90 * 60_000 ? `${Math.round(ms / 60_000)}m` : `${(ms / 3_600_000).toFixed(1)}h`);
@@ -289,26 +267,32 @@ function reattach(message: string, o: { args?: string[]; watch?: boolean }): voi
 }
 
 /**
- * `ep0ch session upgrade [--clients]`: the session onto the code in this checkout. A daemon on other code hands over
- * to a new one (the programs in its tiles keep running in the terminal host, the screens and edits come back, every
- * terminal attaches again); one on this code already, or with --clients, only has its terminals start again.
- * `ep0ch session restart` hands over whatever code it runs (a daemon to start afresh).
+ * The session onto the code in its checkout (`ep0ch session upgrade`, `ep0ch install --apply`). A daemon on other
+ * code hands over to a new one: the programs in its tiles keep running in the terminal host, the screens and edits
+ * come back, every terminal attaches again. One on this code already (or `clients`) only has its terminals start again;
+ * `handoff` hands over whatever code it runs (`ep0ch session restart`). What happened, said; `ok` false when it failed.
  */
-async function upgradeCommand(rest: string[]): Promise<number> {
+export async function upgradeSession(o: { clients?: boolean; handoff?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
   const path = sessionSocket();
   const before = await sessionInfo(path);
-  if (!before) { console.error(`ep0ch: no session in ${stateDir()}`); return 1; }
+  if (!before) return { ok: false, message: `no session in ${stateDir()}` };
   const here = codeVersion();
-  if (rest.includes("--clients") || (!rest.includes("--handoff") && before.code.commit && before.code.commit === here.commit)) {
+  if (o.clients || (!o.handoff && before.code.commit && before.code.commit === here.commit)) {
     await ask(path, { t: "reload" });
-    console.log(`ep0ch: the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${before.clients.length} terminal${before.clients.length === 1 ? "" : "s"} start${before.clients.length === 1 ? "s" : ""} again on this checkout`);
-    return 0;
+    const n = before.clients.length;
+    return { ok: true, message: `the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${n} terminal${n === 1 ? "" : "s"} start${n === 1 ? "s" : ""} again on this checkout${o.clients ? "" : " (`ep0ch session restart` hands it over anyway, for changes not committed yet)"}` };
   }
   const r = await ask(path, { t: "upgrade" }, 60_000);
-  if (r?.t !== "ask" || r.message !== "handed over") { console.error(`ep0ch: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"}`); return 1; }
+  if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: r?.t === "ask" ? r.message : "the session didn't answer the handoff" };
   const after = await sessionInfo(path);
-  console.log(`ep0ch: the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${before.terminals.length} program${before.terminals.length === 1 ? "" : "s"} kept running · ${before.clients.length} terminal${before.clients.length === 1 ? "" : "s"} attaching again`);
-  return 0;
+  const progs = before.terminals.length, n = before.clients.length;
+  return { ok: true, message: `the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${progs} program${progs === 1 ? "" : "s"} kept running · ${n} terminal${n === 1 ? "" : "s"} attaching again` };
+}
+
+async function upgradeCommand(rest: string[]): Promise<number> {
+  const r = await upgradeSession({ clients: rest.includes("--clients"), handoff: rest.includes("--handoff") });
+  (r.ok ? console.log : console.error)(`ep0ch: ${r.message}`);
+  return r.ok ? 0 : 1;
 }
 
 /** This terminal's name (`/dev/pts/3`), for `session list`. */

@@ -248,7 +248,8 @@ exits 1), and · for information:
   by Herdr (the commit Herdr installed against the source's branch on GitHub, by `git ls-remote`;
   "managed, cannot compare" when that can't be reached), and its protocol and service capabilities.
 - **the door**: this checkout against `origin/main`, whether `bun install` is needed (a package missing,
-  or installed at a version other than `bun.lock`'s), and whether `ep0ch` on PATH runs this checkout.
+  or installed at a version other than `bun.lock`'s), whether `ep0ch` on PATH runs this checkout, and the door
+  session (its daemon, terminals and programs, and whether it runs this checkout's code).
 - **outline services**: the outline host (its socket, default outline and outlines, and its systemd
   unit or launchd agent when there is one, with what systemd or launchd says about it: running and its
   pid, or stopped and its last exit; and whether the unit runs the installed plugin's `host-main.ts`) and
@@ -287,6 +288,11 @@ exits 1), and · for information:
    loaded it). A host outside any unit, a unit that runs another checkout's `host-main.ts`, or one the unit
    doesn't run (another process answers its socket) is left to you. Only a unit whose `OUTLINER_STATE_DIR`
    (or the default) is the host's own state folder counts as its unit.
+7. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
+   checkout on an older commit: `ep0ch session upgrade`. The programs in its tiles keep running, its screens and
+   open edits come back, and every attached terminal (a pane, an ssh login) starts again on the new code and
+   attaches by itself. `doctor` shows the session under the door: its daemon, terminals and programs, and whether
+   it runs the door's code.
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
 for you, with what to do. Install never writes a database (it only copies them), never creates or starts an outline,
@@ -334,7 +340,7 @@ A door checkout from before `install` gets it by hand, once:
 | Env | Meaning |
 |---|---|
 | `EP0CH_SOCKET` | socket path (same as the argument) |
-| `EP0CH_DAEMON` | `1` runs the door as a session that quitting only detaches from (see [Sessions](#sessions-quit-is-detach)); `0` (or `--no-daemon`) opens it in this terminal even when a session runs. Unset: a running session is attached to, else the door opens in this terminal |
+| `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): the one in the state dir attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
@@ -351,15 +357,16 @@ A door checkout from before `install` gets it by hand, once:
 
 ## Sessions: quit is detach
 
-    EP0CH_DAEMON=1 ep0ch       # the door as a session: started when none runs, then attached
-    ep0ch                      # with a session running: attach to it
+    ep0ch                      # the session in this state dir: started when none runs, then attached
+    ep0ch --no-daemon          # the door in this terminal only (quitting ends it)
     ep0ch session list         # who's attached, what runs in its tiles
     ep0ch session attach --watch
     ep0ch session end          # asks while programs run in its tiles or a draft is unsaved; --yes doesn't
     ep0ch session upgrade      # hand it to a new daemon on this checkout's code: programs keep running
 
-A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs. One runs per
-user and state dir (`EP0CH_STATE`), started on demand in the background, and holds everything the door holds:
+A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs; `ep0ch` runs the
+door as one. One runs per user and state dir (`EP0CH_STATE`), started on demand in the background, and holds
+everything the door holds:
 the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
 agent drawer, the service connection and its change feed. Your terminal is a **client**: it shows what the session
 sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it.
@@ -391,6 +398,14 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
   the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
   then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.
+- **`ssh` lands in it.** The ForceCommand door (`ssh -p 2323`) and the login landing run `ep0ch`, so every ssh
+  login, the laptop's and the phone's, attaches to the one session instead of starting a door of its own; a dropped
+  connection only detaches.
+- **The daily agent stays Herdr's.** `▲ claude` in the agent drawer attaches to the `door-claude` pane in Herdr
+  ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
+  between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent
+  itself alive through anything the session can't survive (the session ended, the terminal host's own upgrade, a
+  broken door), lists it, and lets other agents prompt it. Herdr is the escape hatch when the door is broken.
 - **In this terminal instead:** `--no-daemon` or `EP0CH_DAEMON=0` opens the door here, as before: quitting it ends it.
 
 How it's built: the session sends frames, not state. It renders once, as the door always has, and paints each

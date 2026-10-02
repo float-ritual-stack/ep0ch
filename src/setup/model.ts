@@ -142,6 +142,11 @@ export interface Facts {
   };
   /** What a current service offers: the door's capabilities and the installed plugin's. */
   expected: string[];
+  /**
+   * The door session in the person's state dir (PIE-418), when one runs: its daemon, the checkout and commit it runs,
+   * its attached terminals and the programs in its tiles. Undefined when not looked for.
+   */
+  session?: { pid: number; dir: string; commit: string | null; clients: number; programs: number } | null;
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

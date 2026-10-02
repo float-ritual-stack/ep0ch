@@ -156,6 +156,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       await updateCheckout(f.door.checkout.root, "the door checkout", say, child, env);
       return;
     }
+    case "session": {
+      // The daemon starts its successor from its checkout, now on the new code.
+      const { upgradeSession } = await import("../session/client");
+      const r = await upgradeSession();
+      if (!r.ok) throw new StepFailed(`handing the door session over failed: ${r.message}`, "the session runs on as it was; `ep0ch session upgrade` tries again, and `ep0ch session list` says what runs");
+      say(r.message);
+      return;
+    }
     case "link": {
       const dir = f.linkDirs.find(d => step.commands[0]?.endsWith(`${d.dir}/ep0ch`))?.dir;
       if (!dir) throw new StepFailed("no link directory chosen", "rerun ep0ch install to see the plan");

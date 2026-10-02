@@ -64,7 +64,7 @@ const pty = new Bun.Terminal({
     }
   },
 });
-const door = Bun.spawn(["bun", "src/main.ts", sock, "--desk"], { cwd: join(import.meta.dir, ".."), env, terminal: pty });
+const door = Bun.spawn(["bun", "src/main.ts", "--no-daemon", sock, "--desk"], { cwd: join(import.meta.dir, ".."), env, terminal: pty });
 const ctl = (...a: string[]) => Bun.spawnSync(["bun", "src/main.ts", ...a], { cwd: join(import.meta.dir, ".."), env, timeout: 8000 }).stdout.toString();
 await Bun.sleep(3000);
 ctl("open", id);

@@ -4,7 +4,9 @@ import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { listening } from "../control";
+import { connect } from "node:net";
 import { privateDir, stateDir } from "../state";
+import { encode, Frames, type DaemonMsg, type SessionInfo } from "./protocol";
 
 /** The session's socket, file (who it is), lock and log: all in the state dir. */
 export const sessionSocket = () => join(stateDir(), "session.sock");
@@ -72,4 +74,25 @@ export async function spawnReady(args: string[], env: Record<string, string>, lo
 }
 
 const tail = (path: string) => { try { const l = readFileSync(path, "utf8").trim().split("\n").slice(-6); return l.length ? `\n  ${l.join("\n  ")}` : ""; } catch { return ""; } };
+
+
+/** One request to the session, its first answer (not attached: `session list`, `session end`). */
+export function ask(path: string, m: Parameters<typeof encode>[0], ms = 5000): Promise<DaemonMsg | null> {
+  return new Promise(res => {
+    const sock = connect(path);
+    const frames = new Frames<DaemonMsg>();
+    const t = setTimeout(() => { sock.destroy(); res(null); }, ms);
+    sock.on("connect", () => sock.write(encode(m)));
+    sock.on("data", (d: Buffer) => { const got = frames.push(d)[0]; if (got) { clearTimeout(t); sock.end(); res(got); } });
+    sock.on("error", () => { clearTimeout(t); res(null); });
+    sock.on("close", () => { clearTimeout(t); res(null); });
+  });
+}
+
+/** The session in this state dir, or null. */
+export async function sessionInfo(path = sessionSocket()): Promise<SessionInfo | null> {
+  if (!(await listening(path))) return null;
+  const r = await ask(path, { t: "query" });
+  return r?.t === "info" ? r.info : null;
+}
 
