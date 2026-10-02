@@ -149,11 +149,11 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       await typeAndPutAside(rd.surface, " with shears");
       desk.entered.clear();
       // An agent's edit on the reader the person has focused: its own draft, not the person's text, and no keys.
-      await app.act({ action: "edit", args: {}, reader: desk.nameOf(id), as: "edit-start-test" });
+      await app.act({ action: "edit", args: {}, tile: desk.nameOf(id), as: "edit-start-test" });
       expect(rd.surface.draft.text).not.toContain("with shears");
       expect(desk.entered.in(rd)).toBe(false);
       expect(desk.focus).toBe(id);
-      await app.act({ action: "edit.close", args: { discard: true }, reader: desk.nameOf(id), as: "edit-start-test" });
+      await app.act({ action: "edit.close", args: { discard: true }, tile: desk.nameOf(id), as: "edit-start-test" });
       key(char("e"));
       await until(() => !!rd.surface.draft, "the person's edit");
       expect(rd.surface.draft.text).toContain("with shears");
@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       await until(() => !!p.surface.draft, "the column's edit");
       expect(p.surface.draft!.text).toContain("and the gate");
       p.surface.closeDraftAction(true);
-      await river.dispatch.act({ action: "tile.close", reader: V().name(p) }, USER);   // the next river starts on the Library alone
+      await river.dispatch.act({ action: "tile.close", tile: V().name(p) }, USER);   // the next river starts on the Library alone
       river.dispose();
     } finally { desk.dispose?.(); }
   }, 60_000);

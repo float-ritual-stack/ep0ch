@@ -22,7 +22,7 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
   let board: SocketBoard, app: App, b: Desk, garden: { id: string }, card: string;
   // An agent's, unless `as` is null: the person's (as their key runs it).
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as: string | null = "claude-7") =>
-    as ? app.act({ action, args, as, ...(reader ? { reader } : {}) }) : b.dispatch.act({ action, args, ...(reader ? { reader } : {}) }, USER);
+    as ? app.act({ action, args, as, ...(reader ? { tile: reader } : {}) }) : b.dispatch.act({ action, args, ...(reader ? { tile: reader } : {}) }, USER);
   const open = async (persist: boolean) => {
     app = new App(term() as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -50,13 +50,13 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     const lane: any = await act("layout.policy", {}, "To-do");
     expect(lane.effective).toMatchObject({ draggable: false, accepts: ["query"] });
     await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .* \(closable off\)/);
-    await expect(act("pane.close", {}, "preview")).rejects.toThrow(/closable off/);
+    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/closable off/);
     // A lane is its view's: it closes when the view goes (the desk's rule for a tile a source supplies).
     await expect(act("tile.close", {}, "To-do")).rejects.toThrow(/To-do stays: hub:\S+ supplies it, .* to drop it, take its view out of the hub/);
     await expect(act("layout.move", { where: "edge-left" }, "preview")).rejects.toThrow(/preview stays where it is: .* \(draggable off\)/);
     await expect(act("layout.move", { where: "edge-left" }, "tree")).rejects.toThrow(/draggable off/);
     // The person's x on the preview runs the same close, and the screen says why it stays.
-    await act("focus", {}, "preview", null);
+    await act("tile.focus", {}, "preview", null);
     b.key({ kind: "char", ch: "x" }, b.ctx);
     await until(() => /preview stays: .*closable off/.test((app as any).message ?? ""), "x on the preview says why it stays", 3000);
     expect(b.pane("preview")).toBeDefined();

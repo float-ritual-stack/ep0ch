@@ -22,7 +22,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   const notes: Record<string, any> = {};
   const AS = "calm-agent-1";
   const V = () => view(river);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const draw = (): string[] => river.render(river.ctx).lines;
   /** Every column's place and how it shows, and every scroll, as drawn now. */
@@ -140,13 +140,13 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     const was = focus();
     const opened: any = await act("open", { id: notes.ferry.id, from: V().name(V().column(1)) });
     expect(focus()).toBe(was);
-    expect(await act("widen", {}, opened.reader)).toMatchObject({ wide: true });
+    expect(await act("tile.widen", {}, opened.reader)).toMatchObject({ wide: true });
     expect(focus()).toBe(was);
     expect(wideTitle()).toBe("Ask about the ferry");
     expect((app as any).message as string).toContain(`an agent (${AS}) widened`);
     await act("tile.dock", { on: true }, V().name(V().column(2)));
     await act("column.select", { id: notes.door.id }, V().name(V().byTitle("Mailroom")!));
-    await act("replies", { open: true }, V().name(V().column(1)));
+    await act("column.replies", { open: true }, V().name(V().column(1)));
     await act("tile.close", {}, opened.reader);
     expect(focus()).toBe(was);
     await act("tile.dock", { on: false }, V().name(V().column(2)));

@@ -49,9 +49,9 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
   const B = () => BV.view(b);
   /** A detail's name for agents (PIE-491: kept while it lives, not its place in the row). */
   const nm = (p: ReaderPane): string => B().name(p);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   /** The person's own action, through the board's dispatcher (their key's path): closing their draft, opening where they look. */
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   const scrollOf = (p: ReaderPane) => p.surface.scroll;
@@ -226,15 +226,15 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await Bun.sleep(20);
     const text = d.draft!.text;
     // An agent's focus while they type is refused (the actor rule), even onto the reader they're in.
-    await expect(act("focus", {}, "detail1")).rejects.toThrow("typing");
+    await expect(act("tile.focus", {}, "detail1")).rejects.toThrow("typing");
     key(char("t"));
     expect(d.draft!.text.length).toBe(text.length + 1);
     expect(B().treeOpen).toBe(false);
     // An agent doesn't move the keys of a person in an edit (PIE-506, as the desk's tile.focus).
-    await expect(act("focus", {}, "lanes")).rejects.toThrow("typing");
+    await expect(act("tile.focus", {}, "lanes")).rejects.toThrow("typing");
     // The person focusing somewhere else and back does leave it: e enters it again.
-    await b.dispatch.act({ action: "focus", reader: "lanes" }, { kind: "user" });
-    await b.dispatch.act({ action: "focus", reader: "detail1" }, { kind: "user" });
+    await b.dispatch.act({ action: "tile.focus", tile: "lanes" }, { kind: "user" });
+    await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
     key(char("x"));
     expect(d.draft!.text.length).toBe(text.length + 1);
     key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });
@@ -478,7 +478,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       expect(D.panes.get(tree[0]).sel).not.toBe(before);
       expect(D.focus).toBe(readerId);
       // An agent's focus while they're in the edit is refused: the person is still in it.
-      await expect(act("focus", {}, "focused")).rejects.toThrow("typing");
+      await expect(act("tile.focus", {}, "focused")).rejects.toThrow("typing");
       key(char("?"));
       expect(rd.draft!.text.includes("?")).toBe(true);
       key({ kind: "esc" }); key({ kind: "esc" });

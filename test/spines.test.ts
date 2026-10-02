@@ -1,6 +1,6 @@
 // PIE-440: one spine part for river columns, board lanes and board readers. On the board, c collapses
 // the preview or a detail to a spine showing its note's title (C comments now), c ⏎ or a click opens it,
-// alt+c opens everything collapsed, and agents do the same through reader.collapse / reader.expand. A
+// alt+c opens everything collapsed, and agents do the same through tile.collapse. A
 // collapsed reader keeps its draft, comment or property panel exactly. Scratch services and fictional
 // notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -73,14 +73,11 @@ describe("alt+c", () => {
   });
 });
 
-test("the board's collapse and expand are tile.collapse, by their older names too, with the board's keys", () => {
+test("the board's collapse and expand are tile.collapse, with the board's keys", () => {
   const collapse = TILE_ACTIONS.list().find(a => a.name === "tile.collapse")!;
-  expect(collapse.aliases).toEqual(["reader.collapse", "reader.expand"]);
   expect(collapse.keys).toContain("board c on a reader");
   expect(collapse.keys).toContain("alt+c");
   expect(BOARD_ACTIONS.has("reader.collapse")).toBe(false);
-  expect(TILE_ACTIONS.has("reader.expand")).toBe(true);
-  expect(TILE_ACTIONS.canonical("reader.expand")).toBe("tile.collapse");
 });
 
 describe.skipIf(!outliner)("board readers collapse to spines, against a scratch outline", () => {
@@ -90,7 +87,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   let key: (k: Key) => void = () => {};
   const AS = "spine-agent-440";
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   const frame = () => b.render(B().ctx).lines.map(plain);
@@ -116,7 +113,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
-    if (B().collapsed.size) await b.dispatch.act({ action: "tile.collapse", reader: "all", args: { on: false } }, USER);
+    if (B().collapsed.size) await b.dispatch.act({ action: "tile.collapse", tile: "all", args: { on: false } }, USER);
     await whole(B().preview);
   };
   /** The preview and one detail on another card. */
@@ -307,7 +304,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   test("an agent collapses and reopens readers through act, attributed, never the one the person has", async () => {
     const d = await withDetail();
     expect(BV.where(b)).toBe("lanes");
-    expect(await act("reader.collapse", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: true });
+    expect(await act("tile.collapse", { on: true }, "detail1")).toMatchObject({ tile: "detail1", collapsed: true });
     expect(folded(d)).toMatchObject({ by: AS });
     expect(message()).toContain(AS);
     expect(message()).toContain("folded detail1");
@@ -317,29 +314,29 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(peek.readers.find((r: any) => r.name === "detail1")).toMatchObject({ collapsed: true, collapsedBy: AS });
     // A note action there would change what the person can't see.
     await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*tile.collapse on=false tile=detail1/);
-    expect(await act("reader.expand", {}, "detail1")).toMatchObject({ reader: "detail1", collapsed: false });
+    expect(await act("tile.collapse", { on: false }, "detail1")).toMatchObject({ tile: "detail1", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
-    // No tile named, the person on the lanes: the preview following them, as reader.collapse always took it (not a lane).
-    expect(await act("reader.collapse", {})).toMatchObject({ reader: "preview", collapsed: true });
-    expect(await act("reader.expand", {})).toMatchObject({ reader: "preview", collapsed: false });
+    // No tile named, the person on the lanes: the preview following them, as the board's c takes it (not a lane).
+    expect(await act("tile.collapse", { on: true })).toMatchObject({ tile: "preview", collapsed: true });
+    expect(await act("tile.collapse", { on: false })).toMatchObject({ tile: "preview", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
     // The reader the person has (here, in its property panel) isn't the agent's to collapse.
     key({ kind: "tab" });
     key(char("i"));
     expect(B().preview.surface.panel).not.toBeNull();
-    await expect(act("reader.collapse", {}, "preview")).rejects.toThrow(/preview has the person's keys; an agent doesn't fold it/);
+    await expect(act("tile.collapse", { on: true }, "preview")).rejects.toThrow(/preview has the person's keys; an agent doesn't fold it/);
     expect(!!folded(B().preview)).toBe(false);
     key({ kind: "esc" });
-    await act("reader.collapse", {}, "detail1");
+    await act("tile.collapse", { on: true }, "detail1");
     key(char("j"));                                                       // the person's keys stay theirs
-    expect(await act("reader.expand", {}, "all")).toMatchObject({ reopened: ["detail1"] });
+    expect(await act("tile.collapse", { on: false }, "all")).toMatchObject({ reopened: ["detail1"] });
     expect(foldedReaders()).toBe(0);
-    await expect(act("reader.collapse", {}, "all")).rejects.toThrow(/only reopens/);
+    await expect(act("tile.collapse", { on: true }, "all")).rejects.toThrow(/only reopens/);
   });
 
   test("an agent's comment on a collapsed reader's note marks its spine", async () => {
     await withDetail();
-    await act("reader.collapse", {}, "detail1");
+    await act("tile.collapse", { on: true }, "detail1");
     const d = B().details[0] as ReaderPane;
     await until(() => d.comments !== null, "the comments read");
     expect((app.describe() as any).state.readers.find((r: any) => r.name === "detail1").newComments).toBe(0);
@@ -349,7 +346,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect((app.describe() as any).state.readers.find((r: any) => r.name === "detail1").newComments).toBe(1);
     const s = spine("detail0");
     expect(frame()[s.row + 1]![s.col]).toBe("■");
-    await act("reader.expand", {}, "detail1");
+    await act("tile.collapse", { on: false }, "detail1");
   });
 
   test("under Kitty graphics, lane and reader spines are rotated titles placed on screen", async () => {

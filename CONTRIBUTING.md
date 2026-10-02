@@ -47,7 +47,7 @@ Every review goes through these sections in order.
 
 - It does what the PR says on every view it touches.
 - It works by keys, mouse and `act`.
-- Against an older service (a missing `Capability`), it says why, instead of showing nothing.
+- A service capability it needs is in `OUTLINE_CAPABILITIES` (an older service is refused at start), never a fallback.
 
 ### 3. Safety
 

@@ -43,7 +43,7 @@ import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
 import type { TerminalHost } from "./pty-actions";
 import { DOCK_NAME, DOCK_TILE_ID } from "./agent-env";
-import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withoutAgentTile, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 
 /**
@@ -183,7 +183,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (last?.models && typeof last.models === "object") this.savedModels = { ...last.models };
     const saved = want ? null : last;
     if (want) { this.build(want.spec); this.layoutName = opts.layout!; }
-    else if (saved?.root) { this.build(withoutAgentTile(migrateLinks({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, saved.layout), saved.layout), false, true); this.layoutName = saved.layout ?? null; }
+    else if (saved?.root) { this.build({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, false, true); this.layoutName = saved.layout ?? null; }
     else this.build(spec.layout, false, false, true);
     this.fromSpec(spec);
   }
@@ -287,8 +287,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * it is; the ones the layout has no place for that hold work (a running program, an unsaved edit) are kept
    * in a shut drawer on the right, and the rest are closed.
    */
-  protected build(spec0: LayoutSpec, reuse = false, restore = false, own = false): void {
-    const spec = migrateDrawers(migrateNames(spec0));
+  protected build(spec: LayoutSpec, reuse = false, restore = false, own = false): void {
     // A saved id is the tile's, split's or tab set's own only when this is desk.json coming back (`restore`) or
     // it was never given out here: a layout loaded from layouts.json never hands a gone tile's id to another.
     const mine = (n: number, next: number) => n > 0 && (restore || n >= next);
@@ -445,7 +444,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const link = this.layout.links.get(id);
     const k = kindOf(p), kept = this.unregistered.get(id);
     return {
-      ...(kept ? (({ link: _l, drawer: _d, ...rest }) => rest)(kept) : {}),
+      ...(kept ? (({ link: _l, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : {}),
       ...(this.collapsed.has(id) ? { collapsed: true as const } : {}),
@@ -1077,8 +1076,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       {
         claims: (req: ActRequest) => !!this.screenIn(req)?.has(req.action),
         delegate: (req?: ActRequest) => (req ? this.screenIn(req) : null),
-        request: (req: ActRequest) => ({ ...req, reader: undefined }),
-        answer: (out: unknown, req: ActRequest) => ({ tile: (req.reader && this.dispatch.tile(req.reader)?.name) || req.reader, ...(out && typeof out === "object" ? out : { result: out }) }),
+        request: (req: ActRequest) => ({ ...req, tile: undefined }),
+        answer: (out: unknown, req: ActRequest) => ({ tile: (req.tile && this.dispatch.tile(req.tile)?.name) || req.tile, ...(out && typeof out === "object" ? out : { result: out }) }),
         listed: false,
       },
       {
@@ -1110,7 +1109,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** The dispatcher of the whole screen in the tile a request names (a board in a tile), if it names one. */
   private screenIn(req: ActRequest): Dispatcher | null {
     // By the dispatcher's grammar (a name, an id, a number, an alias, a block id), as every other tile= is read.
-    const t = req.reader ? this.dispatch.tile(req.reader) : null;
+    const t = req.tile ? this.dispatch.tile(req.tile) : null;
     const p = t ? this.paneNamed(t.name) : undefined;
     return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
   }
@@ -1118,12 +1117,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** The tiles as `tile=` reads them: each by name, its stable id, its number on screen, what it shows. */
   protected tiles(): TileRef[] {
     const all = this.all(), shown = new Set([...visible(this.root), ...this.floats.map(f => f.id)]);
-    // Places, as aliases a tile answers to while it's there: `reader` (the first reader, when no tile is named that:
-    // an older name agents' scripts use); `detail` (where an open into the screen's container lands now: the board's
+    // Places, as aliases a tile answers to while it's there: `detail` (where an open into the screen's container lands now: the board's
     // readers row); `float` (the top float); a columns container's key (the tile last in it: the board's `lanes`).
     const more = new Map<number, string[]>();
     const add = (id: number | undefined, alias: string) => { if (id !== undefined && this.idNamed(alias) === undefined) more.set(id, [...(more.get(id) ?? []), alias]); };
-    add(all.find(id => this.panes.get(id) instanceof ReaderPane), "reader");
     const into = this.opensIntoKey();
     if (into) add(this.activeIn(into), "detail");
     add(this.floats.at(-1)?.id, "float");
@@ -1227,13 +1224,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const id = typeof tile === "object" ? this.idOf(tile) : undefined;
     const name = typeof tile === "string" ? tile : id !== undefined ? this.nameOf(id) : undefined;
     if (by.kind !== "agent") return this.dispatch.press(action, args, name);
-    return this.dispatch.act({ action, args, ...(name !== undefined ? { reader: name } : {}) }, by).catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); return undefined; });
+    return this.dispatch.act({ action, args, ...(name !== undefined ? { tile: name } : {}) }, by).catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); return undefined; });
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
     const id = this.idOf(p);
     if (p && id === undefined) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
-    return this.dispatch.act({ action, args, ...(id !== undefined ? { reader: this.nameOf(id) } : {}) }, by);
+    return this.dispatch.act({ action, args, ...(id !== undefined ? { tile: this.nameOf(id) } : {}) }, by);
   }
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked(p: Pane): Pane | undefined {
@@ -1433,7 +1430,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       dragging: this.dragging ? { tile: this.nameOf(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
       layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1)),
       tree: describeLayout(this.layout, id => this.nameOf(id)),
-      floats: this.floats.map(f => ({ ...brief(this.showing(this.panes.get(f.id)!)), tile: this.nameOf(f.id), reader: this.nameOf(f.id), rect: this.floatRect(f) })),
+      floats: this.floats.map(f => ({ ...brief(this.showing(this.panes.get(f.id)!)), tile: this.nameOf(f.id), rect: this.floatRect(f) })),
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => { const c = this.collapsed.get(r.id); return { name: r.name, focused: r.id === this.focus, ...r.pane.describe(), ...(c ? { collapsed: true, ...(c.by ? { collapsedBy: c.by } : {}), newComments: r.pane.newComments() } : { collapsed: false }) }; }),
@@ -2867,8 +2864,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       this.ctx.flash(`${p instanceof DetailPane && p.label ? p.label : t.name} collapsed${p.holdsKeys ? `, keeping ${sessionName(p)}` : ""} · ⏎ or a click opens it`);
     }
     this.redraw();
-    // A reader says so (`reader`, as reader.collapse answered before it was tile.collapse's alias).
-    return { tile: t.name, ...(p instanceof ReaderPane ? { reader: t.name } : {}), ...r.answer } as TileDone;
+    return { tile: t.name, ...r.answer } as TileDone;
   }
 
   /** `tile.widen`: the tile's flow column takes the wide place (the column read before stays full); the keys stay. */
@@ -3147,49 +3143,25 @@ function leafNames(n: any): string[] {
 }
 
 /**
- * A screen as it was saved (its spec's `saves`), when it can come back: one missing a tile its spec names (taken apart,
- * or saved by an older door) comes back as its spec instead. A board saved before PIE-515 kept its layout under
- * `layout` and its lanes' hubs and lane beside it: read as that layout, the lanes' model keeping them.
+ * A screen as it was saved (its spec's `saves`), when it can come back: one missing a tile or container its spec
+ * names comes back as its spec instead.
  */
 function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
   if (!x || typeof x !== "object") return null;
-  let o = x as Record<string, any>;
-  if (!o.root && o.layout && typeof o.layout === "object" && o.layout.root) o = { ...o.layout, models: { lanes: { hubs: o.hubs, lane: o.lane } } };
+  const o = x as Record<string, any>;
   if (!o.root) return o.models ? { root: undefined as never, focus: 0, models: o.models } : null;
   const names = leafNames;
   const keys = (n: any): string[] => (!n || typeof n !== "object" || n.t === "leaf" ? [] : [...(typeof n.key === "string" ? [n.key] : []), ...[...(Array.isArray(n.kids) ? n.kids : []), n.kid, n.a, n.b].flatMap(keys)]);
   const want = names(spec.layout.root), have = new Set(names(o.root)), wantKeys = keys(spec.layout.root), haveKeys = new Set(keys(o.root));
   // The desk's tiles are the person's own: anything goes. A screen of a fixed shape needs its tiles and named containers.
   if (!spec.layouts && (!want.every(n => have.has(n)) || !wantKeys.every(k => haveKeys.has(k)))) return { ...(o as SavedDesk), root: undefined as never };
-  return spec.layouts ? o as SavedDesk : { ...(o as SavedDesk), root: heldAsSpecced(o.root, spec.layout.root) };
-}
-
-/**
- * A fixed screen's tiles its spec holds in a tab set of one for its policy (the river's library: closable off), held
- * so again in a save written before the spec said it (a bare leaf by that name): the rule comes back with the save.
- */
-function heldAsSpecced(saved: any, specRoot: unknown): any {
-  const held = new Map<string, any>();
-  const find = (n: any) => {
-    if (!n || typeof n !== "object") return;
-    if (n.t === "tabs" && n.policy && Array.isArray(n.tabs) && n.tabs.length === 1 && typeof n.tabs[0]?.name === "string") held.set(n.tabs[0].name, n.policy);
-    for (const k of [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b]) find(k);
-  };
-  find(specRoot);
-  if (!held.size) return saved;
-  const fix = (n: any): any => {
-    if (!n || typeof n !== "object") return n;
-    if (n.t === "leaf") return typeof n.name === "string" && held.has(n.name) ? { t: "tabs", tabs: [n], active: 0, policy: { ...held.get(n.name) } } : n;
-    if (n.t === "tabs") return n;
-    return { ...n, ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(n.kid ? { kid: fix(n.kid) } : {}), ...(n.a ? { a: fix(n.a) } : {}), ...(n.b ? { b: fix(n.b) } : {}) };
-  };
-  return fix(saved);
+  return o as SavedDesk;
 }
 
 /**
  * Whether a change concerns what reader `r` shows beyond its note's own text (which `staleOn` reads again): its comment
  * threads (a comment or a reply on it), or an edit of its note that can move a quoted passage (PIE-399: only what a
- * change can touch is refreshed). Without a change record (a reset, a service with no feed), anything may have.
+ * change can touch is refreshed). Without a change record (a reset), anything may have.
  */
 function readerHears(r: ReaderPane, e: OutlineEvent): boolean {
   const c = e.change, m = r.msg;

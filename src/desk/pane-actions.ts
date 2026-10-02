@@ -1,7 +1,6 @@
 // `pane.split` (PIE-412): a new tile beside another, along the longer side, as the desk's ^W o opens one. It's
-// kept by its own name because its arguments are its own (dir=row|col, and no where= or to=); the rest of the
-// older `pane.*` names (close, resize, zoom, float, pin) are aliases of the tile actions (src/desk/tile-actions.ts):
-// one action each, one path. An agent's is said on screen, and it never takes the person's tile.
+// kept by its own name because its arguments are its own (dir=row|col, and no where= or to=). An agent's is said
+// on screen, and it never takes the person's tile.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { Axis } from "./screen-layout";

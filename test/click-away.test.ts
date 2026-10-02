@@ -149,8 +149,8 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
   test("an agent can't leave, save or move off the person's draft; ^W then a window key leaves it", async () => {
     const { id, rd, name } = await editing("Prune the apple\nin winter");
     type(" tree");
-    await expect(app.act({ action: "session.leave", reader: name, as: "tidy" })).rejects.toThrow("an agent doesn't save or close it");
-    await expect(app.act({ action: "tile.focus", reader: "1", as: "tidy" })).rejects.toThrow();
+    await expect(app.act({ action: "session.leave", tile: name, as: "tidy" })).rejects.toThrow("an agent doesn't save or close it");
+    await expect(app.act({ action: "tile.focus", tile: "1", as: "tidy" })).rejects.toThrow();
     expect(rd.draft?.text).toBe("Prune the apple tree\nin winter");
     expect(D().nameOf(D().focus)).toBe(name);
     type("s");                                                          // still the person's keys

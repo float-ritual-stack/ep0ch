@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { bindingOf, clientConfigOf, hostSocketOf, resolveTarget, slugOutlineName, socketOf } from "../src/discover";
 import { attachTarget, deletionPlan, formatOutlines, parseOutlineArgs } from "../src/outlines";
-import { hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
+import { hostRequest, OUTLINE_CAPABILITIES, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
 
 /** A fake service on a Unix socket: records every line and answers with `answer(request)`. */
@@ -31,8 +31,8 @@ async function fakeService(path: string, answer: (r: any) => unknown) {
   return { lines, close: () => new Promise<void>(res => server.close(() => res())) };
 }
 
-const ping = (extra: Record<string, unknown> = {}) => ({ protocolVersion: 82, minClientProtocol: 82, capabilities: ["blocks.read"], location: { hostname: "shed", workspaceRoot: "/fictional/shed" }, ...extra });
-const hostPing = (outline = "bob") => ping({ capabilities: ["blocks.read", "request.outline", "ping.host"], outline: { name: outline }, host: { socket: "/fictional/outliner.sock", defaultOutline: "bob", outlines: ["bob", "fred"] } });
+const ping = (extra: Record<string, unknown> = {}) => ({ protocolVersion: 82, minClientProtocol: 82, capabilities: [...OUTLINE_CAPABILITIES], location: { hostname: "shed", workspaceRoot: "/fictional/shed" }, ...extra });
+const hostPing = (outline = "bob") => ping({ capabilities: [...OUTLINE_CAPABILITIES, "request.outline", "ping.host"], outline: { name: outline }, host: { socket: "/fictional/outliner.sock", defaultOutline: "bob", outlines: ["bob", "fred"] } });
 
 describe("SocketBoard with an outline", () => {
   const dir = mkdtempSync(join(tmpdir(), "ep0ch-outline-"));

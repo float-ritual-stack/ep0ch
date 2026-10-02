@@ -325,7 +325,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
   let key: (k: Key) => void = () => {};
   const writes: string[] = [];
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: "test-agent-419" }) as Promise<any>;
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: "test-agent-419" }) as Promise<any>;
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   /** Every clipboard write the door made, decoded from the OSC 52 it wrote to the terminal. */

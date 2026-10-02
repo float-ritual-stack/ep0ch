@@ -345,28 +345,6 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(s.mode).not.toBe("compose");
   });
 
-  test("an older service without the lookups: the popup says so and typing carries on", async () => {
-    const refusing = { completePages: async () => null, completeFiles: async () => null, findBlocks: async () => { throw new Refused("Unsupported action: blocks.query"); }, blockContext: async () => null, workIdPrefix: async () => null };
-    const d = new Draft("x", 1, "note");
-    const c = completerFor(d, refusing, () => {})!;
-    for (const ch of " [[se") completionKey(d, char(ch), c);
-    await until(() => !!c.state && !c.state.loading, "the lookup");
-    expect(c.state!.message).toBe("this service doesn't complete pages (pages.complete)");
-    completionKey(d, char("e"), c);
-    expect(d.text).toBe("note [[see");
-    completionKey(d, K("enter"), c);
-    expect(d.lines).toEqual(["note [[see", ""]);
-    for (const ch of "((x") completionKey(d, char(ch), c);
-    await until(() => !!c.state && !c.state.loading, "the lookup");
-    expect(c.state!.message).toContain("lookup failed");
-    // The socket remembers an Unsupported action and doesn't ask again this session.
-    const sent = board.sent.length;
-    (board as any).unsupported.add("pages.complete");
-    expect(await board.completePages("se", 5)).toBeNull();
-    expect(board.sent.length).toBe(sent);
-    (board as any).unsupported.delete("pages.complete");
-  });
-
   test("agents get the same candidates through the complete action, and can insert at the draft's cursor", async () => {
     const e = await editing(ids.compost!);
     await expect(e.s.act("complete", { text: "no token here" }, e.h, AGENT)).rejects.toThrow("nothing to complete");
@@ -513,7 +491,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const x = lines[y]!.indexOf("seeds · Seed list");
       expect(y).toBeGreaterThan(0);
       // A float drawn over the popup's rows (a note popped out earlier and dragged there).
-      const run = (action: string, args: Record<string, unknown>, reader: string) => b.dispatch.act({ action, args, reader }, { kind: "agent", id: "float-maker" });
+      const run = (action: string, args: Record<string, unknown>, tile: string) => b.dispatch.act({ action, args, tile }, { kind: "agent", id: "float-maker" });
       await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
       await run("tile.float", {}, "over");
       await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
@@ -525,7 +503,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       expect(draft.lines.at(-1)).toBe("sow [[se");
       const saved = (await board.get(beans.id))!;
       expect(saved.text.split("\n").at(-1)).toBe("sow [[se");
-      await b.dispatch.act({ action: "tile.close", reader: "over" }, USER);
+      await b.dispatch.act({ action: "tile.close", tile: "over" }, USER);
       await board.update(beans.id, was, saved.revision!);                  // the note as it was, for the next hosts
     } finally { app.pop(); }
   });

@@ -80,7 +80,7 @@ export class Checkpoints {
 export interface Restored { screens: number; held: string[]; reopened: number; errors: string[] }
 
 /** What the App's dispatcher says an action declares about a replay, here and now (the top screen's actions included). */
-const replayOf = (app: App, action: string) => app.dispatch.list().actions.find(a => a.name === action || a.aliases?.includes(action))?.replay;
+const replayOf = (app: App, action: string) => app.dispatch.list().actions.find(a => a.name === action)?.replay;
 
 /**
  * Open the screens a checkpoint names again (`replay: "safe"` steps only), and the edits that were open: the main menu
@@ -95,7 +95,7 @@ export async function restore(app: App, c: Checkpoint): Promise<Restored> {
     const replay = replayOf(app, s.action);
     if (replay !== "safe") { out.held.push(s.action); continue; }
     try {
-      await app.dispatch.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { reader: s.tile } : {}) }, USER);
+      await app.dispatch.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { tile: s.tile } : {}) }, USER);
       if (s.action === "screen.open") { out.screens++; app.flush(); }   // drawn now: its tiles adopt their programs
     } catch (e) { out.errors.push(`${s.action}: ${(e as Error).message}`); }
   }
@@ -104,7 +104,7 @@ export async function restore(app: App, c: Checkpoint): Promise<Restored> {
     // The reader reads its note again as the screen opens: the edit waits for it (a few seconds at most).
     for (let tries = 0; ; tries++) {
       try {
-        await app.dispatch.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { reader: s.tile } : {}) }, USER);
+        await app.dispatch.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { tile: s.tile } : {}) }, USER);
         if (s.action === "edit") out.reopened++;
         break;
       } catch (e) {

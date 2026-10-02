@@ -474,22 +474,12 @@ export class App implements Ctx {
   describe() {
     const s = this.stack.at(-1);
     const b = this.board;
-    const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
-      uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
+    const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
-  }
-
-  /**
-   * An agent's `open <id>` (the control socket's `{cmd:"open"}`, `ep0ch open`): the `open` action as that agent
-   * (`as`, default the door's agent id), the same as `act open id=<id>`. Returns the block's id.
-   */
-  async openBlock(id: string, as?: string): Promise<string> {
-    const r = await this.act({ action: "open", args: { id }, ...(as !== undefined ? { as } : {}) }) as { id?: string } | null;
-    return r?.id ?? id;
   }
 
   /**
@@ -529,10 +519,10 @@ export class App implements Ctx {
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.reader === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
     { set: DOCK_ACTIONS, takes: "none", fixed: () => HOST_AGENT_TILE, on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
-    { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.reader !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
+    { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
   ]);
 
@@ -554,7 +544,7 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!this.dispatch.takes(req)) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
-    this.flash(`${who} · ${req.action}${req.reader ? ` in ${req.reader}` : ""}`);
+    this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
     try {
       const r = await this.dispatch.act(req, actor);
       this.redraw();

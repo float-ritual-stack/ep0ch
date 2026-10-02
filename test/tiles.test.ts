@@ -159,11 +159,10 @@ describe("removing and normalising (floatty's removeNode and clampRatio)", () =>
 
 describe("saved forms with tab sets", () => {
   type Saved = { t: "leaf"; name: string };
-  test("a tab set round-trips with the tab shown; pairs still write the binary form", () => {
+  test("a tab set round-trips with the tab shown", () => {
     const t: N = splitOf("row", [{ t: "tabs", ids: ["a", "b"], active: 1 }, pair("col", 0.3, L("c"), L("d")), L("e")], [0.2, 0.5, 0.3]);
     const saved = serialize(t, (id): Saved => ({ t: "leaf", name: id }));
     expect(JSON.stringify(saved)).toContain(`"t":"tabs"`);
-    expect(JSON.stringify(saved)).toContain(`"ratio":0.3`);
     const back = revive(JSON.parse(JSON.stringify(saved)), (l: Saved) => l.name);
     expect(s(back)).toBe(s(t));
     expect(weights(back)).toEqual(weights(t));

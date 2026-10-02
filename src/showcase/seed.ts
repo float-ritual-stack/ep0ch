@@ -326,7 +326,6 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   for (const c of CARDS) {
     // The allocator creates in queued, doing or review; a done card is moved there afterwards, as people do.
     const r = await board.createRoadmapItem({ title: c.title, body: c.body, priority: c.priority, workStage: c.stage === "done" ? "review" : c.stage, project: "house", arc: c.arc, tracks: c.tracks }, SEED_AGENT);
-    if (!r) throw new Error("this service has no roadmap allocator (roadmap.items.create); the showcase needs protocol 82 or later");
     let card = r.block;
     if (c.stage === "done") {
       const { revision, tokens } = await board.propertyTokens(card.id, "work-stage");

@@ -1,4 +1,4 @@
-// Board over the outliner's JSON-lines socket (protocol 80 or newer).
+// Board over the outliner's JSON-lines socket (protocol 82, with every capability in OUTLINE_CAPABILITIES).
 // Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
 // `update` (a saved edit) and `properties.patch` (a card moved between lanes) name the revision they
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
@@ -14,15 +14,12 @@ import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceRefere
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
-/** Oldest service protocol the door reads (the actions it can't do without). */
-const PROTOCOL = 80;
-/** The client protocol the door speaks: 82 introduced capability negotiation, which it understands. */
-const CLIENT_PROTOCOL = 82;
+/** The protocol the door speaks, and the oldest service it reads. */
+const PROTOCOL = 82;
 
 /**
- * Additive service features the door uses when they're there, named as the service advertises them in
- * `ping.capabilities` (PIE-402). Without that list the door tries each once and remembers an
- * "Unsupported action" answer for the session.
+ * The service features the door needs, named as the service advertises them in `ping.capabilities`
+ * (PIE-402). A service that lacks any of them is refused at `info()`: it is older than this door.
  */
 export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views.read", "query.expression", "changes.since", "references.backlinks.facets", "resources.projection",
   /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
@@ -58,15 +55,6 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * change feed's `requestedBy`), and only the service writes as an extension (`mutations.ext-reserved`).
    */
   "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved"] as const;
-/** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
-export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
-
-/**
- * What an outline host adds: `request.outline` (a request may name its outline; the host routes the
- * connection by its first line), `ping.host` (`ping` reports `host`), and the host's own `outlines.*`.
- */
-export type HostCapability = "request.outline" | "ping.host" | "outlines.list" | "outlines.attach" | "outlines.create" | "outlines.adopt" | "outlines.close" | "outlines.delete";
-
 /** An outline's name on a host: a short slug, as the outliner's OUTLINE_NAME_PATTERN. */
 export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -140,7 +128,7 @@ export interface Change {
 }
 /**
  * An outline event. Besides the service's own, the door makes two after a reconnect:
- * `reset` (reload everything: the service has no feed, or its history doesn't reach back far enough)
+ * `reset` (reload everything: the feed's history doesn't reach back far enough)
  * and `reconnected` (caught up; `caughtUp` changes were replayed as ordinary events first).
  */
 /** The spans of a `draft.patch` as the service passes them on (src/vendor/draft-patch-compare.ts). */
@@ -214,8 +202,6 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
 
 /** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
 export const isExtensionWriter = (author: string | null | undefined) => !!author?.startsWith("ext:");
-
-const unsupportedAction = (e: unknown) => /unsupported action|unknown action/i.test(e instanceof Error ? e.message : String(e));
 
 /**
  * Every property token in a text as the service's save-time parser reads it (PIE-401 `properties.preview`):
@@ -398,12 +384,8 @@ export class SocketBoard implements Board {
   private seq = 0;
   private events: Socket | null = null;
   readonly clientId = `ep0ch-door-${crypto.randomUUID().slice(0, 8)}`;
-  /** What `ping.capabilities` advertised, or null when the service doesn't advertise (older than PIE-402). */
+  /** What `ping.capabilities` advertised (null until `info()`). */
   capabilities: Set<string> | null = null;
-  /** Actions this service answered "Unsupported action" to, this session. */
-  private unsupported = new Set<string>();
-  /** The service's protocol, from the last `ping` (null until `info()`). */
-  protocol: number | null = null;
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
@@ -442,36 +424,12 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Whether the service has `name`: true or false when it said so (its capability list, or an
-   * "Unsupported action" answer this session), undefined when the only way to know is to try.
-   */
-  supports(name: Capability): boolean | undefined {
-    if (this.capabilities) return this.capabilities.has(name);
-    return this.unsupported.has(name) ? false : undefined;
-  }
-
-  /**
-   * A request that newer services answer and older ones refuse with "Unsupported action". Null when
-   * this service doesn't have it; that answer is remembered, so the door asks once per session.
-   */
-  async optional<T>(capability: Capability, action: string, params: Record<string, unknown> = {}): Promise<T | null> {
-    if (this.supports(capability) === false) return null;
-    try {
-      return await this.request<T>(action, params);
-    } catch (e) {
-      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add(capability); return null; }
-      throw e;
-    }
-  }
-
-  /**
    * A note's resource projections (PIE-445): the stored details of each Resource its provider lines and
    * its own provider property name. A read only: the service never registers or fetches for it.
    */
   readResourceProjections(blockId: string): Promise<ResourceProjectionRead> {
     // Opening a note is the one step: the service fetches in the background what isn't fetched or is stale.
-    const materialize = this.supports("resources.projection.materialize") === true;
-    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId, ...(materialize ? { materialize: true } : {}) });
+    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId, materialize: true });
   }
 
   /**
@@ -479,30 +437,26 @@ export class SocketBoard implements Board {
    * Any client may; the answer is the note's projections after the fetch.
    */
   async refreshProjections(blockId: string, line?: number, actor: Actor = USER): Promise<ResourceProjectionRead> {
-    if (this.supports("resources.projection.refresh") !== true) throw new Refused("this outline service can't refresh a ticket from the door (it lacks resources.projection.refresh); restart it from a current checkout");
     // Who asks (`mutation`, as on extensions.act): an `@name` line asked again records them as who asked.
     return this.request<ResourceProjectionRead>("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}), mutation: requesterOf(actor) });
   }
 
   /**
    * The extensions the service runs (`extensions.list`, PIE-507): each folder's handlers, actions and tile
-   * kinds. Null from a service without them (said once, then remembered for the session).
+   * kinds.
    */
-  listExtensions(reload = false): Promise<ExtensionList | null> {
-    return this.optional<ExtensionList>("extensions.list", "extensions.list", reload ? { reload: true } : {});
+  listExtensions(reload = false): Promise<ExtensionList> {
+    return this.request<ExtensionList>("extensions.list", reload ? { reload: true } : {});
   }
 
   /**
    * Run an extension's action (`extensions.act`): the service runs it and applies what it writes, attributed to
    * the extension (`author: agent`, `actorId: ext:<id>`), whoever asked. `blockId` (and `line`, for a handler
    * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
-   * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`
-   * (`extensions.act.requester`; an older service is asked without it).
+   * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
-    if (this.supports("extensions.act") === false) throw new Refused("this outline service runs no extension actions (it lacks extensions.act); restart it from a current checkout");
-    const mutation = this.supports("extensions.act.requester") !== false ? { mutation: requesterOf(actor) } : {};
-    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, ...mutation });
+    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
   }
 
   /**
@@ -520,9 +474,8 @@ export class SocketBoard implements Board {
    * Source's provider. The Resource's id, and whether this call registered it.
    */
   async followAuthored(reference: AuthoredResourceReference, actor: Actor = USER): Promise<{ id: string; created: boolean }> {
-    // Who registered it goes with the request where the service keeps it (an agent's is its own).
-    const mutation = this.supports("resources.follow-authored.provenance") === true ? { mutation: mutationFor(actor) } : {};
-    const r = await this.request<{ resource: { id: string }; created: boolean }>("resources.follow-authored", { reference, ...mutation });
+    // Who registered it goes with the request (an agent's is its own).
+    const r = await this.request<{ resource: { id: string }; created: boolean }>("resources.follow-authored", { reference, mutation: mutationFor(actor) });
     return { id: r.resource.id, created: !!r.created };
   }
 
@@ -530,10 +483,9 @@ export class SocketBoard implements Board {
    * A Resource's stored content (`resources.describe`). `fetch`: when nothing is stored yet (a ticket never
    * read, a web page never fetched) and the service says the Resource can be refreshed (its
    * `capabilities.refresh` isn't `unavailable`), it is fetched first (`resources.refresh`). Neither call needs a Detail
-   * (`resources.observer-reads`); an older service says what it lacks.
+   * (`resources.observer-reads`).
    */
   async describeResource(resourceId: string, fetch = false): Promise<ResourceDescription> {
-    this.requireObserverReads();
     const d = await this.request<ResourceDescription>("resources.describe", { target: { kind: "resource", resourceId } });
     // `unavailable`: the service won't refresh this one (a file is read as it is). `indeterminate` (a
     // ticket whose credentials the service only finds out about by trying) is worth one try.
@@ -543,14 +495,7 @@ export class SocketBoard implements Board {
 
   /** Fetch a Resource again (`resources.refresh`: a ticket read from its provider, a web page fetched). */
   refreshResource(resourceId: string): Promise<ResourceDescription> {
-    this.requireObserverReads();
     return this.request<ResourceDescription>("resources.refresh", { resourceId });
-  }
-
-  private requireObserverReads(): void {
-    if (this.supports("resources.observer-reads") === false) {
-      throw new Refused("this outline service reads Resources only for a Detail (it lacks resources.observer-reads); restart it from a current checkout");
-    }
   }
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
@@ -562,28 +507,21 @@ export class SocketBoard implements Board {
       throw new Error(`${this.path} serves one outline and can't route by name (no request.outline), so it can't open the outline "${this.outline}"; start the outline host, or name a folder root with --ws <root>`);
     if (this.outline && r.outline?.name && r.outline.name !== this.outline)
       throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
-    // Newer services add actions; the door only needs long-standing ones, so older is the hard stop.
-    if (r.protocolVersion < PROTOCOL) throw new Error(`outline speaks protocol ${r.protocolVersion}; this door needs ${PROTOCOL} or newer`);
-    if (r.minClientProtocol !== undefined && r.minClientProtocol > CLIENT_PROTOCOL)
-      throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${CLIENT_PROTOCOL}`);
-    // A capability list is the service's word; without one, each feature is tried once (see optional()).
-    this.capabilities = Array.isArray(r.capabilities) ? new Set(r.capabilities) : null;
-    this.protocol = r.protocolVersion;
-    this.unsupported.clear();
+    // The door needs every capability it names: an older service is refused here, never worked around.
+    const missing = OUTLINE_CAPABILITIES.filter(c => !r.capabilities?.includes(c));
+    if (r.protocolVersion < PROTOCOL || missing.length)
+      throw new Error(`the outline service at ${this.path} is older than this door (${r.protocolVersion < PROTOCOL ? `protocol ${r.protocolVersion}; it needs ${PROTOCOL}` : `without ${missing.join(", ")}`}): run \`ep0ch install --apply\`, or restart the outline host on current code`);
+    if (r.minClientProtocol !== undefined && r.minClientProtocol > PROTOCOL)
+      throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${PROTOCOL}: update the door (\`ep0ch install --apply\`)`);
+    this.capabilities = new Set(r.capabilities);
     // The door finds [key::value] tokens while it paints with its copy of the outliner's grammar; a
     // different version on the service means titles may hide or show tokens differently from Detail.
     const grammar = r.propertyGrammar?.version;
-    // A service from before PIE-490 reads lanes but can't plan writes into them: say so once, up front,
-    // rather than only when a move or a new card is refused.
-    const NEEDS = { "views.planWrite": "moves, new cards", "query.matches": "live done:/now:" } as const;
-    const missing = Array.isArray(r.capabilities) ? (Object.keys(NEEDS) as (keyof typeof NEEDS)[]).filter(c => !r.capabilities!.includes(c)) : [];
     const warning = grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
       ? `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`
-      : missing.length
-        ? `older outline (no ${missing.join(", ")}; PIE-490): ${missing.map(c => NEEDS[c]).join(", ")} refused until it runs a current pi-herdr-outliner`
-        : undefined;
+      : undefined;
     return {
-      host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities ?? null,
+      host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities!,
       ...(warning ? { warning } : {}),
       // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).
       ...(r.host ? { outline: r.outline?.name ?? this.outline } : {}),
@@ -640,10 +578,9 @@ export class SocketBoard implements Board {
     return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
   }
 
-  /** Every property token in `text`, as the service parses it (PIE-401). Null on services without `properties.preview`. */
-  async propertyRecords(text: string): Promise<PropertyRecord[] | null> {
-    const r = await this.optional<{ tokens: PropertyRecord[] }>("properties.preview", "properties.preview", { text });
-    return r && r.tokens;
+  /** Every property token in `text`, as the service parses it (PIE-401). */
+  async propertyRecords(text: string): Promise<PropertyRecord[]> {
+    return (await this.request<{ tokens: PropertyRecord[] }>("properties.preview", { text })).tokens;
   }
 
   /** Breadcrumb, root first. */
@@ -657,65 +594,50 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Blocks changed after `since`, newest first, as list rows. With `query.expression` (PIE-398) the
-   * service answers `updated > since` itself and sends titles and properties only, so New Scan reads
-   * what changed instead of the newest N whole notes. Older services: the newest N, filtered here.
+   * Blocks changed after `since`, newest first, as list rows: the service answers `updated > since` itself
+   * (`query.expression`, PIE-398) and sends titles and properties only.
    * A block an extension wrote (a Jira ticket the service keeps: its writer is `ext:…`, and only that
    * extension ever writes it) is left out unless `extensions`: it isn't the person's news.
    */
   async changedSince(since: number, limit: number, extensions = false): Promise<Msg[]> {
     const sort = { field: "updated", direction: "desc" };
     const keep = (m: Msg) => extensions || !isExtensionWriter(m.author);
-    if (this.supports("query.expression") === true) {
-      const after = since > 0 ? `updated>${new Date(since).toISOString()}` : "";
-      if (extensions) {
-        const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-          query: { ...(after ? { expression: after } : {}), limit: Math.min(1000, limit), sort }, ...this.listFields(),
-        });
-        return r.blocks.map(b => toMsg(b));
-      }
-      // What extensions wrote can outnumber the person's own changes (a poll that refreshed many tickets and
-      // their comments): page back through them, so they never push the person's edits past the limit.
-      const out: Msg[] = [], seen = new Set<string>(), size = Math.min(1000, Math.max(100, limit * 2));
-      let before: string | undefined;
-      for (let pages = 0; pages < 20 && out.length < limit; pages++) {
-        const expression = [after, before ? `updated<=${before}` : ""].filter(Boolean).join(" ");
-        const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-          query: { ...(expression ? { expression } : {}), limit: size, sort }, ...this.listFields(),
-        });
-        const fresh = r.blocks.filter(b => !seen.has(b.id));
-        for (const b of fresh) { seen.add(b.id); const m = toMsg(b); if (keep(m)) out.push(m); }
-        // The last page, or one whose rows all share the time already paged from (nothing further back to ask for).
-        if (r.blocks.length < size || !fresh.length || !r.blocks.at(-1)?.updatedAt) break;
-        before = r.blocks.at(-1)!.updatedAt;
-      }
-      return out.slice(0, limit);
+    const after = since > 0 ? `updated>${new Date(since).toISOString()}` : "";
+    if (extensions) {
+      const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+        query: { ...(after ? { expression: after } : {}), limit: Math.min(1000, limit), sort }, ...this.listFields(),
+      });
+      return r.blocks.map(b => toMsg(b));
     }
-    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-      query: { limit: extensions ? Math.min(1000, limit) : 1000, sort },
-    });
-    return r.blocks.map(b => toMsg(b)).filter(m => m.updatedAt > since).filter(keep).slice(0, limit);
+    // What extensions wrote can outnumber the person's own changes (a poll that refreshed many tickets and
+    // their comments): page back through them, so they never push the person's edits past the limit.
+    const out: Msg[] = [], seen = new Set<string>(), size = Math.min(1000, Math.max(100, limit * 2));
+    let before: string | undefined;
+    for (let pages = 0; pages < 20 && out.length < limit; pages++) {
+      const expression = [after, before ? `updated<=${before}` : ""].filter(Boolean).join(" ");
+      const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
+        query: { ...(expression ? { expression } : {}), limit: size, sort }, ...this.listFields(),
+      });
+      const fresh = r.blocks.filter(b => !seen.has(b.id));
+      for (const b of fresh) { seen.add(b.id); const m = toMsg(b); if (keep(m)) out.push(m); }
+      // The last page, or one whose rows all share the time already paged from (nothing further back to ask for).
+      if (r.blocks.length < size || !fresh.length || !r.blocks.at(-1)?.updatedAt) break;
+      before = r.blocks.at(-1)!.updatedAt;
+    }
+    return out.slice(0, limit);
   }
 
   /**
    * Notes matching `text`, best first, as Tree's goto ranks them (`tree.search`: the service's order, an exact
    * title before a title that starts with the words, before one that holds them, before a mention in a body),
-   * read whole for a preview. A service without it: `blocks.query`'s substring matches, newest first.
+   * read whole for a preview.
    */
   async search(text: string, limit: number): Promise<Msg[]> {
-    const ranked = await this.request<{ matches: { block: { id: string } }[] }>("tree.search", { query: text }).catch(e => {
-      if (e instanceof Refused && unsupportedAction(e)) return null;
-      throw e;
-    });
-    if (ranked) {
-      const ids = ranked.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
-      const read = ids.length ? await this.readBlocks(ids) : { blocks: [], unavailable: [] };
-      if (read) { const by = new Map(read.blocks.map(m => [m.id, m])); return ids.flatMap(id => by.get(id) ?? []); }
-    }
-    const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), text, sort: { field: "updated", direction: "desc" } },
-    });
-    return r.blocks.map(b => toMsg(b));
+    const ranked = await this.request<{ matches: { block: { id: string } }[] }>("tree.search", { query: text });
+    const ids = ranked.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
+    if (!ids.length) return [];
+    const by = new Map((await this.readBlocks(ids)).blocks.map(m => [m.id, m]));
+    return ids.flatMap(id => by.get(id) ?? []);
   }
 
   async callers(): Promise<Caller[]> {
@@ -762,8 +684,7 @@ export class SocketBoard implements Board {
 
   /**
    * Blocks matching property clauses (`type=roadmap-item work-stage=doing`). `list` asks for rows
-   * without full text (PIE-400 `fields`); a service that doesn't know `fields` sends whole blocks, which
-   * read the same.
+   * without full text (PIE-400 `fields`).
    */
   async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
@@ -771,77 +692,70 @@ export class SocketBoard implements Board {
     return r.blocks.map(b => toMsg(b));
   }
 
-  /** `fields` for a list-shaped read, unless this service has said it doesn't project. */
-  listFields(list = true): { fields?: readonly string[] } {
-    return list && this.supports("blocks.read") !== false ? { fields: LIST_FIELDS } : {};
+  /** `fields` for a list-shaped read. */
+  private listFields(list = true): { fields?: readonly string[] } {
+    return list ? { fields: LIST_FIELDS } : {};
   }
 
   /**
    * Several blocks at once, as list rows (PIE-400 `blocks.read`), in the order asked. Missing and
-   * trashed ids are left out. Older services: one `blocks.context` per id.
+   * trashed ids are left out.
    */
   async readMany(ids: string[], fields: readonly string[] = LIST_FIELDS): Promise<Msg[]> {
     if (!ids.length) return [];
-    const r = await this.optional<{ blocks: WireBlock[] }>("blocks.read", "blocks.read", { ids, fields });
-    if (r) return r.blocks.map(b => toMsg(b));
-    return (await Promise.all(ids.map(id => this.get(id)))).filter((m): m is Msg => !!m);
+    return (await this.request<{ blocks: WireBlock[] }>("blocks.read", { ids, fields })).blocks.map(b => toMsg(b));
   }
 
   /**
    * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
-   * Trash. Null when this service can't.
+   * Trash.
    */
-  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] } | null> {
-    const r = await this.optional<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", "blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
-    return r && { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
+  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+    return { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
   }
 
   /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
-   * Null when this service can't; the door then says so (src/views.ts) rather than evaluating it itself.
    */
-  async readSavedView(viewId: string): Promise<SavedViewRead | null> {
-    const r = await this.optional<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", "views.read", { viewId, format: "tree" });
-    return r && { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  async readSavedView(viewId: string): Promise<SavedViewRead> {
+    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree" });
+    return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
   }
 
   /**
    * What moving `blockId` into each view would patch, or why it can't (`views.planWrite`, PIE-490), at the
-   * block's current revision. Null when this service can't plan writes.
+   * block's current revision.
    */
-  async planMoves(viewIds: string[], blockId: string): Promise<{ revision: number; plans: Map<string, MovePlan> } | null> {
-    const r = await this.optional<{ revision: number; plans: { viewId: string; plan: MovePlan }[] }>("views.planWrite", "views.planWrite", { viewIds, blockId });
-    return r && { revision: r.revision, plans: new Map(r.plans.map(p => [p.viewId, p.plan])) };
+  async planMoves(viewIds: string[], blockId: string): Promise<{ revision: number; plans: Map<string, MovePlan> }> {
+    const r = await this.request<{ revision: number; plans: { viewId: string; plan: MovePlan }[] }>("views.planWrite", { viewIds, blockId });
+    return { revision: r.revision, plans: new Map(r.plans.map(p => [p.viewId, p.plan])) };
   }
 
-  /** What a new block in `viewId` is born with; with `text`, the text (or allocator input) it's saved as. Null: can't plan. */
-  async planCreate(viewId: string, text = ""): Promise<CreatePlan | null> {
-    const r = await this.optional<{ plans: { viewId: string; plan: CreatePlan }[] }>("views.planWrite", "views.planWrite", { viewIds: [viewId], text });
-    return r ? r.plans[0]!.plan : null;
+  /** What a new block in `viewId` is born with; with `text`, the text (or allocator input) it's saved as. */
+  async planCreate(viewId: string, text = ""): Promise<CreatePlan> {
+    return (await this.request<{ plans: { viewId: string; plan: CreatePlan }[] }>("views.planWrite", { viewIds: [viewId], text })).plans[0]!.plan;
   }
 
-  /** Which of `blockIds` the saved-view query `expression` holds for (`query.matches`); null when this service can't say. */
-  async matchQuery(expression: string, blockIds: string[]): Promise<Set<string> | null> {
+  /** Which of `blockIds` the saved-view query `expression` holds for (`query.matches`). */
+  async matchQuery(expression: string, blockIds: string[]): Promise<Set<string>> {
     if (!blockIds.length) return new Set();
-    const r = await this.optional<{ blockIds: string[] }>("query.matches", "query.matches", { expression, blockIds });
-    return r && new Set(r.blockIds);
+    return new Set((await this.request<{ blockIds: string[] }>("query.matches", { expression, blockIds })).blockIds);
   }
 
-  /** What changed after `sequence` (PIE-399), or an explicit reset. Null when this service has no feed. */
-  changesSince(sequence: number, limit = 500): Promise<ChangePage | null> {
-    return this.optional<ChangePage>("changes.since", "changes.since", { sequence, limit });
+  /** What changed after `sequence` (PIE-399), or an explicit reset. */
+  changesSince(sequence: number, limit = 500): Promise<ChangePage> {
+    return this.request<ChangePage>("changes.since", { sequence, limit });
   }
 
   /**
-   * Blocks that point at this one, as the service sends them (PIE-442): with facets when it has
-   * `references.backlinks.facets`, read through src/backlinks.ts as Detail reads them. Without facets
-   * the note itself is left out, as the door always did; with them it stays, for the "this note" toggle.
+   * Blocks that point at this one, as the service sends them (PIE-442), with facets, read through
+   * src/backlinks.ts as Detail reads them. The note itself stays, for the "this note" toggle.
    */
   async backlinks(id: string, limit = BACKLINK_QUERY_LIMIT): Promise<BacklinkCollection> {
     const r = await this.request<BacklinkCollection>("references.backlinks", { query: { targetBlockId: id, limit } });
     const sources = (r.sources ?? []).map(s => ({ ...s, parentContext: s.parentContext ?? "", referenceGroups: s.referenceGroups ?? [], occurrences: s.occurrences ?? [] }));
-    const faceted = sources.length > 0 && sources.every(s => s.facets !== undefined);
-    return { ...r, targetBlockId: r.targetBlockId ?? id, sources: faceted ? sources : sources.filter(s => s.blockId !== id), completeness: r.completeness ?? { kind: "complete" } };
+    return { ...r, targetBlockId: r.targetBlockId ?? id, sources, completeness: r.completeness ?? { kind: "complete" } };
   }
 
   /** Comment threads anchored on a block (open ones first). */
@@ -915,13 +829,9 @@ export class SocketBoard implements Board {
     return { conflict: worded || (now?.revision !== undefined && now.revision !== expected), now };
   }
 
-  /**
-   * The properties the service would store for `text` (PIE-401 `properties.preview`), without saving.
-   * Null when this service is older and doesn't offer it; the answer is remembered for the session.
-   */
-  async previewProperties(text: string): Promise<Record<string, string> | null> {
-    const r = await this.optional<{ properties: { key: string; value: string }[] }>("properties.preview", "properties.preview", { text });
-    return r && Object.fromEntries(r.properties.map(p => [p.key, p.value]));
+  /** The properties the service would store for `text` (PIE-401 `properties.preview`), without saving. */
+  async previewProperties(text: string): Promise<Record<string, string>> {
+    return Object.fromEntries((await this.previewPropertyList(text)).map(p => [p.key, p.value]));
   }
 
   /**
@@ -968,8 +878,8 @@ export class SocketBoard implements Board {
   /**
    * Register as an observer and stream events; the door then shows up in Who's Online, like any caller.
    * If the connection drops (the service restarted), it reconnects with backoff and catches up: with a
-   * change feed, the missed changes are replayed as events; otherwise, or when the feed's history
-   * doesn't reach back, a `reset` event tells screens to reload everything.
+   * change feed, the missed changes are replayed as events; when the feed's history doesn't reach back,
+   * a `reset` event tells screens to reload everything.
    */
   subscribe(onEvent: (e: OutlineEvent) => void): void {
     if (process.env.EP0CH_OBSERVE === "0" || this.sub) return;
@@ -1037,8 +947,8 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * After a reconnect: ask again what the service can do (it may have been upgraded), then replay what
-   * was missed. More than a page of changes, no feed, or a feed reset all mean "reload everything".
+   * After a reconnect: check the service again (it may have been replaced), then replay what was
+   * missed. More than a page of changes or a feed reset mean "reload everything".
    */
   private async catchUp(subscribedAt: number): Promise<{ replayed: number; reset: string | null }> {
     // `subscribedAt` is the service's sequence when the new subscription started: after a reset, events
@@ -1053,7 +963,6 @@ export class SocketBoard implements Board {
     try {
       await this.info();
       const page = await this.changesSince(this.lastSequence);
-      if (!page) return reset("this service has no change feed");
       if (page.kind === "reset") return reset(`the feed's history ${page.reason === "sequence-ahead" ? "is behind the door" : "doesn't reach back"}`, page.sequence);
       if (page.completeness.kind !== "complete") return reset("too much changed while away", page.sequence);
       for (const c of page.changes)
@@ -1079,10 +988,9 @@ export class SocketBoard implements Board {
     return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
   }
 
-  /** `properties.preview` with repeats kept, in order; null when this service can't preview. */
-  async previewPropertyList(text: string): Promise<{ key: string; value: string }[] | null> {
-    const r = await this.optional<{ properties: { key: string; value: string }[] }>("properties.preview", "properties.preview", { text });
-    return r && r.properties.map(p => ({ key: p.key, value: p.value }));
+  /** `properties.preview` with repeats kept, in order. */
+  async previewPropertyList(text: string): Promise<{ key: string; value: string }[]> {
+    return (await this.request<{ properties: { key: string; value: string }[] }>("properties.preview", { text })).properties.map(p => ({ key: p.key, value: p.value }));
   }
 
   /** After a create whose answer was lost: a child of `parentId` with exactly `text`, created at or after `since`. */
@@ -1109,50 +1017,26 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Whether this service has the workboard's roadmap allocator (`roadmap.items.create`): true from
-   * protocol 82 (which every such service has, but doesn't list as a capability), false once it answered
-   * "Unsupported action", undefined before `info()`.
-   */
-  hasRoadmapAllocator(): boolean | undefined {
-    if (this.unsupported.has("roadmap.items.create")) return false;
-    return this.protocol === null ? undefined : this.protocol >= 82;
-  }
-
-  /**
    * A roadmap item through the workboard's allocator (`roadmap.items.create`): the service issues its
    * work-id and puts it under the project's one active work queue. Like `create`, it has no request id,
-   * so it is never retried. Null when this service has no allocator (it answered "Unsupported action").
+   * so it is never retried.
    */
-  async createRoadmapItem(input: RoadmapItemInput, actor: Actor = USER): Promise<{ workId: string; workQueueId: string; block: Msg } | null> {
+  async createRoadmapItem(input: RoadmapItemInput, actor: Actor = USER): Promise<{ workId: string; workQueueId: string; block: Msg }> {
     const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
-    try {
-      const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
-      return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
-    } catch (e) {
-      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add("roadmap.items.create"); return null; }
-      throw e;
-    }
+    const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
+    return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
   }
 
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
-  // Long-standing actions no capability names: tried, and an "Unsupported action" is remembered.
 
-  private async completion<T>(action: string, params: Record<string, unknown>): Promise<T | null> {
-    if (this.unsupported.has(action)) return null;
-    try { return await this.request<T>(action, params); } catch (e) {
-      if (e instanceof Refused && unsupportedAction(e)) { this.unsupported.add(action); return null; }
-      throw e;
-    }
-  }
-
-  /** Named addresses (pages, aliases, Work IDs) containing `query`; null when the service has no `pages.complete`. */
+  /** Named addresses (pages, aliases, Work IDs) containing `query`. */
   completePages(query: string | undefined, limit: number) {
-    return this.completion<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number } }>("pages.complete", { ...(query ? { query } : {}), limit });
+    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number } }>("pages.complete", { ...(query ? { query } : {}), limit });
   }
 
-  /** Workspace paths starting with `prefix`; null when the service has no `files.complete`. */
+  /** Workspace paths starting with `prefix`. */
   completeFiles(prefix: string) {
-    return this.completion<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix });
+    return this.request<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix });
   }
 
   /** Whole blocks matching a text search, as `blocks.query` ranks them, with whether the list was cut. */
@@ -1161,10 +1045,10 @@ export class SocketBoard implements Board {
     return { blocks: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" ? r.completeness.limit ?? limit : null };
   }
 
-  /** A block with its ancestors, or null when the service has no `blocks.context`. */
-  async blockContext(blockId: string): Promise<{ selected: Msg | null; ancestors: Msg[] } | null> {
-    const r = await this.completion<{ selected: WireBlock | null; ancestors?: WireBlock[] }>("blocks.context", { blockId });
-    return r && { selected: r.selected ? toMsg(r.selected) : null, ancestors: (r.ancestors ?? []).map(b => toMsg(b)) };
+  /** A block with its ancestors. */
+  async blockContext(blockId: string): Promise<{ selected: Msg | null; ancestors: Msg[] }> {
+    const r = await this.request<{ selected: WireBlock | null; ancestors?: WireBlock[] }>("blocks.context", { blockId });
+    return { selected: r.selected ? toMsg(r.selected) : null, ancestors: (r.ancestors ?? []).map(b => toMsg(b)) };
   }
 
   /** Bring a Trash root (and its subtree) back where it was. */
@@ -1198,11 +1082,10 @@ export class SocketBoard implements Board {
 
   /**
    * `((note#…` / `((note^…` completion over every note, by the service's fragment rules (PIE-424): each
-   * match with its note and, for a heading without an anchor, the anchor it would get. Null on a service
-   * without `fragments.candidates`.
+   * match with its note and, for a heading without an anchor, the anchor it would get.
    */
   fragmentCandidates(query: { noteQuery?: string; fragmentQuery: string; mode: "heading" | "id"; limit: number; draft?: { blockId: string; text: string } }) {
-    return this.optional<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", "fragments.candidates", { query });
+    return this.request<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", { query });
   }
 
   /** Give the heading on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
@@ -1210,23 +1093,22 @@ export class SocketBoard implements Board {
     return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
   }
 
-  /** `((id^fragment))`'s slice of its note (PIE-424); null on a service without `fragments.read`. */
-  readFragment(blockId: string, fragmentId: string): Promise<FragmentRead | null> {
-    return this.optional<FragmentRead>("fragments.read", "fragments.read", { blockId, fragmentId });
+  /** `((id^fragment))`'s slice of its note (PIE-424). */
+  readFragment(blockId: string, fragmentId: string): Promise<FragmentRead> {
+    return this.request<FragmentRead>("fragments.read", { blockId, fragmentId });
   }
 
   /**
    * Transclusions as the service projects them (`transclusions.read`): each target's note or fragment
    * slice, nested to its depth and cycle-safe, with the steps in what it shows. `hostBlockId`: the note
-   * they're embedded in (embedding it again is a cycle). Null on a service without it.
+   * they're embedded in (embedding it again is a cycle).
    */
-  async readTransclusions(targets: { blockId: string; fragmentId?: string }[], hostBlockId?: string): Promise<TransclusionRead | null> {
+  async readTransclusions(targets: { blockId: string; fragmentId?: string }[], hostBlockId?: string): Promise<TransclusionRead> {
     // The service sends each note once (`blocks`) and its steps once (`checklists`, without their text);
     // each projection names its note and the lines it shows. Put them back together per projection.
     type Wire = Omit<TransclusionNode, "block" | "embeds" | "checklist"> & { shownLines?: { start: number; end: number }; embeds?: Wire[] };
     type WireStep = Omit<ChecklistStep, "text">;
-    const r = await this.optional<Omit<TransclusionRead, "results"> & { results: Wire[]; blocks?: Record<string, WireBlock>; checklists?: Record<string, WireStep[]> }>("transclusions.read", "transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
-    if (!r) return null;
+    const r = await this.request<Omit<TransclusionRead, "results"> & { results: Wire[]; blocks?: Record<string, WireBlock>; checklists?: Record<string, WireStep[]> }>("transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
     const blocks = new Map(Object.entries(r.blocks ?? {}).map(([id, b]) => [id, toMsg(b)]));
     const node = (n: Wire): TransclusionNode => {
       const block = blocks.get(n.blockId), lines = n.shownLines;
@@ -1245,10 +1127,10 @@ export class SocketBoard implements Board {
   /**
    * Hold a live draft of `blockId` on the service: while it's held, an agent's `draft.patch` on that note comes
    * here (`answer`) instead of to the saved note, and a lease the door renews lets go of it if the door dies.
-   * Null when the service can't hold drafts (older than PIE-501); the draft works as before.
+   * Null when this connection doesn't subscribe to events (the service's draft requests arrive there).
    */
   holdDraft(blockId: string, revision: number, answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>): DraftHoldHandle | null {
-    if (this.supports("drafts.hold") === false || !this.sub) return null;
+    if (!this.sub) return null;
     const old = this.drafts.get(blockId);
     if (old) this.letGo(old);
     const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
@@ -1260,7 +1142,7 @@ export class SocketBoard implements Board {
       revise: revision => { h.revision = revision; void this.renew(h); },
       release: () => this.letGo(h),
       touched: () => {
-        if (this.supports("drafts.touch") === false || h.gone) return;
+        if (h.gone) return;
         if (h.touch) clearTimeout(h.touch);
         h.touch = setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS);
         (h.touch as { unref?: () => void }).unref?.();
@@ -1277,19 +1159,19 @@ export class SocketBoard implements Board {
   /**
    * Tell the service the person typed in a held draft (`drafts.touch`, pi-herdr-outliner PIE-510): it reads the
    * draft back (a `draft` event of kind `read`) and runs a request line written there once quiet. A hold that
-   * lapsed is taken again, quietly; an older service is asked once.
+   * lapsed is taken again, quietly.
    */
   private async touch(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
     if (h.gone || !h.holdId) return;
-    try { await this.optional("drafts.touch", "drafts.touch", { holdId: h.holdId }); }
+    try { await this.request("drafts.touch", { holdId: h.holdId }); }
     catch (e) { if (/expired or was released/.test(e instanceof Error ? e.message : String(e))) { h.holdId = null; await this.holdOn(h); } }
   }
 
   private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
     try {
-      const r = await this.optional<{ holdId: string }>("drafts.hold", "drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS });
-      if (h.gone) { if (r) void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
-      h.holdId = r?.holdId ?? null;
+      const r = await this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS });
+      if (h.gone) { void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
+      h.holdId = r.holdId;
     } catch { h.holdId = null; /* tried again at the next heartbeat */ }
   }
 
@@ -1330,7 +1212,6 @@ export class SocketBoard implements Board {
    * edit landed, but something after it didn't (the proposal couldn't be marked applied).
    */
   async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[]; warning?: string }> {
-    if (this.supports("draft.proposal.apply") === false) throw new Refused("this outline service can't apply proposals (it has no draft.proposal.apply)");
     return this.request("draft.proposal.apply", { proposalId, mutation: proposalMutation(actor) });
   }
 
@@ -1340,7 +1221,6 @@ export class SocketBoard implements Board {
    * all as `actor`, and refuses an agent's dismissal of another's proposal. `embedRemoved`: where the line was.
    */
   async dismissProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "dismissed"; proposalId: string; embedRemoved: "saved" | "draft" | null; warning?: string }> {
-    if (this.supports("draft.proposal.dismiss") === false) throw new Refused("this outline service can't dismiss proposals (it has no draft.proposal.dismiss)");
     return this.request("draft.proposal.dismiss", { proposalId, mutation: proposalMutation(actor) });
   }
 

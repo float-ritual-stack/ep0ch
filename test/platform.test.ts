@@ -1,8 +1,6 @@
-// The door on the service platform: views.read, projected reads, the change feed and capability
-// negotiation, each with a fallback for older services. The pure parts run anywhere. The rest runs
-// against a scratch outliner service (never a real outline) from EP0CH_OUTLINER, and adapts to what
-// that service advertises, so the same file proves the new paths against a new service and the
-// fallbacks against an old one.
+// The door on the service platform: views.read, projected reads, the change feed, and the refusal of a
+// service older than the door. The pure parts run anywhere; the fake service shows the refusal and the
+// reconnect. The rest runs against a scratch outliner service (never a real outline) from EP0CH_OUTLINER.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -15,7 +13,7 @@ import type { Desk } from "../src/desk/desk";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
 import { WhoOnline } from "../src/screens";
-import { ACTOR_ID, SocketBoard, type OutlineEvent } from "../src/socket";
+import { ACTOR_ID, OUTLINE_CAPABILITIES, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
 import type { ViewRead } from "../src/views";
 import { outliner, Scratch, until } from "./scratch";
@@ -100,7 +98,8 @@ describe("reconnecting to a fake service", () => {
   // Just enough of the protocol to drop the event connection and watch the door catch up.
   let server: Server, path = "", clients: Socket[] = [];
   let feed: (sequence: number) => unknown = () => ({ kind: "changes", changes: [], nextSequence: 0, completeness: { kind: "complete" }, sequence: 0 });
-  let caps: string[] | undefined = ["changes.since"];
+  const ALL = [...OUTLINE_CAPABILITIES] as string[];
+  let caps: string[] | undefined = ALL, protocol = 82;
   let subscribeSequence = 10;
   const onSubscribe: ((s: Socket) => void)[] = [];
   const change = (seq: number, id: number, blockId: string) => ({ sequence: seq, changeId: id, action: "update", kind: "edit", blockId, parentId: null, revision: 2, recordedAt: "" });
@@ -114,7 +113,7 @@ describe("reconnecting to a fake service", () => {
         for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
           const r = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
           const reply = (result: unknown) => s.write(JSON.stringify({ id: r.id, ok: true, result, sequence: subscribeSequence }) + "\n");
-          if (r.action === "ping") reply({ status: "ready", protocolVersion: 82, ...(caps ? { capabilities: caps } : {}), location: { hostname: "fake", workspaceRoot: "/fake" } });
+          if (r.action === "ping") reply({ status: "ready", protocolVersion: protocol, ...(caps ? { capabilities: caps } : {}), location: { hostname: "fake", workspaceRoot: "/fake" } });
           else if (r.action === "events.subscribe") { reply({ subscribed: true }); onSubscribe.shift()?.(s); }
           else if (r.action === "changes.since") {
             const page = feed(r.sequence);
@@ -143,7 +142,7 @@ describe("reconnecting to a fake service", () => {
   };
 
   test("missed changes are replayed in order; live ones wait for the catch-up and aren't delivered twice", async () => {
-    caps = ["changes.since"]; subscribeSequence = 10;
+    caps = ALL; subscribeSequence = 10;
     const { b, events, states, drop } = await connect();
     expect(b.lastSequence).toBe(10);
     let second: Socket | null = null;
@@ -166,33 +165,27 @@ describe("reconnecting to a fake service", () => {
     b.close();
   });
 
-  test("a feed reset, or no feed at all, is a reset event and the cursor follows the service", async () => {
-    caps = ["changes.since"]; subscribeSequence = 10;
-    let c = await connect();
+  test("a service older than the door is refused at once, with the fix named", async () => {
+    for (const [p, c, why] of [[82, ALL.filter(x => x !== "views.planWrite"), /without views\.planWrite/], [82, undefined, /without blocks\.read/], [80, ALL, /protocol 80/]] as const) {
+      protocol = p; caps = c as string[] | undefined;
+      const b = new SocketBoard(path, 2000);
+      const refused = b.info();
+      await expect(refused).rejects.toThrow(why);
+      await expect(refused).rejects.toThrow("is older than this door");
+      await expect(refused).rejects.toThrow("`ep0ch install --apply`, or restart the outline host");
+      b.close();
+    }
+    protocol = 82; caps = ALL;
+  });
+
+  test("a feed reset is a reset event and the cursor follows the service", async () => {
+    caps = ALL; subscribeSequence = 10;
+    const c = await connect();
     feed = () => ({ kind: "reset", reason: "sequence-ahead", oldestSequence: 0, sequence: 4 });
     c.drop();
     await until(() => c.states.length === 2, "the reconnect", 3000);
     expect(c.events.map(e => [e.action, e.reason])).toEqual([["reset", "the feed's history is behind the door"]]);
     expect(c.b.lastSequence).toBe(4);
-    c.b.close();
-
-    caps = undefined;                                               // no capability list: tried once, "Unsupported action"
-    feed = () => new Error("Unsupported action: changes.since");
-    c = await connect();
-    c.drop();
-    await until(() => c.states.length === 2, "the reconnect", 3000);
-    expect(c.events.map(e => [e.action, e.reason])).toEqual([["reset", "this service has no change feed"]]);
-    expect(c.b.supports("changes.since")).toBe(false);
-    c.b.close();
-
-    caps = ["blocks.read"];                                         // a capability list without the feed: not even asked
-    let asked = false;
-    feed = () => { asked = true; return new Error("should not be asked"); };
-    c = await connect();
-    c.drop();
-    await until(() => c.states.length === 2, "the reconnect", 3000);
-    expect(asked).toBe(false);
-    expect(c.events.map(e => e.action)).toEqual(["reset"]);
     c.b.close();
   });
 });
@@ -205,8 +198,6 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
   let hub: any, lanes: Record<string, any> = {}, cards: Record<string, any> = {};
   const flashes: string[] = [], states: string[] = [];
   const B = () => BV.view(b);
-  const feed = () => board.supports("changes.since") === true;
-  const served = () => board.supports("views.read") === true;
   const create = (parentId: string | null, text: string) => other.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const write = async (id: string, edit: (t: string) => string) => {
@@ -260,28 +251,20 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     await scratch.dispose();
   });
 
-  test("lanes come from views.read; without it each lane says so instead of the door evaluating it", async () => {
-    expect(board.sent.includes("views.read")).toBe(served() || board.capabilities === null);   // without a list it was tried once
-    if (!served()) {
-      for (const l of B().lanes) expect(l.read).toMatchObject({ status: "unsupported", errors: [expect.stringContaining("views.read")] });
-      return;
-    }
+  test("lanes come from views.read", async () => {
+    expect(board.sent.includes("views.read")).toBe(true);
     expect(laneIds("Queued").sort()).toEqual([cards.fern.id, cards.shed.id].sort());
     expect(laneIds("Urgent").length).toBe(2);                                                    // the authored limit
     const either = B().lanes.find((l: any) => l.name === "Either").read as ViewRead;
-    if (board.supports("query.expression") ?? served()) {
-      expect(either.status).toBe("ready");
-      expect(laneIds("Either")).toEqual([cards.hose.id]);
-      expect(laneIds("Not done").sort()).toEqual([cards.fern.id, cards.gate.id, cards.hose.id, cards.shed.id].sort());
-      expect(laneIds("Recent").length).toBe(5);
-    } else expect(either.status).toBe("invalid");
+    expect(either.status).toBe("ready");
+    expect(laneIds("Either")).toEqual([cards.hose.id]);
+    expect(laneIds("Not done").sort()).toEqual([cards.fern.id, cards.gate.id, cards.hose.id, cards.shed.id].sort());
+    expect(laneIds("Recent").length).toBe(5);
   });
 
   test("lane rows carry no full text; the preview reads the whole note", async () => {
     const row = B().lanes.find((l: any) => l.name === "Queued").items[0] as Msg;
-    await board.readMany([row.id]);                                       // settles whether this service projects at all
-    const projects = board.supports("blocks.read") !== false;
-    expect(row.partial).toBe(projects ? true : undefined);
+    expect(row.partial).toBe(true);
     expect(row.revision).toBeGreaterThan(0);
     expect(row.properties?.length).toBeGreaterThan(0);
     await until(() => !!B().preview.msg && !B().preview.msg.partial, "the preview's whole note");
@@ -295,17 +278,15 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     answer(p);
     await until(() => answer(p)?.state === "ready", "the live answer");
     expect(answer(p)!.items.map(m => m.id)).toEqual([cards.gate.id]);
-    expect(board.sent.slice(before).includes("views.read")).toBe(served());
+    expect(board.sent.slice(before).includes("views.read")).toBe(true);
   });
 
-  test("an unrelated edit: with the change feed no lane is asked again; without it, the whole board reloads", async () => {
+  test("an unrelated edit asks no lane again", async () => {
     const r = await askedDuring(() => write(cards.note.id, t => t + " More."));
-    if (feed()) expect(r).toEqual({ lanes: [], full: 0 });    // the note meets no lane's query, OR lanes included
-    else expect(r.full).toBe(1);
+    expect(r).toEqual({ lanes: [], full: 0 });    // the note meets no lane's query, OR lanes included
   });
 
   test("a reorder made in Tree (a view-domain change) asks that lane again, and its order follows", async () => {
-    if (!feed()) return;                                               // older services send it without a change record
     const before = laneIds("Queued");
     expect(before.length).toBe(2);
     const r = await askedDuring(() => other.request("virtual.occurrences.reorder", { viewId: lanes.Queued.id, orderedBlockIds: [...before].reverse() }));
@@ -315,8 +296,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
 
   test("a stage change asks only the lanes the card was in or could now be in", async () => {
     const r = await askedDuring(() => write(cards.fern.id, t => t.replace("[stage::queued]", "[stage::doing]")));
-    if (feed()) expect(r).toEqual({ lanes: ["Doing", "Not done", "Queued", "Recent"], full: 0 });   // not Done, not Urgent, not Either (blocked OR waiting)
-    else expect(r.full).toBe(1);
+    expect(r).toEqual({ lanes: ["Doing", "Not done", "Queued", "Recent"], full: 0 });   // not Done, not Urgent, not Either (blocked OR waiting)
     expect(laneIds("Doing")).toContain(cards.fern.id);
     expect(laneIds("Queued")).not.toContain(cards.fern.id);
   });
@@ -337,7 +317,6 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
   });
 
   test("the door's own save is not read back: the reader already has that revision", async () => {
-    if (!feed()) return;
     // A detail, so a lane reload's preview-follow can't swap the note out from under the check.
     b.openBlock((await board.get(cards.seed.id))!);
     const pane = B().details[B().active] as ReaderPane, desk = b as unknown as DeskApi;
@@ -371,7 +350,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     await write(cards.shed.id, t => t.replace("[stage::queued]", "[stage::done]"));
     await until(() => states.length === n + 2, "the reconnect", 8000);
     expect(states.slice(n)).toEqual(["lost: outline connection lost · reconnecting",
-      feed() ? "restored: caught up 1 change" : "restored: reloaded everything (this service has no change feed)"]);
+      "restored: caught up 1 change"]);
     await until(() => laneIds("Done").includes(cards.shed.id), "the missed change in the lanes", 4000);
     expect(laneIds("Queued")).not.toContain(cards.shed.id);
     board.reconnectMs = 100;
@@ -387,7 +366,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     expect(restarted.graceful).toBe(true);
     await until(() => states.length >= n + 2, "the reconnect after a restart", 15_000);
     expect(states.slice(n)).toEqual(["lost: outline connection lost · reconnecting",
-      feed() ? "restored: caught up 0 changes" : "restored: reloaded everything (this service has no change feed)"]);
+      "restored: caught up 0 changes"]);
     await write(cards.hose.id, t => t.replace("[stage::blocked]", "[stage::doing]"));
     await until(() => laneIds("Doing").includes(cards.hose.id), "a live change after the restart", 5000);
   }, 30_000);
@@ -398,7 +377,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     await until(() => !!(board as any).events, "the event connection");
     (board as any).events.destroy();
     await until(() => states.length === n + 2, "the reconnect", 8000);
-    expect(states.at(-1)).toBe(feed() ? "restored: reloaded everything (the feed's history is behind the door)" : "restored: reloaded everything (this service has no change feed)");
+    expect(states.at(-1)).toBe("restored: reloaded everything (the feed's history is behind the door)");
     await until(() => B().refreshes.full > full, "the full reload");
     expect(board.lastSequence).toBeLessThan(10_000_000);
   }, 15_000);
@@ -412,8 +391,6 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     expect((await current(cards.gate.id)).properties.find((p: any) => p.key === "stage").value).toBe("done");
     pick("Done", cards.gate.id);
     await B().moveTo(at("Either"));
-    expect(flashes.at(-1)).toBe(served() && (board.supports("query.expression") ?? true)
-      ? "can't move to Either: Either needs (stage=blocked OR stage=waiting) and the note has stage=done; a move sets only the plain clauses beside it"
-      : "can't move to Either: Either is invalid: Invalid virtual branch query: Boolean operator OR is not supported");
+    expect(flashes.at(-1)).toBe("can't move to Either: Either needs (stage=blocked OR stage=waiting) and the note has stage=done; a move sets only the plain clauses beside it");
   }, 15_000);
 });

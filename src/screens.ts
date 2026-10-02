@@ -1029,7 +1029,7 @@ export class MessageReader implements Screen {
   ]);
 }
 
-/** The message reader's one reader, as `actions` and `act reader=` name it. */
+/** The message reader's one reader, as `actions` and `act tile=` name it. */
 const READER = "message";
 
 /** The message reader's own keys, as actions: next, previous, thread. The note's actions are NOTE_ACTIONS. */

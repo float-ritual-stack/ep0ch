@@ -47,7 +47,7 @@ export interface CompletionLookup {
   items: CompletionItem[];
   /** The service cut the list at this many. */
   truncated: number | null;
-  /** Empty, partial or unavailable: said in words instead of an empty popup. */
+  /** Empty or partial: said in words instead of an empty popup. */
   message: string;
 }
 
@@ -62,13 +62,11 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "";
   if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
-    if (!files) return { items, truncated, message: "this service doesn't complete file paths (files.complete)" };
     items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));
     if (files.length > COMPLETION_LIMIT) truncated = COMPLETION_LIMIT;
     empty = "no matching files";
   } else if (target.kind === "page") {
     const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT);
-    if (!r) return { items, truncated, message: "this service doesn't complete pages (pages.complete)" };
     items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), blockId: a.blockId, address: a.address, kind: a.kind }));
     if (r.completeness.kind === "truncated") truncated = r.completeness.limit ?? COMPLETION_LIMIT;
     empty = "no matching named addresses; [[target|label]] labels a target, ((...)) searches blocks";
@@ -84,7 +82,6 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
       // (PIE-424), the draft's own note first as typed. A heading without an anchor comes with the anchor
       // it would get; choosing it adds that anchor (in the draft, or through the service in another note).
       const r = await board.fragmentCandidates({ ...(fragment.blockQuery ? { noteQuery: fragment.blockQuery } : {}), fragmentQuery: fragment.fragmentQuery, mode: fragment.mode, limit: COMPLETION_LIMIT, ...(own ? { draft: own } : {}) });
-      if (!r) return { items, truncated, message: "this service can't search fragments (it needs fragments.candidates)" };
       items = r.items.map(c => {
         const id = c.fragmentId ?? c.anchor!.fragmentId;
         return {
@@ -111,17 +108,17 @@ export async function insertCompletion(board: CompletionBoard, d: Draft, target:
     if (item.address) {
       const r = await board.completePages(item.address, COMPLETION_LIMIT);
       if (!still()) return false;
-      if (r && !r.addresses.some(a => a.address === item.address && a.blockId === item.blockId)) throw new Error("that address changed; search again");
+      if (!r.addresses.some(a => a.address === item.address && a.blockId === item.blockId)) throw new Error("that address changed; search again");
     }
     const ctx = await board.blockContext(item.blockId);
     if (!still()) return false;
-    if (ctx && (!ctx.selected || ctx.selected.id !== item.blockId || ctx.selected.deleted)) throw new Error("that note is no longer there; search again");
+    if ((!ctx.selected || ctx.selected.id !== item.blockId || ctx.selected.deleted)) throw new Error("that note is no longer there; search again");
     const mine = own?.blockId === item.blockId;
     // Another note's fragment: the service says it's still there, once (the draft's own was read as typed).
     if (item.fragmentId && !item.anchor && !mine) {
       const f = await board.readFragment(item.blockId, item.fragmentId);
       if (!still()) return false;
-      if (f && f.status !== "resolved") throw new Error("that fragment changed or is ambiguous; search again");
+      if (f.status !== "resolved") throw new Error("that fragment changed or is ambiguous; search again");
     }
     // Another note's heading gets its anchor from the service, if that note hasn't changed since it was offered.
     if (item.fragmentId && item.anchor && !mine) {
@@ -202,7 +199,7 @@ export class Completer {
     if (!item?.blockId) return;
     try {
       const ctx = await this.board.blockContext(item.blockId);
-      if (!ctx || !this.current(generation) || this.state?.items[this.state.index] !== item) return;
+      if (!this.current(generation) || this.state?.items[this.state.index] !== item) return;
       item.context = ctx.selected ? [...ctx.ancestors.map(title), snippet(ctx.selected.text)].filter(Boolean).join(" » ") : "target unavailable";
       this.redraw();
     } catch { /* the snippet from the lookup stays */ }

@@ -109,51 +109,14 @@ describe("the surface without a service", () => {
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-act-"));
     try {
       await Bun.write(join(dir, "body.md"), "line one\nline = two\n");
-      expect(await parseActArgs(["comment", "reader=detail1", "quote=a = b", `body=@${join(dir, "body.md")}`, "--as", "claude-7"]))
-        .toEqual({ action: "comment", reader: "detail1", as: "claude-7", args: { quote: "a = b", body: "line one\nline = two" } });
+      expect(await parseActArgs(["comment", "tile=detail1", "quote=a = b", `body=@${join(dir, "body.md")}`, "--as", "claude-7"]))
+        .toEqual({ action: "comment", tile: "detail1", as: "claude-7", args: { quote: "a = b", body: "line one\nline = two" } });
       expect(await parseActArgs(["edit.text", "text=@-"], async () => "from stdin\n")).toEqual({ action: "edit.text", args: { text: "from stdin" } });
-      // tile= names the tile; reader= and --reader, its older names, still do (A5).
-      expect(await parseActArgs(["tile.close", "tile=detail2"])).toEqual({ action: "tile.close", reader: "detail2", args: {} });
-      expect(await parseActArgs(["tile.close", "--tile", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
-      expect(await parseActArgs(["tile.close", "--reader", "3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
-      // Both, naming one tile, is that tile; naming two is refused, never one picked silently.
-      expect(await parseActArgs(["tile.close", "tile=3", "reader=3"])).toEqual({ action: "tile.close", reader: "3", args: {} });
-      await expect(parseActArgs(["tile.close", "tile=3", "reader=detail1"])).rejects.toThrow("tile= and reader= name two tiles (3, detail1)");
-      await expect(parseActArgs(["tile.close", "--reader", "2", "--tile", "3"])).rejects.toThrow("name two tiles");
+      expect(await parseActArgs(["tile.close", "--tile", "3"])).toEqual({ action: "tile.close", tile: "3", args: {} });
+      // reader= is no request field: it's an argument like any other, which the action refuses.
+      expect(await parseActArgs(["tile.close", "reader=3"])).toEqual({ action: "tile.close", args: { reader: "3" } });
       await expect(parseActArgs(["edit.text", "oops"])).rejects.toThrow("key=value");
     } finally { rmSync(dir, { recursive: true, force: true }); }
-  });
-
-  test("an alias runs its action's one def: listed once with its aliases, traced by the action's name and keys (A4)", async () => {
-    const runs: ActionRun[] = [], stop = traceActions(r => runs.push(r));
-    try {
-      const set = new ActionSet<{ "tile.fold": { on?: boolean } }, { said: string[] }>("t", {
-        "tile.fold": {
-          summary: "fold", keys: "^W c", touches: "nothing", replay: "safe",
-          aliases: ["pane.fold", { name: "reader.shut", keys: "c on a reader", args: {}, map: () => ({ on: true }) }],
-          args: { on: { type: "boolean", optional: true, about: "on" } },
-          run: ({ on }, h) => { h.said.push(String(on)); return { on }; },
-        },
-      });
-      const h = { said: [] as string[] };
-      expect(set.list()).toEqual([{ name: "tile.fold", summary: "fold", keys: "^W c; c on a reader", args: { on: { type: "boolean", optional: true, about: "on" } }, scope: "t", aliases: ["pane.fold", "reader.shut"], touches: "nothing", replay: "safe" }]);
-      expect(await set.runUntyped("pane.fold", { on: "false" }, h, { kind: "user" })).toEqual({ on: false });
-      expect(await set.runUntyped("reader.shut", {}, h, { kind: "user" })).toEqual({ on: true });
-      expect(() => set.runUntyped("reader.shut", { on: "false" }, h, { kind: "user" })).toThrow("reader.shut takes no on");
-      expect(runs.map(r => [r.name, r.keys])).toEqual([["tile.fold", "^W c; c on a reader"], ["tile.fold", "^W c; c on a reader"]]);
-      expect([set.has("pane.fold"), set.canonical("pane.fold"), set.canonical("tile.fold")]).toEqual([true, "tile.fold", "tile.fold"]);
-      // An alias that answered differently gives its older answer; the action's own name gives the action's.
-      const answered = new ActionSet<{ "tile.pin": Record<string, never> }, null>("t", { "tile.pin": { summary: "", touches: "nothing", replay: "safe", args: {}, aliases: [{ name: "pane.pin", answer: (r: { tile: string }) => ({ ...r, pane: r.tile }) }], run: () => ({ tile: "tree" }) } });
-      expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree", pane: "tree" });
-      expect(await answered.runUntyped("tile.pin", {}, null, { kind: "user" })).toEqual({ tile: "tree" });
-      // An action defined later under an alias's name (an extension's) is that action.
-      answered.define("pane.pin", { summary: "", touches: "nothing", replay: "safe", args: {}, run: () => "its own" });
-      expect(await answered.runUntyped("pane.pin", {}, null, { kind: "user" })).toBe("its own");
-      expect(() => new ActionSet<{ a: object; b: object }, null>("t", { a: { summary: "", touches: "nothing", replay: "safe", aliases: ["b"], args: {}, run: () => 0 }, b: { summary: "", touches: "nothing", replay: "safe", args: {}, run: () => 0 } })).toThrow("b is already an action");
-      // An action defined again (an extension reloaded) takes its aliases with it.
-      set.forget("tile.fold");
-      expect(set.has("pane.fold")).toBe(false);
-    } finally { stop(); }
   });
 
   test("an agent is named in everything it makes the door say, and names itself plainly", () => {
@@ -334,11 +297,11 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   let key: (k: Key) => void = () => {};
   const AS = "test-agent-7";
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   /** The person has been away from the keys longer than the idle window (an agent may move their screen). */
   const idle = () => { (app as any).lastInput = 0; };
   /** The person's own action, through the board's dispatcher (their key's path). */
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => b.dispatch.act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => b.dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   /** Who last changed a block, as the service's activity log recorded it (among `author`'s changes). */
@@ -403,7 +366,6 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("a save that changes properties is shown to the agent first, like the second ctrl+s", async () => {
-    if (board.supports("properties.preview") === false) return;
     const { reader } = await act("open", { id: cards.peas.id }, "new-detail") as any;
     const text = (await current(cards.peas.id)).text.replace("[stage::queued]", "[stage::queued] soon");
     await act("edit.text", { text }, reader);
@@ -420,7 +382,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await act("open", { id: cards.mine.id }, "detail");
     const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
     await until(() => pane.msg?.id === cards.mine.id && !pane.msg?.partial, "the note");
-    await mine("focus", {}, reader);
+    await mine("tile.focus", {}, reader);
     key(char("e"));
     await until(() => !!pane.draft, "the person's draft");
     key({ kind: "end" }); for (const c of " (mine)") key(char(c));
@@ -445,7 +407,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await act("open", { id: m.id }, "detail");
     const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
     await until(() => pane.msg?.id === m.id && !pane.msg?.partial, "the note");
-    await mine("focus", {}, reader);
+    await mine("tile.focus", {}, reader);
     return { id: m.id as string, pane, reader };
   };
   const type = (s: string) => { for (const c of s) key(char(c)); };
@@ -539,7 +501,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       await act("open", { id }, "detail");
       await act("passage.select", { quote }, id);
       await act("comment.write", { body }, id);
-      await mine("focus", {}, id);
+      await mine("tile.focus", {}, id);
       const pane = B().details.find((p: ReaderPane) => p.msg?.id === id) as ReaderPane;
       key(char("e"));                                                          // enter the agent's comment
       key({ kind: "end" }); type(more); key(ctrl("s"));
@@ -568,7 +530,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const id = list[0].block.id;
     expect(await act("reply", { thread: id.slice(0, 8), body: "Jute is fine." }, reader)).toMatchObject({ sent: "reply" });
     // Resolving opens the thread list over the note: refused in the reader the person has (round 3, C3).
-    await mine("focus", {}, reader);
+    await mine("tile.focus", {}, reader);
     await expect(act("resolve", { thread: id }, reader)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
     BV.at(b, "lanes");
     expect(await act("resolve", { thread: id }, reader)).toEqual({ reader, lifecycle: "resolved" });
@@ -579,7 +541,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(pane.session?.mode).toBe("threads");
     expect(pane.render(90, 30, true, b).lines.join("\n")).toContain("resolved");
     // The person picks it up from there with the keys: the session is theirs too.
-    await mine("focus", {}, reader);
+    await mine("tile.focus", {}, reader);
     key(char("x"));                                                              // not in it yet: the board's x, refused
     expect(pane.session?.threads[0]?.open).toBe(false);
     key({ kind: "enter" }); key(char("x"));
@@ -629,9 +591,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     // Giving the keys away is only ever an explicit action, once the person is idle, and it says so.
     idle();
     const lane = B().lanes[B().lane].name;
-    expect(await act("focus", {}, "lanes")).toEqual({ tile: lane, focus: lane });
+    expect(await act("tile.focus", {}, "lanes")).toEqual({ tile: lane });
     expect(message()).toContain(`an agent (test-agent-7) gave the keys to ${lane}`);
-    await b.dispatch.act({ action: "focus", reader }, { kind: "user" });
+    await b.dispatch.act({ action: "tile.focus", tile: reader }, { kind: "user" });
     await settled();
   });
 
@@ -655,13 +617,11 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       expect(listed.result.actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["open", "card.move", "edit.save", "comment", "reply", "resolve"]));
       expect(listed.result.tiles).toContain("preview");
       await act("open", { id: cards.gate.id }, "preview");
-      const r2 = await ask({ cmd: "act", action: "edit.text", reader: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
+      const r2 = await ask({ cmd: "act", action: "edit.text", tile: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
       expect(r2).toMatchObject({ ok: true, result: { reader: "preview", dirty: true } });
-      // tile= on the wire names the tile, as reader= (its older name) does (A5).
-      expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", reader: "detail1", as: "socket-agent" })).toMatchObject({ ok: false, error: expect.stringContaining("name two tiles") });
       expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "socket-agent" })).toMatchObject({ ok: true, result: { saved: true } });
       expect(await lastBy(cards.gate.id)).toEqual(["agent", "socket-agent"]);
-      expect(await ask({ cmd: "act", action: "edit.save", reader: "preview", as: "bad id!" })).toMatchObject({ ok: false, error: expect.stringContaining("an actor id") });
+      expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "bad id!" })).toMatchObject({ ok: false, error: expect.stringContaining("an actor id") });
     } finally { ctl.close(); }
   });
 

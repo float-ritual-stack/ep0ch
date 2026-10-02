@@ -13,7 +13,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, w
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
-import { oneTile, parseActArgs } from "./surface/actions";
+import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { privateDir, stateDir } from "./state";
@@ -67,20 +67,13 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
     writeFileSync(path, png(), { mode: 0o600 });
     return { path, cols: d.mirror.cols, rows: d.mirror.rows };
   }
-  // The older form of `act open id=<id>` (`ep0ch open` sends that now): the same action, as `as` names.
-  if (req.cmd === "open") {
-    if (!req.id) throw new Error("open needs a block id");
-    return d.app.act({ action: "open", args: { id: String(req.id) }, as: typeof req.as === "string" ? req.as : undefined });
-  }
   if (req.cmd === "actions") return d.app.actions();
   if (req.cmd === "act") {
     if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
     const args = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
-    // The tile it names: `tile`, or `reader`, its older name (agents' scripts send it); two different ones are refused.
-    const tile = oneTile(typeof req.tile === "string" ? req.tile : undefined, typeof req.reader === "string" ? req.reader : undefined);
-    return d.app.act({ action: req.action, reader: tile, args, as: typeof req.as === "string" ? req.as : undefined });
+    return d.app.act({ action: req.action, tile: typeof req.tile === "string" ? req.tile : undefined, args, as: typeof req.as === "string" ? req.as : undefined });
   }
-  throw new Error(`unknown command ${req.cmd}; try peek, snap, open, actions or act`);
+  throw new Error(`unknown command ${req.cmd}; try peek, snap, actions or act`);
 }
 
 /**
@@ -220,10 +213,10 @@ export async function controlClient(args: string[]): Promise<number> {
       if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
       else if (cmd === "actions") {
         const a = r.result;
-        console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : a.readers?.length ? ` · readers: ${a.readers.join(", ")}` : ""}`);
+        console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);
         for (const x of a.actions) {
           const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
-          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}${x.aliases?.length ? `\n      also: ${x.aliases.join(", ")}` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
+          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
         }
       }
       else if (cmd === "snap" && arg) {

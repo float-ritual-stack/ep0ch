@@ -7,14 +7,12 @@
 // up. Where it appears is the screen's to say (its policy's `host`): `over` its lower rows, the screen drawn at
 // its full size under it (the default); `beside` it, the screen drawn shorter (the daily desk); or `none`.
 //
-// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout's agent tile is
-// gone; a layout saved with one comes back without it, `withoutAgentTile`). One door never attaches to the
+// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout has no agent tile). One door never attaches to the
 // Herdr pane twice. The person's keys move through the host layer's own transitions: pulled up by the person,
 // they go to the agent; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly
 // as they left it. An agent's pull never takes them.
 //
-// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`, older names
-// `agent.toggle`, `agent.height`, `agent.enter`, `agent.leave`; and the agent's own `agent.type`, `agent.knows`,
+// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; and the agent's own `agent.type`, `agent.knows`,
 // `agent.restart`): the
 // chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
 // agent over `act`. An agent may pull it up
@@ -582,7 +580,6 @@ type DockArgs = { "agent.type": { text: string }; "host.toggle": { open?: boolea
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
   "host.enter": {
-    aliases: ["agent.enter"],
     summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe",
@@ -591,7 +588,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     run({ send, restart }, { dock }) { return dock.enter(send, restart); },
   },
   "host.leave": {
-    aliases: ["agent.leave"],
     summary: "the person's keys go back to the screen from the agent drawer; the drawer stays up. The person's only",
     keys: "ctrl+], click on the screen above the drawer",
     touches: "screen", replay: "safe",
@@ -600,7 +596,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     run({ quiet }, { dock, here }) { return dock.leave(here, !quiet); },
   },
   "host.toggle": {
-    aliases: ["agent.toggle"],
     summary: "pull the host layer's drawer (the agent, its first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
     touches: "screen", replay: "safe",
@@ -613,7 +608,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     },
   },
   "host.size": {
-    aliases: ["agent.height"],
     summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",

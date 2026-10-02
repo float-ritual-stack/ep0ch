@@ -27,7 +27,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   let key: (k: Key) => void = () => {};
   const AS = "layout-agent-511";
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as = AS) => app.act({ action, args, reader, as });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as = AS) => app.act({ action, args, tile: reader, as });
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   /** The tree as `peek` shows it: tiles by name, containers with their keys and shares. */
@@ -196,7 +196,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const d = details()[0];
     key(char("o"));
     expect(row()).toEqual(["preview", "detail2"]);
-    expect(B().describe().floats).toEqual([expect.objectContaining({ reader: "detail1" })]);
+    expect(B().describe().floats).toEqual([expect.objectContaining({ tile: "detail1" })]);
     expect(focus()).toBe("detail1");
     // Its title moves it, as H J K L do (float.place, the desk's).
     const f = B().describe().floats[0].rect;
@@ -245,31 +245,28 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(rect("preview")).toEqual(preview);
   });
 
-  test("agents resize, pin, float, zoom and close tiles by pane.* actions, said on screen", async () => {
+  test("agents resize, pin, float, zoom and close tiles by tile.* actions, said on screen", async () => {
     await withDetails();
-    const listed = B().dispatch.list().actions as { name: string; aliases?: string[] }[];
+    const listed = B().dispatch.list().actions as { name: string }[];
     expect(listed.map(a => a.name)).toEqual(expect.arrayContaining(["pane.split", "tile.close", "tile.resize", "tile.zoom", "tile.float", "tile.pin", "tile.collapse", "float.place"]));
-    // The older pane.* names are aliases: listed once, with the tile action they run (A4, PIE-510).
-    const aliasOf = (n: string) => listed.find(a => a.aliases?.includes(n))?.name;
-    expect(["pane.close", "pane.resize", "pane.zoom", "pane.float", "pane.pin"].map(aliasOf)).toEqual(["tile.close", "tile.resize", "tile.zoom", "tile.float", "tile.pin"]);
     expect(listed.filter(a => a.name.startsWith("pane.")).map(a => a.name)).toEqual(["pane.split"]);
     const w = rect("detail2").cols;
-    await act("pane.resize", { by: 2 }, "detail2");
+    await act("tile.resize", { by: 2 }, "detail2");
     expect(rect("detail2").cols).toBeGreaterThan(w);
     expect(message()).toContain(`an agent (${AS})`);
     const top = rect("preview").row;
-    await act("pane.resize", { by: 1, axis: "col" }, "lanes");
+    await act("tile.resize", { by: 1, axis: "col" }, "lanes");
     expect(rect("preview").row).toBeGreaterThan(top);
-    await act("pane.pin", {}, "tree");
+    await act("tile.pin", {}, "tree");
     expect(B().describe().outline).toMatchObject({ open: true, pinned: true });
     expect(focus()).toBe("lanes");                                   // opening it pinned moved no focus
-    await act("pane.pin", { on: false }, "tree");
-    await act("pane.close", {}, "tree");
+    await act("tile.pin", { on: false }, "tree");
+    await act("tile.close", {}, "tree");
     expect(B().describe().outline.open).toBe(false);
     // The board is on the desk's engine: zoom is the desk's (an agent's never hides the person's tile).
-    await expect(act("pane.zoom", {}, "detail2")).rejects.toThrow(/would hide/);
-    await expect(act("pane.close", {}, "preview")).rejects.toThrow(/preview stays: .*closable off/);
-    await expect(act("pane.resize", { by: 0 })).rejects.toThrow(/whole number/);
+    await expect(act("tile.zoom", {}, "detail2")).rejects.toThrow(/would hide/);
+    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .*closable off/);
+    await expect(act("tile.resize", { by: 0 })).rejects.toThrow(/whole number/);
   });
 
   test("an agent never takes the person's tile: it can't close or float the focused one, and closing another keeps them on theirs", async () => {
@@ -277,17 +274,17 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "tab" }); key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail2");
     const mine = details()[1], other = details()[0];
-    await expect(act("pane.close", {}, "detail2")).rejects.toThrow(/has the person's keys/);
-    await expect(act("pane.float", {}, "focused")).rejects.toThrow(/has the person's keys/);
+    await expect(act("tile.close", {}, "detail2")).rejects.toThrow(/has the person's keys/);
+    await expect(act("tile.float", {}, "focused")).rejects.toThrow(/has the person's keys/);
     expect(details()).toEqual([other, mine]);
-    await act("pane.close", {}, "detail1");
+    await act("tile.close", {}, "detail1");
     expect(details()).toEqual([mine]);
     expect(focus()).toBe("detail2");
     // Floating the preview's copy leaves the person where they are too.
-    const f = await act("pane.float", {}, "preview") as any;
+    const f = await act("tile.float", {}, "preview") as any;
     expect(B().describe().floats).toHaveLength(1);
     expect(focus()).toBe("detail2");
-    await act("pane.close", {}, f.now);
+    await act("tile.close", {}, f.now);
     expect(B().describe().floats).toHaveLength(0);
     expect(message()).toContain(`an agent (${AS}) closed ${f.now}`);
   });
@@ -357,10 +354,10 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().describe().backlinks.pinned).toBe(true);
     await fresh(true);                                                  // the next board, the backlinks docked
     expect(B().linksPinned).toBe(true);
-    await act("pane.pin", { on: false }, "backlinks", "you");
+    await act("tile.pin", { on: false }, "backlinks", "you");
     const down = (n: any): any => (n.drawer === "down" ? n : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].map(down).find(Boolean));
     expect(down(B().layoutGet().tree)).toMatchObject({ drawer: "down", policy: { stays: true } });
-    await act("pane.close", {}, "backlinks", "you");
+    await act("tile.close", {}, "backlinks", "you");
   });
 
   test("review: a click inside a sliding drawer is the drawer's, even over a border hidden under it", async () => {
@@ -439,7 +436,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
   let key: (k: Key) => void = () => {};
   const AS = "desk-agent-412";
   const D = () => desk as any;
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   const saved = () => JSON.parse(readFileSync(join(scratch.root, "door", "desk.json"), "utf8"));
 
   beforeAll(async () => {
@@ -472,35 +469,32 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(D().focus).toBe(focus);                                      // the new pane didn't take the keys
     expect(r).toMatchObject({ kind: "reader", beside: "2" });
     expect(saved().root.t).toBe("split");
-    expect(JSON.stringify(saved())).toContain(`"ratio"`);             // pairs stay in the binary form older doors read
-    await act("pane.resize", { by: 2 }, "1");
+    await act("tile.resize", { by: 2 }, "1");
     expect(D().describe().layout.share).toBe(1);
-    await expect(act("pane.close", {}, "focused")).rejects.toThrow(/has the person's keys/);
+    await expect(act("tile.close", {}, "focused")).rejects.toThrow(/has the person's keys/);
     const focusedN = String(D().describe().panes.find((p: any) => p.focused).n);
     const other = focusedN === "3" ? "2" : "3";
-    await expect(act("pane.zoom", {}, other)).rejects.toThrow(/would hide tile/);
-    await act("pane.zoom", {}, focusedN);
+    await expect(act("tile.zoom", {}, other)).rejects.toThrow(/would hide tile/);
+    await act("tile.zoom", {}, focusedN);
     expect(D().zoom).toBe(D().focus);
-    await act("pane.zoom", { on: false }, focusedN);
+    await act("tile.zoom", { on: false }, focusedN);
     expect(D().zoom).toBeNull();
-    // The older names answer as they did: pane.close its number, pane.pin and focus their own fields.
-    expect(await act("pane.close", {}, r.pane)).toMatchObject({ pane: r.pane });
+    expect(await act("tile.close", {}, r.pane)).toMatchObject({ tile: r.tile });
     expect(D().describe().panes.length).toBe(n);
     // A float (PIE-511): the tile out of the tree with its own rectangle, then docked back beside the person's tile.
-    const fl = await act("pane.float", {}, "1") as any;
+    const fl = await act("tile.float", {}, "1") as any;
     expect(fl).toMatchObject({ floated: true });
     expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: fl.now })]);
     expect(saved().floats).toEqual([expect.objectContaining({ tile: expect.objectContaining({ name: fl.now }) })]);
     await act("float.place", { dx: 3, cols: 50 }, fl.now);
     expect(D().layoutGet().floats[0].rect.cols).toBe(50);
-    expect(await act("pane.float", {}, fl.now)).toMatchObject({ floated: false });
+    expect(await act("tile.float", {}, fl.now)).toMatchObject({ floated: false });
     expect(D().layoutGet().floats).toEqual([]);
-    // Any tile slides over as a drawer now (PIE-413): pane.pin is tile.pin.
-    const pinned = await act("pane.pin", { on: false }, "1") as any;
-    expect(pinned).toMatchObject({ pinned: false, pane: pinned.tile });
-    await act("pane.pin", { on: true }, "1");
-    const f = await act("focus", {}, focusedN) as any;
-    expect(f).toMatchObject({ focus: f.tile });
+    // Any tile slides over as a drawer now (PIE-413).
+    const pinned = await act("tile.pin", { on: false }, "1") as any;
+    expect(pinned).toMatchObject({ pinned: false });
+    await act("tile.pin", { on: true }, "1");
+    expect(await act("tile.focus", {}, focusedN)).toMatchObject({ tile: expect.any(String) });
   });
 
   test("a query tile on the desk (PIE-511): a saved view's cards with its own cursor, followed by a preview, refreshed as the outline changes", async () => {
@@ -545,7 +539,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
 
   test("^W x closes by the same path as pane.close: down to the last pane, which stays", async () => {
     while (D().describe().panes.length > 1) { key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x")); }
-    await expect(act("pane.close", {}, "1")).rejects.toThrow(/last tile stays/);
+    await expect(act("tile.close", {}, "1")).rejects.toThrow(/last tile stays/);
     key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x"));
     expect(D().describe().panes.length).toBe(1);
     expect(saved().root.t).toBe("leaf");

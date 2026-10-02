@@ -91,7 +91,7 @@ function door(rows = 30, cols = 140) {
     write() {}, paint(lines: string[]) { painted = lines; }, paintRow(r: number, l: string) { painted[r] = l; },
     invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {},
   };
-  const app = new App(term, { supports: () => null, capabilities: null } as any, Date.now(), () => {});
+  const app = new App(term, { capabilities: null } as any, Date.now(), () => {});
   const screen = (title: string) => ({ title, key() {}, render(ctx: any) { return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => `${title} row ${i}`) }; } });
   const paint = () => { (app as any).paint(); return painted.map(l => l.replace(/\x1b\[[\d;]*m/g, "")); };
   return { app, term, screen, paint, key: (k: Key) => key(k) };
@@ -292,7 +292,7 @@ describe("what a running agent knows", () => {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
       await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
-      await d.app.act({ action: "tile.herdr", reader: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      await d.app.act({ action: "tile.herdr", tile: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       d.key({ kind: "char", ch: "]", ctrl: true });
       d.app.dock.tile!.personKeyAt = 0;
       // The fake Herdr lists no pane labelled door-claude.

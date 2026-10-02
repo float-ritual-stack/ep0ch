@@ -392,7 +392,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     test("`open <id>` from the menu opens the note in a message reader over it", async () => {
       home(); idle();
       const [m] = await board.search("Seed library", 5);
-      await app.openBlock(m!.id);
+      await app.act({ action: "open", args: { id: m!.id } });
       expect(top()).toBeInstanceOf(MessageReader);
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);

@@ -385,9 +385,9 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
   let board: SocketBoard, app: App, b: Desk, hub: any, card: any;
   let key: (k: Key) => void = () => {};
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: "test-agent-410" }) as Promise<any>;
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: "test-agent-410" }) as Promise<any>;
   /** The person's own action (their ⏎ on a card: the reader gets their keys), through the board's dispatcher. */
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, reader }, { kind: "user" }) as Promise<any>;
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, tile: reader }, { kind: "user" }) as Promise<any>;
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const frame = () => b.render(B().ctx).lines.map(plain);
   const long = `Plan the allotment [stage::queued]\n## Beds\n${Array.from({ length: 60 }, (_, i) => `- bed ${i + 1}: beans, then squash`).join("\n")}\n## Water\nThe hose runs along the fence.`;

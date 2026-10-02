@@ -32,8 +32,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   const type = (s: string) => { for (const c of s) key(char(c)); };
   const AS = "river-agent-3";
   const V = () => view(river);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => river.dispatch.act({ action, args, reader }, USER);
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => river.dispatch.act({ action, args, tile: reader }, USER);
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const lastBy = async (id: string, author: "agent" | "user") => {
@@ -140,7 +140,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("e"));
     await until(() => !!S().draft, "the draft");
     // Moving their keys while they type is refused (the actor rule), even onto the column they're in.
-    await expect(act("focus", {}, beansR)).rejects.toThrow(/not moved/);
+    await expect(act("tile.focus", {}, beansR)).rejects.toThrow(/not moved/);
     key({ kind: "end" }); type("Q");                             // still the person's edit: typed, not a river key
     expect(S().draft.text).toContain("Q");
     expect(V().focus).toBe(at);
@@ -230,8 +230,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("x"));                                              // in it: x is typed
     expect(surfaceOf(2).draft.text).toContain("x");
     // An agent doesn't move their keys out of their edit (the actor rule); the person's own move does.
-    await expect(act("focus", {}, lib())).rejects.toThrow(/not moved/);
-    await mine("focus", {}, lib());
+    await expect(act("tile.focus", {}, lib())).rejects.toThrow(/not moved/);
+    await mine("tile.focus", {}, lib());
     expect(V().focus).toBe(0);
     key(char("l"));
     expect(V().focus).toBe(1);
@@ -296,8 +296,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("clicking or wheeling a card clears a selected link, so ⏎ opens the clicked card", async () => {
     const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
     await until(() => (p.items?.length ?? 0) >= 2, "the peas replies");
-    await mine("focus", {}, lib());
-    await act("widen", {}, peasR);
+    await mine("tile.focus", {}, lib());
+    await act("tile.widen", {}, peasR);
     await act("link.select", { n: 1 }, peasR);
     expect(p.surface.describe().links.some(l => l.selected)).toBe(true);
     screen();
@@ -311,7 +311,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key({ kind: "enter" });
     await until(() => (focused().source as { id?: string }).id === clicked, "the clicked card's column");
     // The wheel too.
-    await mine("focus", {}, lib());
+    await mine("tile.focus", {}, lib());
     await act("link.select", { n: 1 }, peasR);
     screen();
     const r2 = river.rectOf(p)!;
@@ -321,7 +321,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("a property notice and an agent line in a column the person isn't in clear once shown a while", async () => {
     const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
-    await mine("focus", {}, lib());
+    await mine("tile.focus", {}, lib());
     if (coverOf(peasR) !== "full") await act("tile.dock", { on: true }, peasR);
     const text = (await current(notes.peas.id)).text.replace("Sow the peas", "Sow the peas [stage::doing]");
     await act("edit.text", { text }, peasR);
@@ -362,8 +362,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const long = await create(null, `The long seed list\n${lines.join("\n")}`);
     await create(long.id, "Order more\nFrom the usual place.");
     const r = (await act("open", { id: long.id })) as { reader: string };
-    await mine("focus", {}, r.reader);                           // the person goes to it
-    await act("widen", {}, r.reader);
+    await mine("tile.focus", {}, r.reader);                           // the person goes to it
+    await act("tile.widen", {}, r.reader);
     const p = paneOf(r.reader);
     await until(() => (p.items?.length ?? 0) >= 1, "the long note's reply");
     let s = screen();
@@ -390,13 +390,13 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     focusOnReader(lib());                                        // the person's keys on the Library
     const was = focused();
     // The column the person has the keys in is theirs: its filter, scroll and cursor aren't an agent's to move.
-    await expect(act("filter", { query: "squash" }, lib())).rejects.toThrow("has the person's keys");
+    await expect(act("column.filter", { query: "squash" }, lib())).rejects.toThrow("has the person's keys");
     await expect(act("column.scroll", { by: 3 }, lib())).rejects.toThrow("has the person's keys");
     await expect(act("column.select", { by: 1 }, lib())).rejects.toThrow("has the person's keys");
     // A column of its own (peas lists its two replies): filtered, said on the status bar.
     const own = (await act("open", { id: notes.peas.id, from: lib(), fresh: true })) as { reader: string };
     await until(() => (paneOf(own.reader).items?.length ?? 0) === 2, "the peas' replies");
-    const out = (await act("filter", { query: "Thin" }, own.reader)) as { filter: string; listed: number };
+    const out = (await act("column.filter", { query: "Thin" }, own.reader)) as { filter: string; listed: number };
     expect(out.filter).toBe("Thin");
     expect(out.listed).toBe(1);
     expect((app as any).message).toContain(`an agent (${AS}) filtered`);
@@ -416,7 +416,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await expect(act("column.select", { id: other }, lib())).rejects.toThrow(/has the person's keys; an agent doesn't move their cursor there/);
     expect(lib0.sel).toBe(before);
     // tag: a #queued column (the stage named, since the Library's selection is the person's), beside the Library; the person stays on it.
-    const tag = (await act("tag", { key: "stage", value: "queued" }, lib())) as { tile: string; value: string };
+    const tag = (await act("column.tag", { key: "stage", value: "queued" }, lib())) as { tile: string; value: string };
     expect(tag.value).toBe("queued");
     expect(paneOf(tag.tile).titleOf()).toBe("#queued");
     expect(focused()).toBe(was);
@@ -453,7 +453,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("in a note column f and ( ) fold and [ ] move between its elements, as in every reader", async () => {
     const r = readerOf(notes.peas.id)!;
-    await mine("focus", {}, r);
+    await mine("tile.focus", {}, r);
     await mine("tile.widen", {}, r);
     screen();
     const s = paneOf(r).surface as any;
@@ -471,7 +471,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const o: any = await act("open", { id: plan.id, from: lib() });
     const r = o.reader as string;
     await until(() => !!paneOf(r).root, "the plan column");
-    await mine("focus", {}, r);
+    await mine("tile.focus", {}, r);
     await mine("tile.widen", {}, r);
     expect(screen()).toContain("Carrots by the shed");
     const done: any = await act("fold", { n: 1 }, r);
@@ -508,9 +508,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await expect(mine("tile.close", {}, lib())).rejects.toThrow(/closable off/);
     // The hint row offers x only where it closes something: in the note column, not in the Library.
     const hintRow = () => screen().split("\n").find(l => l.includes("h l columns")) ?? "";
-    await mine("focus", {}, o.reader);
+    await mine("tile.focus", {}, o.reader);
     expect(hintRow()).toContain("x close");
-    await mine("focus", {}, lib());
+    await mine("tile.focus", {}, lib());
     expect(hintRow()).toContain("h l columns");
     expect(hintRow()).not.toContain("x close");
     expect(await act("layout.policy", {}, lib())).toMatchObject({ effective: { closable: false } });   // the spec says it, as policy
@@ -520,15 +520,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const titles = view(again).columns.map(c => view(again).name(c));
     expect(titles).toContain("library");
     expect(titles).toContain(o.reader);
-    // A river saved before the spec held the Library in its tab set (a bare leaf) gets its rule back as it's read.
-    const f = join(process.env.EP0CH_STATE!, "river.json");
-    const bare = (n: any): any => (n?.t === "tabs" && n.tabs?.[0]?.name === "library" ? n.tabs[0] : n?.kids ? { ...n, kids: n.kids.map(bare) } : n);
-    const saved = JSON.parse(readFileSync(f, "utf8"));
-    writeFileSync(f, JSON.stringify({ ...saved, root: bare(saved.root) }));
-    expect(readFileSync(f, "utf8")).not.toContain('"closable":false');
-    const old = openScreen("river") as any;
-    expect(old.policyAt(old.idNamed("library")).closable).toBe(false);
-    expect(view(old).columns.map(c => view(old).name(c))).toContain(o.reader);
+    expect((again as any).policyAt((again as any).idNamed("library")).closable).toBe(false);
     await act("tile.close", {}, o.reader);
   });
 });

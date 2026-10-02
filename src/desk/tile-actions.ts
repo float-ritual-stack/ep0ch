@@ -155,7 +155,7 @@ export const TILE_ACTIONS = new ActionSet<{
       return r;
     },
   },
-  "layout.load": { ...loadLayout, aliases: ["layout.restore"] },
+  "layout.load": loadLayout,
   "layout.move": {
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A drawer moved this way is pinned. The person's focus stays where it is",
     keys: "drag a header; ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out",
@@ -196,7 +196,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.close": {
     summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a drawer's tile shuts its drawer, and the lanes and the preview stay (closable off); the river's library stays (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
     keys: "^W x; board x, esc q on a drawer",
-    aliases: ["pane.close"],
     touches: "shape", replay: "ask", says: r => `closed ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
@@ -207,7 +206,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.resize": {
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
     keys: "^W < > + -; board { } < >; drag a border",
-    aliases: ["pane.resize"],
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.tile}`,
     args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, about: "row (width, default) or col (height)" } },
     run({ by, axis }, { d, reader }, actor) {
@@ -220,7 +218,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.zoom": {
     summary: "zoom tile=<tile> to fill the screen (on=false, or again, unzooms). An agent zooms only the tile that has the person's keys, never one that would hide it",
     keys: "^W z",
-    aliases: ["pane.zoom"],
     touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.tile}`,
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
     run({ on }, { d, reader }, actor) {
@@ -231,7 +228,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.float": {
     summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or dock a float back (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
     keys: "^W f; board o; a click on a float's ⧉ docks it",
-    aliases: ["pane.float"],
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "docked"} ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
@@ -252,8 +248,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.focus": {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →); esc q back home (a screen with a home: the board's lanes)",
-    // The desk's older `focus` answered { focus }.
-    aliases: [{ name: "focus", answer: (r: TileDone) => ({ ...r, focus: r.tile }) }],
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
     args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     run({ dir }, { d, reader }, actor) {
@@ -265,8 +259,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.pin": {
     summary: "put tile=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is docked where it was (on=true); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
     keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ drawer docks it",
-    // pane.pin answered { pane } too (the board's own pin still does).
-    aliases: [{ name: "pane.pin", answer: (r: TileDone) => ({ ...r, pane: r.pane ?? r.tile }) }],
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`),
     args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (docked, it stays docked there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
@@ -276,14 +268,10 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "tile.collapse": {
-    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. Only a tile side by side with others folds (a lane, a reader in a row). On the board the preview and the details fold (a drawer shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys. reader.collapse and reader.expand are on=true and on=false",
-    keys: "^W c; ⏎ space or a click on a spine opens it",
+    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. Only a tile side by side with others folds (a lane, a reader in a row). On the board the preview and the details fold (a drawer shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
+    keys: "^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
-    aliases: [
-      { name: "reader.collapse", keys: "board c on a reader", args: {}, map: () => ({ on: true }) },
-      { name: "reader.expand", keys: "board c ⏎ space on a spine, alt+c (every one)", args: {}, map: () => ({ on: false }) },
-    ],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
     args: { on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" } },
     run({ on }, { d, reader }, actor) {
@@ -311,7 +299,6 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.widen": {
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
     keys: "^W W; a click on a flow column's spine or header; on the river: w",
-    aliases: [{ name: "widen", keys: "the river's w" }],
     touches: "shape", replay: "safe", says: r => `widened ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {

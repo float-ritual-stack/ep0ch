@@ -322,7 +322,7 @@ describe("quitting the door", () => {
     await new Promise<void>(r => server.listen(sock, r));
     try {
       expect(await tellDoor({ EP0CH_CONTROL: sock, EP0CH_TILE: "claude", EP0CH_TILE_ID: "t4" }, "door-claude", "door")).toBe(true);
-      expect(heard[0]).toEqual({ cmd: "act", action: "tile.herdr", args: { pane: "door-claude", name: "door" }, reader: "t4", as: "door" });
+      expect(heard[0]).toEqual({ cmd: "act", action: "tile.herdr", args: { pane: "door-claude", name: "door" }, tile: "t4", as: "door" });
     } finally { server.close(); }
     expect(await tellDoor({ EP0CH_CONTROL: join(dir, "none.sock"), EP0CH_TILE: "claude" }, "door-claude", "door")).toBe(false);
     expect(await tellDoor({}, "door-claude", "door")).toBe(false);

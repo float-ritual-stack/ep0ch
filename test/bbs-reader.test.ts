@@ -248,7 +248,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(sel.chars).toBe(13);
     expect(r.surface.selection).toBeNull();                 // the agent's own, never the person's
     expect(r.surface.agentSelection?.id).toBe(AS);
-    await expect(app.act({ action: "fold", reader: "2", as: AS })).rejects.toThrow(/no tile 2 on the message reader; tiles: message/);
+    await expect(app.act({ action: "fold", tile: "2", as: AS })).rejects.toThrow(/no tile 2 on the message reader; tiles: message/);
     (app as any).lastInput = 0;                                    // moving on is a move of their screen: once they're idle
     const moved = await app.act({ action: "message.next", as: AS }) as any;
     expect(moved).toMatchObject({ index: 2, of: 2, id: n.second.id });
@@ -261,12 +261,12 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     const depth = stack();
     await app.act({ action: "link.follow", args: { n: 1 }, as: AS }).catch(() => {});
     expect(stack()).toBe(depth);
-    await expect(app.openBlock(n.kettle.id)).rejects.toThrow(/property panel/);
+    await expect(app.act({ action: "open", args: { id: n.kettle.id } })).rejects.toThrow(/property panel/);
     key({ kind: "esc" });
     // A message reader's open pushes a screen: like any agent's screen change, it waits until the person is idle.
-    await expect(app.openBlock(n.kettle.id)).rejects.toThrow(/at the keys/);
+    await expect(app.act({ action: "open", args: { id: n.kettle.id } })).rejects.toThrow(/at the keys/);
     (app as any).lastInput = 0;
-    await app.openBlock(n.kettle.id);
+    await app.act({ action: "open", args: { id: n.kettle.id } });
     expect(top()).toBeInstanceOf(MessageReader);
     expect(top().surface.msg.id).toBe(n.kettle.id);
   }, 20_000);

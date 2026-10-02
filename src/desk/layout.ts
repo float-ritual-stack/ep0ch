@@ -923,7 +923,7 @@ export function policyOf(x: unknown): Policy {
 }
 const savedPolicy = (x: unknown) => { const p = policyOf(x); return Object.keys(p).length ? { policy: p } : {}; };
 
-/** Read either saved form (binary `ratio a b` or `kids weights`), making each leaf with `leafOf`. */
+/** Read a saved tree (`kids weights`, or the binary `ratio a b` saves written before October 2026), making each leaf with `leafOf`. */
 export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L>, leafOf: (l: L) => I): LNode<I> {
   // A kid that isn't a node (a hand-edited save's null) is nothing: an empty tab set, which normalise drops.
   if (!s || typeof s !== "object") return { t: "tabs", ids: [], active: 0 };
@@ -968,8 +968,8 @@ const good = (w: unknown): w is number => typeof w === "number" && Number.isFini
 // An unnamed flow with no columns is gone too, as `remove` leaves it (a named one stays: its screen opens into it).
 const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key) || (k.t === "flow" && !k.kids.length && !k.key) || (k.t === "drawer" && empty(k.kid));
 
-/** Write a tree, pairs in the binary form (so an older door still reads it), anything wider as kids and weights. */
-export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L> | NaryForm<L> {
+/** Write a tree: each split as kids and weights. */
+export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> {
   if (n.t === "leaf") return leafOf(n.id);
   if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
   if (n.t === "drawer") return { t: "drawer", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
@@ -982,10 +982,6 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L
       .map(t => ({ col: t.col, ...(t.from !== undefined ? { from: t.from } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead } : {}) }));
     const memory = { ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(docked.length ? { docked } : {}), ...(trail.length ? { trail } : {}) };
     return { t: "flow", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), ...memory, ...(n.key ? { key: n.key } : {}), ...idOf(n) };
-  }
-  if (n.kids.length === 2 && !n.key) {
-    const sum = n.weights[0]! + n.weights[1]! || 1;
-    return { t: "split", dir: n.dir, ratio: n.weights[0]! / sum, a: serialize(n.kids[0]!, leafOf) as BinaryForm<L>, b: serialize(n.kids[1]!, leafOf) as BinaryForm<L>, ...idOf(n) };
   }
   return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...idOf(n) };
 }

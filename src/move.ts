@@ -16,8 +16,8 @@ export class MoveRefused extends Error {
   constructor(message: string, readonly stale = false) { super(message); this.name = "MoveRefused"; }
 }
 
-/** Why the service can't plan: an older outline without `views.planWrite`. */
-export const NO_PLANNER = "this outline can't plan moves (views.planWrite, PIE-490); restart it from a current pi-herdr-outliner";
+/** A lane the service's answer left out. */
+export const NO_PLAN = "the outline sent no plan for this lane";
 
 /**
  * The service's plan for moving `card` into each of `lanes`, by the lane's view id. The plans are made
@@ -26,7 +26,6 @@ export const NO_PLANNER = "this outline can't plan moves (views.planWrite, PIE-4
  */
 export async function planMoves(board: SocketBoard, card: Msg, viewIds: string[]): Promise<Map<string, MovePlan>> {
   const r = await board.planMoves(viewIds, card.id);
-  if (!r) return new Map(viewIds.map(id => [id, { kind: "refused", reason: NO_PLANNER }]));
   if (card.revision !== undefined && r.revision !== card.revision) {
     const stale: MovePlan = { kind: "refused", reason: `the card changed since the board loaded (revision ${card.revision} -> ${r.revision})`, stale: true };
     return new Map(viewIds.map(id => [id, r.plans.get(id)?.kind === "already" ? { kind: "already" } : stale]));

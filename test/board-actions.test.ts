@@ -21,7 +21,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
   let key: (k: Key) => void = () => {};
   const AS = "board-agent-506";
   const B = () => BV.view(b);
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, as: AS, ...(reader ? { reader } : {}) });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, as: AS, ...(reader ? { tile: reader } : {}) });
   const message = () => (app as any).message as string;
   const ran = (f: () => void) => { const names: string[] = []; const stop = traceActions(r => names.push(r.name)); try { f(); } finally { stop(); } return names; };
 

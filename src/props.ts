@@ -83,7 +83,7 @@ export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
 /** Where a reader's reads go, and what to redraw when an answer arrives: the reader's own connection. */
 export interface Source { board: SocketBoard; redraw(): void }
 
-interface Parsed { state: "loading" | "ready" | "unsupported" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed>; asked?: number }
+interface Parsed { state: "loading" | "ready" | "none" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed>; asked?: number }
 const parsedBy = new WeakMap<object, Map<string, Parsed>>();
 /** How many texts' answers are kept per connection. */
 const MAX_PARSED = 300;
@@ -96,8 +96,7 @@ export function invalidatePropertyErrors() { outlineEvents++; }
 
 /**
  * How the service parses `text` (synchronous for the renderer: null until it has answered). The answer
- * depends on the text alone, so it is kept until the cache fills. `unsupported`: an older service, or no
- * service, where the door falls back to the documented preamble rule and block properties only.
+ * depends on the text alone, so it is kept until the cache fills. `none`: no service, where the door falls back to the documented preamble rule and block properties only.
  */
 export function tokensOf(text: string, src: Source | null | undefined): Parsed | null {
   const r = lookup(text, src);
@@ -109,7 +108,7 @@ export function tokensOf(text: string, src: Source | null | undefined): Parsed |
  * so a caller that waits holds it even if the cache lets it go.
  */
 function lookup(text: string, src: Source | null | undefined): Parsed {
-  if (!src) return { state: "unsupported", tokens: [] };
+  if (!src) return { state: "none", tokens: [] };
   let parsed = parsedBy.get(src.board);
   if (!parsed) parsedBy.set(src.board, (parsed = new Map()));
   const hit = parsed.get(text);
@@ -122,7 +121,7 @@ function lookup(text: string, src: Source | null | undefined): Parsed {
   parsed.set(text, entry);
   const cache = parsed;
   entry.done = Promise.resolve().then(() => src.board.propertyRecords(text)).then(
-    (t): Parsed => (t ? { state: "ready", tokens: t } : { state: "unsupported", tokens: [] }),
+    (t): Parsed => ({ state: "ready", tokens: t }),
     (e: Error): Parsed => ({ state: "error", tokens: [], error: e.message, asked }),
   ).then(r => { if (cache.get(text) === entry) cache.set(text, r); src.redraw(); return r; });
   return entry;

@@ -33,7 +33,7 @@ export class ScreenTile implements Pane {
   async ownPreview(on: boolean, actor: Actor = USER) {
     this.preview = on;
     const s = this.framed?.first;
-    if (this.kind === "board" && s?.dispatch) await s.dispatch.act({ action: "tile.collapse", reader: "preview", args: { on: !on } }, actor).catch(() => {});
+    if (this.kind === "board" && s?.dispatch) await s.dispatch.act({ action: "tile.collapse", tile: "preview", args: { on: !on } }, actor).catch(() => {});
   }
   spec() { return this.preview ? {} : { preview: false }; }
 

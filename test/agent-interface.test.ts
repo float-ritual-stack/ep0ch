@@ -45,9 +45,9 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   let key: (k: Key) => void = () => {};
   const AS = "watcher-7";
   /** An agent's action through the App's dispatcher: its answer is data, read with toMatchObject. */
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   /** The person's own action, through the desk's dispatcher (their key's path). */
-  const mine = (action: string, reader?: string) => desk.dispatch.act({ action, ...(reader ? { reader } : {}) }, USER);
+  const mine = (action: string, reader?: string) => desk.dispatch.act({ action, ...(reader ? { tile: reader } : {}) }, USER);
   const render = () => app.redraw();
   /** A tile as layout.get describes it; a terminal's own facts, as its kind describes them. */
   const tile = (name: string) => desk.layoutGet().tiles.find(t => t.name === name);
@@ -167,7 +167,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     f.close();
   }, 20_000);
 
-  test("one open (E1): `ep0ch open <id>` is act open, named by --as or EP0CH_AGENT; the older {cmd:open} runs the same action", async () => {
+  test("one open (E1): `ep0ch open <id>` is act open, named by --as or EP0CH_AGENT; the old {cmd:open} is gone", async () => {
     const lastSaid = () => said.at(-1) ?? "";
     const raw = (req: Record<string, unknown>) => new Promise<{ ok: boolean; result?: unknown; error?: string }>((res, rej) => {
       const c = connect(control.path, () => c.write(JSON.stringify(req) + "\n"));
@@ -198,10 +198,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       console.log = log; console.error = err;
       for (const [k, v] of [["EP0CH_CONTROL", env.control], ["EP0CH_AGENT", env.agent]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     }
-    // The older request is the open action too: attributed, and refused the same way.
-    expect(await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" })).toMatchObject({ ok: true, result: { id: notes.shed.id } });
-    expect(said.some(m => m.includes("an agent (raw-opener-510)"))).toBe(true);
-    expect(await raw({ cmd: "open", id: notes.shed.id, as: "ext:tidy" })).toMatchObject({ error: expect.stringMatching(/extension's actor id/) });
+    expect(await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" })).toMatchObject({ ok: false, error: expect.stringContaining("unknown command open") });
     // One `open` in the list: the desk's (the shell's is for screens without one).
     expect(app.actions().actions.filter(a => a.name === "open")).toHaveLength(1);
     expect(lastSaid()).toBeTruthy();
@@ -265,7 +262,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(r2.reader).toBeTruthy();
     expect(person().focus).toBe("middle");
     // Typing in middle: the open never lands in that reader; their edit and its note stay.
-    await desk.dispatch.act({ action: "edit", args: {}, reader: "middle" }, USER);
+    await desk.dispatch.act({ action: "edit", args: {}, tile: "middle" }, USER);
     key(char("e"));
     await until(() => person().typingIn === "middle", "the person typing in middle");
     const typing = mid().msg?.id;
@@ -273,7 +270,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(landed.reader).not.toBe("middle");
     expect(mid().msg?.id).toBe(typing);
     expect(person().typingIn).toBe("middle");
-    await desk.dispatch.act({ action: "edit.close", args: { discard: true }, reader: "middle" }, USER).catch(() => {});
+    await desk.dispatch.act({ action: "edit.close", args: { discard: true }, tile: "middle" }, USER).catch(() => {});
     await mine("tile.focus", "tree");
   }, 20_000);
 

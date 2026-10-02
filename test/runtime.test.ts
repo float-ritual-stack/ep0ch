@@ -381,7 +381,7 @@ describe("where am I, from a tile (ep0ch where)", () => {
       expect(a.keys.mine).toBe(false);
 
       // The person clicks into the tile... here: gives it the keys and enters it (⏎).
-      expect((await door.cli("act", "tile.focus", "reader=probe")).code).toBe(0);
+      expect((await door.cli("act", "tile.focus", "tile=probe")).code).toBe(0);
       door.pty.write("\r");
       await Bun.sleep(500);
       writeFileSync(join(dir, "go"), "");

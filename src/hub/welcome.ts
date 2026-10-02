@@ -231,7 +231,7 @@ export class WelcomeList implements Pane {
 
   /** A note tagged, untagged, renamed, trashed or restored anywhere: the list is asked again (once per burst). */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    // Without a change record (a service with no feed, a reset) it could be anything, so it's asked too. A comment,
+    // Without a change record (a reset) it could be anything, so it's asked too. A comment,
     // a lane's order, a move or a draft doesn't change which notes carry the property, or their titles.
     if (e?.change && QUIET.has(e.change.kind)) return;
     if (this.reload) clearTimeout(this.reload);

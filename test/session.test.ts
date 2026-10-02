@@ -651,17 +651,17 @@ describe("the terminal host", () => {
 
 describe("the checkpoint and the restore", () => {
   /** An App enough for a restore: a stack, the actions' replay declarations, a dispatcher that records what it's asked. */
-  function stubApp(refuse: (s: { action: string; reader?: string; args: Record<string, unknown> }) => string | null = () => null) {
-    const stack: any[] = [], ran: { action: string; reader?: string; args: Record<string, unknown> }[] = [];
+  function stubApp(refuse: (s: { action: string; tile?: string; args: Record<string, unknown> }) => string | null = () => null) {
+    const stack: any[] = [], ran: { action: string; tile?: string; args: Record<string, unknown> }[] = [];
     const declared: Record<string, "safe" | "ask"> = { "screen.open": "safe", "screen.back": "safe", "screen.shell": "ask", open: "safe", edit: "ask" };
     const app = {
       background: [], screens: () => stack, push: (s: any) => { stack.push(s); }, flush() {},
       dispatch: {
         list: () => ({ actions: Object.entries(declared).map(([name, replay]) => ({ name, replay })) }),
-        act: async (req: { action: string; reader?: string; args: Record<string, unknown> }) => {
+        act: async (req: { action: string; tile?: string; args: Record<string, unknown> }) => {
           const no = refuse(req);
           if (no) throw new Error(no);
-          ran.push({ action: req.action, ...(req.reader ? { reader: req.reader } : {}), args: req.args });
+          ran.push({ action: req.action, ...(req.tile ? { tile: req.tile } : {}), args: req.args });
           if (req.action === "screen.open") stack.push({ title: String(req.args.name), name: req.args.name });
           if (req.action === "screen.back") stack.pop();
           return {};
