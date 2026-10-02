@@ -2,6 +2,7 @@
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
 import { fitHint, glyphWidth, graphemes, RESET } from "./style";
+import { theme } from "./theme";
 import { printable } from "./text";
 
 /** One terminal cell. A wide glyph's second cell is a spacer: `ch` "", drawn as nothing (the glyph covers it). */
@@ -78,11 +79,11 @@ export class Canvas {
 
   /**
    * Dim a rectangle: each cell's truecolor foreground scaled by `by` (0..1), and a plain cell given the
-   * default grey scaled the same. Backgrounds stay, so a selection or a ruler still shows under it.
+   * theme's body text (the terminal's default, classic's VGA grey) scaled the same. Backgrounds stay, so a selection or a ruler still shows under it.
    */
   dim(r: Rect, by = 0.5): void {
     const scale = (m: string) => m.replace(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g, (_, a, b, c) => `\x1b[38;2;${[a, b, c].map(v => Math.round(Number(v) * by)).join(";")}m`);
-    const plain = `\x1b[38;2;${[170, 170, 170].map(v => Math.round(v * by)).join(";")}m`;
+    const plain = `\x1b[38;2;${(theme().text ?? [170, 170, 170]).map(v => Math.round(v * by)).join(";")}m`;
     for (let y = r.row; y < r.row + r.rows; y++) {
       const line = this.cells[y];
       if (!line) continue;

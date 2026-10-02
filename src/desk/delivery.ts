@@ -16,7 +16,8 @@ import type { ScreenKeys } from "../whereabouts";
 import { draftPreview, leaveSaid, type OpenHow } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { readState, writeState } from "../state";
-import { bg, C, fg, pad, paint, RESET } from "../style";
+import { bg, C, chip, fg, pad, paint, RESET } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLANNER, planMoves, type MovePlan } from "../move";
@@ -75,7 +76,8 @@ interface OldSaved {
 const isOldSaved = (s: object): s is OldSaved => ["laneFrac", "treeFrac", "linksFrac", "treeSide", "laneWeights", "readerWeights", "treePinned", "linksPinned", "collapsed"].some(k => k in s);
 const share = (x: unknown, lo: number, hi: number): number | undefined => (typeof x === "number" && Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : undefined);
 
-const SEL = bg(C.blue) + fg(C.white);
+let SEL = "";
+themed(() => { SEL = bg(C.blue) + fg(C.white); });
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 /** The tiles every board has, by name (the lanes come from its hub). */
 const FIXED = ["tree", "tree-preview", "preview", "backlinks", "backlinks-preview"] as const;
@@ -1872,7 +1874,7 @@ export class DeliveryBoard extends Desk {
 
   protected override screenHint(): string {
     const rd = this.panes.get(this.focus);
-    const undo = this.trashed ? bg(C.red) + fg(C.white) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
+    const undo = this.trashed ? chip(C.red) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
     if (rd instanceof ReaderPane && this.collapsed.has(this.focus)) {
       const holds = rd.holdsKeys ? ` · keeps ${sessionName(rd)}` : "";
       return undo + `|14 ${this.labelOf(rd)} · collapsed${holds}|08 · |15c ⏎|08 open · |15alt+c|08 open all · |15tab|08 area · |15esc|08 lanes`;

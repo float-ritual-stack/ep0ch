@@ -8,7 +8,7 @@ import { whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
-import { bg, C, fg, RESET } from "./style";
+import { bg, C, chip, fg, RESET } from "./style";
 import { scrolled } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "./vendor/draft-patch-compare";
@@ -687,7 +687,7 @@ export class Draft {
       }));
       let line = " ".repeat(r.indent) + fg(C.white), style = "";
       cells.forEach((c, j) => {
-        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? bg(C.magenta) + fg(C.white) : "";
+        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? chip(C.magenta) : "";
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });

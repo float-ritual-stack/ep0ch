@@ -22,6 +22,7 @@ import { askedBy, extensionRegion, forgetProjectionAnswers, projectionLayout, ty
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { C, fg } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -51,7 +52,7 @@ describe("a component's view in the terminal", () => {
     expect(linked).toEqual(["aaaaaaaa-1111-4222-8333-444444444444"]);
     expect(text.at(-3)).toMatch(/^ {2}┌─ Note ─+┐$/);
     expect(text.at(-2)).toMatch(/^ {2}│ Water before noon\. +│$/);
-    expect(lines.join("")).toContain("\x1b[38;2;255;255;85m");                  // warn is yellow
+    expect(lines.join("")).toContain(fg(C.yellow));                              // warn is yellow
     expect(() => primitiveLines({ type: "hologram" }, 40)).toThrow(/no primitive hologram/);
     // Text from an extension never reaches the terminal as an escape.
     expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["ab"]);

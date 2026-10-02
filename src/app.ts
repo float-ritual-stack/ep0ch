@@ -7,7 +7,7 @@ import { Dispatcher } from "./surface/dispatch";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { isCopyKey, osc52 } from "./surface/selection";
-import { bg, C, fg, headOf, pad, RESET, tailFrom, width } from "./style";
+import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
 import { toCp437Glyphs } from "./ansi";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
@@ -19,6 +19,8 @@ import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
+import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
+import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
 
@@ -51,6 +53,8 @@ export interface Ctx {
   /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the screen. */
   copy?(text: string): void;
   cycleVideo(): void;
+  /** Draw in this theme from now on (`theme.set`): every screen at once, the terminal's ground too, and kept for next time. */
+  setTheme?(name: ThemeName): void;
   /**
    * The door is about to quit (the menu's logoff): true when it may. With programs running in a screen (even
    * one in the background) or an unsaved edit, the first ask says so and refuses; again within 3s goes.
@@ -205,6 +209,7 @@ export class App implements Ctx {
     this.started = now();
     this.kitty = new KittyLayer(term.write);
     this.video = term.info.kitty ? "kitty+crt" : "cells";
+    this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
     this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person() });
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
@@ -336,6 +341,25 @@ export class App implements Ctx {
   }
   /** What the toast says and until when (App.copy); the tick takes it away. */
   toast: { text: string; until: number } | null = null;
+  /** The terminal's default text and background are the theme's (OSC 10, 11), so uncoloured cells sit on its ground. */
+  private grounded = false;
+  private ground() {
+    // Classic sets no ground; its reset only undoes one this door set (a person's own OSC 10/11 colours stay).
+    if (!theme().ground && !this.grounded) return;
+    this.grounded = !!theme().ground;
+    const t = this.term as Partial<Term>;
+    if (t.setGround) t.setGround(groundSeq());
+    else this.term.write(groundSeq());
+  }
+  setTheme(name: ThemeName) {
+    if (useTheme(name)) {
+      this.ground();
+      this.term.invalidate();
+      writeState("theme.json", { name });
+    }
+    this.flash(`theme: ${theme().name} · ${theme().about}`);
+    this.redraw();
+  }
   cycleVideo() {
     if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
     this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
@@ -535,8 +559,17 @@ export class App implements Ctx {
       if (k.action === "down") void this.dispatch.press("changes.extensions");
       return;
     }
+    // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle).
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"]] as const) {
+      if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
+        if (k.action === "down") void this.dispatch.press(action);
+        return;
+      }
+    }
     // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
+    // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
+    if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);
@@ -690,6 +723,9 @@ export class App implements Ctx {
   /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */
   get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
 
+  /** Where the status bar's video mode and theme are, for a click (video.cycle, theme.cycle). */
+  private videoAt: { from: number; to: number; row: number } | null = null;
+  private themeAt: { from: number; to: number; row: number } | null = null;
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
@@ -699,11 +735,14 @@ export class App implements Ctx {
     // Extension writes hidden from the count read `+N ext` (a click shows them); shown, `ext on`.
     const ext = this.extEvents ? (this.extensionChanges ? "ext on" : `+${this.extEvents} ext`) : "";
     const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
-    const tail = `${this.video} │ on ${mins}m │ ${clock} `;
+    const tail = `${this.video} │ ${theme().name} │ on ${mins}m │ ${clock} `;
     const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${extPart}${tail}`;
     const from = cols - width(right);
     const extFrom = cols - width(extPart + tail);
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
+    const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
+    this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
+    this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
     this.dock.chipAt = chip && from >= 0 ? { from, to: from + width(this.dock.chipText()), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
@@ -722,7 +761,7 @@ export function withToast(lines: string[], text: string, cols: number): string[]
   const row = Math.max(0, lines.length - 2), at = Math.max(0, Math.floor((cols - w) / 2));
   const out = [...lines];
   const line = out[row] ?? "";
-  out[row] = headOf(line, at) + RESET + bg(C.cyan) + fg(C.white) + pad(t, w) + RESET + tailFrom(line, at + w);
+  out[row] = headOf(line, at) + RESET + chip(C.cyan) + pad(t, w) + RESET + tailFrom(line, at + w);
   return out;
 }
 

@@ -29,6 +29,7 @@ import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Sel
 import { presentLinks, stripMarks } from "../refs";
 import { readState, writeState } from "../state";
 import { bg, C, extractLinks, fg, INPUT_CURSOR, pad, paint, RESET, visible } from "../style";
+import { themed } from "../theme";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
 import { drawSpine } from "../spine";
@@ -80,7 +81,8 @@ interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[]; cover: Co
 
 /** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
 export const BANNER_MS = 30_000;
-const SEL = bg(C.blue) + fg(C.white);
+let SEL = "";
+themed(() => { SEL = bg(C.blue) + fg(C.white); });
 const CHIP_COLOURS = [C.lgreen, C.lcyan, C.yellow, C.lmagenta, C.lred, C.lblue];
 const GLYPH: Record<string, string> = { hub: "◎", workboard: "▦", workspace: "▣", notes: "▤", "virtual-branch": "⑂", "roadmap-item": "◆", proof: "✓", synthesis: "✦", inbox: "✉", note: "·" };
 

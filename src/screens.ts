@@ -9,7 +9,8 @@ import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Caller, type Msg } from "./board";
 import { artNamed, find, loadArt, members, packs, type Member } from "./packs";
 import type { Activity } from "./socket";
-import { bg, C, center, fg, pad, paint, RESET, width } from "./style";
+import { bg, C, center, chip, fg, pad, paint, RESET, width } from "./style";
+import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import type { Key } from "./term";
 import { heatmap } from "./stats";
 import { Desk } from "./desk/desk";
@@ -145,7 +146,9 @@ function artWithText(ctx: Ctx, key: string, art: Art, overlays: Overlay[], at = 
       if (row >= lines.length) continue;
       let s = "", col = 0;
       for (const o of list.sort((a, b) => a.col - b.col)) {
-        s += " ".repeat(Math.max(0, origin.col + o.col - col)) + fg(o.fg) + (o.bg !== undefined ? bg(o.bg) : "") + o.text + RESET;
+        // Only the text's colour: the art's image lies over the cells' backgrounds (z -1), so the slot it blanked is what
+        // the text sits on (the art's own black).
+        s += " ".repeat(Math.max(0, origin.col + o.col - col)) + fg(o.fg) + o.text + RESET;
         col = origin.col + o.col + o.text.length;
       }
       lines[row] = s;
@@ -289,7 +292,7 @@ export class MainMenu implements Screen {
     ];
     const extras = ITEMS.slice(slotted).flatMap((i, j): (string | [string, Key, number])[] => {
       const n = slotted + j, on = n === this.sel;
-      return [" |08· ", [on ? `${bg(C.magenta)}|15${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
+      return [" |08· ", [on ? `${chip(C.magenta)}${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
     });
     // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
     const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
@@ -411,6 +414,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
 type ShellArgs = {
   "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>;
   "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
+  "theme.set": { name: string }; "theme.cycle": Record<string, never>;
   "open": { id: string };
 };
 
@@ -494,13 +498,36 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
     },
   },
   "video.cycle": {
-    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video",
+    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "alt+v on every screen; V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video; click on the status bar's video mode",
     touches: "screen", replay: "safe", says: out => `· switched the video to ${out.video}`,
     args: {},
     run(_, { ctx }) {
       ctx.cycleVideo();
       ctx.redraw();
       return { video: ctx.video };
+    },
+  },
+  "theme.set": {
+    summary: `the door's colours: ${THEME_NAMES.map(n => `${n} (${THEMES[n].about})`).join("; ")}. Every screen at once, kept for the next start (EP0CH_THEME overrides it there). ANSI art keeps true VGA in every theme. An agent's waits until the person is idle and is said on the status bar`,
+    touches: "screen", replay: "safe", says: out => `· switched the theme to ${out.theme}`,
+    args: { name: { type: "string", about: `the theme: ${THEME_NAMES.join(", ")}` } },
+    run({ name }, { ctx }) {
+      const want = themeNamed(name);
+      if (!want) throw new ActionRefused(`no theme ${JSON.stringify(name)}; the themes: ${THEME_NAMES.join(", ")}`);
+      if (!ctx.setTheme) throw new ActionRefused("this screen can't change the door's theme");
+      ctx.setTheme(want);
+      return { theme: theme().name };
+    },
+  },
+  "theme.cycle": {
+    summary: `the next theme: ${THEME_NAMES.join(" → ")} (theme.set picks one by name)`,
+    keys: "alt+t on every screen; click on the status bar's theme",
+    touches: "screen", replay: "safe", says: out => `· switched the theme to ${out.theme}`,
+    args: {},
+    run(_, { ctx }) {
+      if (!ctx.setTheme) throw new ActionRefused("this screen can't change the door's theme");
+      ctx.setTheme(nextTheme());
+      return { theme: theme().name };
     },
   },
   "open": {
@@ -1333,7 +1360,8 @@ export class Help implements Screen {
         ...ITEMS.map((i, n) => hotLine(ptr, 2 + n, w, [[`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`, char(i.key), n]])),
         "", paint("|08   Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
-        paint("|08   Video cycles Kitty+CRT → Kitty → plain cells. Art and stats are pixels; every word is real terminal text."),
+        paint("|08   Video cycles Kitty+CRT → Kitty → plain cells (|15alt+v|08 anywhere). Art and stats are pixels; every word is real terminal text."),
+        paint("|08   |15alt+t|08 steps the theme: calm → night → classic (also a click on its name on the status bar). Art stays VGA."),
         paint("|08   |15q|08 or |15Esc|08 goes back on every screen. The menu is the top: there |15q|08 is the Quay, |15Esc|08 stays, and only |15G|08 logs off."),
       ],
     };
@@ -1356,7 +1384,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (hidden hotkey)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call)",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
 };
 

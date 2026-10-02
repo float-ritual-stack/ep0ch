@@ -14,6 +14,7 @@ import xterm from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { unlink } from "node:fs/promises";
 import { basename } from "node:path";
+import { C, fg } from "../style";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
@@ -318,7 +319,7 @@ export class PtyPane implements Pane {
       const cy = !this.back && cursor && !hidden && this.exited === null && y === b.cursorY ? b.cursorX : -1;
       lines.push(line ? rowOf(line, cell, w, cy) : "");
     }
-    if (this.exited !== null) lines[h - 1] = `\x1b[38;2;255;255;85m[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again · ctrl+] back to the door · ^W x closes the tile\x1b[0m`;
+    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again · ctrl+] back to the door · ^W x closes the tile\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
 

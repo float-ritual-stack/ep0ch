@@ -10,7 +10,7 @@
 // an item is the list kind's action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
 import { subject, type Msg } from "../board";
 import { type Actor, type SocketBoard } from "../socket";
-import { bg, C, fg, pad, RESET } from "../style";
+import { bg, C, fg, pad, RESET, tint } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
@@ -128,7 +128,7 @@ export class WaitingPane implements Pane {
       lines: this.rows.slice(this.top, this.top + h).map(r => {
         if ("head" in r) return pad(`${fg(C.yellow)}${r.head.who}${fg(C.dark)} · ${r.head.items.length} waiting · longest ${ago(r.head.since)}`, w) + RESET;
         const m = r.item, age = ago(sentAt(m)).padStart(4), ticket = (m.props.ticket ?? "").padEnd(tw), what = waitingOn(m).what;
-        if (r.n === this.at) return (focused ? bg(C.blue) : "\x1b[48;2;22;30;58m") + fg(C.white) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
+        if (r.n === this.at) return (focused ? bg(C.blue) : tint("idle")) + fg(C.white) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
         const old = Date.now() - sentAt(m) > 3 * 86_400_000;
         return pad(` ${fg(old ? C.lred : C.brown)}${age} ${fg(C.lcyan)}${ticket} ${fg(C.grey)}${what}`, w) + RESET;
       }),

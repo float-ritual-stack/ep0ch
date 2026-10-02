@@ -17,7 +17,8 @@ import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, type LinkTarget } from "./refs";
 import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
-import { C, fg, LINK_END, linkTag, pad, RESET } from "./style";
+import { C, fg, LINK_END, linkTag, pad, RESET, tint } from "./style";
+import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 
 /** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
@@ -206,9 +207,10 @@ export function embedState(id: string, fragment: string | undefined, src: Source
 // ── drawing ───────────────────────────────────────────────────────────────────────────────────────────
 
 /** A shaded region's background (a dim navy under the default text), and the gutter that marks it. */
-export const SHADE = "\x1b[48;2;18;24;44m";
+export let SHADE = "";
 // A quiet bar: embedding is ordinary here, so an embed is set apart, not announced.
-const GUTTER = fg(C.dark) + "▌";
+let GUTTER = "";
+themed(() => { SHADE = tint("embed"); GUTTER = fg(C.dark) + "▌"; });
 
 /** One shaded line: the background survives the resets inside `s`, and fills the whole width. */
 export function shade(s: string, w: number): string {

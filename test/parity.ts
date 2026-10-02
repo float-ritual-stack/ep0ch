@@ -25,6 +25,7 @@ import { Desk } from "../src/desk/desk";
 import { PtyPane } from "../src/desk/pty";
 import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
+import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -202,6 +203,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
+    // A probe's alt+t (theme.cycle) changes every screen's colours: each screen starts in the default theme.
+    setTheme(DEFAULT_THEME);
     A().stack.push(new MainMenu());
     const s = await make();
     if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s);
