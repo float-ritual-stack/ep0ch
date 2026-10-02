@@ -245,7 +245,8 @@ export class Dispatcher {
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest): Registration | Delegation | null {
     for (const r of this.regs) {
-      if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.has(req.action)) return r;
+      // A delegate is asked about the whole request: a screen in a tile is found by the tile it names.
+      if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.takes(r.request ? r.request(req) : req)) return r;
     }
     return null;
   }
@@ -329,7 +330,9 @@ export class Dispatcher {
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
     const where = this.where();
-    const touches = def.touchesWith?.(args as never) ?? def.touches;
+    // What the def sees: coerced from the wire and mapped from an alias (`locked=true` is true, not "true").
+    const seen = reg.set.defArgs(req.action, args, typed);
+    const touches = def.touchesWith?.(seen as never) ?? def.touches;
     const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null) });
     if (no) throw new ActionRefused(no);
     const ctx = this.host.ctx();
@@ -340,7 +343,7 @@ export class Dispatcher {
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
     const done = (out: unknown) => {
       if (def.says && (actor.kind === "agent" || def.confirms)) {
-        const s = def.says(out, args as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
+        const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
         if (said) ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
       }
       return reg.answer ? reg.answer(out, at) : out;
@@ -412,7 +415,8 @@ export class Dispatcher {
         throw new ActionRefused(`${hit.by === "focused" || hit.by === "default" ? "the focused tile" : `${sel}`} isn't where your edit or comment is: that's tile ${m.id ?? m.name} (${m.label ?? m.name} now); tiles move as others open and close, so name it tile=${m.id ?? m.name}`);
       }
     }
-    if (reg.seen && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
+    // An agent's: the person's own keys and clicks in a peek or a spine are theirs to press (ctrl+z, an element).
+    if (reg.seen && actor.kind === "agent" && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
     return { tile: t, name: t.name };
   }
 

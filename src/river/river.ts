@@ -766,8 +766,11 @@ export class River implements Screen {
    * person follows it there; an agent's follow opens the column and leaves the person's focus alone.
    */
   private hostFor(p: PaneS, actor?: Actor): SurfaceHost {
+    const river = this;
     return {
       ctx: this.ctx,
+      // Whether the person's keys are in this column's pane (an agent's fragment link is revealed elsewhere only).
+      get focused() { return p === river.paneS; },
       redraw: () => { this.gen++; this.ctx.redraw(); },
       // alt+⏎ (PIE-441) opens it in a new column even when one shows it already. An agent's opens beside and
       // leaves the person's focus where it is.
@@ -916,7 +919,7 @@ export class River implements Screen {
 
   // ── actions: what the keys do, by name, for agents (`ep0ch-door act`) ─────
 
-  private covers(): Map<number, Cover> { return new Map(this.layout(this.ctx.t.cols).map(l => [l.col, l.cover])); }
+  private covers(): Map<number, Cover> { if (!this.ctx) return new Map(); return new Map(this.layout(this.ctx.t.cols).map(l => [l.col, l.cover])); }
   /** Where a pane is now: "3", or "3.2" in a column of stacked panes. It moves as columns open and close. */
   private readerName(ci: number, pi: number) { return this.cols[ci]!.panes.length > 1 ? `${ci + 1}.${pi + 1}` : `${ci + 1}`; }
   /** Which pane it is: "r7", for as long as the pane is open. */
@@ -1472,8 +1475,9 @@ export const RIVER_ACTIONS = new ActionSet<RiverArgs, RiverOn>("river", {
     run: (_, { r, reader }) => r.widenIn(reader),
   },
   "close": {
-    summary: "close the tile, or the column when it has one; refused while it holds an edit or a comment", keys: "x",
-    touches: "shape", replay: "safe",
+    summary: "close the tile, or the column when it has one; refused while it holds an edit or a comment, and to an agent for the column that has the person's keys", keys: "x",
+    // The river's strip has no layout engine to ask (PIE-515): closing their column would move their keys, so it's theirs.
+    touches: "tile", replay: "ask", way: "an agent doesn't close it · close tile= another column",
     args: {},
     run: (_, { r, reader }) => r.closeIn(reader),
   },

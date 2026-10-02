@@ -93,7 +93,7 @@ export interface ActionAlias {
  * and `person` are its declarations (what it touches of the person's, whether a restarted door may run it again, the
  * person's only).
  */
-export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; aliases?: string[]; touches: Touches; replay: Replay; person?: true }
+export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; aliases?: string[]; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true }
 
 /**
  * What the control socket sends: an action on the current screen, in one of its tiles, as someone. `reader` is
@@ -162,7 +162,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
       const aliases = [...this.aliasOf].filter(([, x]) => x.of === name).map(([a]) => a);
-      return { name, summary: d.summary, keys: this.keysOf(name), args: d.args as Record<string, ArgSpec>, scope: this.scope, ...(aliases.length ? { aliases } : {}), touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}) };
+      return { name, summary: d.summary, keys: this.keysOf(name), args: d.args as Record<string, ArgSpec>, scope: this.scope, ...(aliases.length ? { aliases } : {}), touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}) };
     });
   }
   /** An action's keys and the keys its aliases are bound to: one action, every key that runs it. */
@@ -189,6 +189,17 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     const r = this.defs[of].run(mapped, host, actor);
     const answer = a?.alias.answer;
     return !answer ? r : r instanceof Promise ? r.then(x => answer(x)) : answer(r);
+  }
+
+  /**
+   * The arguments an action's own def sees (its `touchesWith`, its `says`): the wire's checked and coerced (`typed`
+   * false), then an alias's mapped to its action's. Running still goes through `call`/`callUntyped`.
+   */
+  defArgs(name: string, raw: Record<string, unknown>, typed: boolean): Record<string, unknown> {
+    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
+    const spec = (a?.alias.args ?? this.defs[(a?.of ?? name) as keyof M & string]?.args) as Record<string, ArgSpec> | undefined;
+    const args = typed || !spec ? raw : coerce(name, spec, raw);
+    return a?.alias.map ? a.alias.map(args) : args;
   }
 
   /** Run an action named on the wire: unknown names and wrong arguments are refused before it starts. */

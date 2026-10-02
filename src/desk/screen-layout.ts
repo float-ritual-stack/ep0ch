@@ -96,6 +96,11 @@ export interface Person<I = number> {
   typingIn: I | null;
   /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */
   busy: boolean;
+  /**
+   * Why an agent may not move their keys now, as the shell's one rule says it (`actorRule` for `touches: "screen"`:
+   * busy, away, or at the keys in the last 2s), or null. Left out, being busy is the rule.
+   */
+  held?: string | null;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
@@ -430,7 +435,8 @@ class Step<I> {
   }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
-    refuse(this.agent && this.ctx.person.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
+    const p = this.ctx.person;
+    refuse(!this.agent ? null : p.held !== undefined ? (p.held ? `${p.held} · an agent doesn't ${what} now` : null) : p.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
   }
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {

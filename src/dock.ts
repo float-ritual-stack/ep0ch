@@ -41,7 +41,7 @@ import { apply as applyLayout, shown as shownTiles, hostDrawer, hostLayer, HOST_
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, ActionSet, agentLabel } from "./surface/actions";
-import type { TileRef } from "./surface/dispatch";
+import { actorRule, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, type Whereabouts } from "./whereabouts";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
@@ -158,7 +158,7 @@ export class AgentDock {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
       actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy: this.entered || !!this.host.person?.().busy },
+      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen" }, actor, this.host.person(), {}) } : {}) },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */

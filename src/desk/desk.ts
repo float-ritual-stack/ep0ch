@@ -14,7 +14,7 @@ import { Canvas, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canv
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
-import { Dispatcher, type Delegation, type Registration, type TileRef } from "../surface/dispatch";
+import { actorRule, Dispatcher, type Delegation, type Registration, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
@@ -233,7 +233,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       actor, area: this.area, tile: id => this.facts(id),
-      person: { focus: this.focus, typingIn: typing, busy: w.busy },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }
@@ -802,7 +802,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
         claims: (req: ActRequest) => !!this.screenIn(req)?.has(req.action),
         delegate: (req?: ActRequest) => (req ? this.screenIn(req) : null),
         request: (req: ActRequest) => ({ ...req, reader: undefined }),
-        answer: (out: unknown, req: ActRequest) => ({ tile: this.tileNamed(req.reader, false)!.name, ...(out && typeof out === "object" ? out : { result: out }) }),
+        answer: (out: unknown, req: ActRequest) => ({ tile: (req.reader && this.dispatch.tile(req.reader)?.name) || req.reader, ...(out && typeof out === "object" ? out : { result: out }) }),
         listed: false,
       },
       {
@@ -819,8 +819,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   private kindDispatch(regs: Registration[]): Dispatcher { return new Dispatcher(this.dispatchHost(), regs); }
   /** The dispatcher of the whole screen in the tile a request names (a board in a tile), if it names one. */
   private screenIn(req: ActRequest): Dispatcher | null {
-    const t = req.reader ? this.tileNamed(req.reader, false) : null;
-    const p = t ? this.panes.get(t.id) : undefined;
+    // By the dispatcher's grammar (a name, an id, a number, an alias, a block id), as every other tile= is read.
+    const t = req.reader ? this.dispatch.tile(req.reader) : null;
+    const p = t ? this.paneNamed(t.name) : undefined;
     return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
   }
 

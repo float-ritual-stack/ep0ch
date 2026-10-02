@@ -16,7 +16,7 @@ import { USER, type Actor, type Capability, type OutlineEvent } from "../socket"
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, type ActionInfo } from "../surface/actions";
+import { ActionRefused, ActionSet, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
 import { NOTE_ACTIONS } from "../surface/note";
@@ -386,11 +386,13 @@ export class Showcase implements Screen {
   readonly dispatch: Dispatcher = new Dispatcher({ title: "showcase", ctx: () => this.ctx, keys: () => this.keys() }, [
     { set: SHOWCASE_ACTIONS, takes: "none", on: () => this },
     {
-      delegate: () => {
+      // Listing (no request) skips a stage that isn't ready; running an action there says why.
+      delegate: (req?: ActRequest) => {
         const f = this.stage(this.sel);
+        if (f?.top.dispatch) return f.top.dispatch;
+        if (!req) return null;
         if (!f) throw new ActionRefused(this.problem || "the showcase outline is still being read");
-        if (!f.top.dispatch) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no actions`);
-        return f.top.dispatch;
+        throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no actions`);
       },
       // The stage's own actions; while it isn't ready, anything not the showcase's (so the reason is said). The shell's
       // (`screen.list`, `screen.open`) and the host layer's stay the App's.

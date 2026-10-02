@@ -664,7 +664,8 @@ function listDescribe(list: BbsList) {
 
 /** A list screen's dispatcher: the list's actions (the shell's come from the App's). */
 function listDispatch(list: BbsList): Dispatcher {
-  return new Dispatcher({ title: list.title, ctx: () => list.ctx }, [{
+  // `title` read when asked: a list's is set in its constructor, after its fields (this dispatcher among them).
+  return new Dispatcher({ get title() { return list.title; }, ctx: () => list.ctx }, [{
     set: LIST_ACTIONS, takes: "none",
     on: (_, how) => { if (!list.ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`); return { list, ctx: how.ctx }; },
   }]);

@@ -182,8 +182,11 @@ export class ReaderPane implements Pane {
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
   host(desk: DeskApi): SurfaceHost {
+    const pane = this;
     const h: SurfaceHost = {
       ctx: desk.ctx,
+      // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
+      get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
       redraw: () => desk.redraw(),
       // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
       navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },

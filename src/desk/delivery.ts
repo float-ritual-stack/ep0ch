@@ -182,14 +182,12 @@ export class DeliveryBoard extends Desk {
     // (the board's older names are its tiles' aliases), `open`'s new-detail and float are where a new reader goes.
     this.dispatch.register([{
       set: BOARD_ACTIONS, takes: "screen",
-      on: at => ({ b: this, reader: at.place ?? at.name, shown: this.takeStepShown() }),
+      // `given` is the step the steps overlay read, for the person's step.set from it (checked against it).
+      on: (at, how) => ({ b: this, reader: at.place ?? at.name, shown: (how.given as { shown?: BoardOn["shown"] } | undefined)?.shown }),
       // A card action writes the card it names (or the one selected): the draft rule is asked about that block.
       draftOf: (_, a, actor) => ({ board: this.ctx?.board, blockId: typeof a.card === "string" ? a.card : this.selectedCardOr(actor) }),
     }], true);
   }
-  /** The step the steps overlay read, for the person's step.set from it (checked against it): taken once. */
-  private stepShown: BoardOn["shown"] | undefined;
-  private takeStepShown() { const s = this.stepShown; this.stepShown = undefined; return s; }
   /**
    * An old delivery.json (OldSaved) on the preset: the outline's side and width (its drawer's edge and share), the
    * outline and backlinks pinned (their drawers docked, as tile.pin on=true does), the lanes' and readers' shares
@@ -735,8 +733,7 @@ export class DeliveryBoard extends Desk {
   /** A board action as the person; a refusal is said on the status bar. */
   private runBoard<K extends Parameters<typeof BOARD_ACTIONS.run>[0]>(name: K, args: Parameters<typeof BOARD_ACTIONS.run<K>>[1], reader?: string, extra: Partial<BoardOn> = {}): Promise<unknown> {
     // A move says its own refusal as it lands ("not moved: …", "can't move to …"); the rest are said here.
-    if (extra.shown) this.stepShown = extra.shown;
-    return this.dispatch.pressIn(BOARD_ACTIONS, name, args as Record<string, unknown>, reader, name === "card.move");
+    return this.dispatch.pressIn(BOARD_ACTIONS, name, args as Record<string, unknown>, reader, name === "card.move", extra.shown ? { shown: extra.shown } : undefined);
   }
   /** A tile action (TILE_ACTIONS) as the person, on the tile named as `peek` names it. */
   private tileAct<K extends Parameters<typeof TILE_ACTIONS.run>[0]>(name: K, args: Parameters<typeof TILE_ACTIONS.run<K>>[1], reader: string) {
@@ -1689,8 +1686,7 @@ export class DeliveryBoard extends Desk {
       if (it) {
         const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
         // The person's step change from the overlay: checked against the step as it was read; a refusal is its note.
-        this.stepShown = { item: it, revision: S.read.revision };
-        void this.dispatch.pressIn(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; });
+        void this.dispatch.pressIn(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
       }
     }
     this.redraw();

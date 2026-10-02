@@ -231,8 +231,8 @@ Every action says what it touches, and the dispatcher checks it once, the same w
 | Touches | An agent's is refused when | Examples |
 |---|---|---|
 | `nothing` | never (it reads, or answers, or acts out of the person's sight) | `layout.get`, `view.get`, `open`, `block.mark`, `search` |
-| `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `tile.close`, `link.select`, a river column's `select` |
-| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in, never their tab hidden | `layout.move`, `tile.open`, `tile.pin`, `tile.float` |
+| `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `link.select`, a river column's `select` and `close` |
+| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in, never their tab hidden, never their focus floated or closed; a change that would move their keys (shutting the drawer they're in, loading a layout) waits as a `screen` touch does. The river has no layout engine yet (PIE-515): its `split`, `pin` and `widen` never move their keys, and its `close` is a `tile` touch | `layout.move`, `tile.open`, `tile.close`, `tile.pin`, `tile.float`, `tile.drawer` |
 | `draft` | the draft session's rule (`draftRule` in `src/draft-session.ts`): not a draft the person opened or typed in, not a note they have open in a draft | `edit.text`, `edit.save`, `comment.send`, `task.status` |
 | `screen` | the person is away (not logged on, or in the door's shell or editor), busy (typing anywhere), or touched a key or the mouse within the last 2s (`SHELL_IDLE_MS`) | `screen.open`, `tile.focus`, `marks.next`, `brief.step`, `board.hub id=`, `host.toggle open=true` |
 
@@ -323,8 +323,8 @@ at, and what it does while they're typing:
 | `marks.next` | to a tile showing the mark | refused, and within 2s of their last key |
 | `brief.step`, the river's `focus` | yes: another step, another column | refused, and within 2s of their last key |
 | `link.select` in the reader that has the person's keys | it would move their selection | refused: `link.follow n=` or `tile=` another reader |
-| `layout.load` (`layout.restore`) | rebuilds the desk | refused |
-| `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
+| `layout.load` (`layout.restore`) | rebuilds the desk | refused, and within 2s of their last key |
+| `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused, and within 2s of their last key |
 | `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
 | `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
 | `host.toggle open=true` | no: the drawer comes up over (or beside) the screen, refused on a screen whose `host` is `none`; the keys stay where they were | refused, and within 2s of their last key |
