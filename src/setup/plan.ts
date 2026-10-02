@@ -270,15 +270,15 @@ export function claudeModState(f: Facts): { status: "ok" | "behind" | "missing";
 }
 
 /**
- * Settings that list the mod's folders with no mode. The mod reads such a list as folders opted out (mentionsModeOf
- * in the Outliner's claude-mod), so an allowlist from before folder mode now feeds nothing. Not wrong, so never a
- * fix to apply: it says both ways on. Keep in step with the mod's rule.
+ * Settings that list the mod's folders with no mode: the mod then feeds nothing anywhere (mentionsModeOf in the
+ * Outliner's claude-mod), since the list may be an allowlist from before folder mode. The person chooses, so it is
+ * never a fix to apply: it says the ways on. Keep in step with the mod's rule.
  */
 export function oldMentionsAllowlist(f: Facts): string | null {
   const m = f.claude.mentions;
   if (!f.plugin || !m?.listed || m.mode) return null;
   const installer = `bun ${f.plugin.root}/scripts/install-claude-mod.ts`;
-  return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, which the Claude mod reads as folders opted out: if it was your allowlist from before folder mode, those folders now feed nothing. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode`;
+  return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */

@@ -355,7 +355,7 @@ describe("the doctor", () => {
     expect(c["claude/FORCE_HYPERLINK"]!.detail).toContain("PIE-486");
   });
 
-  test("the Claude mod needs no workspace; a folder list with no mode is noted (opted out now), never a fix", () => {
+  test("the Claude mod needs no workspace; a folder list with no mode is noted (nothing feeds), never a fix", () => {
     const f = current();
     expect(byName(f)["claude/mentions"]).toBeUndefined();
     for (const mentions of [{ listed: false }, { listed: true, mode: "folder" }, { listed: true, mode: "allowlist" }]) {
@@ -366,7 +366,7 @@ describe("the doctor", () => {
     const row = byName(f)["claude/mentions"]!;
     expect(row.status).toBe("info");
     expect(row.fix).toBeUndefined();
-    expect(row.detail).toContain("reads as folders opted out");
+    expect(row.detail).toContain("so the Claude mod feeds nothing anywhere");
     expect(row.detail).toContain("install-claude-mod.ts --folder drops it, and then every folder bound to an outline feeds that outline");
     expect(row.detail).toContain("--allowlist <folder> keeps strict mode");
   });
