@@ -55,6 +55,8 @@ export interface PtyBackend {
   adopt(key: string, argv: string[], onData: (d: Uint8Array) => void): Adopted | null;
   /** Remember `meta` with the program kept under `key` (a tile learnt it's a Herdr attach). */
   meta(key: string, meta: PtyMeta): void;
+  /** A program is kept under `key` for a tile to adopt (it runs, and no tile has it yet). */
+  holds(key: string): boolean;
 }
 
 /** This process's own ptys: a program ends when the door does (PtyPane's exit hook). */
@@ -76,6 +78,7 @@ export const localPtys: PtyBackend = {
   },
   adopt: () => null,
   meta: () => {},
+  holds: () => false,
 };
 
 let backend: PtyBackend = localPtys;

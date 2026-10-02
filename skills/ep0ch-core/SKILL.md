@@ -68,7 +68,7 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   shell, `$EDITOR`) goes through `Ctx.suspend`'s `Handover`, never `stdio: "inherit"` from the door: in a session the
   door has no terminal. A terminal tile's program starts through the `PtyBackend` (`src/desk/pty-backend.ts`), never
   `Bun.Terminal` directly: in a session it runs in the terminal host, so a daemon upgrade adopts it. State that must
-  come back after an upgrade comes back through an action that declares `replay` (the session's journal) or a
+  come back after an upgrade comes back through an action that declares `replay: "safe"` (the session's checkpoint) or a
   screen's saved state, never a restore of its own.
 - **Two clients, one outline.** Tree/Detail in Herdr is the sysop console (find any block, edit it); the door
   is the everyday board. Both are maintained. A service capability added for one stays usable by the other.

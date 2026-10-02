@@ -13,6 +13,7 @@
 // version can't adopt its programs, ends them and starts a host of its own (the tiles run their programs again).
 import { chmodSync, closeSync, existsSync, unlinkSync, writeSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
+import { constants } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { privateDir, stateDir } from "../state";
@@ -64,7 +65,7 @@ export interface HostPty { id: number; key: string | null; argv: string[]; cols:
 
 // ── the host process ──────────────────────────────────────────────────────────────────────────────────────
 
-interface Held extends HostPty { pty: InstanceType<typeof Bun.Terminal>; proc: Subprocess | null; ring: Buffer[]; bytes: number }
+interface Held extends HostPty { pty: InstanceType<typeof Bun.Terminal>; proc: Subprocess | null; ring: Buffer[]; bytes: number; trimmed: boolean }
 
 /** Run the host (`ep0ch session pty-host`): serve pty.sock until the session ends. Never returns. */
 export async function servePtyHost(): Promise<never> {
@@ -79,7 +80,8 @@ export async function servePtyHost(): Promise<never> {
   try { unlinkSync(path); } catch { /* none */ }
   const held = new Map<number, Held>();
   let daemon: Socket | null = null;
-  const send = (b: Buffer) => { if (daemon && !daemon.destroyed) daemon.write(b); };
+  // A daemon that stops reading isn't buffered for without end: what it misses is in the ring for its replay.
+  const send = (b: Buffer) => { if (daemon && !daemon.destroyed && daemon.writableLength < RING) daemon.write(b); };
   let idle: Timer | null = null;
   /** Nobody to keep running for: no daemon and no program. */
   const checkIdle = () => {
@@ -89,13 +91,13 @@ export async function servePtyHost(): Promise<never> {
   };
 
   const spawnOne = (id: number, s: Omit<PtyStart, "meta"> & { meta?: PtyMeta }) => {
-    const h: Held = { id, key: s.key, argv: s.argv, cols: s.cols, rows: s.rows, meta: s.meta ?? {}, exited: null, proc: null, ring: [], bytes: 0, pty: null as never };
+    const h: Held = { id, key: s.key, argv: s.argv, cols: s.cols, rows: s.rows, meta: s.meta ?? {}, exited: null, proc: null, ring: [], bytes: 0, trimmed: false, pty: null as never };
     h.pty = new Bun.Terminal({
       cols: s.cols, rows: s.rows, name: "xterm-256color",
       data: (_t, d) => {
         const b = Buffer.from(d);
         h.ring.push(b); h.bytes += b.length;
-        while (h.bytes > RING && h.ring.length > 1) h.bytes -= h.ring.shift()!.length;
+        while (h.bytes > RING && h.ring.length > 1) { h.bytes -= h.ring.shift()!.length; h.trimmed = true; }
         send(frame("o", id, b));
       },
     });
@@ -104,8 +106,10 @@ export async function servePtyHost(): Promise<never> {
     catch (e) { h.exited = 127; try { h.pty.close(); } catch { /* never opened */ } send(frame("e", id, { message: (e as Error).message })); return; }
     h.pid = h.proc.pid;
     send(frame("p", id, { pid: h.pid }));
-    void h.proc.exited.then(code => {
-      h.exited = code ?? 128 + 1;
+    const proc = h.proc;
+    void proc.exited.then(code => {
+      // Killed by a signal: 128 + its number, as a shell says it.
+      h.exited = code ?? 128 + (constants.signals[proc.signalCode as keyof typeof constants.signals] ?? 1);
       try { h.pty.close(); } catch { /* closed */ }
       send(frame("x", id, { code: h.exited }));
       checkIdle();
@@ -127,10 +131,6 @@ export async function servePtyHost(): Promise<never> {
   };
 
   const server = createServer(sock => {
-    // A new daemon took over: the old connection is let go (its daemon is going, or gone).
-    if (daemon && daemon !== sock) daemon.destroy();
-    daemon = sock;
-    checkIdle();
     const frames = new HostFrames();
     sock.on("data", (chunk: Buffer) => {
       let fs: HostFrame[];
@@ -139,9 +139,14 @@ export async function servePtyHost(): Promise<never> {
         const h = held.get(f.id);
         switch (f.t) {
           case "h": {
+            // The daemon is the connection that says hello (anything else is a probe: is a host here?). A new one
+            // took over: the old connection is let go (its daemon is going, or gone).
+            if (daemon && daemon !== sock) daemon.destroy();
+            daemon = sock;
+            checkIdle();
             const list: HostPty[] = [...held.values()].map(({ id, key, argv, cols, rows, meta, pid, exited }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited }));
             sock.write(frame("l", 0, { proto: HOST_PROTOCOL, pid: process.pid, ptys: list }));
-            for (const x of held.values()) sock.write(frame("r", x.id, Buffer.concat(x.ring)));
+            for (const x of held.values()) sock.write(frame("r", x.id, replayOf(x)));
             sock.write(frame("y", 0));
             break;
           }
@@ -166,6 +171,17 @@ export async function servePtyHost(): Promise<never> {
   ready({ ok: true });
   checkIdle();
   return await new Promise<never>(() => {});
+}
+
+/**
+ * What a program wrote, to replay: its ring, from the first line it kept whole once the ring has dropped its oldest
+ * (never from the middle of an escape sequence or a character).
+ */
+function replayOf(h: Held): Buffer {
+  const all = Buffer.concat(h.ring);
+  if (!h.trimmed) return all;
+  const nl = all.indexOf(0x0a);
+  return nl >= 0 ? all.subarray(nl + 1) : all;
 }
 
 /** Is a host answering on `path`? */
@@ -308,6 +324,8 @@ export class HostPtys implements PtyBackend {
     const e = [...this.entries.values()].find(x => x.key === key && x.adopted);
     if (e) { e.meta = meta; if (!this.sock.destroyed) this.sock.write(frame("m", e.id, meta)); }
   }
+
+  holds(key: string): boolean { return [...this.entries.values()].some(e => e.key === key && !e.adopted && e.exited === null); }
 
   /** Programs the host keeps that no tile has adopted (yet): `session list` says them. */
   unadopted(): HostPty[] { return [...this.entries.values()].filter(e => !e.adopted && e.exited === null).map(({ id, key, argv, cols, rows, meta, pid, exited }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited })); }

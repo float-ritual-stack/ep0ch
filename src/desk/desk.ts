@@ -37,6 +37,7 @@ import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
+import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
@@ -612,7 +613,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
   private onScreen = false;
   /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
-  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running); }
+  /** Its terminal tiles with a program running, or kept for them in a session's terminal host (not drawn since a handoff). */
+  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
     const r = this.spec.layouts ? [] : this.running();
@@ -1044,7 +1046,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       keys: () => d.keys(),
       tiles: () => d.tiles(),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
-      rev: () => d.layout.rev,
       draftOf: (t: TileRef) => {
         const p = d.paneNamed(t.name);
         return p instanceof ReaderPane ? { board: d.ctx?.board, blockId: p.msg?.id ?? null, session: p.surface.draftSession() } : null;

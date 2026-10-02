@@ -124,10 +124,17 @@ export async function sessionCommand(args: string[]): Promise<number> {
     return 0;
   }
   if (cmd === "attach") {
-    // --wait <s>: a terminal attaching again after a handoff waits for the new daemon to serve.
+    // --wait <s>: a terminal attaching again after a handoff waits for the new daemon to serve; --or-start: with none
+    // by then, one is started (it restores the session), as `ep0ch` starts one.
     const at = rest.indexOf("--wait"), wait = at >= 0 ? Number(rest[at + 1]) || 30 : 0;
     if (at >= 0) rest.splice(at, 2);
-    if (!(await (wait ? waitFor(path, wait * 1000) : listening(path)))) { console.error(`ep0ch: no session in ${stateDir()} · \`ep0ch\` starts one`); return 1; }
+    const orStart = rest.includes("--or-start");
+    if (orStart) rest.splice(rest.indexOf("--or-start"), 1);
+    if (!(await (wait ? waitFor(path, wait * 1000) : listening(path)))) {
+      if (orStart && !rest.includes("--watch")) return attachDoor(rest, { running: false });
+      console.error(`ep0ch: no session in ${stateDir()} · \`ep0ch\` starts one`);
+      return 1;
+    }
     const args = rest.filter(a => a !== "--watch"), target = await namedTarget(args);
     if (target && "error" in target) { console.error(`ep0ch: ${target.error}`); return 1; }
     return attach(path, { args, watch: rest.includes("--watch"), ...(target ? { target } : {}) });
@@ -270,10 +277,13 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
 function reattach(message: string, o: { args?: string[]; watch?: boolean }): void {
   console.log(`ep0ch: ${message}`);
   const main = join(import.meta.dir, "../main.ts");
-  const argv = [process.execPath, main, "session", "attach", "--wait", "30", ...(o.watch ? ["--watch"] : []), ...(o.args ?? [])];
-  if (typeof process.execve === "function") process.execve(process.execPath, argv, process.env as Record<string, string>);
+  // It waits for the new daemon to serve; with none by then (it didn't start), it starts one, as `ep0ch` would, which
+  // restores the session and adopts its programs. A watcher only waits.
+  const argv = [process.execPath, main, "session", "attach", "--wait", "30", ...(o.watch ? ["--watch"] : ["--or-start"]), ...(o.args ?? [])];
+  const env = process.env as Record<string, string>;
+  if (typeof process.execve === "function") process.execve(process.execPath, argv, env);
   // A runtime without execve: the new client runs as this one's child, in this terminal, and this one goes with it.
-  const child = Bun.spawn(argv, { stdio: ["inherit", "inherit", "inherit"] });
+  const child = Bun.spawn(argv, { stdio: ["inherit", "inherit", "inherit"], env });
   void child.exited.then(code => process.exit(code ?? 1));
   return undefined as never;
 }

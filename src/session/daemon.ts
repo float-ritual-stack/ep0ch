@@ -17,13 +17,13 @@ import { listening } from "../control";
 import { endUnkept, livePrograms } from "../desk/pty";
 import { usePtyBackend } from "../desk/pty-backend";
 import { ensurePtyHost, type HostPtys } from "./pty-host";
-import { Journal, readCheckpoint, readJournal, restore, restoredSaying, type Restored } from "./restore";
+import { Checkpoints, readCheckpoint, restore, restoredSaying, type Restored } from "./restore";
 import { nestLayers } from "../nest";
 import { Offline, USER } from "../socket";
 import { alive, privateDir, readLastCall, stateDir, unclaimState, writeLastCall } from "../state";
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
-import { sessionFile, sessionLock, sessionSocket, startSession } from "./start";
+import { sessionFile, sessionLock, sessionSocket, startSession, waitFor } from "./start";
 export { sessionFile, sessionLog, sessionSocket } from "./start";
 
 /** The checkout this code runs from, and its commit (an upgrade compares them). */
@@ -127,7 +127,7 @@ export async function serve(args: string[]): Promise<never> {
   const finish = (app: App) => {
     over = true;
     // Ended for good: nothing to restore next time, and the programs end with it.
-    journal?.clear();
+    checkpoints?.clear();
     host.endAll();
     const ending = guard.ending();
     writeLastCall(loggedOnAt);
@@ -148,31 +148,38 @@ export async function serve(args: string[]): Promise<never> {
     Promise.race([Promise.all(left.map(s => new Promise(r => s.once("close", r)))), Bun.sleep(1000)]).finally(() => process.exit(ending?.code ?? 0));
   };
 
-  let journal: Journal | null = null;
+  let checkpoints: Checkpoints | null = null;
   let restored: Restored | null = null;
   door = await openDoor({
     term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish,
     // A session that ran before on this state dir (handed over, or its daemon stopped): what was open, opened again.
     ...(checkpoint ? { start: async (app: App) => {
-      restored = await restore(app, checkpoint, readJournal());
+      restored = await restore(app, checkpoint);
       console.error(`ep0ch session ${process.pid}: restored ${JSON.stringify({ ...restored, checkpoint: { screens: checkpoint.screens.length, reopen: checkpoint.reopen.length } })}`);
     } } : {}),
   });
   const app = door.app;
-  journal = new Journal(app, () => ({ cols: term.info.cols, rows: term.info.rows }));
-  journal.start();
+  checkpoints = new Checkpoints(app, () => ({ cols: term.info.cols, rows: term.info.rows }));
+  checkpoints.start();
+  // Programs the terminal host keeps that no tile has adopted yet (a screen not drawn since the handoff) end with the
+  // session too: ending it says so.
+  app.quitWarning = () => { const n = host.unadopted().length; return n ? `${n} program${n === 1 ? "" : "s"} kept in the terminal host for a screen not opened since the handoff · ending the session ends ${n === 1 ? "it" : "them"} · again within 3s ends it` : null; };
   host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
   if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
   // Said once the screens have been drawn (their tiles adopt their programs as they are).
   if (restored || keptPrograms) setTimeout(() => {
     const adopted = keptPrograms - host.unadopted().length;
-    app.flash(restoredSaying(restored ?? { screens: 0, replayed: 0, refused: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
+    app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
   }, 400);
   const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline ?? null) === (opened.board.outline ?? null));
   const where = opened.service.outline ? `the outline ${opened.service.outline}` : opened.service.workspace;
 
   /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */
-  const reload = () => { for (const c of term.all()) c.link.close({ t: "bye", reason: "restart", message: "restarting this terminal on new code · it attaches again" }); };
+  const reload = (): string => {
+    const n = term.all().length;
+    for (const c of term.all()) c.link.close({ t: "bye", reason: "restart", message: "restarting this terminal on new code · it attaches again" });
+    return `${n} terminal${n === 1 ? "" : "s"} starting again on the checkout's code`;
+  };
 
   /**
    * Hand the session to a new daemon on the code in the checkout (`ep0ch session upgrade`): the checkpoint written with
@@ -180,11 +187,11 @@ export async function serve(args: string[]): Promise<never> {
    * program in it; the sockets and lock given up; then the successor started, which restores and adopts. This daemon
    * exits once it serves (or says why it couldn't: the programs still run in the host, and the next `ep0ch` restores).
    */
-  const handOver = async (asker: Link) => {
-    if (over) return;
+  const handOver = async (): Promise<{ ok: boolean; message: string }> => {
+    if (over) return { ok: false, message: "the session is already ending or being handed over" };
     over = true;
-    journal?.checkpoint(true);
-    journal?.detach();
+    checkpoints?.write(true);
+    checkpoints?.stop();
     for (const s of [...app.screens(), ...app.background]) { try { s.keepDrafts?.(); } catch { /* the rest still go */ } }
     // A ctrl+e editor on a temp file has no tile to come back to: its text is copied out, and it ends.
     for (const s of [...app.screens(), ...app.background]) { try { s.keepEdits?.(); } catch { /* the rest still go */ } }
@@ -198,12 +205,14 @@ export async function serve(args: string[]): Promise<never> {
     rmSync(sessionLock(), { force: true });
     unclaimState();
     opened.board.close();
-    const next = await startSession(args, { EP0CH_SESSION_RESTORE: "upgrade" });
-    asker.send({ t: "ask", message: next.ok ? "handed over" : `the new daemon didn't start: ${next.error} · the programs still run; \`ep0ch\` starts a session that adopts them` });
-    asker.close();
-    await Bun.sleep(200);
-    process.exit(next.ok ? 0 : 1);
+    let next = await startSession(args, { EP0CH_SESSION_RESTORE: "upgrade" });
+    // A terminal attaching again started one first (it restores the same way): that one is the successor.
+    if (!next.ok && next.error.startsWith(LOCKED) && (await waitFor(path, 15_000))) next = { ok: true };
+    // Gone once the asker has its answer.
+    setTimeout(() => process.exit(next.ok ? 0 : 1), 300);
+    return next.ok ? { ok: true, message: "handed over" } : { ok: false, message: `the new daemon didn't start: ${next.error} · the programs still run in the terminal host; \`ep0ch\` starts a session that adopts them` };
   };
+  app.session = { upgrade: handOver, reload };
 
   server = createServer(sock => {
     sockets.add(sock);
@@ -261,9 +270,11 @@ export async function serve(args: string[]): Promise<never> {
         }
         case "query": link.send({ t: "info", info: info() }); return;
         case "upgrade": case "reload": {
+          // `ep0ch session upgrade` at the person's shell: the same action an attached terminal can't run over the wire.
           if (client) { link.send({ t: "ask", message: `\`ep0ch session upgrade\` does that, not an attached terminal` }); return; }
-          if (m.t === "reload") { reload(); link.close(); return; }
-          void handOver(link);
+          void app.dispatch.act({ action: "session.upgrade", args: { clients: m.t === "reload" } }, USER).then(
+            r => { link.send({ t: "ask", message: (r as { message: string }).message }); link.close(); },
+            e => { link.send({ t: "ask", message: e instanceof Error ? e.message : String(e) }); link.close(); });
           return;
         }
         case "end": {

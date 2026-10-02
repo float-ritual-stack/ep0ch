@@ -384,7 +384,8 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
 - **Upgrades keep your programs.** `ep0ch session upgrade` hands the session to a new daemon on the code in the
   checkout. The programs in its terminal tiles and the agent drawer keep running: they never belonged to the daemon,
   but to the session's **terminal host**, and the new daemon adopts each by its tile, its output and scrollback
-  replayed. The screens come back, and so do the edits that were open (`e` or `⏎` in one carries on). Every attached
+  replayed. The screens come back (one kept in the background too), and so do the edits open on the screen on top
+  (`e` or `⏎` in one carries on). Every attached
   terminal attaches again by itself, in the same terminal and the same ssh login. On a session already on this code,
   or with `--clients`, only the terminals start again; `ep0ch session restart` hands over whatever code it runs.
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
@@ -397,16 +398,16 @@ client the bytes its terminal takes (rows diffed per client, Kitty images upload
 few hundred lines that work over ssh as is. A terminal tile's pty can't be handed from one Bun process to another
 (`Bun.Terminal` doesn't expose its file descriptor, and Bun's sockets can't pass one), so the ptys live in a small
 process of their own from the start, the terminal host (`pty.sock`, `src/session/pty-host.ts`), which keeps the last
-megabyte each program wrote; a daemon of another host protocol ends its programs and starts them again. What else a
-new daemon needs is a checkpoint and a journal (`src/session/restore.ts`): the screens open (written as they change,
-and with the open edits at a handoff), then every action since with its declarations. A restore runs the
-checkpoint, then the journal's `replay: "safe"` actions as whoever ran them (a layout action names the revision it
-ran on, so the saved layout's revision check refuses one it already has); `replay: "ask"` ones, which write, are
-never run again by themselves, and the restore says which they were. The session's files are in the state dir:
-`session.sock` (mode 0600, the dir 0700), `session.json` (who it is), `session.lock` (held while it runs),
-`session.log`, `pty.sock` and `pty-host.log` (the terminal host), `session-state.json` and `session-journal.jsonl`
-(the checkpoint and journal; gone once the session ends). A test door on its own `EP0CH_STATE` has its own session
-and never reaches yours. See `src/session/`.
+megabyte each program wrote; a daemon of another host protocol ends its programs and starts them again. Each screen
+already saves its layout as it changes, so what else a new daemon needs is a checkpoint (`src/session/restore.ts`,
+`session-state.json`): the screens open, as the actions that open them, written as they change; and at a handoff the
+edits open on the screen on top (their text put aside first). A restore runs those actions through the dispatcher,
+only the ones whose `ActionDef` says `replay: "safe"`; anything else is never run again by itself, and the restore
+says which. The one exception is the person's own edit, opened again on its note with the text the handoff put
+aside: opening an edit writes nothing. The session's files are in the state dir: `session.sock` (mode 0600, the dir
+0700), `session.json` (who it is), `session.lock` (held while it runs), `session.log`, `pty.sock` and `pty-host.log`
+(the terminal host), `session-state.json` (the checkpoint; gone once the session ends). A test door on its own
+`EP0CH_STATE` has its own session and never reaches yours. See `src/session/`.
 
 ## The desk
 

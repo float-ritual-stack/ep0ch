@@ -412,7 +412,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
 };
 
 type ShellArgs = {
-  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": { force?: boolean };
+  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": { force?: boolean }; "session.upgrade": { clients?: boolean };
   "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
   "theme.set": { name: string }; "theme.cycle": Record<string, never>;
   "open": { id: string };
@@ -498,6 +498,19 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       if (!ctx.detaches || !ctx.end) throw new ActionRefused("this door runs in its own terminal, not as a session: G logs off and ends it");
       const why = ctx.end(!!force);
       return why ? { ended: false, why } : { ended: true };
+    },
+  },
+  "session.upgrade": {
+    summary: "hand the session to a new daemon on the code in its checkout: the programs in its tiles keep running in the terminal host, the screens and the edits on top come back, and every attached terminal starts again on the new code and attaches by itself (clients=true: only the terminals start again). The person's only",
+    keys: "`ep0ch session upgrade [--clients]` (and `ep0ch install --apply` when the door's code changed)",
+    touches: "screen", replay: "ask",
+    person: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
+    args: { clients: { type: "boolean", optional: true, about: "only restart the attached terminals on the new code; the daemon goes on" } },
+    async run({ clients }, { ctx }) {
+      if (!ctx.upgradeSession) throw new ActionRefused("this door runs in its own terminal, not as a session");
+      const r = await ctx.upgradeSession(!!clients);
+      if (!r.ok) throw new ActionRefused(r.message);
+      return r;
     },
   },
   "screen.help": {

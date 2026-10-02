@@ -21,7 +21,7 @@ import { controlPath } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
-import { ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
+import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -215,10 +215,11 @@ export class PtyPane implements Pane {
     term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
-    term.onData(d => { if (this.running) this.proc?.write(d); });
-    const data = (d: Uint8Array) => {
-      this.lastOutput = Date.now();
-      const s = Buffer.from(d).toString("latin1");
+    // Not while what a kept program wrote is replayed (an adopted one): its old queries were answered then.
+    let replaying = false;
+    term.onData(d => { if (this.running && !replaying) this.proc?.write(d); });
+    /** The modes a program asks of its terminal, followed; `answer`: its queries answered (not in a replay). */
+    const modes = (s: string, answer: boolean) => {
       // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
       // with other modes (ESC [ ? 1000 ; 1006 h) and maybe split across reads (the tail is kept).
       const seen = this.modeTail + s;
@@ -226,14 +227,19 @@ export class PtyPane implements Pane {
       for (const m of seen.matchAll(/\x1b\[\?([\d;]+)([hl])/g)) if (m[1]!.split(";").includes("1006")) this.sgr = m[2] === "h";
       // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
       // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
-      for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.proc?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
+      if (answer) for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.proc?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
       // The Kitty keyboard protocol: xterm ignores it, so the door follows the program's push and pop and
       // answers its query here (before xterm's DA reply, as a terminal with the protocol does).
       const kbdReply = this.kbd.observe(s);
-      if (kbdReply) this.proc?.write(kbdReply);
+      if (kbdReply && answer) this.proc?.write(kbdReply);
+    };
+    const data = (d: Uint8Array) => {
+      this.lastOutput = Date.now();
+      modes(Buffer.from(d).toString("latin1"), true);
       term.write(d, () => this.soon());
     };
-    const backend = ptyBackend();
+    // A program no layout brings back (a ctrl+e editor, a showcase's exhibit) runs here, and ends with this process.
+    const backend = this.keptAs ? ptyBackend() : localPtys;
     this.ownProcess = backend.kind === "local";
     const keep = this.continueNext;
     this.continueNext = false;
@@ -241,13 +247,22 @@ export class PtyPane implements Pane {
     const key = this.keptAs, kept = key && !keep ? backend.adopt(key, this.run.cmd, data) : null;
     if (kept) {
       this.proc = kept.proc;
-      // What it wrote, at the size it wrote it; then the tile's size, and a redraw asked for (a resize, twice when the
-      // size is the same: a full-screen program redraws on SIGWINCH).
+      // What it wrote, at the size it wrote it, its modes followed (its mouse encoding, its keyboard protocol) and its
+      // queries left unanswered; then the tile's size, and a redraw asked for: a resize (twice, a moment apart, when
+      // the size is the same: a full-screen program redraws on SIGWINCH).
+      replaying = true;
       term.resize(kept.cols, kept.rows);
-      term.write(kept.replay, () => this.soon());
-      term.resize(cols, rows);
-      if (kept.cols === cols && kept.rows === rows && cols > 2) { try { kept.proc.resize(cols, rows - 1); } catch { /* exiting */ } }
-      try { kept.proc.resize(cols, rows); } catch { /* exiting */ }
+      modes(Buffer.from(kept.replay).toString("latin1"), false);
+      const proc = kept.proc;
+      term.write(kept.replay, () => {
+        replaying = false;
+        const c = this.cols, r = this.rows;
+        if (term.cols !== c || term.rows !== r) term.resize(c, r);
+        const same = kept.cols === c && kept.rows === r;
+        try { proc.resize(c, same && r > 2 ? r - 1 : r); } catch { /* exiting */ }
+        if (same && r > 2) setTimeout(() => { try { proc.resize(this.cols, this.rows); } catch { /* exiting */ } }, 60);
+        this.soon();
+      });
       this.socket = kept.meta.socket ?? null;
       this.herdrPane = kept.meta.herdr ?? null;
       if (this.socket) this.attach(this.socket);
