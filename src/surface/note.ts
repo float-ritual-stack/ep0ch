@@ -34,6 +34,7 @@ import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenB
 import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
+import { ModeStack, type ReaderMode } from "./modes";
 import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
@@ -281,6 +282,17 @@ const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 export { leaveSaid, propertyChange, type LeaveResult };
 
+/**
+ * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are on,
+ * and what the last choice said. The person's alone (an agent sets a status by `task.status`).
+ */
+interface Picker { key: string; sel: number; note: string; busy: boolean }
+/** The reader's four modes (src/surface/modes.ts), each with what it's about. */
+type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
+type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
+type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
+type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step: string | null; selected: string | undefined; note: string | null } };
+
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
 
@@ -347,14 +359,20 @@ export class NoteSurface {
   private editPress = false;
   private dragging = false;
   /**
+   * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
+   * panel, the edit, the comment session, in their precedence. The fields below are views of it.
+   */
+  private readonly modes = new ModeStack<SurfaceHost>();
+  /**
    * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
    * every key goes to it and the surface stays on its note.
    */
-  drafting: DraftSession | null = null;
+  get drafting(): DraftSession | null { return (this.modes.get("draft") as DraftMode | null)?.session ?? null; }
   /** The edit's text (the session's draft). */
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
-  session: CommentSession | null = null;
+  get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
+  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else this.modes.drop("comment"); }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
@@ -368,7 +386,8 @@ export class NoteSurface {
   agent: { id: string; did: string; at: number } | null = null;
   private agentDraft: Draft | null = null;
   /** The property panel, while open (`i`). It holds the reader's keys; editing a value also holds the note. */
-  panel: PropertyPanel | null = null;
+  get panel(): PropertyPanel | null { return (this.modes.get("panel") as PanelMode | null)?.panel ?? null; }
+  set panel(p: PropertyPanel | null) { if (p) this.modes.push(this.panelMode(p)); else this.modes.drop("panel"); }
   /** The summary keys the host gave for the note shown (a lane's), refreshed on every render. */
   private viewKeys: readonly string[] | null = null;
   /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
@@ -384,7 +403,8 @@ export class NoteSurface {
    * on, and what the last choice said. The person's alone (an agent sets a status by `task.status`); it
    * holds the reader's keys until a choice is made or esc.
    */
-  picker: { key: string; sel: number; note: string; busy: boolean } | null = null;
+  get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
+  set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new StepHistory();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
@@ -397,53 +417,49 @@ export class NoteSurface {
   }
 
   /** An edit, a comment, or a property value being typed: the surface stays on its note and takes every key. */
-  get editing() { return this.draft !== null || this.session !== null || !!this.panel?.field; }
+  get editing() { return this.modes.editing; }
   /**
    * The surface wants every key, the host's shortcuts included (Tab, o, …): while editing, and while the
    * property panel is open. Unlike `editing`, an open panel doesn't hold the note or refuse clicks.
    */
-  get holdsKeys() { return this.editing || this.panel !== null; }
+  get holdsKeys() { return this.modes.holdsKeys; }
   /**
    * A step's status choice is open (PIE-472): the person opened it with their own ⏎ or click, so their next
    * keys are its (x o w ! y a, j k, ⏎, esc) until they choose or cancel. Hosts give it every key first; it
    * isn't a session (it holds no note, and an agent never opens one).
    */
-  get choosing() { return this.picker !== null; }
+  get choosing() { return this.modes.get("picker") !== null; }
   /** The current element's kind while it's in view (a host's ⏎ and space defer to it on a step). */
   currentKind(): ElementKind | null { return this.inView()?.kind ?? null; }
   /** The note itself is shown, so j k PgDn scroll it: not while a draft, a comment session or the full property panel is drawn instead. */
-  scrolls(): boolean { return !this.draft && !this.session && !this.panel?.full; }
+  scrolls(): boolean { return !this.modes.covers; }
   /**
    * What holds the surface's keys now: the draft, the comment session or the property panel (null while
    * reading). Hosts compare it by identity to know whether the person is in this one (PIE-411).
    */
-  sessionOf(): object | null { return this.draft ?? this.session ?? this.panel; }
-  /** Typed text that isn't saved or sent: an edit, or a comment being written. */
-  unsaved() { return !!this.draft?.dirty || !!this.session?.dirty || (!!this.panel?.field && this.panel.field.text !== this.panel.field.row.value); }
-  /** Copy unsaved text to disk (the screen is closing anyway). */
-  keepDrafts(): string[] {
-    const out: string[] = [];
-    // Kept where they were written too: opening the edit or the comment again brings them back.
-    if (this.drafting?.dirty) out.push(this.drafting.keep());
-    if (this.session?.writing?.dirty) out.push(this.session.writing.keep());
-    return out;
-  }
+  sessionOf(): object | null { return this.sessionMode()?.of ?? null; }
+  /**
+   * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
+   * choice opened over one of them isn't a session: it holds no note.
+   */
+  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel"); }
+  /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
+  sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
+  /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
+  unsaved() { return this.modes.unsaved(); }
+  /** Copy unsaved text to disk (the screen is closing anyway); kept where it was written too, so opening it again brings it back. */
+  keepDrafts(): string[] { return this.modes.keep(); }
 
-  /** "editing · unsaved", "writing", "quoting", "comments", or null while reading. For the host's title. */
+  /** "editing · unsaved", "writing", "quoting", "comments", "properties", or null while reading. For the host's title. */
   state(): string | null {
-    if (this.panel?.field) return "editing a property";
-    if (this.panel) return "properties";
-    if (this.session) return this.session.mode === "compose" ? `writing${this.session.dirty ? " · unsent" : ""}` : this.session.mode === "select" ? "quoting" : "comments";
-    if (this.draft) return `editing${this.draft.dirty ? " · unsaved" : ""}`;
+    for (const m of this.modes.all()) { const st = m.state(); if (st) return st; }
     return null;
   }
 
   /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
   hint(extra = ""): string {
-    if (this.picker) return `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`;
-    if (this.panel) return this.panel.hint();
-    if (this.session) return this.session.hint();
-    if (this.draft) return editHint(this.draft, { save: "save", reload: this.draft.conflict || this.draft.changedElsewhere ? "reload" : null });
+    const mode = this.modes.top();
+    if (mode) return mode.hint();
     const rows = this.selection && this.selRows();
     if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
@@ -510,25 +526,19 @@ export class NoteSurface {
    */
   refresh(m: Msg) {
     if (this.msg?.id !== m.id) return;
-    const d = this.draft;
-    if (d && !d.saving && m.revision !== undefined && m.revision !== d.base) d.changedElsewhere = true;
-    const f = this.panel?.field;
-    if (f && !f.saving && m.revision !== undefined && m.revision !== f.revision && !m.partial) {
-      f.changedElsewhere = true;
-      f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
-    }
+    // What a mode holds (an edit, a value being typed) is marked "changed elsewhere", never replaced.
+    if (m.revision !== undefined) this.modes.changed(m.revision, !!m.partial);
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     if (!m.partial) this.unread = "";
     this.msg = m;
-    if (!d) this.links = linksOf(m);
+    if (!this.draft) this.links = linksOf(m);
   }
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
   show(m: Msg | null, host: SurfaceHost): boolean {
     this.use(host);
-    if (this.draft && m?.id !== this.draft.blockId) return false;
-    if (this.session && m?.id !== this.session.blockId) return false;
-    if (this.panel?.field && m?.id !== this.msg?.id) return false;
+    // An edit, a comment or a value being typed holds the reader on its note.
+    if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.top = 0; this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
@@ -578,10 +588,10 @@ export class NoteSurface {
     this.drawn = null;
     this.digesting = false;
     if (!m) return { lines: [dim("pick something in the outline")] };
-    if (this.draft) return { lines: this.renderDraft(this.draft, m, w, h, this.use(host)) };
-    // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
-    if (this.session?.finished) this.session = null;
-    if (this.session) { const src = this.use(host); return { lines: this.session.render(w, h, subject(m), (t, pw) => draftPreview(t, pw, src)) }; }
+    // An edit or a comment session draws in place of the note (a reply that landed has let its session go).
+    this.use(host);
+    const covered = this.modes.rows(w, h, host);
+    if (covered) return { lines: covered };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -1128,7 +1138,7 @@ export class NoteSurface {
       closed: how => this.draftClosed(s, how),
     });
     this.msg = fresh;
-    this.drafting = s;
+    this.modes.push(this.draftMode(s));
     return s;
   }
 
@@ -1173,7 +1183,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended) {
     if (this.drafting !== s) return;
-    this.drafting = null;
+    this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
     if (this.agentDraft === s.draft) {
       this.agent = this.agent && how === "aside" ? { ...this.agent, did: "edited the draft you put aside" } : null;
@@ -1210,10 +1220,7 @@ export class NoteSurface {
    * Why a click can't leave what the person is in here, or null when it can. Only a changed property value
    * holds on: it has no unsent place to be put aside in (⏎ saves it, esc cancels it).
    */
-  leaveRefusal(): string | null {
-    const f = this.panel?.field;
-    return f && f.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null;
-  }
+  leaveRefusal(): string | null { return this.modes.leaveRefusal(); }
 
   /**
    * The person clicked (or ^W'd) away from the edit or comment they're in, as in any editor: its draft
@@ -1222,27 +1229,11 @@ export class NoteSurface {
    * closes with it. What was kept is flashed. An agent may leave only a session it opened.
    */
   async leave(host: SurfaceHost, actor: Actor = USER): Promise<LeaveResult> {
-    const d = this.drafting, s = this.session;
-    // An agent leaves only a draft it opened and alone typed in: the draft session's rule (its leave asks it).
-    if (actor.kind === "agent" && s && !s.writing) throw new ActionRefused("the person is in this comment; an agent doesn't save or close it (block.mark gets their attention)");
-    const why = this.leaveRefusal();
+    const why = this.modes.leaveRefusal();
     if (why) throw new ActionRefused(why);
-    if (this.panel?.field) { this.panel.field = null; host.redraw(); }
-    if (s) {
-      // A send already on its way lands (or is refused) as it would have; the session waits in the reader.
-      if (s.busy) return { left: "sending" };
-      // Kept at once (a comment or reply is never written by a click), then the session closes.
-      const leaving: Promise<LeaveResult> = s.writing ? s.writing.leave(actor) : Promise.resolve({ left: "closed" });
-      this.closeSession();
-      host.redraw();
-      const r = await leaving;
-      if (r.left === "kept") host.ctx.flash(r.said, 8000);
-      return r;
-    }
-    if (!d) return { left: "nothing" };
-    const r = await d.leave(actor);
-    host.redraw();
-    if (r.left === "kept") host.ctx.flash(r.said, 10000);
+    // Each open mode leaves, the one with the keys first; what the last of them did is the answer.
+    let r: LeaveResult = { left: "nothing" };
+    for (const m of [...this.modes.all()]) { const x = await m.leave(host, actor); if (x.left !== "nothing") r = x; }
     return r;
   }
 
@@ -1328,31 +1319,197 @@ export class NoteSurface {
     host.redraw();
   }
 
+  // ── the reader's modes: what takes its keys besides reading (src/surface/modes.ts) ──
+
+  /** The edit: its draft session's keys, clicks, wheel and rows; leaving saves it or keeps it as unsent. */
+  private draftMode(s: DraftSession): DraftMode {
+    const d = s.draft;
+    return {
+      name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
+      word: "edit",
+      changed: revision => { if (!d.saving && revision !== d.base) d.changedElsewhere = true; },
+      editing: () => true, covers: () => true,
+      key: (k, host) => this.draftKey(k, host),
+      click: (x, y, host) => this.writeClick(d, x, y, host),
+      press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
+      wheel: dir => this.writeWheel(d, dir),
+      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host)) : null),
+      leave: async (host, actor) => {
+        const r = await s.leave(actor);
+        host.redraw();
+        if (r.left === "kept") host.ctx.flash(r.said, 10000);
+        return r;
+      },
+      unsaved: () => s.dirty,
+      keep: () => (s.dirty ? [s.keep()] : []),
+      hint: () => editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null }),
+      state: () => `editing${d.dirty ? " · unsaved" : ""}`,
+      describe: () => ({ ...s.describe(), writtenBy: writtenBy(d, "save") }),
+    };
+  }
+
+  /** Commenting: picking a passage, writing (its own draft session), the thread list. */
+  private commentMode(cs: CommentSession): CommentMode {
+    const writing = () => (cs.mode === "compose" ? cs.composer : null);
+    return {
+      name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
+      editing: () => true, covers: () => true,
+      key: (k, host) => this.commentKey(cs, k, host),
+      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) : false; },
+      press: (x, y, _host, drag) => { const d = writing(); return !!d && this.writePress(d, x, y, drag); },
+      wheel: dir => { const d = writing(); if (d) return this.writeWheel(d, dir); cs.wheel(dir); return true; },
+      rows: (w, h, host) => { const src = this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw) => draftPreview(t, pw, src)) : null; },
+      leave: async (host, actor) => {
+        const w = cs.writing;
+        // An agent leaves only a comment it opened and alone typed in (the draft session's rule).
+        const no = actor.kind !== "agent" ? null : w ? agentRefusal(actor, w, { op: "leave" }) : "the person is in this comment; an agent doesn't save or close it (block.mark gets their attention)";
+        if (no) throw new ActionRefused(no);
+        // A send already on its way lands (or is refused) as it would have; the session waits in the reader.
+        if (cs.busy) return { left: "sending" };
+        // Kept at once (a comment or reply is never sent by a click), then the session closes.
+        const leaving: Promise<LeaveResult> = w ? w.leave(actor) : Promise.resolve({ left: "closed" });
+        this.closeSession();
+        host.redraw();
+        const r = await leaving;
+        if (r.left === "kept") host.ctx.flash(r.said, 8000);
+        return r;
+      },
+      unsaved: () => cs.dirty,
+      keep: () => (cs.writing?.dirty ? [cs.writing.keep()] : []),
+      hint: () => cs.hint(),
+      state: () => (cs.mode === "compose" ? `writing${cs.dirty ? " · unsent" : ""}` : cs.mode === "select" ? "quoting" : "comments"),
+      describe: () => cs.describe(),
+      // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
+      ended: () => cs.finished,
+    };
+  }
+
+  /** The property panel (`i`, `I`): its rows take the keys; a value being typed holds the note too. */
+  private panelMode(P: PropertyPanel): PanelMode {
+    return {
+      name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
+      word: "property panel",
+      changed: (revision, partial) => {
+        // A list row's revision says nothing about the value's token: only a whole read marks it.
+        const f = P.field;
+        if (partial || !f || f.saving || revision === f.revision) return;
+        f.changedElsewhere = true;
+        f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
+      },
+      editing: () => !!P.field, covers: () => P.full,
+      key: (k, host) => this.panelKey(k, host),
+      click: (x, y, host) => {
+        // A value being typed keeps the reader's clicks; a click on a row selects it (on its value, follows it).
+        if (P.field) return false;
+        const h = this.hitAt(x, y);
+        if (!h || !("prop" in h)) return undefined;
+        const m = this.msg, r = m ? this.rows(m)[h.prop - 1] : undefined;
+        if (!r) return false;
+        if (this.selection) void this.runKey("select.clear", {}, host);
+        P.sel = h.prop - 1; P.note = "";
+        if (h.follow) void this.runKey("props.follow", { n: r.n }, host, true);
+        host.redraw();
+        return true;
+      },
+      wheel: dir => {
+        const m = this.msg;
+        if (!P.full || !m || m.partial || P.field) return false;
+        const n = this.rows(m).length;
+        if (n) P.sel = scrolled(P.sel, dir, n - 1);
+        return true;
+      },
+      // Drawn by the reading render: above the note, or filling the reader under its header (full).
+      rows: () => null,
+      leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
+      leaveRefusal: () => { const f = P.field; return f && f.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
+      unsaved: () => !!P.field && P.field.text !== P.field.row.value,
+      hint: () => P.hint(),
+      state: () => (P.field ? "editing a property" : "properties"),
+      describe: () => {
+        const m = this.msg;
+        return m ? {
+          open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
+          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
+          rows: this.rows(m).map(r => describeRow(r, this.src, m.text)),
+        } : null;
+      },
+    };
+  }
+
+  /** A step's status choice (PIE-472), open under its box: its keys until a choice or esc; a click elsewhere closes it. */
+  private pickerMode(p: Picker): PickerMode {
+    return {
+      name: "picker", of: p, picker: p, word: "status choice",
+      // Not a session: it holds no note, and hosts give it the keys first by `choosing`.
+      holdsKeys: false, editing: () => false, covers: () => false,
+      key: (k, host) => this.pickerKey(k, host),
+      click: (x, y, host) => {
+        const h = this.hitAt(x, y);
+        if (h && "pick" in h) { void this.choose(h.pick, host); return true; }
+        this.picker = null; host.redraw();
+        return h ? undefined : true;
+      },
+      rows: () => null,
+      leave: async () => ({ left: "nothing" }),
+      hint: () => `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`,
+      state: () => null,
+      describe: () => ({ step: this.elems.find(e => e.key === p.key)?.label ?? null, selected: STEP_CHOICES[p.sel]?.id, note: p.note || null }),
+    };
+  }
+
+  /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
+  private commentKey(s: CommentSession, k: Key, host: SurfaceHost): boolean {
+    const writing = s.writing;
+    // ctrl+s sends, x resolves or reopens, and the esc that ends it closes it.
+    if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
+    // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
+    if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
+    // The comment's ctrl+e and ctrl+r are the edit's: $EDITOR (edit external=true), find the quote again.
+    if (sessionKey(s, k, "e")) { void this.runKey("edit", { external: true }, host); return true; }
+    if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
+    const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
+    if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
+    if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
+    // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
+    if (k.kind === "esc" && writing && s.writing !== writing && writing.closedWith) host.ctx.flash(writing.closedWith, 8000);
+    host.redraw();
+    return true;
+  }
+
+  /** A click in text being written (an edit's or a comment's): a completion candidate, the preview control, or the cursor placed. */
+  private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
+    if (d.busy) return false;
+    if (completerOf(d)?.click(y)) return true;
+    if (completionOf(d)) return false;
+    this.editPress = editorClick(d, x, y);
+    if (this.editPress) host.redraw();
+    return this.editPress;
+  }
+  /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
+  private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
+    return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
+  }
+  /** The wheel over text being written: through an open completion popup's candidates, else the draft's view (its cursor stays). */
+  private writeWheel(d: Draft, dir: 1 | -1): boolean {
+    const c = completerOf(d);
+    if (c?.shown) { c.move(dir); return true; }
+    if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir) }, d, USER);
+    return true;
+  }
+
+  /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
+  private hitAt(x: number, y: number): Hit | undefined {
+    const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
+    return at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || ("follow" in h && h.follow)) ?? at[0];
+  }
+
   // ── keys: each one is an action, the same ones an agent calls ─────────────
 
   key(k: Key, host: SurfaceHost): boolean {
     this.use(host);
-    if (this.picker) return this.pickerKey(k, host);
-    if (this.panel) return this.panelKey(k, host);
-    if (this.draft) return this.draftKey(k, host);
-    if (this.session) {
-      const s = this.session, writing = s.writing;
-      // The session's commands are actions (PIE-506): ctrl+s sends, x resolves or reopens, and the esc that
-      // ends it closes it. Picking a passage, moving through the threads and typing are its own.
-      if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
-      // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
-      if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
-      // The comment's ctrl+e and ctrl+r are the edit's: $EDITOR (edit external=true), find the quote again.
-      if (sessionKey(s, k, "e")) { void this.runKey("edit", { external: true }, host); return true; }
-      if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
-      const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
-      if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
-      if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
-      // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
-      if (k.kind === "esc" && writing && s.writing !== writing && writing.closedWith) host.ctx.flash(writing.closedWith, 8000);
-      host.redraw();
-      return true;
-    }
+    // A step's status choice, the property panel, the edit or the comment: the first open one takes the key.
+    const taken = this.modes.key(k, host);
+    if (taken !== null) return taken;
     // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
     const dir = historyKey(k);
     if (dir) { void this.runKey(dir < 0 ? "back" : "forward", {}, host); return true; }
@@ -1474,25 +1631,14 @@ export class NoteSurface {
    * and a comment session scrolls its thread list.
    */
   wheel(dir: 1 | -1, host: SurfaceHost) {
-    const P = this.panel, m = this.msg;
-    // Over an open completion popup the wheel moves through its candidates.
-    const pop = this.writing();
-    if (pop && completerOf(pop)?.shown) { completerOf(pop)!.move(dir); return; }
-    // A draft's view scrolls; its cursor stays where it is (typing brings it back).
-    if (pop) { if (!pop.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir) }, pop, USER); }
-    else if (this.session) this.session.wheel(dir);
-    else if (P?.full && m && !m.partial && !P.field) { const n = this.rows(m).length; if (n) P.sel = scrolled(P.sel, dir, n - 1); }
-    else { void this.runKey("scroll", { by: wheelRows(dir) }, host); return; }
-    host.redraw();
+    // A mode first (a draft's view, a comment's thread list, the full panel's rows), else the note scrolls.
+    if (this.modes.wheel(dir, host)) { host.redraw(); return; }
+    void this.runKey("scroll", { by: wheelRows(dir) }, host);
   }
 
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
   scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
 
-  /** The draft or comment being written here, if any. */
-  private writing(): Draft | null {
-    return this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
-  }
 
   /**
    * Reading keys only (j k, arrows, PgUp PgDn, space, Home End): scroll the note without starting or
@@ -1603,7 +1749,7 @@ export class NoteSurface {
    */
   private clickFold(x: number, y: number, host: SurfaceHost): boolean {
     const d = this.drawn, m = this.msg;
-    if (!d || !m || this.draft || this.session) return false;
+    if (!d || !m || this.modes.covers) return false;
     const row = y - d.top;
     // Only the surface's own cells: a host's frame and its scroll thumb (drawn on the border) never fold.
     if (row < 0 || row >= d.room || x < 0 || x >= d.w) return false;
@@ -1986,21 +2132,10 @@ export class NoteSurface {
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
-    if (this.editing) {
-      // A completion candidate first; then the draft's own: its preview control, or the cursor placed.
-      const d = this.writing();
-      if (!d || d.busy) return false;
-      if (completerOf(d)?.click(y)) return true;
-      if (completionOf(d)) return false;
-      this.editPress = editorClick(d, x, y);
-      if (this.editPress) host.redraw();
-      return this.editPress;
-    }
-    const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    const h = at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || ("follow" in h && h.follow)) ?? at[0];
-    // A step's status choice (PIE-472): a click on a row chooses it; a click anywhere else closes it first.
-    if (h && "pick" in h) { void this.choose(h.pick, host); return true; }
-    if (this.picker) { this.picker = null; host.redraw(); if (!h) return true; }
+    // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
+    const taken = this.modes.click(x, y, host);
+    if (taken !== undefined) return taken;
+    const h = this.hitAt(x, y);
     // Each click is the action its key is (PIE-506): copy, back and forward, select.clear, element.open, …
     if (h && "copy" in h) { void this.runKey("select.copy", h.copy === "source" ? { source: true } : {}, host); return true; }
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
@@ -2014,14 +2149,8 @@ export class NoteSurface {
       host.redraw();
       return i >= 0;
     }
-    if ("prop" in h) {
-      const m = this.msg, r = m && this.panel ? this.rows(m)[h.prop - 1] : undefined;
-      if (!r || !this.panel) return false;
-      this.panel.sel = h.prop - 1; this.panel.note = "";
-      if (h.follow) void this.runKey("props.follow", { n: r.n }, host, true);
-      host.redraw();
-      return true;
-    }
+    // A panel row or a status choice is its mode's (above); with that mode gone, nothing.
+    if ("prop" in h || "pick" in h) return false;
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
     const e = h.elem ? this.elems.find(e => e.key === h.elem) : undefined;
@@ -2442,7 +2571,8 @@ export class NoteSurface {
     if (host.history) return host.history.go(dir);
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
-    if (this.editing) return `finish ${this.draft ? "the edit" : this.session ? "the comment" : "the property value"} first · ctrl+s saves · esc closes`;
+    const holding = this.modes.holding();
+    if (holding) return `finish ${holding} first · ctrl+s saves · esc closes`;
     const fresh = await host.ctx.board.get(to.msg.id).catch(() => null);
     if (stack.at(-1) !== to) return "the reader moved meanwhile";
     const here = this.place();
@@ -2524,7 +2654,7 @@ export class NoteSurface {
     this.dragging = false;
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there, and a drag from it selects (Draft's own selection).
-    if (this.editing) { const d = this.writing(); this.editPress = !!d && !d.busy && !completionOf(d) && editorClick(d, x, y); if (this.editPress) host.redraw(); return; }
+    if (this.editing) { this.editPress = this.modes.press(x, y, host, false); if (this.editPress) host.redraw(); return; }
     if (n < 2) return;
     const rows = this.selRows(), p = this.posAt(x, y);
     if (!rows || !p || !rows.cells(p.row).length) return;
@@ -2535,7 +2665,7 @@ export class NoteSurface {
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
     const g = this.gesture.pressed;
-    if (this.editing) { const d = this.writing(); if (this.editPress && d && !d.busy && editorClick(d, x, y, true)) host.redraw(); return; }
+    if (this.editing) { if (this.editPress && this.modes.press(x, y, host, true)) host.redraw(); return; }
     if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
     if (!this.dragging) {
       // After a double or triple click, the drag extends from the word or row it selected.
@@ -2771,7 +2901,7 @@ export class NoteSurface {
     this.use(host);
     // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
     // comment under it, where the panel would take the keys meant for the agent's session.
-    if (actor.kind === "agent" && this.panel && !this.draft && !this.session && STARTS_SESSION.has(name))
+    if (actor.kind === "agent" && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, agent: true }), startSession: undefined, actor } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);
@@ -2792,23 +2922,19 @@ export class NoteSurface {
     const d = this.draft;
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
-      editing: this.drafting && d ? { ...this.drafting.describe(), writtenBy: writtenBy(d, "save") } : undefined,
-      commenting: this.session ? this.session.describe() : undefined,
+      editing: (this.modes.get("draft") as DraftMode | null)?.describe(),
+      commenting: (this.modes.get("comment") as CommentMode | null)?.describe(),
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
       focus: this.focusMark ? { by: this.focusMark.by.kind === "agent" ? this.focusMark.by.id : "you", marked: this.focusMark.label, ...this.focusMark.spec } : null,
-      properties: this.panel && this.msg ? {
-        open: this.panel.full ? "full" : "inline", selected: this.panel.sel + 1, note: this.panel.note || null,
-        editing: this.panel.field ? { n: this.panel.field.row.n, key: this.panel.field.row.key, text: this.panel.field.text, revision: this.panel.field.revision, changedElsewhere: this.panel.field.changedElsewhere, note: this.panel.field.note || null } : null,
-        rows: this.rows(this.msg).map(r => describeRow(r, this.src, this.msg!.text)),
-      } : null,
+      properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
-      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: this.picker ? { step: this.elems.find(e => e.key === this.picker!.key)?.label ?? null, selected: STEP_CHOICES[this.picker.sel]?.id, note: this.picker.note || null } : null } : null,
+      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
       agent: this.agent,
     };
   }
