@@ -1,6 +1,7 @@
 // Where a new card in a lane goes (PIE-406). What it is born with, and the text or roadmap item it is
 // saved as, is the service's plan (`views.planWrite`); the board (delivery.ts) asks for it and writes.
 import { subject, type Msg } from "../board";
+import { ellipsize } from "../style";
 
 export interface ParentPick { id: string; why: string }
 
@@ -34,4 +35,4 @@ export function pickParent(laneName: string, def: Msg | undefined, laneItems: Ms
 }
 
 /** "Paint the shed": a card's title for a flash, kept short. */
-export const titleOf = (m: Msg, n = 50) => { const t = subject(m); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+export const titleOf = (m: Msg, n = 50) => ellipsize(subject(m), n);

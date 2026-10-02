@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { subject, type Msg } from "./board";
-import { DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
+import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completionKey, type Completer } from "./surface/completer";
@@ -818,10 +818,7 @@ export function pruneUnsent(keep: string, now = Date.now()): string[] {
       try { return { path, at: (JSON.parse(readFileSync(path, "utf8")) as Unsent).at }; } catch { return { path, at: 0 }; }
     });
   } catch { return []; }
-  files.sort((a, b) => b.at - a.at);
-  const old = files.filter((f, i) => f.path !== keep && i >= DRAFT_KEEP && now - f.at > DRAFT_DAYS * 86_400_000);
-  for (const f of old) { try { rmSync(f.path); } catch { /* best effort */ } }
-  return old.map(f => f.path);
+  return pruneOld(files, keep, now);
 }
 
 /** The draft put aside at `key`, if there is one. */

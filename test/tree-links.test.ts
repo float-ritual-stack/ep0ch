@@ -147,7 +147,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   const clickRow = (n: number, mark = false) => {
     const r = treeRect(), row = rows()[n - 1]!;
     // Inside the frame: its first row and column are the border's. A mouse x counts from 1, as `where` gives it.
-    const at = { x: r.col + 1 + row.depth * 2 + (mark ? 0 : 3) + 1, y: r.row + 1 + n - 1 - (tree() as any).top };
+    const at = { x: r.col + 1 + row.depth * 2 + (mark ? 0 : 3) + 1, y: r.row + 1 + n - 1 - (tree() as any).view.top };
     press({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y });
     press({ kind: "mouse", action: "up", button: 0, x: at.x, y: at.y });
   };

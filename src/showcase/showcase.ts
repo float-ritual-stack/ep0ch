@@ -13,9 +13,9 @@ import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } fro
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { bg, C, fg, pad, paint, RESET, tint } from "../style";
+import { C, fg, pad, paint, RESET, selected } from "../style";
 import { wrap } from "../text";
-import type { Key } from "../term";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ActionRefused, ActionSet, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
@@ -42,6 +42,7 @@ import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
+import { RowView } from "../scroll";
 
 type Notes = Partial<Record<SeedName, Msg>>;
 
@@ -339,7 +340,7 @@ export class Showcase implements Screen {
     SECTIONS.forEach((s, i) => {
       const on = i === this.sel;
       const label = pad(` ${String(i + 1).padStart(2)} ${wide ? s.need : s.key}`, idx.cols - 2);
-      canvas.text(1, 2 + i * 2, on ? (this.focus === "index" ? bg(C.blue) + fg(C.white) : fg(C.yellow)) + label + RESET : fg(C.grey) + label + RESET, idx.cols - 2);
+      canvas.text(1, 2 + i * 2, on ? (this.focus === "index" ? selected() : fg(C.yellow)) + label + RESET : fg(C.grey) + label + RESET, idx.cols - 2);
       if (wide) canvas.text(1, 3 + i * 2, fg(C.dark) + pad(`    ${s.key}`, idx.cols - 2) + RESET, idx.cols - 2);
     });
     const s = SECTIONS[this.sel]!;
@@ -371,10 +372,10 @@ export class Showcase implements Screen {
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.focus === "stage") { const f = this.stage(this.sel); if (f) f.key(k); else this.focus = "index"; return ctx.redraw(); }
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     if (k.kind === "esc" || c === "q") return this.shell("screen.back");
-    if (k.kind === "up" || c === "k") return this.sel > 0 ? this.run("section", { name: String(this.sel) }) : undefined;
-    if (k.kind === "down" || c === "j") return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;
+    if (isUp(k)) return this.sel > 0 ? this.run("section", { name: String(this.sel) }) : undefined;
+    if (isDown(k)) return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;
     if (/^[0-9]$/.test(c)) return this.run("section", { name: c === "0" ? "10" : c });
     if (k.kind === "enter" || k.kind === "right" || k.kind === "tab" || c === "l") return this.run("section.try", {});
     if (c === "V") return this.shell("video.cycle");
@@ -515,7 +516,7 @@ export class ActionsPane implements Pane {
   run: ((name: string, actor: Actor) => Promise<unknown>) | null = null;
   private rows: ({ head: string } | { a: ActionInfo })[] = SETS.flatMap(s => [{ head: `${s.name} · ${s.file}` }, ...s.list().map(a => ({ a }))]);
   private sel = 1;
-  private top = 0;
+  private view = new RowView();
   private lastClick = { at: 0, i: -1 };
   title() { return "the action registry · src/surface/actions.ts"; }
   hint() { return "↑↓ pick · ⏎ run it in the reader beside (no-argument note and desk actions)"; }
@@ -527,14 +528,13 @@ export class ActionsPane implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     const detail = 3;
     const room = Math.max(1, h - detail);
-    if (this.sel < this.top) this.top = this.sel;
-    if (this.sel >= this.top + room) this.top = this.sel - room + 1;
+    this.view.place(this.sel, this.rows.length, room);
     const nameW = Math.min(20, Math.max(8, Math.floor(w * 0.3))), keysW = Math.min(18, Math.max(6, Math.floor(w * 0.22)));
-    const lines = this.rows.slice(this.top, this.top + room).map((r, j) => {
-      const i = this.top + j;
+    const lines = this.rows.slice(this.view.top, this.view.top + room).map((r, j) => {
+      const i = this.view.top + j;
       if ("head" in r) return fg(C.lcyan) + pad(r.head, w) + RESET;
       const text = ` ${pad(r.a.name, nameW)} ${pad(r.a.keys ?? "—", keysW)} ${r.a.summary}`;
-      return i === this.sel ? (focused ? bg(C.blue) : tint("idle")) + fg(C.white) + pad(text, w) + RESET
+      return i === this.sel ? selected(focused) + pad(text, w) + RESET
         : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(r.a.keys ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
     });
     while (lines.length < room) lines.push("");
@@ -543,7 +543,7 @@ export class ActionsPane implements Pane {
       const args = Object.entries(cur.a.args).map(([k, s]) => `${k}${s.optional ? "?" : ""}: ${s.type}`).join(", ") || "no arguments";
       lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}`, w) + RESET);
     }
-    return { lines, scroll: { top: this.top, room, total: this.rows.length } };
+    return { lines, scroll: { top: this.view.top, room, total: this.rows.length } };
   }
   private runSelected(desk: DeskApi) {
     const cur = this.rows[this.sel];
@@ -555,16 +555,16 @@ export class ActionsPane implements Pane {
     this.run?.(a.name, { kind: "user" }).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`));
   }
   key(k: Key, desk: DeskApi): boolean {
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    if (k.kind === "up" || c === "k") { this.step(-1); desk.redraw(); return true; }
-    if (k.kind === "down" || c === "j") { this.step(1); desk.redraw(); return true; }
+    const c = ch(k);
+    if (isUp(k)) { this.step(-1); desk.redraw(); return true; }
+    if (isDown(k)) { this.step(1); desk.redraw(); return true; }
     if (k.kind === "pgdn") { for (let i = 0; i < 10; i++) this.step(1); desk.redraw(); return true; }
     if (k.kind === "pgup") { for (let i = 0; i < 10; i++) this.step(-1); desk.redraw(); return true; }
     if (k.kind === "enter") { this.runSelected(desk); return true; }
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) {
-    const i = this.top + y;
+    const i = this.view.top + y;
     if (!this.rows[i] || "head" in this.rows[i]!) return;
     const again = this.lastClick.i === i && Date.now() - this.lastClick.at < 400;
     this.sel = i; this.lastClick = { at: Date.now(), i };

@@ -12,7 +12,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { C, fg, pad, RESET, SPARK_STEPS, width as vwidth } from "./style";
+import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { printable, wrap } from "./text";
 
 const IDENTIFIER = /^[a-z0-9][a-z0-9.-]{0,99}$/;
@@ -125,7 +125,6 @@ const TONE: Readonly<Record<string, number>> = { default: C.white, good: C.lgree
 const toned = (tone: unknown) => TONE[String(tone ?? "default")] ?? C.white;
 /** One line of extension text: no control characters (no escape reaches the terminal). */
 const one = (v: unknown) => printable(v, " ");
-const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 const MAX_DEPTH = 8;
 
 function meter(value: number, max: number, n: number, tone: unknown): string {
@@ -219,7 +218,7 @@ export function primitiveLines(view: unknown, w: number, link?: (block: string, 
     case "box": {
       const title = n.title !== undefined ? ` ${one(n.title)} ` : "";
       const body = kids(n).flatMap(c => inner(c, w - 4));
-      const top = fg(C.dark) + "┌─" + fg(C.lcyan) + [...title].slice(0, Math.max(0, w - 4)).join("") + fg(C.dark) + "─".repeat(Math.max(0, w - 3 - vwidth(title))) + "┐" + RESET;
+      const top = fg(C.dark) + "┌─" + fg(C.lcyan) + headOf(title, Math.max(0, w - 4)) + fg(C.dark) + "─".repeat(Math.max(0, w - 3 - vwidth(title))) + "┐" + RESET;
       return [top, ...body.map(l => fg(C.dark) + "│ " + RESET + pad(l, w - 4) + fg(C.dark) + " │" + RESET), fg(C.dark) + "└" + "─".repeat(w - 2) + "┘" + RESET];
     }
     case "stack":

@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { media, MEDIA_LINE, type Media } from "./media";
-import { balanceTags, C, extractLinks, fg, pad, RESET, splitVisible, STYLE, stripTags, styleMarks, trimTagged, width as vwidth, type LinkRange } from "./style";
+import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, STYLE, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { ComponentCatalog, documentComponent } from "./components";
 import { colourBody, wrap } from "./text";
 import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
@@ -81,7 +81,6 @@ export interface Doc { lines: string[]; images: DocImage[]; media: { path: strin
  */
 export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
 
-const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
 const inlineOf = (s: string, literal = false) => colourBody(s, literal);

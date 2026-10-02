@@ -22,9 +22,12 @@ export function scrollRows(v: string | undefined): number {
 /** Rows a wheel report scrolls, down (1) or up (-1). */
 export const wheelRows = (dir: 1 | -1): number => dir * SCROLL_ROWS;
 
+/** `v` kept within `a` to `b`. */
+export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+
 /** `top` moved by `by` rows, kept within 0 to `max` (the last top that still fills the view). */
 export function scrolled(top: number, by: number, max = Infinity): number {
-  return Math.max(0, Math.min(Math.max(0, max), top + by));
+  return clamp(top + by, 0, Math.max(0, max));
 }
 
 /** `top` moved just far enough that row `sel` is in a view of `room` rows. */
@@ -35,22 +38,30 @@ export function follow(sel: number, top: number, room: number): number {
 }
 
 /**
- * A view of rows with a selected row in it (a thread's replies and comments): the wheel scrolls it, and the
- * selection is brought into view only when it moved (a key, a click), so a repaint never snaps it back.
+ * A list's cursor and scroll (a thread's replies, the welcome's notes, a lane's cards, a picker's choices): the wheel
+ * scrolls it, and the selection is brought into view only when it moved (a key, a click, an agent's pick) or the
+ * view's height changed, so a repaint never snaps it back. A selection several rows tall (a card, a thread) names
+ * its rows as `[first, last]`: the last comes into view, then the first.
  */
 export class RowView {
   top = 0;
   private max = Infinity;
   private shown: number | null = null;
+  private room = -1;
   scroll(by: number) { this.top = scrolled(this.top, by, this.max); }
-  /** The top to draw from, for `total` rows in `room`, with row `sel` selected. */
-  place(sel: number | null, total: number, room: number): number {
-    if (sel !== null && sel !== this.shown) this.top = follow(sel, this.top, room);
+  /** The selection comes into view at the next `place` even if it didn't move (j at the end of a list). */
+  reveal() { this.shown = null; }
+  /** The top to draw from, for `total` rows in `room`, with row `sel` selected (spanning `rows`). */
+  place(sel: number | null, total: number, room: number, rows: readonly [number, number] | null = sel === null ? null : [sel, sel]): number {
+    if (sel !== null && rows && (sel !== this.shown || room !== this.room)) this.top = follow(rows[0], follow(rows[1], this.top, room), room);
     this.shown = sel;
+    this.room = room;
     this.max = Math.max(0, total - room);
     return (this.top = scrolled(this.top, 0, this.max));
   }
-  reset() { this.top = 0; this.shown = null; this.max = Infinity; }
+  /** The furthest it scrolls, as last placed. */
+  get maxTop() { return this.max; }
+  reset() { this.top = 0; this.shown = null; this.max = Infinity; this.room = -1; }
 }
 
 /**

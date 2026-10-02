@@ -24,8 +24,8 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, bg, C, chip, fg, pad, paint, RESET, width } from "../style";
-import type { Key } from "../term";
+import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selected, width } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { bbsDate, wrap } from "../text";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
@@ -35,6 +35,7 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
 import { DetailPane } from "../desk/tiles";
 import { nowPage } from "./now";
+import { RowView } from "../scroll";
 
 export const WELCOME_KEY = "welcome";
 const WELCOME_LIMIT = 200;
@@ -106,7 +107,6 @@ export function densest(rows: Cell[][], n: number): Cell[][] {
 
 // ── the tiles ───────────────────────────────────────────────────────────────────────────────────────────
 
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 type ListRow = { i: number } | { more: number };
 /** Changes that never make a note a welcome note or stop it being one. */
 const QUIET = new Set(["annotate", "reorder", "move", "draft"]);
@@ -131,7 +131,7 @@ export class WelcomeList implements Pane {
   logo = 0;
   /** The detail it reads its notes in (a `welcome.detail` tile names this list as its source as it starts). */
   detail: WelcomeDetail | null = null;
-  private top = 0;
+  private view = new RowView();
   private rows: ListRow[] = [];
   private reload: Timer | null = null;
   private tabs: TabHit[] = [];
@@ -160,14 +160,12 @@ export class WelcomeList implements Pane {
     this.rows = this.items.flatMap((_, i): ListRow[] => (i === 10 ? [{ more: this.items!.length - 10 }, { i }] : [{ i }]));
     const at = this.at;
     const sel = this.rows.findIndex(r => "i" in r && r.i === at);
-    if (sel >= 0 && sel < this.top) this.top = sel;
-    if (sel >= this.top + h) this.top = sel - h + 1;
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, this.rows.length - h)));
+    this.view.place(sel >= 0 ? sel : null, this.rows.length, h);
     return {
-      lines: this.rows.slice(this.top, this.top + h).map(r => {
+      lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("more" in r) return fg(C.dark) + pad(`  … ${r.more} more`, w) + RESET;
         const m = this.items![r.i]!, key = tabKey(r.i) ?? " ";
-        if (r.i === at) return (focused ? bg(C.blue) + fg(C.white) : chip(C.magenta)) + pad(` ${key} ${subject(m)}`, w) + RESET;
+        if (r.i === at) return (focused ? selected() : chip(C.magenta)) + pad(` ${key} ${subject(m)}`, w) + RESET;
         return pad(` ${fg(C.white)}${key} ${fg(C.lmagenta)}${subject(m)}`, w) + RESET;
       }),
     };
@@ -181,8 +179,8 @@ export class WelcomeList implements Pane {
     const n = this.items?.length ?? 0;
     if (!n) return false;
     const at = Math.max(0, this.at);
-    if (k.kind === "down" || ch(k) === "j") { if (at + 1 < n) this.run(desk, at + 2); return true; }
-    if (k.kind === "up" || ch(k) === "k") { if (at > 0) this.run(desk, at); return true; }
+    if (isDown(k)) { if (at + 1 < n) this.run(desk, at + 2); return true; }
+    if (isUp(k)) { if (at > 0) this.run(desk, at); return true; }
     if (k.kind === "home") { this.run(desk, 1); return true; }
     if (k.kind === "end") { this.run(desk, n); return true; }
     if (k.kind === "enter") { this.run(desk, at + 1, true); return true; }
@@ -190,7 +188,7 @@ export class WelcomeList implements Pane {
   }
 
   click(_x: number, y: number, desk: DeskApi) {
-    const r = this.rows[this.top + y];
+    const r = this.rows[this.view.top + y];
     if (r && "i" in r) this.run(desk, r.i + 1);
   }
 
@@ -370,7 +368,7 @@ export class WelcomeList implements Pane {
     shownTabs.forEach((m, i) => {
       const on = i === at;
       const t = subject(m);
-      const label = t.length > titleW ? t.slice(0, titleW - 1) + "…" : t;
+      const label = ellipsize(t, titleW);
       put(" ", "");
       put(`${tabKey(i)} ${label}`, on ? chip(C.magenta) : fg(C.lmagenta), { i });
       put(" =", rail);

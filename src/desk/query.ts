@@ -9,14 +9,13 @@
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
-import { bg, C, fg, pad, RESET, tint } from "../style";
-import { themed } from "../theme";
-import type { Key } from "../term";
+import { C, fg, pad, RESET, selected } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
 import { summarySegments, viewSummaryKeys } from "../props";
-import { wheelRows } from "../scroll";
+import { clamp, RowView, wheelRows } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
@@ -24,10 +23,7 @@ import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 /** Views under a hub that aren't lanes on its board. */
 const HIDDEN = new Set(["superseded"]);
-let SEL = "";
-themed(() => { SEL = bg(C.blue) + fg(C.white); });
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 const isView = (k: Msg) => (k.props.type ?? "").toLowerCase() === "virtual-branch";
 
@@ -71,7 +67,8 @@ export class QueryPane implements Pane {
   items: Msg[] | null = null;
   read?: ViewRead;
   sel = 0;
-  top = 0;
+  /** Its cursor and scroll. */
+  cursor = new RowView();
   /** A card the next read should select (a move or a create landing here), and the word for it if it's not there. */
   want?: string;
   wantVerb?: string;
@@ -168,20 +165,19 @@ export class QueryPane implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     const items = this.items ?? [];
     const fit = this.fits(h);
-    if (this.sel < this.top) this.top = this.sel;
-    if (this.sel >= this.top + fit) this.top = this.sel - fit + 1;
+    this.cursor.place(this.sel, items.length, fit);
     const lines: string[] = [];
     // The view's [summary-properties::…] say what a card shows after its Work ID and priority (a reading list's
     // author); without them, whatever its cards carry: stage fields, or outbox fields (to · channel · waiting on).
     const keys = viewSummaryKeys(this.def)?.filter(k => k !== "work-id" && k !== "priority") ?? null;
-    items.slice(this.top, this.top + fit).forEach((m, j) => {
-      const sel = this.top + j === this.sel;
+    items.slice(this.cursor.top, this.cursor.top + fit).forEach((m, j) => {
+      const sel = this.cursor.top + j === this.sel;
       const wid = m.props["work-id"] ?? m.props.ticket ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
       const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
       const extra = (keys ? summarySegments(m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value })), keys).map(x => x.value) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
       if (sel) {
-        const style = focused ? SEL : tint("idleRow") + fg(C.white);
+        const style = selected(focused, "idleRow");
         lines.push(style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
         lines.push(style + pad(` ${title}`, w) + RESET);
       } else {
@@ -196,7 +192,7 @@ export class QueryPane implements Pane {
   }
 
   /** The card drawn at row `y` of the tile (its two rows), or -1. */
-  rowAt(y: number): number { const i = this.top + Math.floor(y / 2); return y >= 0 && i < (this.items?.length ?? 0) ? i : -1; }
+  rowAt(y: number): number { const i = this.cursor.top + Math.floor(y / 2); return y >= 0 && i < (this.items?.length ?? 0) ? i : -1; }
 
   /** Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it); `open` opens it as ⏎ does. */
   pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER): { card: string; title: string; n: number } {
@@ -215,8 +211,8 @@ export class QueryPane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     // A lane on the board: the lanes' keys (its model's).
     if (this.model) return this.model.laneKeys(k);
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    const by = k.kind === "down" || c === "j" ? 1 : k.kind === "up" || c === "k" ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const c = ch(k);
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
     if (by) { if (this.items?.length) this.run(desk, "query.pick", { by }); return true; }
     if (k.kind === "enter") { if (this.card()) this.run(desk, "query.pick", { n: this.sel + 1, open: true }); return true; }
     if (c === "r") { this.run(desk, "query.reload", {}); return true; }

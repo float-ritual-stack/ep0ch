@@ -83,6 +83,13 @@ describe("the scroll model", () => {
     expect(v.place(2, 50, 10)).toBe(2);           // the selection moved: it's brought into view
     v.scroll(100);
     expect(v.place(2, 50, 10)).toBe(40);          // within the content
+    expect(v.place(2, 50, 6)).toBe(2);            // the view got shorter: the selection is brought back into it
+    v.scroll(5);
+    v.reveal();                                   // j at the end of the list: back to the selection though it didn't move
+    expect(v.place(2, 50, 6)).toBe(2);
+    // A selection several rows tall: its last row comes into view, then its first.
+    expect(v.place(3, 50, 6, [20, 23])).toBe(18);
+    expect(v.place(4, 50, 6, [30, 40])).toBe(30);
   });
 });
 

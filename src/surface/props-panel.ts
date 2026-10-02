@@ -7,10 +7,11 @@ import type { Msg } from "../board";
 import { printable, type Source } from "../props";
 import { pageOf, refView, referencesIn } from "../refs";
 import type { PropertyRecord } from "../socket";
-import { bg, C, fg, pad, RESET, width } from "../style";
-import type { Key } from "../term";
+import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { RowView } from "../scroll";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
 export interface PropRow {
@@ -85,7 +86,7 @@ export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "clos
 
 export class PropertyPanel {
   sel = 0;
-  top = 0;
+  view = new RowView();
   /** Fill the whole reader (Detail's dedicated Properties pane) instead of sitting above the note. */
   full = false;
   field: Field | null = null;
@@ -97,7 +98,7 @@ export class PropertyPanel {
   /** Keys while the panel is open. Most become intents the surface runs (the same code as the actions). */
   key(k: Key, rows: number): PanelIntent {
     const f = this.field;
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     if (f) {
       if (f.saving) return null;
       if (k.kind === "enter") return "save";
@@ -114,8 +115,8 @@ export class PropertyPanel {
       return null;
     }
     const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
-    if (k.kind === "tab" || k.kind === "down" || c === "j") move(1);
-    else if (k.kind === "backtab" || k.kind === "up" || c === "k") move(-1);
+    if (k.kind === "tab" || isDown(k)) move(1);
+    else if (k.kind === "backtab" || isUp(k)) move(-1);
     else if (c === "y") return "copy";
     else if (c === "o") return "follow";
     else if (k.kind === "enter" || c === "e") return "edit";
@@ -134,16 +135,15 @@ export class PropertyPanel {
   render(rows: PropRow[], w: number, h: number, info: { revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
-    const out = [rule(w, [...title].length > w - 8 ? [...title].slice(0, Math.max(1, w - 9)).join("") + "…" : title)];
+    const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
     const foot = this.field?.note || this.note;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     if (!rows.length) out.push(fg(C.dark) + pad("  no properties", w) + RESET);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
-    if (this.sel < this.top) this.top = this.sel;
-    if (this.sel >= this.top + room) this.top = this.sel - room + 1;
+    this.view.place(this.sel, rows.length, room);
     const keyW = Math.min(16, Math.max(3, ...rows.map(r => width(r.key))));
     this.at = [];
-    for (const r of rows.slice(this.top, this.top + room)) {
+    for (const r of rows.slice(this.view.top, this.view.top + room)) {
       const i = r.n - 1, on = i === this.sel;
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";
       const scope = r.scope === "block" ? "" : `(${r.scope})`;

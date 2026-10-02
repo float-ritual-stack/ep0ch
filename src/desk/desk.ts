@@ -20,9 +20,9 @@ import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surf
 import { keepEditFile } from "../surface/editor";
 import { readState, writeState } from "../state";
 import { keyName, specData, type ScreenSpec } from "./screen-spec";
-import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, width, tint } from "../style";
+import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
-import type { Key } from "../term";
+import { ch, isUp, isDown, type Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
@@ -1665,7 +1665,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
         const on = i === set.active;
-        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? (focused ? bg(C.blue) : tint("idleRow")) + fg(C.white) : fg(C.grey), t);
+        put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as it always did: its number, then its title.
@@ -1703,7 +1703,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   private drawSpineTile(canvas: Canvas, id: number, r: Rect, focused: boolean): Placement[] {
     const p = this.panes.get(id)!;
     const sp = p.spine?.() ?? { title: this.nameOf(id) };
-    const out = drawSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? bg(C.blue) + fg(C.white) : undefined }, this.ctx);
+    const out = drawSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined }, this.ctx);
     this.spines.push([id, r]);
     return out ? [out] : [];
   }
@@ -1890,7 +1890,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
-    if (k.kind === "char" && !k.ctrl && k.ch === "?" && this.hintFull && !this.personTyping()) { this.cmd("keys.more"); return; }
+    if (ch(k) === "?" && this.hintFull && !this.personTyping()) { this.cmd("keys.more"); return; }
     if (this.hintMoreOpen) {
       const chip = k.kind === "mouse" && this.moreChip && k.y === this.area.row + this.area.rows && k.x >= this.moreChip.from && k.x < this.moreChip.to;
       if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
@@ -1939,7 +1939,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     const focused = this.focusedReader();
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
     const choosing = this.choosingReader();
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
@@ -1987,7 +1987,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       return this.cmd("tile.focus", {}, this.nameOf(ids[(i + (k.kind === "tab" ? 1 : ids.length - 1)) % ids.length]!));
     }
     const pane = this.panes.get(this.focus);
-    const c0 = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c0 = ch(k);
     // A spine has the keys: ⏎ or space opens it; its own keys don't reach what it holds out of sight.
     if (this.collapsed.has(this.focus)) {
       // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
@@ -2032,7 +2032,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   private linkKey(k: Key) {
     const from = this.linking!.from;
     this.linking = null;
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     if (k.kind === "esc") { this.ctx.flash("not linked"); return this.redraw(); }
     const to = MOVE[c] ? neighbour(this.rectsNow(), from, MOVE[c]!) : /^[1-9]$/.test(c) ? this.all()[Number(c) - 1] ?? null : null;
     if (to === null || to === undefined) { this.ctx.flash("not linked: alt+l, then click a tile, h j k l, or its number"); return this.redraw(); }
@@ -3230,7 +3230,7 @@ class LayoutPicker {
     if (this.mode === "save") { canvas.text(r.col + 2, r.row + 1, this.prefilled ? `${bg(C.blue)}${fg(C.white)}${this.text}${RESET}${paint(`|07${INPUT_CURSOR} |08⏎ keeps it, typing replaces it`)}` : paint(`|15${this.text}|07${INPUT_CURSOR}`), w - 4); return; }
     this.items.forEach((it, i) => {
       const label = `${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`;
-      canvas.text(r.col + 1, r.row + 1 + i, (i === this.sel ? bg(C.blue) + fg(C.white) : fg(C.grey)) + pad(` ${label}`, w - 2) + RESET, w - 2);
+      canvas.text(r.col + 1, r.row + 1 + i, (i === this.sel ? selected() : fg(C.grey)) + pad(` ${label}`, w - 2) + RESET, w - 2);
     });
   }
 }
@@ -3251,7 +3251,7 @@ class PolicyPanel {
     const nodes = desk.policyNodes(this.tile);
     this.node = Math.min(this.node, nodes.length - 1);
     const rows = desk.policyRows(this.tile, nodes[this.node]!.node);
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    const c = ch(k);
     if (k.kind === "esc" || c === "q") return desk.closePolicy();
     if (k.kind === "mouse") {
       if (k.action !== "down") return;
@@ -3263,8 +3263,8 @@ class PolicyPanel {
       if (row) { this.row = row.i; rows[row.i]?.run?.(); }
       return;
     }
-    if (k.kind === "up" || c === "k") this.row = Math.max(0, this.row - 1);
-    else if (k.kind === "down" || c === "j") this.row = Math.min(rows.length - 1, this.row + 1);
+    if (isUp(k)) this.row = Math.max(0, this.row - 1);
+    else if (isDown(k)) this.row = Math.min(rows.length - 1, this.row + 1);
     else if (k.kind === "left" || c === "h") { this.node = Math.max(0, this.node - 1); this.row = 0; }
     else if (k.kind === "right" || c === "l") { this.node = Math.min(nodes.length - 1, this.node + 1); this.row = 0; }
     else if (k.kind === "enter" || c === " ") rows[this.row]?.run?.();
@@ -3285,14 +3285,14 @@ class PolicyPanel {
     nodes.forEach((n, i) => {
       if (i) crumbs += fg(C.dark) + " › " + RESET, x += 3;
       this.hits.nodes.push({ from: x, to: x + n.label.length, y: r.row + 1, i });
-      crumbs += (i === this.node ? bg(C.blue) + fg(C.white) : fg(C.grey)) + n.label + RESET; x += n.label.length;
+      crumbs += (i === this.node ? selected() : fg(C.grey)) + n.label + RESET; x += n.label.length;
     });
     canvas.text(r.col + 2, r.row + 1, crumbs, w - 4);
     const lw = Math.max(20, Math.min(52, w - 28));
     rows.slice(0, h - 4).forEach((row, i) => {
       const y = r.row + 3 + i;
       this.hits.rows.push({ y, i });
-      canvas.text(r.col + 1, y, (i === this.row ? bg(C.blue) + fg(C.white) : fg(C.grey)) + pad(` ${row.label}`, lw) + RESET + fg(C.lcyan) + ` ${row.value}` + RESET, w - 2);
+      canvas.text(r.col + 1, y, (i === this.row ? selected() : fg(C.grey)) + pad(` ${row.label}`, lw) + RESET + fg(C.lcyan) + ` ${row.value}` + RESET, w - 2);
     });
   }
 }
@@ -3335,7 +3335,7 @@ class SearchOverlay {
     const preview = m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [];
     for (let i = 0; i < h - 2; i++) {
       const hit = this.hits[i];
-      const left = hit ? (i === this.sel ? bg(C.blue) + fg(C.white) : fg(C.grey)) + pad(` ${hit.props["work-id"] && !subject(hit).startsWith(hit.props["work-id"]) ? hit.props["work-id"] + " " : ""}${subject(hit)}`, listW) + RESET : " ".repeat(listW);
+      const left = hit ? (i === this.sel ? selected() : fg(C.grey)) + pad(` ${hit.props["work-id"] && !subject(hit).startsWith(hit.props["work-id"]) ? hit.props["work-id"] + " " : ""}${subject(hit)}`, listW) + RESET : " ".repeat(listW);
       lines.push(left + fg(C.blue) + " │ " + RESET + (preview[i] ?? ""));
     }
     return lines;

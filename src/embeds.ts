@@ -16,7 +16,7 @@ import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, type LinkTarget } from "./refs";
 import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
-import { C, fg, LINK_END, linkTag, pad, RESET, tint } from "./style";
+import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 
@@ -220,9 +220,9 @@ const controlsWidth = (m: Msg) => proposalOps(m).reduce((n, op) => n + op.length
 function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.dark, proposal: Msg | null = null) {
   const loud = colour !== C.dark;
   const room = Math.max(1, w - 1 - (proposal ? controlsWidth(proposal) : 0));
-  const shown = proposal && [...text].length > room ? [...text].slice(0, Math.max(0, room - 1)).join("") + "…" : text;
+  const shown = proposal ? ellipsize(text, room) : text;
   const to: LinkTarget = { block: id, ...(fragment ? { fragment } : {}), role: "embed", ...(proposal ? { proposal: { id } } : {}) };
-  return shade(fg(colour) + (loud ? "\x1b[1m" : "") + tagged(sink, to, shown) + (loud ? "\x1b[22m" : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
+  return shade(fg(colour) + (loud ? BOLD : "") + tagged(sink, to, shown) + (loud ? UNBOLD : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
 }
 
 /** A virtual branch's results, as Detail lists them. */

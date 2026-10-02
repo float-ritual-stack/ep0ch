@@ -2,18 +2,17 @@
 // a thread, resolve or reopen one. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
-import { scrolled, wheelRows } from "./scroll";
+import { RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
 import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
 import type { Completer } from "./surface/completer";
 import { USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
-import { bg, C, chip, fg, pad, RESET } from "./style";
-import type { Key } from "./term";
+import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
+import { ch, isUp, isDown, type Key } from "./term";
 import { ago, rule, wrap } from "./text";
 
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 /** CP437-safe marks, so snapshots and real VGA-font terminals draw them. */
 const MARK = "▐", OPEN = "■", DONE = "·";
 
@@ -53,7 +52,7 @@ export class Passage {
     if (!quote.trim()) return "the quote is empty";
     const hits: number[] = [];
     for (let i = this.text.indexOf(quote); i >= 0; i = this.text.indexOf(quote, i + 1)) hits.push(i);
-    if (!hits.length) return `"${quote.length > 40 ? quote.slice(0, 39) + "…" : quote}" isn't in the note's current text`;
+    if (!hits.length) return `"${ellipsize(quote, 40)}" isn't in the note's current text`;
     const at = near === undefined ? hits[0]! : hits.reduce((a, b) => (Math.abs(b - near) < Math.abs(a - near) ? b : a));
     this.from = at; this.to = at + quote.length;
     return null;
@@ -90,8 +89,8 @@ export class Passage {
       return "compose";
     }
     const move = (d: number) => { const j = this.nextFilled(d > 0 ? this.lastLine : this.firstLine, d); if (j !== null) this.selectLine(j); };
-    if (k.kind === "down" || c === "j") move(1);
-    else if (k.kind === "up" || c === "k") move(-1);
+    if (isDown(k)) move(1);
+    else if (isUp(k)) move(-1);
     else if (k.kind === "pgdn") for (let i = 0; i < 10; i++) move(1);
     else if (k.kind === "pgup") for (let i = 0; i < 10; i++) move(-1);
     else if (c === "J") { const j = this.nextFilled(this.lastLine, 1); if (j !== null) this.to = this.span(j).to; }
@@ -184,12 +183,9 @@ export class CommentSession {
   private readonly out = new Outgoing();
   /** The reader's environment, as the last key or send gave it (the adapter sends through its board). */
   private env: CommentEnv | null = null;
-  private top = 0;
-  /** The person scrolled the list themselves (wheel, PgUp/PgDn): the view stops following the selection until j or k. */
-  private free = false;
+  /** The thread list's scroll: the wheel and PgUp/PgDn scroll it; j or k brings the selection back into view. */
+  private view = new RowView();
   private room = 10;
-  /** The last top that still fills the list (from the last render). */
-  private maxTop = Infinity;
   /** Where Esc from the composer goes back to. */
   private back: CommentMode = "threads";
   /** The mode the session opened in; Esc there closes it. */
@@ -225,7 +221,7 @@ export class CommentSession {
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
   wheel(dir: 1 | -1) {
     if (this.mode !== "threads") return;
-    this.top = scrolled(this.top, wheelRows(dir), this.maxTop); this.free = true;
+    this.view.scroll(wheelRows(dir));
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
@@ -265,9 +261,9 @@ export class CommentSession {
     const c = ch(k), n = this.threads.length;
     this.error = null;
     if (k.kind === "esc") return "close";
-    if (k.kind === "pgdn" || k.kind === "pgup") { this.top = scrolled(this.top, (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1), this.maxTop); this.free = true; return "keep"; }
-    if (k.kind === "down" || c === "j") { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.free = false; }
-    else if (k.kind === "up" || c === "k") { this.sel = Math.max(0, this.sel - 1); this.free = false; }
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.view.scroll((k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1)); return "keep"; }
+    if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.view.reveal(); }
+    else if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.view.reveal(); }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
     else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
     else if (c === "C") void this.pick(env);
@@ -346,7 +342,7 @@ export class CommentSession {
     this.threads = await env.reloadComments();
     this.busy = null;
     const root = t.kind === "quote" ? r.id : t.thread.id;
-    this.sel = Math.max(0, this.threads.findIndex(x => x.id === root));
+    this.sel = Math.max(0, this.threads.findIndex(x => x.id === root)); this.view.reveal();
     // A comment on a checklist step gives the step a stable id, which changes the note.
     if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
   }
@@ -390,7 +386,7 @@ export class CommentSession {
       env.flash(to === "resolved" ? "resolved" : "reopened");
       this.busy = null;
       this.threads = await env.reloadComments();
-      this.sel = Math.max(0, this.threads.findIndex(x => x.id === t.id));
+      this.sel = Math.max(0, this.threads.findIndex(x => x.id === t.id)); this.view.reveal();
     } catch (e) {
       this.busy = null;
       // Resolve/reopen sets a state, so trying again after no answer can't double anything.
@@ -442,7 +438,7 @@ export class CommentSession {
     this.threads.forEach((t, i) => {
       if (i === this.sel) selAt = lines.length;
       const top = `${t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.open ? "open" : "resolved"}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}`;
-      lines.push(i === this.sel ? bg(C.blue) + fg(C.white) + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
+      lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       if (t.quote) for (const l of wrap(`"${t.quote}"`, w - 4).slice(0, 2)) lines.push(fg(t.open ? C.green : C.dark) + "  " + MARK + " " + l + RESET);
       if (t.start === null && t.quote) lines.push(fg(C.brown) + "    (the quoted words moved; the service couldn't place them)" + RESET);
       // The selected thread shows whole; the others show their start and say how much more there is.
@@ -461,13 +457,8 @@ export class CommentSession {
     });
     const room = Math.max(1, h - head.length);
     this.room = room;
-    if (!this.free) {
-      if (selAt < this.top) this.top = selAt;
-      if (selEnd >= this.top + room) this.top = Math.min(selAt, selEnd - room + 1);
-    }
-    this.maxTop = Math.max(0, lines.length - room);
-    this.top = scrolled(this.top, 0, this.maxTop);
-    return [...head, ...lines.slice(this.top, this.top + room)];
+    const top = this.view.place(this.sel, lines.length, room, [selAt, selEnd]);
+    return [...head, ...lines.slice(top, top + room)];
   }
 
   describe() {

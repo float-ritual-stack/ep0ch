@@ -2,28 +2,25 @@
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { C, fg, pad, RESET, SPARK_STEPS, width as vwidth } from "./style";
+import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { wrap } from "./text";
 import { resolveLive } from "./live";
 
 const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
-const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 
 /** `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. */
 export function frame(title: string, body: string[], W: number, footer = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
-  let t = title.toUpperCase();
-  const fit = w - 10;
-  if ([...t].length > fit) t = fit > 1 ? [...t].slice(0, fit - 1).join("") + "…" : "";
+  const t = ellipsize(title.toUpperCase(), w - 10);
   const label = t ? ` [ ${t} ] ` : "";
-  const lw = [...label].length;
+  const lw = vwidth(label);
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + "·".repeat(left) + fg(ACCENT) + label + fg(DIM) + "·".repeat(right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  const foot = footer ? ` ${[...footer].slice(0, Math.max(0, w - 8)).join("")} ` : "";
-  const fl = [...foot].length;
+  const foot = footer ? ` ${headOf(footer, Math.max(0, w - 8))} ` : "";
+  const fl = vwidth(foot);
   const bottom = fg(DIM) + "+" + "·".repeat(Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
   return [top, side(""), ...body.map(side), side(""), footer ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
 }
@@ -141,10 +138,10 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> =
     const align: string[] = p.align ?? [];
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
-    let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => (r[k] ?? "").length)));
+    let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => vwidth(r[k] ?? ""))));
     const room = w - (n - 1) * 3;
     while (cw.reduce((a, b) => a + b, 0) > room) { const k = cw.indexOf(Math.max(...cw)); cw[k]!--; }
-    const cell = (s: string, k: number) => { const t = s.length > cw[k]! ? s.slice(0, cw[k]! - 1) + "…" : s; return align[k] === "right" ? t.padStart(cw[k]!) : t.padEnd(cw[k]!); };
+    const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = " ".repeat(Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
     const rule = fg(DIM) + "·".repeat(Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
     // A live table's row stands for its note: the whole row is the link (cells are cut by length first).

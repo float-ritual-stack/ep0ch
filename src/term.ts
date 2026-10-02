@@ -32,6 +32,14 @@ export type Key =
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
   | { kind: "enter" | "tab"; pasted: true };
 
+
+/** The character a plain key types (not with ctrl), or "": what a list or a reader reads its letters from. */
+export const ch = (k: Key): string => (k.kind === "char" && !k.ctrl ? k.ch : "");
+/** Up a row: ↑ or k. */
+export const isUp = (k: Key): boolean => k.kind === "up" || ch(k) === "k";
+/** Down a row: ↓ or j. */
+export const isDown = (k: Key): boolean => k.kind === "down" || ch(k) === "j";
+
 /**
  * macOS's Option with a letter or digit, as a US keyboard types it when the terminal doesn't send Option as
  * Alt (kitty's default; Ghostty's too, unless `macos-option-as-alt` is set): alt+l arrives as ¬. Option+e,

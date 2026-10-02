@@ -1,5 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
-import { follow, RowView, wheelRows } from "../scroll";
+import { RowView, wheelRows } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -14,9 +14,8 @@ import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
-import { artLines, bg, C, fg, pad, RESET, tint } from "../style";
-import { themed } from "../theme";
-import type { Key } from "../term";
+import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
@@ -137,12 +136,6 @@ export interface Pane {
   headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void }[] | null;
 }
 
-let SEL_ON = "", SEL_OFF = "";
-themed(() => { SEL_ON = bg(C.blue) + fg(C.white); SEL_OFF = tint("idle") + fg(C.white); });
-const dim = (s: string) => fg(C.dark) + s + RESET;
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
-const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
-const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 /**
  * A tile's own key or click as the person: the action its kind registers (PIE-506), the same one `act` runs on that
@@ -404,7 +397,7 @@ export class ThreadPane implements Pane {
       const last = i === this.kids!.length - 1;
       this.kidLine.push(lines.length);
       const head = `${last ? "└" : "├"} ${k.author ?? "?"} · ${ago(k.updatedAt)} · ${subject(k)}`;
-      lines.push(i === this.sel ? (focused ? SEL_ON : SEL_OFF) + pad(head, w) + RESET : fg(C.blue) + head.slice(0, 1) + " " + fg(C.yellow) + pad(head.slice(2), w - 2) + RESET);
+      lines.push(i === this.sel ? selected(focused) + pad(head, w) + RESET : fg(C.blue) + head.slice(0, 1) + " " + fg(C.yellow) + pad(head.slice(2), w - 2) + RESET);
       const snippet = k.text.split("\n").slice(1).map(l => withoutPropertyTokens(l).trim()).find(Boolean) ?? "";
       if (snippet) lines.push(fg(C.blue) + (last ? " " : "│") + "   " + fg(C.dark) + pad(snippet, w - 4) + RESET);
     });
@@ -445,7 +438,7 @@ export class ActivityPane implements Pane {
   readonly kind = "activity";
   private rows: Activity[] | null = null;
   private sel = 0;
-  private top = 0;
+  private view = new RowView();
   private timer: Timer | null = null;
   title() { return "last callers · live"; }
   hint() { return "j k pick · ⏎ open · r reload"; }
@@ -458,12 +451,12 @@ export class ActivityPane implements Pane {
   onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(desk), 1500); }
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.rows) return { lines: [dim("listening…")] };
-    this.top = follow(this.sel, this.top, h);
+    this.view.place(this.sel, this.rows.length, h);
     return {
-      lines: this.rows.slice(this.top, this.top + h).map((r, i) => {
+      lines: this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
         const aw = Math.max(6, Math.min(16, Math.floor(w / 4), Math.max(...this.rows!.map(x => x.actor.length))));
         const when = ago(r.at).padStart(4), actor = pad(r.actor, aw), subj = subject(r.block);
-        if (this.top + i === this.sel) return (focused ? SEL_ON : SEL_OFF) + pad(`${when} ${actor} ${subj}`, w) + RESET;
+        if (this.view.top + i === this.sel) return selected(focused) + pad(`${when} ${actor} ${subj}`, w) + RESET;
         const who = r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan;
         return fg(C.dark) + when + " " + fg(who) + actor + " " + fg(C.grey) + pad(subj, Math.max(1, w - aw - 6)) + RESET;
       }),
@@ -477,7 +470,7 @@ export class ActivityPane implements Pane {
     if (ch(k) === "r") { runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, on); return true; }
     return false;
   }
-  click(_x: number, y: number, desk: DeskApi) { const i = this.top + y; if (i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
+  click(_x: number, y: number, desk: DeskApi) { const i = this.view.top + y; if (i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
   wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
 

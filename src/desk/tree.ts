@@ -19,18 +19,11 @@ import {
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
-import { bg, C, fg, pad, RESET, tint, width } from "../style";
-import { themed } from "../theme";
-import { follow } from "../scroll";
-import type { Key } from "../term";
+import { C, dim, fg, pad, RESET, selected, width } from "../style";
+import { RowView } from "../scroll";
+import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
-let SEL_ON = "", SEL_OFF = "";
-themed(() => { SEL_ON = bg(C.blue) + fg(C.white); SEL_OFF = tint("idle") + fg(C.white); });
-const dim = (s: string) => fg(C.dark) + s + RESET;
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
-const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
-const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 export type LinkGroupName = "outlinks" | "resources" | "backlinks";
 /** The Tree's groups in its order, each with the glyph the door draws. */
@@ -96,7 +89,7 @@ export class TreePane implements Pane {
   private targets = new Map<string, Msg>();
   private rows: TreeRow[] = [];
   private sel = 0;
-  private top = 0;
+  private view = new RowView();
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
@@ -417,9 +410,9 @@ export class TreePane implements Pane {
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     if (!this.roots) return { lines: [dim("dialing the outline…")] };
-    this.top = follow(this.sel, this.top, h);
-    const lines = this.rows.slice(this.top, this.top + h).map((r, i) => {
-      const on = this.top + i === this.sel;
+    this.view.place(this.sel, this.rows.length, h);
+    const lines = this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
+      const on = this.view.top + i === this.sel;
       const indent = "  ".repeat(r.depth);
       if (r.kind === "block") {
         const k = this.kids.get(r.m.id);
@@ -427,7 +420,7 @@ export class TreePane implements Pane {
         const mark = k === "loading" ? "…" : leaf ? "·" : this.open.has(r.m.id) || this.panels.has(r.key) ? "▾" : "▸";
         const tag = (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "").slice(0, 14);
         const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
-        if (on) return (focused ? SEL_ON : SEL_OFF) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
+        if (on) return selected(focused) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
         const here = desk.current?.id === r.m.id;
         return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
       }
@@ -436,7 +429,7 @@ export class TreePane implements Pane {
       let text = words.text, context = words.context;
       if (r.kind === "backlink") { const f = fitBacklinkRow(text, context, Math.max(4, w - width(head))); text = f.title; context = f.suffix; }
       const tail = context ? (r.kind === "backlink" ? " — " : " · ") + context : "";
-      if (on) return (focused ? SEL_ON : SEL_OFF) + pad(head + text + tail, w) + RESET;
+      if (on) return selected(focused) + pad(head + text + tail, w) + RESET;
       const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
       return pad(`${fg(C.lcyan)}${head}${fg(colour)}${text}${fg(C.dark)}${tail}`, w) + RESET;
     });
@@ -480,7 +473,7 @@ export class TreePane implements Pane {
    * as ⏎ does (on a note's mark, its links show or hide instead).
    */
   click(x: number, y: number, desk: DeskApi) {
-    const i = this.top + y, row = this.rows[i];
+    const i = this.view.top + y, row = this.rows[i];
     if (!row) return;
     const onMark = x <= row.depth * 2 + 1;
     if (row.kind === "block") {

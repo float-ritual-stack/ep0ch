@@ -416,6 +416,22 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "esc" });
   });
 
+  test("a long steps list scrolls like any list: moving up from the bottom moves the cursor, not the view", async () => {
+    await settled();
+    await select("Doing", cards.pantry.id);
+    press({ kind: "char", ch: "s" });
+    await until(() => !!B().steps?.read && !B().steps.busy, "the steps");
+    const real = B().steps.read;
+    B().steps.read = { ...real, items: Array.from({ length: 80 }, (_, i) => ({ ...real.items[0], text: `fictional step ${i + 1}` })) };
+    const shown = () => b.render(B().ctx).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, "")).join("\n");
+    for (let i = 0; i < 79; i++) press({ kind: "down" });
+    expect(shown()).toContain("fictional step 80");
+    press({ kind: "up" });
+    expect(shown()).toContain("fictional step 80");                    // the view stayed; the cursor moved up in it
+    B().steps.read = real;
+    press({ kind: "esc" });
+  });
+
   test("a trash whose answer was lost, but which landed, is reported as trashed with its undo (B4)", async () => {
     await settled();
     const rev = (await current(cards.pantry.id)).revision;

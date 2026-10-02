@@ -10,13 +10,14 @@
 // an item is the list kind's action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
 import { subject, type Msg } from "../board";
 import { type Actor, type SocketBoard } from "../socket";
-import { bg, C, fg, pad, RESET, tint } from "../style";
-import type { Key } from "../term";
+import { C, fg, pad, RESET, selected } from "../style";
+import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
+import { RowView } from "../scroll";
 
 export const WAITING_QUERY = "type=outbox-item outbox=waiting";
 const WAITING_LIMIT = 500;
@@ -59,7 +60,6 @@ export async function findWaiting(board: SocketBoard): Promise<Msg[]> {
 }
 
 type Row = { head: WaitGroup } | { item: Msg; n: number };
-const ch = (k: Key) => (k.kind === "char" && !k.ctrl ? k.ch : "");
 
 /** What `waiting.pick` answers: the item shown, and its place in the list (1 is the longest wait). */
 export type Picked = { n: number; of: number; id: string; who: string; title: string };
@@ -72,7 +72,7 @@ export class WaitingPane implements Pane {
   private rows: Row[] = [];
   /** The item picked, by its place in list order (0 is the longest wait), or -1. */
   at = -1;
-  private top = 0;
+  private view = new RowView();
   private reload: Timer | null = null;
 
   title() {
@@ -119,16 +119,14 @@ export class WaitingPane implements Pane {
       lines: [fg(C.white) + "Nobody owes you an answer." + RESET, "", fg(C.grey) + pad("An outbox item waits while it has [type::outbox-item] [outbox::waiting].", w) + RESET],
     };
     const sel = this.rows.findIndex(r => "item" in r && r.n === this.at);
-    if (sel < this.top) this.top = sel;
-    if (sel >= this.top + h) this.top = sel - h + 1;
-    // The group header above the picked item stays in view when the list scrolls to it.
-    if (this.top > 0 && this.top === sel && "head" in (this.rows[sel - 1] ?? {})) this.top--;
+    // The group header above the picked item comes into view with it.
+    this.view.place(sel >= 0 ? sel : null, this.rows.length, h, [sel - ("head" in (this.rows[sel - 1] ?? {}) ? 1 : 0), sel]);
     const tw = Math.min(10, Math.max(0, ...this.items.map(m => (m.props.ticket ?? "").length)));
     return {
-      lines: this.rows.slice(this.top, this.top + h).map(r => {
+      lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("head" in r) return pad(`${fg(C.yellow)}${r.head.who}${fg(C.dark)} · ${r.head.items.length} waiting · longest ${ago(r.head.since)}`, w) + RESET;
         const m = r.item, age = ago(sentAt(m)).padStart(4), ticket = (m.props.ticket ?? "").padEnd(tw), what = waitingOn(m).what;
-        if (r.n === this.at) return (focused ? bg(C.blue) : tint("idle")) + fg(C.white) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
+        if (r.n === this.at) return selected(focused) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
         const old = Date.now() - sentAt(m) > 3 * 86_400_000;
         return pad(` ${fg(old ? C.lred : C.brown)}${age} ${fg(C.lcyan)}${ticket} ${fg(C.grey)}${what}`, w) + RESET;
       }),
@@ -141,15 +139,15 @@ export class WaitingPane implements Pane {
   }
 
   key(k: Key, desk: DeskApi): boolean {
-    if (k.kind === "up" || ch(k) === "k") { if (this.at > 0) this.run(desk, { action: "waiting.pick", args: { n: this.at } }); return true; }
-    if (k.kind === "down" || ch(k) === "j") { if (this.at + 1 < this.ordered().length) this.run(desk, { action: "waiting.pick", args: { n: this.at + 2 } }); return true; }
+    if (isUp(k)) { if (this.at > 0) this.run(desk, { action: "waiting.pick", args: { n: this.at } }); return true; }
+    if (isDown(k)) { if (this.at + 1 < this.ordered().length) this.run(desk, { action: "waiting.pick", args: { n: this.at + 2 } }); return true; }
     if (k.kind === "enter" && this.at >= 0) { desk.focusKind("reader"); return true; }
     if (ch(k) === "r") { this.run(desk, { action: "waiting.reload" }); return true; }
     return false;
   }
 
   click(_x: number, y: number, desk: DeskApi) {
-    const r = this.rows[this.top + y];
+    const r = this.rows[this.view.top + y];
     if (r && "item" in r) this.run(desk, { action: "waiting.pick", args: { n: r.n + 1 } });
   }
 

@@ -17,8 +17,7 @@ import { LIST_FIELDS, type SocketBoard } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
 import { handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
-import { C, fg, LINK_END, linkTag, RESET } from "./style";
-const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
+import { BOLD, C, fg, LINK_END, linkTag, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 
 /** The statuses the service sends today; a newer one is drawn generically, with its reason. */
@@ -257,7 +256,7 @@ export function ticketRegion(p: ResourceProjection, t: TicketBlocks | null, part
     const openIt: LinkTarget = p.record ? { block: p.record.blockId, role: "resource", label } : projectionTarget(p);
     const title = link && part === "page" ? link(openIt, label) : label;
     wrap(`${title}${summary ? ` · ${summary}` : ""}`, inner - 2).forEach((r, k) => {
-      const body = k ? r : r.replace(title, fg(C.lcyan) + "\x1b[1m" + title + "\x1b[22m" + fg(C.white));
+      const body = k ? r : r.replace(title, fg(C.lcyan) + BOLD + title + UNBOLD + fg(C.white));
       out.push(shade(lead + (k ? "  " : fg(C.lcyan) + "∙ ") + fg(C.white) + body + RESET, w));
     });
     const compact = part === "page" && !!p.options.compact;
@@ -362,7 +361,7 @@ export function projectionRegion(ps: readonly ResourceProjection[], w: number, i
         const title = link ? link(projectionTarget(p), l.title) : l.title;
         const bad = p.status !== "ready" && p.status !== "stale";
         wrap(title + rest, inner - 2).forEach((row, k) => {
-          const body = k ? row : row.replace(title, fg(C.lcyan) + "\x1b[1m" + title + "\x1b[22m" + fg(bad ? C.yellow : C.white));
+          const body = k ? row : row.replace(title, fg(C.lcyan) + BOLD + title + UNBOLD + fg(bad ? C.yellow : C.white));
           out.push(shade(lead + (k ? "  " : fg(C.lcyan) + "∙ ") + fg(bad ? C.yellow : C.white) + body + RESET, w));
         });
         return;

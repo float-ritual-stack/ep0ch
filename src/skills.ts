@@ -3,6 +3,7 @@
 // checkout). `--all` adds contributor skills (`.agents/skills/` in both).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { ellipsize } from "./style";
 
 export interface Skill { name: string; source: string; description: string; path: string }
 export interface SkillRoot { source: string; dir: string }
@@ -68,7 +69,7 @@ export function formatSkills(skills: readonly Skill[], width = 100): string {
   if (!skills.length) return "no skills found";
   const n = Math.max(4, ...skills.map(s => s.name.length)), src = Math.max(6, ...skills.map(s => s.source.length));
   const room = Math.max(20, width - n - src - 4);
-  const cut = (s: string) => (s.length > room ? s.slice(0, room - 1) + "…" : s);
+  const cut = (s: string) => ellipsize(s, room);
   return skills.map(s => `${s.name.padEnd(n)}  ${s.source.padEnd(src)}  ${cut(s.description)}`).join("\n");
 }
 

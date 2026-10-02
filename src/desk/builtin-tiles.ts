@@ -1,3 +1,4 @@
+import { ch } from "../term";
 // The built-in tile kinds (PIE-505), registered at startup in the registry an extension's kinds join
 // (src/desk/tile-kinds.ts). Everything a kind does differently lives in its entry: how it's made, its keys
 // under ^W o, its actions, what it holds and shows, how it starts, saves and describes itself. The desk asks
@@ -109,7 +110,7 @@ const builtins = (): TileKind[] => [
     make: s => new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name }),
     actions: PTY_ACTIONS,
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
-    press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || (k.kind === "char" && !k.ctrl && k.ch === "e") ? { action: "tile.enter" } : null),
+    press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),
     holdsWork: p => (p as PtyPane).running,
     whenFree: (p, then) => {
       const t = p as PtyPane, was = t.onExit;
