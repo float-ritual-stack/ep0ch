@@ -214,7 +214,7 @@ thing after someone else's change.
 - **Screens are specs on the desk** (PIE-515): every tile has a name and every desk command works on each. The
   welcome's tiles are `welcome` (the list), `detail`, `backlinks` and `preview`; the brief is one tile, `brief`;
   Waiting is `waiting` beside `reader`; a pinned page is `pinned`. A screen's own actions are its tiles' kind's
-  (`welcome.select`, `brief.step`, `waiting.pick`): `act` finds the one tile of that kind, and the answer names
+  (`welcome.select`, `brief.step`, `waiting.pick`, `waiting.reload`): `act` finds the one tile of that kind, and the answer names
   it (`tile: "welcome"`). `peek`'s `kind` is the screen's name.
 - **The board is a screen spec on the desk** (PIE-511, PIE-515): every tile has a name and every desk command works there.
   Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
@@ -234,7 +234,7 @@ thing after someone else's change.
   no tile lands after the column with the person's keys. Its own actions are the column kind's (`column.select`,
   `column.replies`, `column.scroll`, `column.filter`, `column.tag`, `column.split`, `column.copy`; `replies`,
   `filter`, `tag`, `split`, `copy` still answer); the layout's are the desk's (`tile.widen`, alias `widen`;
-  `tile.dock` (the old `pin`); `tile.close`; `tile.travel dir=back|forward`, the person's). The old `jump` is `search`
+  `tile.dock` (`p`; there is no `pin` alias); `tile.close`; `tile.travel dir=back|forward`, the person's). The old `jump` is `search`
   then `open`.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
@@ -291,7 +291,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.collapse` (`reader.collapse`: `on=true`; `reader.expand`: `on=false`) | `tile`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
 | `tile.widen` | `tile` | gives the tile's flow column the wide place (a flow is the river's columns as a container); the person's keys stay where they are; said on screen. Refused outside a flow and where the flow is locked |
 | `tile.dock` | `tile`, `on` (default toggles) | docks the tile's flow column so it resists compression (the river's `p`), or lets it go; said on screen. Refused outside a flow and where the flow is locked |
-| `tile.travel` | `tile`, `dir` (back, the default, or forward) | the person's keys go back to the column this one was opened from, or forward again (the river's alt+← alt+→ backspace). The person's: an agent's is refused, its way named (open beside) |
+| `tile.travel` | `tile`, `dir` (back, the default, or forward) | the person's keys go back to the column this one was opened from, or forward again (the river's alt+← backspace alt+b, alt+→ alt+f). The person's: an agent's is refused, its way named (open beside) |
 | `tile.float` (`pane.float`), `float.place` | `tile`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or docked back; never the person's tile |
 | `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
 | `tile.drawer` | `tile`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
@@ -377,11 +377,11 @@ at, and what it does while they're typing:
 | a board reader named by an agent (`tile=detail`, `tile=float`, a block id) | no: the person's keys stay on the lanes or where they were | allowed |
 | `board.hub id=` | yes: the board shown | refused while the person holds the keys; said on the status bar |
 | `search`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
-| `tile.enter`, `tile.leave`, `agent.enter`, `agent.leave`, `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |
+| `tile.enter`, `tile.leave`, `host.enter`, `host.leave` (aliases `agent.enter`, `agent.leave`), `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |
 | note actions (`edit.*`, `comment.*`, `link.follow`, …) | no; an edit or comment an agent opens is the person's only when they enter it | allowed |
 | an agent's `edit`, `edit.text`, `props.edit`, `task.status` or `task.undo` on a note the person has open in a draft in this door (in another reader) | no | refused (the draft session's agent rule, `agentRefusal` in `src/draft-session.ts`): a write underneath would make their save stale. It patches their draft instead (`draft.patch`), or waits until it's saved or closed. `edit.text` in the very reader the person is editing in is refused (round 3): the draft is theirs whether or not they're typing, and while they type in a reader an agent's `edit.text` there is refused even in an edit the agent opened. It patches their draft (`draft.patch`), comments on the note, or marks it (`block.mark`). In an edit the agent opened and the person typed in but isn't typing in now, it replaces the text, copying theirs out first. The rule knows this door's drafts; another door's are covered by the service's hold |
 | the board's `card.move`, `step.set`, `card.trash` on a card open in a draft | no | refused for anyone until it's saved or closed (`openDraftOf`) |
-| an agent's `draft.*`, `edit.save`, `edit.close`, `comment.send`, `comment.close`, `session.leave` on a draft | no | only in a draft it opened and alone typed in (the same rule); `composer.leave` and `composer.close` are the person's |
+| an agent's `draft.*` (`draft.copy` answers the draft's text; only the person's copies to the clipboard), `edit.save`, `edit.close`, `comment.send`, `comment.close`, `session.leave` on a draft | no | only in a draft it opened and alone typed in (the same rule); `composer.leave` and `composer.close` are the person's |
 | an agent's reply to an invitation (the person's `@name` line in their own draft) | no: the cursor and view shift with it | a seam only (for `@yo`), with no action, key or rendering yet: `DraftSession.invite` grants one reply for the text above the line, checked by hash; `reply` swaps it in as one undo step, or keeps it as a suggestion when the person changed that text |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
@@ -468,8 +468,8 @@ the person does:
 - **Focus** is only the person's keys: which tile has them (`tile.focus`, and `focus`, its older name).
 - **An attention mark** is `block.mark`: a reason and who set it, framed and labelled in every tile showing the
   block (or an extmark on an nvim line), until it's dismissed.
-- **A tint** is `block.tint`: a block, lines or a passage tinted in one reader (PIE-423's "focus mark").
-  `focus.set` and `focus.clear` are its older names, kept for callers that use them.
+- **A tint** is `block.tint`: a block, lines or a passage tinted in one reader (PIE-423's "focus mark");
+  `block.untint` takes it away. `focus.set` and `focus.clear` are their older names, kept for callers that use them.
 
 ## Programs and state: what survives what
 

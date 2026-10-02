@@ -1986,8 +1986,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const c0 = k.kind === "char" && !k.ctrl ? k.ch : "";
     // A spine has the keys: ⏎ or space opens it; its own keys don't reach what it holds out of sight.
     if (this.collapsed.has(this.focus)) {
-      if (k.kind === "enter" || c0 === " ") return this.expandSpine(this.focus);
-      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { this.ctx.flash(`${this.readerLabel(this.focus)} is collapsed to a spine · ⏎ or a click opens it`); return; }
+      // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
+      if (k.kind === "enter" || c0 === " " || c0 === "c") return this.expandSpine(this.focus);
+      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { this.ctx.flash(`${this.readerLabel(this.focus)} is collapsed to a spine · c, ⏎ or a click opens it`); return; }
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.cmd("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));

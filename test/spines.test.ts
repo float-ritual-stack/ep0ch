@@ -243,6 +243,14 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(BV.where(b)).toBe("detail0");
   });
 
+  test("c on a folded lane opens it again, as the spine's hint says (round 3)", async () => {
+    await withDetail();
+    key(char("c"));                                                       // the Queued lane folds
+    expect(foldedLanes()).toBe(1);
+    key(char("c"));                                                       // and c on its spine opens it
+    expect(foldedLanes()).toBe(0);
+  });
+
   test("in the person's own edit, c is typed: it never collapses the reader they're writing in", async () => {
     const d = await withDetail();
     key({ kind: "tab" }); key({ kind: "tab" });

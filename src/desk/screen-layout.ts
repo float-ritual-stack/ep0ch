@@ -439,7 +439,12 @@ class Step<I> {
   private lockedWhy(e: Effective, what: string): string {
     return e.by.locked === "screen" ? `the screen is locked: ${what} is refused · ${UNLOCK}` : `${e.by.locked} is locked: ${what} is refused · ^W P (or layout.policy node=${e.by.locked} locked=false) unlocks it`;
   }
-  private whose(by: string | undefined) { return by === "screen" ? "the screen" : by; }
+  /** The container a policy came from, as a person reads it: its key (the lanes), else its id. */
+  private whose(by: string | undefined) {
+    if (by === "screen") return "the screen";
+    const key = by === undefined ? undefined : (nodeById(this.d.tree, by) as { key?: string } | null)?.key;
+    return key ? `the ${key} container` : by;
+  }
   /** The shape can't change around tile `id`: it, or a container over it, is locked. */
   private shape(id: I, what: string) { const e = this.policyAt(id); refuse(e.locked ? this.lockedWhy(e, what) : null); }
   /** A float has no place in the tree: whatever needs one waits until it's docked. */

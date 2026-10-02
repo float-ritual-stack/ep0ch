@@ -194,6 +194,14 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     expect(ok(locked, { op: "focus", tile: 4 }).focus).toBe(4);
   });
 
+  test("a refusal names a container by its key when it has one, never by its id (round 3)", () => {
+    extra = {};
+    const keyed = splitOf("col", [leaf(3), leaf(4)], [0.5, 0.5]);
+    (keyed as { key?: string }).key = "lanes";
+    const s = ok(fresh(splitOf("row", [leaf(1), leaf(2), keyed])), { op: "policy", tile: 3, set: { draggable: false }, clear: [] }).state;
+    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles \(draggable off\)/);
+  });
+
   test("a policy that keeps tiles: closable off folds instead; accepts and droppable refuse with who said so", () => {
     extra = {};
     let s = ok(fresh(), { op: "policy", tile: 3, set: { closable: false, droppable: false }, clear: [] }).state;

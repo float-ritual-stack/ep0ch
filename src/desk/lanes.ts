@@ -553,7 +553,7 @@ export class Lanes implements SourceModel {
   /** A lane folded to a spine is opened (a card moved or written into it should be seen). */
   private unfold(l: Lane) { if (this.host.folded(l)) void this.host.perform?.("tile.collapse", { on: false }, USER, l); }
 
-  // ── the board's drawers: the desk's drawer containers, changed by the desk's tile.pin and tile.drawer ──
+  // ── an agent's own card: its selection beside the person's cursor, and the cards it moves ──
 
   /**
    * An agent's `card.select`: the card its later card actions default to (its own reference, beside the
