@@ -51,6 +51,12 @@ function promised(def: ActionDef<unknown, unknown>, actor: Actor, state: keyof t
   return state === "typing" ? /the person is typing in middle; not moved/ : state === "at the keys" ? /the person is at the keys/ : null;
 }
 
+
+/** A screen of two readers that keep their own notes, `middle` and `side` (the host's own tiles, given by name). */
+const twoReaders = () => new Desk(
+  { name: "test", title: "desk", layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "middle" }, b: { t: "leaf", kind: "reader", name: "side" } } } },
+  { given: new Map([["middle", new ReaderPane()], ["side", new ReaderPane()]]) },
+);
 describe("the actor rule, for every action (PIE-514)", () => {
   const actions = () => allActionSets().flatMap(set => set.names().map(name => ({ set, name, def: set.def(name)! })));
 
@@ -285,7 +291,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   });
 
   test("the desk: tile.type by name, id, number and focused reaches the terminal; a reader is refused, saying what it is", async () => {
-    const desk = new Desk({ panes: [new ReaderPane(), new ReaderPane()], names: ["middle", "side"] });
+    const desk = twoReaders();
     app.push(desk);
     const D = desk as any;
     const t = await act("tile.open", { kind: "pty", name: "shell", cmd: "sh" }, "side");
@@ -390,7 +396,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     }
   }
   test("every action an agent runs on the desk, the board and the river leaves the person's keys where they are", async () => {
-    const desk = new Desk({ panes: [new ReaderPane(), new ReaderPane()], names: ["middle", "side"] });
+    const desk = twoReaders();
     app.push(desk);
     await act("open", { id: notes.beans.id }, "middle");
     await desk.dispatch.act({ action: "tile.focus", reader: "middle" }, USER);

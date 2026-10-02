@@ -6,7 +6,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Ctx, Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { Brief } from "../src/brief/brief";
 import { shellRunner } from "../src/drop";
 import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, LastCallers, Logon, MainMenu, MessageList, MessageReader, Stats, WhoOnline } from "../src/screens";
@@ -76,7 +75,7 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     const drawn = s.lines().slice(0, 23).join("\n");
     expect(drawn).not.toContain("Today");            // the art keeps its twelve slots
     s.click("T Today");
-    expect(s.top()).toBeInstanceOf(Brief);
+    expect(s.top().name).toBe("brief");
     s.stack.pop();
     s.click("X Showcase");
     expect(s.top()).toBeInstanceOf(Showcase);

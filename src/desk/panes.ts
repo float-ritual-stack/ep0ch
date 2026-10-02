@@ -46,10 +46,23 @@ export interface DeskApi {
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
   showFrom?(from: Pane, m: Msg): void;
+  /**
+   * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
+   * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
+   */
+  perform?(action: string, args: Record<string, unknown>, by?: Actor, tile?: Pane | string): Promise<unknown>;
+  /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
+  linked?(p: Pane): Pane | undefined;
+  /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */
+  ruleFor?(touches: "tile" | "screen", actor: Actor): string | null;
+  /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
+  focusPane?(p: Pane, actor: Actor): void;
+  /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
+  personTyping?(): boolean;
 }
 
 export interface Pane {
-  /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a view brings to a preset desk (the showcase's), never saved to desk.json. */
+  /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
   title(): string;
   hint(): string;
@@ -139,7 +152,7 @@ export { propertyChange };
  */
 export class ReaderPane implements Pane {
   /** "detail": a tile that keeps its note (held from the start); "preview": one that follows a tile or a file. */
-  readonly kind: "reader" | "detail" | "preview" = "reader";
+  readonly kind: TileKindName = "reader";
   readonly surface = new NoteSurface();
   private held = false;
   /**

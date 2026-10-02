@@ -122,6 +122,7 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
 | `marks.list` | every mark, and the tiles showing it |
 | `layout.list` | the layouts that can be loaded, saved or built in |
+| `screen.spec` | the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind with their names and args), key map, hint, band and where opens land; the data a screen note holds |
 | `actions` | everything the screen can do |
 
 ## The shell: screens and lists
@@ -210,6 +211,11 @@ thing after someone else's change.
   agent that outlives the door (the Herdr agent) is refused, not misled, after one. Any desk
   action takes `expected=<rev>`; if the layout changed since, it's refused and nothing is done ("the layout
   changed since revision 7 …"). Pass it whenever you name something by place: a `path`, or a `#number`.
+- **Screens are specs on the desk** (PIE-515): every tile has a name and every desk command works on each. The
+  welcome's tiles are `welcome` (the list), `detail`, `backlinks` and `preview`; the brief is one tile, `brief`;
+  Waiting is `waiting` beside `reader`; a pinned page is `pinned`. A screen's own actions are its tiles' kind's
+  (`welcome.select`, `brief.step`, `waiting.pick`): `act` finds the one tile of that kind, and the answer names
+  it (`tile: "welcome"`). `peek`'s `kind` is the screen's name.
 - **The board is a preset on the desk** (PIE-511): every tile has a name and every desk command works there.
   Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
   around it, so after `detail1` closes the other is still `detail2`, and floated (`tile.float`, `o`) it keeps it

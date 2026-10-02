@@ -1,4 +1,4 @@
-// A whole screen as a tile (PIE-413): the board, the river or the brief, dragged, tabbed and split like
+// A whole screen as a tile (PIE-413): the board or the river, dragged, tabbed and split like
 // any tile. It is the showcase's FramedScreen (src/showcase/frame.ts), the screen drawn inside a
 // rectangle with a Ctx whose terminal is that rectangle, not a copy of the screen. What the screen selects
 // (the board's card) is the tile's selection: a preview tile can follow it, and the board's own preview
@@ -11,15 +11,14 @@ import { FramedScreen } from "../showcase/frame";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 
-export type ScreenKind = "board" | "river" | "brief";
-export const SCREEN_KINDS: readonly ScreenKind[] = ["board", "river", "brief"];
+export type ScreenKind = "board" | "river";
+export const SCREEN_KINDS: readonly ScreenKind[] = ["board", "river"];
 
 /** The screen for a kind, built when the tile is first shown (every module has loaded by then). */
 function make(kind: ScreenKind): Screen {
   // Loaded here, not at the top: the brief is built on the desk, which builds these tiles.
   if (kind === "board") return new (require("./delivery").DeliveryBoard)();
-  if (kind === "river") return new (require("../river/river").River)();
-  return new (require("../brief/brief").Brief)();
+  return new (require("../river/river").River)();
 }
 
 export class ScreenTile implements Pane {

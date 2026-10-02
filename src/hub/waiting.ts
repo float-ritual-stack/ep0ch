@@ -5,17 +5,18 @@
 // name before the colon is the group, the rest is the question. `sent` ("2026-01-05 4:23 PM", local
 // time) is when the wait began; an item without it waits from when it was written.
 //
-// Built on the desk (a preset, as the brief is): the reader, its sessions, the mouse and `act` are the
-// desk's. Picking an item is an action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
+// A screen spec on the desk (PIE-515: `waitingSpec`): the list is a tile of its own kind (`waiting`, WAITING_KIND),
+// beside a reader that follows what it picks; the reader, its sessions, the mouse and `act` are the desk's. Picking
+// an item is the list kind's action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
 import { subject, type Msg } from "../board";
 import { type Actor, type SocketBoard } from "../socket";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
-import { Desk } from "../desk/desk";
-import { pair } from "../desk/screen-layout";
-import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
+import type { DeskApi, Pane, PaneView } from "../desk/panes";
+import type { ScreenSpec } from "../desk/screen-spec";
+import type { KindHost, TileKind } from "../desk/tile-kinds";
 
 export const WAITING_QUERY = "type=outbox-item outbox=waiting";
 const WAITING_LIMIT = 500;
@@ -65,9 +66,7 @@ export type Picked = { n: number; of: number; id: string; who: string; title: st
 
 /** The list: a header per person, a row per item (how long, the ticket, the question). */
 export class WaitingPane implements Pane {
-  readonly kind = "exhibit";
-  /** The screen it belongs to: the keys and clicks run its actions. */
-  screen: Waiting | null = null;
+  readonly kind = "waiting";
   items: Msg[] | null = null;
   problem = "";
   private rows: Row[] = [];
@@ -138,7 +137,6 @@ export class WaitingPane implements Pane {
 
   /** Run a list action as the person, saying a refusal on screen. */
   private run(desk: DeskApi, req: ActRequest) {
-    if (!this.screen) return;
     void desk.press?.(this, WAITING_ACTIONS, req.action, { ...(req.args ?? {}) });
   }
 
@@ -169,50 +167,49 @@ export class WaitingPane implements Pane {
   }
 }
 
-export class Waiting extends Desk {
-  readonly list: WaitingPane;
-  constructor() {
-    const list = new WaitingPane();
-    super({ title: "waiting on others", panes: [list, new ReaderPane(true)], layout: ([l, r]) => pair("row", 0.5, { t: "leaf", id: l! }, { t: "leaf", id: r! }) });
-    this.list = list;
-    list.screen = this;
-    // Its own actions (which item) before the desk's, through the desk's dispatcher.
-    this.dispatch.register([{ set: WAITING_ACTIONS, takes: "screen", on: () => this }], true);
-  }
-
-  /** Show the item at `n` (1 is the longest wait) or with `id`, as `actor`; an agent's is said on screen. */
-  pick(which: { n?: number; id?: string }, actor: Actor): Picked {
-    const list = this.list.ordered();
-    if (!this.list.items) throw new ActionRefused("the waiting items are still being read");
-    if (!list.length) throw new ActionRefused("nothing is waiting");
-    const i = which.id !== undefined ? list.findIndex(m => m.id === which.id) : (which.n ?? 0) - 1;
-    if (i < 0 || i >= list.length) throw new ActionRefused(which.id !== undefined ? `no waiting item ${which.id}` : `pick 1 to ${list.length}`);
-    const m = list[i]!;
-    this.list.at = i;
-    this.setCurrent(m, { from: this.list, by: actor });
-    return { n: i + 1, of: list.length, id: m.id, who: waitingOn(m).who, title: subject(m) };
-  }
-
-  override describe() {
-    return { ...super.describe(), kind: "waiting", picked: this.list.at >= 0 ? this.list.at + 1 : null, waiting: this.list.items ? this.list.describe() : null, problem: this.list.problem || undefined };
-  }
+/** Show the item at `n` (1 is the longest wait) or with `id`, as `actor`; an agent's is said on screen. */
+function pick(list: WaitingPane, desk: DeskApi, which: { n?: number; id?: string }, actor: Actor): Picked {
+  const items = list.ordered();
+  if (!list.items) throw new ActionRefused("the waiting items are still being read");
+  if (!items.length) throw new ActionRefused("nothing is waiting");
+  const i = which.id !== undefined ? items.findIndex(m => m.id === which.id) : (which.n ?? 0) - 1;
+  if (i < 0 || i >= items.length) throw new ActionRefused(which.id !== undefined ? `no waiting item ${which.id}` : `pick 1 to ${items.length}`);
+  const m = items[i]!;
+  list.at = i;
+  desk.setCurrent(m, { from: list, by: actor });
+  return { n: i + 1, of: items.length, id: m.id, who: waitingOn(m).who, title: subject(m) };
 }
 
 /** Which waiting item is shown, and reading the list again. The keys, a click and `act` call the same code. */
-export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?: string }; "waiting.reload": Record<string, never> }, Waiting>("waiting", {
+export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?: string }; "waiting.reload": Record<string, never> }, KindHost>("waiting", {
   "waiting.pick": {
     summary: "show a waiting item in the reader: n (1 is the longest wait, as describe lists them) or id; refused to an agent while the person is typing here", keys: "j k ↑ ↓ click",
     touches: "screen", replay: "safe", says: r => `showed what ${r.who} owes (${r.n} of ${r.of})`,
     args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true } },
-    run(a, w, actor) {
+    run(a, { pane, desk }, actor) {
       if ((a.n === undefined) === (a.id === undefined)) throw new ActionRefused("waiting.pick takes n or id, one of them");
-      return w.pick(a, actor);
+      return pick(pane as WaitingPane, desk, a, actor);
     },
   },
   "waiting.reload": {
     summary: "ask the outline again what's waiting (it also does when the outline changes)", keys: "r",
     touches: "nothing", replay: "safe",
     args: {},
-    async run(_, w) { await w.list.load(w); return { waiting: w.list.items?.length ?? 0 }; },
+    async run(_, { pane, desk }) { const w = pane as WaitingPane; await w.load(desk); return { waiting: w.items?.length ?? 0 }; },
   },
 });
+
+/** The waiting list as a tile kind: the list, its actions, and what `peek` says about it. */
+export const WAITING_KIND: TileKind = {
+  kind: "waiting", about: "the outbox items still waiting for an answer, by who they wait on", noun: "the waiting list",
+  make: () => new WaitingPane(), actions: WAITING_ACTIONS,
+  peek: p => { const w = p as WaitingPane; return { picked: w.at >= 0 ? w.at + 1 : null, waiting: w.items ? w.describe() : null, problem: w.problem || undefined }; },
+};
+
+/** Waiting on others: the list beside a reader that follows what it picks. */
+export function waitingSpec(): ScreenSpec {
+  return {
+    name: "waiting", title: "waiting on others",
+    layout: { focus: "waiting", root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "waiting", name: "waiting" }, b: { t: "leaf", kind: "reader", name: "reader" } } },
+  };
+}

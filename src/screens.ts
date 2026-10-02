@@ -16,9 +16,7 @@ import { Desk } from "./desk/desk";
 import { River } from "./river/river";
 import { DeliveryBoard } from "./desk/delivery";
 import { Showcase } from "./showcase/showcase";
-import { Brief } from "./brief/brief";
-import { Waiting } from "./hub/waiting";
-import { Welcome } from "./hub/welcome";
+import { openScreen } from "./desk/screen-specs";
 import { ago, bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
@@ -219,29 +217,29 @@ export class Logon implements Screen {
  * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
  */
 /** `action`: the item runs a shell action instead of opening a screen (`!`, `screen.shell`). */
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: abstract new (...args: any[]) => Screen; action?: "screen.shell" }
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" }
 
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
   { key: "J", label: "Join", open: () => new Conferences() },
-  { key: "K", label: "Kanban", open: () => new DeliveryBoard(), one: DeliveryBoard },
+  { key: "K", label: "Kanban", open: () => new DeliveryBoard(), one: "board" },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
   { key: "W", label: "Who's on", open: () => new WhoOnline() },
   { key: "L", label: "Lastcall", open: () => new LastCallers() },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
-  { key: "Q", label: "Quay", open: () => new River(), one: River },
+  { key: "Q", label: "Quay", open: () => new River(), one: "river" },
   { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
-  { key: "D", label: "Desk", open: () => Desk.resume(), one: Desk },
+  { key: "D", label: "Desk", open: () => openScreen("desk"), one: "desk" },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
   // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
-  { key: "X", label: "Showcase", open: () => new Showcase(), one: Showcase },
+  { key: "X", label: "Showcase", open: () => new Showcase(), one: "showcase" },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
-  { key: "T", label: "Today", open: () => new Brief(), one: Brief },
+  { key: "T", label: "Today", open: () => openScreen("brief"), one: "brief" },
   // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::1]…; without
   // any, the agents' [[claude-now]] page, which C pinned before).
-  { key: "O", label: "Waiting", open: () => new Waiting(), one: Waiting },
-  { key: "C", label: "Welcome", open: () => new Welcome(), one: Welcome },
+  { key: "O", label: "Waiting", open: () => openScreen("waiting"), one: "waiting" },
+  { key: "C", label: "Welcome", open: () => openScreen("welcome"), one: "welcome" },
   // Drop to shell, the BBS's drop to DOS: the person's login shell in their terminal, the door back when it exits.
   { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
 ];
@@ -446,8 +444,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       if (item.action) return again ? again(item.action, {}) : Promise.reject(new ActionRefused(`${item.action} runs from the door's own dispatcher`));
       // The menu lights what it opens, so coming back it's where the person left it.
       if (here instanceof MainMenu) here.selected = ITEMS.indexOf(item);
-      // Exact class: the brief, Waiting and the welcome are desks too, and each is its own screen.
-      const open = item.one && ctx.screens?.().find(x => x.constructor === item.one);
+      // By name: the brief, Waiting and the welcome are desks too (PIE-515: specs on it), and each is its own screen.
+      const open = item.one && ctx.screens?.().find(x => x.name === item.one);
       if (open) throw new ActionRefused(`the ${open.title} is already open${open === here ? "" : " under this screen; screen.back gets back to it"}`);
       const s = openItem(item, ctx);
       return { opened: s?.title ?? item.label, key: item.key };
@@ -537,9 +535,18 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
  * pressed on (inside a frame, the frame's screens); a refusal is said on the status bar. Any screen's q, Esc and V run these.
  */
 export function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
-  const d: Dispatcher = new Dispatcher({ title: here.title, ctx: () => ctx }, [{ set: SHELL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here, again: (n: string, a: Record<string, unknown>) => d.press(n, a) }) }]);
-  void d.press(name, args);
+  // One dispatcher per screen, made the first time it runs a shell key and kept with it (never one per key).
+  let s = shells.get(here);
+  if (!s) {
+    const e: { ctx: Ctx; d: Dispatcher } = { ctx, d: null as unknown as Dispatcher };
+    e.d = new Dispatcher({ get title() { return here.title; }, ctx: () => e.ctx }, [{ set: SHELL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here, again: (n: string, a: Record<string, unknown>) => e.d.press(n, a) }) }]);
+    shells.set(here, s = e);
+  }
+  s.ctx = ctx;
+  void s.d.press(name, args);
 }
+/** Each screen's shell dispatcher (`shellKey`), and the context it's shown in now (the door's, or a frame's). */
+const shells = new WeakMap<Screen, { ctx: Ctx; d: Dispatcher }>();
 
 // The desk and the showcase run q, Esc and V through this too (they can't import this module back).
 registerShellKey(shellKey);

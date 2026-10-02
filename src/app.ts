@@ -85,6 +85,11 @@ export interface Ctx {
 
 export interface Screen {
   title: string;
+  /**
+   * What the screen is, by name (a screen spec's, PIE-515: `desk`, `board`, `welcome`; the river's, the showcase's):
+   * a menu item that keeps state opens only one screen of its name at a time.
+   */
+  readonly name?: string;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
   key(k: Key, ctx: Ctx): void;

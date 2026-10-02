@@ -8,6 +8,7 @@ import { basename, resolve } from "node:path";
 import type { Msg } from "../board";
 import type { Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "./panes";
+import type { TileKindName } from "./tile-kinds";
 
 export type PreviewSource = { tile: string } | { file: string };
 
@@ -31,7 +32,7 @@ export function fileNote(path: string): Msg {
 const WRITES = new Set(["e", "C", "m", "i", "I"]);
 
 export class PreviewPane extends ReaderPane {
-  override readonly kind = "preview" as const;
+  override readonly kind: TileKindName = "preview";
   private watching: string | null = null;
   /** How many times the file was read again after it changed (tests and `peek`). */
   reads = 0;

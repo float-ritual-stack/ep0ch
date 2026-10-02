@@ -2,10 +2,9 @@
 // it); without one, the logon, then the main menu, the newest daily brief (EP0CH_LANDING=brief) or the
 // welcome notes (EP0CH_LANDING=welcome).
 import type { Screen } from "./app";
-import { Brief } from "./brief/brief";
 import { DeliveryBoard } from "./desk/delivery";
 import { Desk } from "./desk/desk";
-import { Welcome } from "./hub/welcome";
+import { openScreen } from "./desk/screen-specs";
 import { River } from "./river/river";
 import { MainMenu } from "./screens";
 import { Showcase } from "./showcase/showcase";
@@ -29,8 +28,8 @@ export function startScreens(args: readonly string[], env: Record<string, string
   const layoutAt = args.indexOf("--layout");
   if (layoutAt >= 0 && args[layoutAt + 1]) return [new MainMenu(), new Desk(undefined, { layout: args[layoutAt + 1] })];
   if (args.includes("--desk")) return [new MainMenu(), new Desk()];
-  if (args.includes("--brief")) return [new MainMenu(), new Brief()];
-  if (args.includes("--welcome")) return [new MainMenu(), new Welcome()];
+  if (args.includes("--brief")) return [new MainMenu(), openScreen("brief")];
+  if (args.includes("--welcome")) return [new MainMenu(), openScreen("welcome")];
   const landing = landingOf(env);
-  return [landing === "brief" ? logon(() => new Brief()) : landing === "welcome" ? logon(() => new Welcome()) : logon()];
+  return [landing === "brief" ? logon(() => openScreen("brief")) : landing === "welcome" ? logon(() => openScreen("welcome")) : logon()];
 }

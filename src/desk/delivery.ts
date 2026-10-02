@@ -26,7 +26,8 @@ import { Desk } from "./desk";
 import { ReaderPane, sessionName, sessionStart, TreePane, type Pane, type SessionKind } from "./panes";
 import { PreviewPane } from "./preview";
 import { BacklinksPane, BACKLINKS_ACTIONS } from "./backlinks-pane";
-import { DetailPane, type LayoutSpec } from "./tiles";
+import { DetailPane, savedTree, type LayoutSpec, type TileSpec } from "./tiles";
+import type { ScreenSpec } from "./screen-spec";
 import { columnsOf, drawerOf, leaf, leaves, node, parentOf, serialize, splitOf, visible, type At, type Columns, type Dir, type LNode, type Op, type Policy } from "./screen-layout";
 import { TILE_ACTIONS, type TileDone } from "./tile-actions";
 import { shellKeyOf } from "../shell-keys";
@@ -96,15 +97,21 @@ const withPolicy = <N extends { policy?: Policy }>(n: N, p: Policy): N => { n.po
  * The board's screen: the outline drawer (the tree over its preview) on the left, then the lanes over the readers
  * row (the preview, then the details), the backlinks drawer (the list beside its preview) at the bottom.
  */
-function boardTree(ids: number[], hub: string | undefined): LNode {
-  const [tree, treePv, preview, links, linksPv] = ids as [number, number, number, number, number];
+function boardTree<I>(ids: I[], hub: string | undefined): LNode<I> {
+  const [tree, treePv, preview, links, linksPv] = ids as [I, I, I, I, I];
   const outline = withPolicy(splitOf("col", [leaf(tree), leaf(treePv)], [0.6, 0.4], "outline"), DRAWER_POLICY);
-  const lanes = columnsOf<number>([], { key: "lanes", ...(hub ? { source: `hub:${hub}` } : {}), policy: { ...LANES_POLICY } });
-  const readers = splitOf<number>("row", [{ t: "tabs", ids: [preview], active: 0, policy: { ...PREVIEW_POLICY } }], [4], "readers");
+  const lanes = columnsOf<I>([], { key: "lanes", ...(hub ? { source: `hub:${hub}` } : {}), policy: { ...LANES_POLICY } });
+  const readers = splitOf<I>("row", [{ t: "tabs", ids: [preview], active: 0, policy: { ...PREVIEW_POLICY } }], [4], "readers");
   const backlinks = withPolicy(splitOf("row", [leaf(links), leaf(linksPv)], [0.5, 0.5], "links"), DRAWER_POLICY);
   // The backlinks stay open while a source is read in a detail (stays); the outline slides shut as the keys leave it.
-  const board = splitOf<number>("col", [lanes, readers, { t: "drawer", kid: backlinks, edge: "down", open: false, policy: { stays: true } }], [0.42, 0.58, 0.36], "board");
+  const board = splitOf<I>("col", [lanes, readers, { t: "drawer", kid: backlinks, edge: "down", open: false, policy: { stays: true } }], [0.42, 0.58, 0.36], "board");
   return splitOf("row", [{ t: "drawer", kid: outline, edge: "left", open: false, policy: { min: 28 } }, board], [0.3, 0.7]);
+}
+/** The board as a screen spec: its tiles by kind and name, in the board's tree. */
+function boardSpec(hub: string | undefined): ScreenSpec {
+  const T = (kind: string, name: string, more: Partial<TileSpec> = {}): TileSpec => ({ t: "leaf", kind, name, ...more });
+  const tiles = [T("tree", "tree"), T("preview", "tree-preview", { source: "tile:tree" }), T("preview", "preview", { source: "tile:lanes" }), T("backlinks", "backlinks", { source: "tile:preview" }), T("preview", "backlinks-preview", { source: "tile:backlinks" })];
+  return { name: "board", title: "board", digits: false, layout: { focus: "preview", root: savedTree(boardTree(tiles, hub)) } };
 }
 
 export class DeliveryBoard extends Desk {
@@ -162,8 +169,7 @@ export class DeliveryBoard extends Desk {
   /** `persist: false`: the layout and the remembered hub stay in memory (the showcase's board). */
   constructor(private readonly hubId?: string, private readonly persist = true) {
     const s = persist ? readState<Saved>("delivery.json") : null;
-    const panes: Pane[] = [new TreePane(), new PreviewPane({ tile: "tree" }), new PreviewPane({ tile: "lanes" }), new BacklinksPane("preview"), new PreviewPane({ tile: "backlinks" })];
-    super({ title: "board", panes, names: [...FIXED], digits: false, focus: 2, layout: ids => boardTree(ids, hubId) });
+    super(boardSpec(hubId));
     if (s?.hubs && typeof s.hubs === "object") this.hubs = { ...s.hubs };
     if (typeof s?.lane === "string") this.wantLane = s.lane;
     // The board as the person left it (sizes, drawers pinned or shut, lanes folded), if it has the board's shape.

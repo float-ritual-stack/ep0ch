@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { densest, logoCells, orderWelcome, placeOfKey, tabKey, Welcome } from "../src/hub/welcome";
+import { densest, logoCells, orderWelcome, placeOfKey, tabKey, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
@@ -56,7 +56,7 @@ describe("the logo band", () => {
 describe("where the door opens", () => {
   const logon = (then?: () => Screen) => ({ title: then ? `logon, then ${then().title}` : "logon" }) as Screen;
   test("--welcome opens it over the main menu; EP0CH_LANDING=welcome lands there after the logon", () => {
-    expect(startScreens(["--welcome"], {}, logon).map(x => x.constructor)).toEqual([MainMenu, Welcome]);
+    expect(startScreens(["--welcome"], {}, logon).map(x => x.name ?? x.constructor)).toEqual([MainMenu, "welcome"]);
     expect(startScreens([], { EP0CH_LANDING: "welcome" }, logon).map(x => x.title)).toEqual(["logon, then welcome"]);
     expect(landingOf({ EP0CH_LANDING: " Welcome " })).toBe("welcome");
   });
@@ -71,7 +71,10 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   const idle = () => { (app as any).lastInput = 0; };
   const ch = (c: string) => press({ kind: "char", ch: c });
   const mouse = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
-  const top = () => (app as any).stack.at(-1) as Welcome;
+  const top = () => (app as any).stack.at(-1) as Desk;
+  const tileOf = <P>(name: string) => top().pane(name) as P;
+  /** The welcome list (its notes), the detail, the preview and the backlinks: the screen's tiles, by name. */
+  const list = () => tileOf<WelcomeList>("welcome");
   const lines = () => top().render(app).lines.map(plain);
   const screen = () => lines().join("\n");
   /** Where `text` is drawn: its column and row. */
@@ -92,15 +95,15 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   test("C opens it; with no welcome notes it says how to tag one, and shows [[claude-now]] once there is one", async () => {
     app.push(new MainMenu());
     ch("C");
-    expect(top()).toBeInstanceOf(Welcome);
-    await until(() => top().items !== null, "the welcome notes asked for");
+    expect(top().name).toBe("welcome");
+    await until(() => list().items !== null, "the welcome notes asked for");
     expect(screen()).toContain("No note is a welcome note");
     expect(screen()).toContain("Tag one [welcome::1]");
     expect(screen()).toContain("Nothing to read yet");
     idle();
     await expect(app.act({ action: "welcome.select", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no note is a welcome note yet/);
     const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
-    await until(() => top().detail.msg?.id === page.id, "the fallback page, once it exists");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === page.id, "the fallback page, once it exists");
     await until(() => screen().includes("Start here: the jam jars."), "the page drawn");
     expect(screen()).toContain("Meanwhile the detail shows");
     expect((app.describe() as any).state).toMatchObject({ kind: "welcome", welcome: [], fallback: { page: "claude-now", id: page.id } });
@@ -112,9 +115,9 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     n.rules = await board.createBlock(null, "House rules [welcome::2]\nWipe the counter.");
     n.apple = await board.createBlock(null, "Apple notes [welcome::true]\nCrisp ones only.");
     n.start = await board.createBlock(null, `Start here [welcome::1]\nFirst, boil ((${n.kettle.id}|the kettle)). Then read the rules.`);
-    await until(() => top().items?.length === 3 && top().detail.msg?.id === n.start.id, "three welcome notes, the first in the detail");
+    await until(() => list().items?.length === 3 && tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "three welcome notes, the first in the detail");
     await until(() => screen().includes("First, boil"), "the first note drawn");
-    expect(top().items!.map(m => m.id)).toEqual([n.start.id, n.rules.id, n.apple.id]);
+    expect(list().items!.map(m => m.id)).toEqual([n.start.id, n.rules.id, n.apple.id]);
     expect(focus()).toBe("detail");
     const tabs = at("1 Start here");
     expect(lines()[tabs.y]).toMatch(/\[=.*1 Start here =.*2 House rules =.*3 Apple notes =+\]/);
@@ -123,51 +126,51 @@ describe.skipIf(!outliner)("the welcome screen", () => {
 
   test("digits and clicks on tabs pick a note; the list down the side does too", async () => {
     ch("2");
-    await until(() => top().detail.msg?.id === n.rules.id, "2: the second");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.rules.id, "2: the second");
     expect(focus()).toBe("detail");
     const tab = at("3 Apple notes");
     mouse(tab.x + 2, tab.y);
-    await until(() => top().detail.msg?.id === n.apple.id, "a click on the third tab");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.apple.id, "a click on the third tab");
     ch("9");
     await until(() => (app as any).message?.includes("pick 1 to 3"), "9: no ninth, said");
     press({ kind: "tab", }); press({ kind: "backtab" }); press({ kind: "backtab" });
     expect(focus()).toBe("welcome");
     ch("k");
-    await until(() => top().detail.msg?.id === n.rules.id, "k in the list: the one above");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.rules.id, "k in the list: the one above");
     expect(focus()).toBe("welcome");
     press({ kind: "enter" });
     await until(() => focus() === "detail", "⏎ in the list reads it: the detail has the keys");
     ch("1");
-    await until(() => top().detail.msg?.id === n.start.id, "back to the first");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "back to the first");
   });
 
   test("⏎ on a link in the detail opens it in the preview; alt+⏎ reads it in the detail; back returns", async () => {
     await until(() => screen().includes("First, boil"), "the start note drawn");          // [ ] step through what's drawn
     ch("]");
     press({ kind: "enter" });
-    await until(() => top().preview.msg?.id === n.kettle.id, "the kettle in the preview");
-    expect(top().detail.msg?.id).toBe(n.start.id);
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.kettle.id, "the kettle in the preview");
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     expect(focus()).toBe("detail");
     await until(() => screen().includes("preview · The kettle"), "the preview's header");
     press({ kind: "alt-enter" });
-    await until(() => top().detail.msg?.id === n.kettle.id, "alt+⏎: the kettle is read in the detail");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "alt+⏎: the kettle is read in the detail");
     expect(screen()).toContain("read here · The kettle");
     press({ kind: "backspace" });
-    await until(() => top().detail.msg?.id === n.start.id, "back: the start note again");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "back: the start note again");
   });
 
   test("a click on a link opens it in the preview; a ctrl-click reads it in the detail", async () => {
-    top().preview.show(null, top());
+    tileOf<WelcomePreview>("preview").show(null, top());
     const link = at("the kettle", at("First, boil").y);
     mouse(link.x + 1, link.y);
-    await until(() => top().preview.msg?.id === n.kettle.id, "the click: preview");
-    expect(top().detail.msg?.id).toBe(n.start.id);
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.kettle.id, "the click: preview");
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     mouse(link.x + 1, link.y, 16);
-    await until(() => top().detail.msg?.id === n.kettle.id, "the ctrl-click: detail");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "the ctrl-click: detail");
   });
 
   test("the detail's backlinks run under it and show in the same preview; alt+⏎ reads one here", async () => {
-    await until(() => top().backlinks.data !== null && top().backlinks.target?.id === n.kettle.id, "the kettle's backlinks");
+    await until(() => tileOf<BacklinksPane>("backlinks").data !== null && tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id, "the kettle's backlinks");
     await until(() => screen().includes("Tea shelf"), "the backlinks drawn");
     expect(screen()).toContain("Start here");
     const rows = (top().describe() as any).panes.find((p: any) => p.name === "backlinks").backlinks.rows as { id?: string; text: string }[];
@@ -175,37 +178,37 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(shelfRow).toBeGreaterThan(0);
     // By keys: Tab to the backlinks, move to the shelf, and it shows in the preview.
     while (focus() !== "backlinks") press({ kind: "tab" });
-    top().backlinks.sel = 0;
+    tileOf<BacklinksPane>("backlinks").sel = 0;
     for (let i = 1; i < shelfRow; i++) ch("j");
-    await until(() => top().preview.msg?.id === n.shelf.id, "the selected backlink in the preview");
-    expect(top().detail.msg?.id).toBe(n.kettle.id);
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.shelf.id, "the selected backlink in the preview");
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.kettle.id);
     press({ kind: "alt-enter" });
-    await until(() => top().detail.msg?.id === n.shelf.id, "alt+⏎ on a backlink: read here");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.shelf.id, "alt+⏎ on a backlink: read here");
     expect(focus()).toBe("detail");
     press({ kind: "backspace" });
-    await until(() => top().detail.msg?.id === n.kettle.id, "back to the kettle");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "back to the kettle");
     // By the mouse: a click on a backlink row shows it in the preview.
-    top().preview.show(null, top());
-    await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks, read again");
+    tileOf<WelcomePreview>("preview").show(null, top());
+    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks, read again");
     const r = at("Tea shelf", at("backlinks · The kettle").y);
     mouse(r.x, r.y);
-    await until(() => top().preview.msg?.id === n.shelf.id, "the clicked backlink in the preview");
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.shelf.id, "the clicked backlink in the preview");
   });
 
   test("Tab goes detail → backlinks → preview → list; landing on the backlinks shows the selected row", async () => {
     ch("1");
-    await until(() => top().detail.msg?.id === n.start.id && focus() === "detail", "the start note");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id && focus() === "detail", "the start note");
     idle();
     await app.act({ action: "welcome.read", args: { id: n.kettle.id } });
-    await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks");
-    top().preview.show(null, top());
-    top().backlinks.sel = top().backlinks.rows().findIndex(r => r.kind === "source");
-    const first = (top().backlinks.rows()[top().backlinks.sel] as any).source.blockId as string;
+    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks");
+    tileOf<WelcomePreview>("preview").show(null, top());
+    tileOf<BacklinksPane>("backlinks").sel = tileOf<BacklinksPane>("backlinks").rows().findIndex(r => r.kind === "source");
+    const first = (tileOf<BacklinksPane>("backlinks").rows()[tileOf<BacklinksPane>("backlinks").sel] as any).source.blockId as string;
     const before = JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect));
     const order: string[] = [];
     for (let i = 0; i < 4; i++) { press({ kind: "tab" }); order.push(focus()); }
     expect(order).toEqual(["backlinks", "preview", "welcome", "detail"]);
-    await until(() => top().preview.msg?.id === first, "the selected backlink shown on landing");
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === first, "the selected backlink shown on landing");
     // Giving a tile the keys never moves a tile.
     expect(JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect))).toBe(before);
     // No tile numbers in the headers: the digits pick notes here.
@@ -214,33 +217,33 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   });
 
   test("the preview's note is read in the detail by alt+⏎ or a click on ⇱ read here", async () => {
-    await until(() => !!top().preview.msg, "something in the preview");
-    const shown = top().preview.msg!.id;
+    await until(() => !!tileOf<WelcomePreview>("preview").msg, "something in the preview");
+    const shown = tileOf<WelcomePreview>("preview").msg!.id;
     while (focus() !== "preview") press({ kind: "tab" });
     press({ kind: "alt-enter" });
-    await until(() => top().detail.msg?.id === shown, "alt+⏎ in the preview: read in the detail");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === shown, "alt+⏎ in the preview: read in the detail");
     expect(focus()).toBe("detail");
     press({ kind: "backspace" });
-    await until(() => top().detail.msg?.id === n.kettle.id, "back");
-    top().preview.show(n.rules, top());
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "back");
+    tileOf<WelcomePreview>("preview").show(n.rules, top());
     const c = at("⇱ read here");
     mouse(c.x + 2, c.y);
-    await until(() => top().detail.msg?.id === n.rules.id, "a click on ⇱ read here");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.rules.id, "a click on ⇱ read here");
   });
 
   test("alt+l, then a digit, links a tile (the desk's), not a welcome pick", async () => {
     ch("1");
-    await until(() => top().detail.msg?.id === n.start.id, "the start note");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "the start note");
     press({ kind: "alt", ch: "l" });
     ch("2");
-    expect(top().detail.msg?.id).toBe(n.start.id);
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     await Bun.sleep(50);
-    expect(top().detail.msg?.id).toBe(n.start.id);
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
   });
 
   test("agents pick, read and preview without taking the person's keys; never while they type", async () => {
     ch("1");
-    await until(() => top().detail.msg?.id === n.start.id && focus() === "detail", "the start note");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id && focus() === "detail", "the start note");
     while (focus() !== "welcome") press({ kind: "tab" });
     // Within the idle window an agent's pick waits (the person's key may be in flight); then it goes ahead.
     await expect(app.act({ action: "welcome.select", args: { n: 2, read: true }, as: "test-agent" })).rejects.toThrow(/at the keys/);
@@ -250,30 +253,30 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect((app as any).message).toContain("an agent (test-agent) put House rules in the detail (welcome 2)");
     expect(await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" })).toMatchObject({ id: n.kettle.id, n: null });
     expect(focus()).toBe("welcome");
-    await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks");
+    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks");
     await app.act({ action: "backlinks.pick", args: { id: n.start.id }, as: "test-agent" });
-    await until(() => top().preview.msg?.id === n.start.id, "an agent's pick in the preview");
+    await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.start.id, "an agent's pick in the preview");
     expect(focus()).toBe("welcome");
     expect(await app.act({ action: "welcome.logo", as: "test-agent" })).toHaveProperty("logo");
     // The person edits the detail: an agent's pick waits.
     ch("1");
-    await until(() => focus() === "detail" && top().detail.msg?.id === n.start.id, "the start note, read");
+    await until(() => focus() === "detail" && tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "the start note, read");
     ch("e");
-    await until(() => !!top().detail.draft, "the person's edit");
+    await until(() => !!tileOf<WelcomeDetail>("detail").draft, "the person's edit");
     idle();
     await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);
     ch("2");                                                                         // typed into the edit, not a pick
-    expect(top().detail.msg?.id).toBe(n.start.id);
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     press({ kind: "esc" }); press({ kind: "esc" });
-    await until(() => !top().detail.draft, "the edit closed");
+    await until(() => !tileOf<WelcomeDetail>("detail").draft, "the edit closed");
   });
 
   test("past ten notes the tenth is 0 and the rest are … more, which goes to the list", async () => {
     for (let i = 3; i <= 12; i++) await board.createBlock(null, `Extra ${String(i).padStart(2, "0")} [welcome::${i}]`);
-    await until(() => top().items?.length === 13, "thirteen welcome notes");
+    await until(() => list().items?.length === 13, "thirteen welcome notes");
     await until(() => screen().includes("… 3 more"), "the more tab");
     ch("0");
-    await until(() => top().at === 9, "0: the tenth");
+    await until(() => list().at === 9, "0: the tenth");
     const more = at("… 3 more");
     mouse(more.x + 1, more.y);
     await until(() => focus() === "welcome", "… more: the list has the keys");
@@ -284,8 +287,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     ch("q");
     expect((app as any).stack.at(-1)).toBeInstanceOf(MainMenu);
     ch("C");
-    expect(top()).toBeInstanceOf(Welcome);
-    await until(() => top().detail.msg?.id === n.start.id, "the first welcome note again");
+    expect(top().name).toBe("welcome");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "the first welcome note again");
     expect(focus()).toBe("detail");
   });
 });
@@ -304,8 +307,8 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     const lamp = await board.createBlock(null, "The lamp\nIt flickers.");
     const a = await board.createBlock(null, `Porch\nThe ((${lamp.id}|lamp)) by the door.`);
     const b = await board.createBlock(null, `Hall\nAnother ((${lamp.id}|lamp)).`);
-    const reader = new ReaderPane(true), bl = new BacklinksPane("reader", true);
-    const desk = new Desk({ panes: [reader, bl], names: ["reader", "backlinks"] });
+    const desk = new Desk({ name: "test", title: "test", layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "reader" }, b: { t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:reader", groups: "open" } } } });
+    const reader = desk.pane("reader") as ReaderPane, bl = desk.pane("backlinks") as BacklinksPane;
     app.push(desk);
     desk.setCurrent(lamp);
     await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "source"), "the lamp's backlinks");

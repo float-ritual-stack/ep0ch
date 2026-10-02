@@ -36,6 +36,8 @@ export {
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
 export { clone as copyTree } from "./layout";
+/** A tree as saved, by leaf (a spec built in code: tile specs as the leaves). */
+export { serialize as serializeTree } from "./layout";
 export type {
   Axis, BinaryForm, Columns, Container, Dir, Divider, Drawer, Effective, Float, Flow, FlowForm, Grab, HostMode, Line, LNode, NaryForm, OpenRule, Place, Placed, PlacedDrawer, PlacedScreen, PlaceOpts, Policy, Split, Tabs,
 } from "./layout";

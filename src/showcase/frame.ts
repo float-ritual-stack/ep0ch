@@ -1,4 +1,4 @@
-// A whole screen drawn inside a rectangle of another: the showcase puts the real board, a preset desk
+// A whole screen drawn inside a rectangle of another: the showcase puts the real board, a desk of its own spec
 // and the BBS screens side by side this way, so each is the part itself and not a copy of it. The
 // screen sees a Ctx whose terminal is the rectangle; its pushes stack inside the rectangle, and popping
 // its first screen hands the keys back to whoever framed it.

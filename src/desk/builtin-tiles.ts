@@ -77,11 +77,12 @@ const builtins = (): TileKind[] => [
   {
     kind: "preview", about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",
     keys: [{ key: "p", label: "preview", spec: at => ({ source: `tile:${at.name}` }) }],
-    make: s => new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })),
+    make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })); if (s.label) p.label = s.label; return p; },
     ...reading,
     follower: true,
-    // It follows the note sent to it, as it follows its source.
-    take: (p, m, desk) => { (p as PreviewPane).follow(m, desk); return null; },
+    // It follows the note sent to it, as it follows its source; back returns to what it showed (PIE-453).
+    take: (p, m, desk) => { const pv = p as PreviewPane; if (pv.msg?.id !== m.id) pv.surface.track(() => pv.follow(m, desk)); return null; },
+    save: p => { const pv = p as PreviewPane; return { ...pv.spec?.(), ...(pv.label ? { label: pv.label } : {}) }; },
     check: s => (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
     defaults: (s, at) => (s.source ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),
     follows: p => { const s = (p as PreviewPane).source; return "tile" in s ? s.tile : null; },
@@ -146,7 +147,6 @@ const builtins = (): TileKind[] => [
     previewSource: async (p, name, actor) => { await (p as ScreenTile).ownPreview(false, actor); return `tile:${name}`; },
   },
   screen("river", "v", "the river (Quay) as a tile, its columns and open rule its own"),
-  screen("brief", "f", "the brief as a tile"),
   {
     kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
@@ -161,7 +161,7 @@ const builtins = (): TileKind[] => [
   {
     kind: "backlinks", about: "the backlinks of what another tile shows (source=tile:<name>)",
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }],
-    make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader"); },
+    make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader", s.groups === "open"); },
     actions: BACKLINKS_ACTIONS,
     check: s => (s.source && !/^tile:./.test(s.source) ? "a backlinks tile's source is tile:<name>" : null),
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
