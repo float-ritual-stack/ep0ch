@@ -55,15 +55,6 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * change feed's `requestedBy`), and only the service writes as an extension (`mutations.ext-reserved`).
    */
   "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved"] as const;
-/** One of `OUTLINE_CAPABILITIES`, or an outline host's (pi-herdr-outliner PIE-457): one socket, outlines by name. */
-export type Capability = typeof OUTLINE_CAPABILITIES[number] | HostCapability;
-
-/**
- * What an outline host adds: `request.outline` (a request may name its outline; the host routes the
- * connection by its first line), `ping.host` (`ping` reports `host`), and the host's own `outlines.*`.
- */
-export type HostCapability = "request.outline" | "ping.host" | "outlines.list" | "outlines.attach" | "outlines.create" | "outlines.adopt" | "outlines.close" | "outlines.delete";
-
 /** An outline's name on a host: a short slug, as the outliner's OUTLINE_NAME_PATTERN. */
 export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 

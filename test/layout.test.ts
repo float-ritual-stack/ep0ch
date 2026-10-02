@@ -1,6 +1,6 @@
 // PIE-412: the layout tree is the one pane model. The desk's binary splits place exactly as they did,
 // n-ary splits share by weight around spines, drawers slide over or join the layout, borders follow the
-// pointer, and the desk's saved form still reads and writes as older doors expect. Pure functions (and one desk
+// pointer, and the desk's saved form reads both forms and writes kids and weights. Pure functions (and one desk
 // started from a hand-broken save): the tree arithmetic inside the screen-layout module (its rules are tested
 // through its interface, screen-layout.test.ts).
 import { describe, expect, test } from "bun:test";

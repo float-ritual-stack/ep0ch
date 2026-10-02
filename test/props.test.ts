@@ -94,7 +94,6 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
     }),
     propertyRecords: async () => null,
     request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
-    listFields: () => ({}),
     toMsgs: () => [],
   };
   return { board, redraw };
@@ -198,15 +197,14 @@ describe("the surface: summary, panel and embeds at any width", () => {
 
 describe("live figures: the query grammar", () => {
   const block = (id: string, title: string) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: [] });
-  const fake = (expression: boolean, seen: any[]): any => ({
-    supports: (c: string) => (c === "query.expression" ? expression : undefined),
+  const fake = (seen: any[]): any => ({
     request: async (_a: string, p: any) => { seen.push(p.query); return { blocks: [block("a", "Rake leaves")], completeness: { kind: "complete" } }; },
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: {} })),
   });
 
   test("OR / NOT / dates go to the service as an expression when it has query.expression", async () => {
     const seen: any[] = [];
-    setLiveSource(fake(true, seen), () => {}); invalidateLive();
+    setLiveSource(fake(seen), () => {}); invalidateLive();
     const p = { query: "type=chore (priority=high OR due) updated > 2026-09-20" };
     answer(p); await until(() => answer(p)?.state === "ready", "the answer");
     expect(seen[0]).toMatchObject({ expression: p.query });
@@ -215,7 +213,7 @@ describe("live figures: the query grammar", () => {
 
   test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
     const asked: [string, string[]][] = [];
-    const b = { ...fake(true, []), matchQuery: async (e: string, ids: string[]) => { asked.push([e, ids]); return new Set(ids); } };
+    const b = { ...fake([]), matchQuery: async (e: string, ids: string[]) => { asked.push([e, ids]); return new Set(ids); } };
     setLiveSource(b, () => {}); invalidateLive();
     const p = { query: "type=chore", done: "stage=done OR stage=dropped" };
     resolveLive("check", p);

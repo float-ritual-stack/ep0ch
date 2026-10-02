@@ -242,11 +242,11 @@
       "does": "The door's one client of the service: requests with timeouts, capabilities, reconnect with backoff, catch-up from changes.since, and 'offline' when it can't ask.",
       "built": "One class in socket.ts. The door requires protocol 82 with every capability it names (OUTLINE_CAPABILITIES) and refuses an older service at info(), naming what it lacks and the fix, instead of falling back.",
       "refs": [
-        { "r": "door", "p": "src/socket.ts", "l": 390, "m": "export class SocketBoard" },
-        { "r": "door", "p": "src/socket.ts", "l": 520, "m": "const missing = OUTLINE_CAPABILITIES.filter" },
-        { "r": "door", "p": "src/socket.ts", "l": 893, "m": "subscribe(onEvent" },
-        { "r": "door", "p": "src/socket.ts", "l": 962, "m": "private async catchUp" },
-        { "r": "door", "p": "src/socket.ts", "l": 316, "m": "export class Offline" }
+        { "r": "door", "p": "src/socket.ts", "l": 381, "m": "export class SocketBoard" },
+        { "r": "door", "p": "src/socket.ts", "l": 511, "m": "const missing = OUTLINE_CAPABILITIES.filter" },
+        { "r": "door", "p": "src/socket.ts", "l": 884, "m": "subscribe(onEvent" },
+        { "r": "door", "p": "src/socket.ts", "l": 953, "m": "private async catchUp" },
+        { "r": "door", "p": "src/socket.ts", "l": 307, "m": "export class Offline" }
       ],
       "questions": [ { "text": "The door re-derives the service's state root and socket hash (discover.ts); the host should say.", "finding": "A-F13", "route": "service track" } ]
     },
@@ -548,8 +548,8 @@
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 256, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 67, "m": "\"tile.herdr\": {" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 145, "m": "get herdr(): { pane: string; name?: string } | null" },
-        { "r": "door", "p": "src/dock.ts", "l": 92, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 583, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/dock.ts", "l": 90, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 581, "m": "export const DOCK_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1176, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
@@ -829,7 +829,7 @@
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 693, "m": "this.run(\"card.move\", { lane: this.lanes[M.sel]!.name, card: M.card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 867, "m": "\"properties.patch\", { blockId, expectedRevision" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 858, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
         "ref": { "r": "outliner", "p": "src/store.ts", "l": 2329, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",

@@ -35,8 +35,8 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   presence view. A new shared part gets its reuse-map row and a showcase section in the same PR.
 - **The service owns meaning.** View membership, property parsing, query evaluation, backlinks, what a
   write into a view must change, what changed: ask the service (`views.read`, `views.planWrite`,
-  `query.matches`, `references.*`, `changes.since`). Against an older service, say which capability is
-  missing; never compute it locally. Where a call per paint is too slow, use the vendored module
+  `query.matches`, `references.*`, `changes.since`); never compute it locally. The door needs protocol 82 with
+  every capability in `OUTLINE_CAPABILITIES` and refuses an older service: a new one it needs goes in that list. Where a call per paint is too slow, use the vendored module
   (`src/vendor/`), never a local copy of the rule.
 - **Every action is an action.** Define it once as an `ActionDef` in an `ActionSet`
   (`src/surface/actions.ts`); the key, the click or drag and `act` all call it. A UI change that isn't an

@@ -137,7 +137,6 @@ describe("live figures answer from the outline", () => {
     let stage = "waiting";
     const block = (id: string, title: string, props: Record<string, string>) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
     const fake: any = {
-      supports: (c: string) => c === "query.expression",
       request: async (_a: string, p: any) => ({ blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.expression === "type=outbox-item"), completeness: { kind: "complete" } }),
       // The service says which results `done:` holds for (query.matches).
       matchQuery: async (expression: string, ids: string[]) => new Set(expression === "outbox=done" && stage === "done" ? ids : []),

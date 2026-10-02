@@ -48,7 +48,7 @@ itself).
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
 | `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`--tile` works too) |
-| `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`; the older `{"cmd":"open","id":…,"as":…}` runs the same action) |
+| `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
 
 ## Where am I: `EP0CH_NEST` and `ep0ch where`

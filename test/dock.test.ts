@@ -1,7 +1,7 @@
 // PIE-498, PIE-513: the agent drawer, the host layer's. One terminal tile belongs to the App, the first tab of the
 // host layer's drawer, pulled up from the status bar's chip (or alt+a) over any screen without the screen
 // reflowing (or beside it, the screen drawn shorter, where the screen says so); its actions (`host.toggle`,
-// `host.size`, their older names `agent.toggle`, `agent.height`) are what the keys, the clicks and `act` run; it's
+// `host.size`) are what the keys, the clicks and `act` run; it's
 // saved in dock.json; and it has one home: no screen has a copy of it. The agent here is `cat` (a stand-in: no real
 // Claude, no real Herdr), and Herdr is a fake.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -59,7 +59,7 @@ function door(rows = 30, cols = 100) {
     write() {}, paint(lines: string[]) { painted = lines; }, paintRow(r: number, l: string) { painted[r] = l; },
     invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {},
   };
-  const app = new App(term, { supports: () => null, capabilities: null } as any, Date.now(), () => {});
+  const app = new App(term, { capabilities: null } as any, Date.now(), () => {});
   const renders: { rows: number }[] = [];
   const screen = (title: string, more: Record<string, unknown> = {}) => ({
     title, key() {}, ...more,

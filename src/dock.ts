@@ -7,14 +7,12 @@
 // up. Where it appears is the screen's to say (its policy's `host`): `over` its lower rows, the screen drawn at
 // its full size under it (the default); `beside` it, the screen drawn shorter (the daily desk); or `none`.
 //
-// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout's agent tile is
-// gone; a layout saved with one comes back without it, `withoutAgentTile`). One door never attaches to the
+// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout has no agent tile). One door never attaches to the
 // Herdr pane twice. The person's keys move through the host layer's own transitions: pulled up by the person,
 // they go to the agent; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly
 // as they left it. An agent's pull never takes them.
 //
-// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`, older names
-// `agent.toggle`, `agent.height`, `agent.enter`, `agent.leave`; and the agent's own `agent.type`, `agent.knows`,
+// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; and the agent's own `agent.type`, `agent.knows`,
 // `agent.restart`): the
 // chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
 // agent over `act`. An agent may pull it up

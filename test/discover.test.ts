@@ -1,9 +1,10 @@
 // Which service `ep0ch` talks to when none is named: the current directory's workspace, else the only live
-// one; a stale socket file never wins; several live ones ask for --ws.
+// one; a stale socket file never wins; several live ones ask for --ws; one older than the door is refused.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createServer } from "node:net";
 import { candidates, discoverSocket, socketOf } from "../src/discover";
 import { outliner, Scratch } from "./scratch";
 
@@ -18,6 +19,22 @@ describe("candidates", () => {
     expect(list.find(c => c.path === socketOf(shed, base))!.nearest).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
+});
+
+test("the directory's own service older than the door: refused with the fix, never another outline instead", async () => {
+  const base = mkdtempSync(join(tmpdir(), "ep0ch-discover-old-")), plot = join(base, "allotment");
+  const sock = socketOf(plot, base);
+  mkdirSync(dirname(sock), { recursive: true });
+  const server = createServer(s => s.on("data", d => {
+    const r = JSON.parse(String(d).split("\n")[0]!);
+    s.write(JSON.stringify({ id: r.id, ok: true, result: { status: "ready", protocolVersion: 80, capabilities: [], location: { hostname: "old", workspaceRoot: plot } } }) + "\n");
+  }));
+  await new Promise<void>(r => server.listen(sock, r));
+  try {
+    const r = await discoverSocket(plot, base);
+    expect("error" in r && r.error).toContain("is older than this door");
+    expect("error" in r && r.error).toContain("ep0ch install --apply");
+  } finally { server.close(); rmSync(base, { recursive: true, force: true }); }
 });
 
 describe.skipIf(!outliner)("discoverSocket against scratch services", () => {

@@ -31,10 +31,11 @@ export function candidates(cwd: string, base = stateBase()): { path: string; nea
   return out;
 }
 
-async function live(path: string): Promise<{ workspace: string } | null> {
+/** A service answering there: its workspace, or why the door refuses it (older than the door); null when none answers. */
+async function live(path: string): Promise<{ workspace: string } | { refused: string } | null> {
   const b = new SocketBoard(path, 1500);
   try { const i: any = await b.info(); return { workspace: String(i?.workspace ?? "?") }; }
-  catch { return null; }
+  catch (e) { return e instanceof Error && e.message.includes("is older than this door") ? { refused: e.message } : null; }
   finally { b.close(); }
 }
 
@@ -46,11 +47,17 @@ export async function discoverSocket(cwd = process.cwd(), base = stateBase()): P
   const all = candidates(cwd, base);
   for (const c of all.filter(c => c.nearest)) {
     const l = await live(c.path);
+    // The outline this directory is in, but older than the door: say so, never pick another one instead.
+    if (l && "refused" in l) return { error: l.refused };
     if (l) return { path: c.path, why: `the workspace ${l.workspace}, which this directory is in` };
   }
-  const others = (await Promise.all(all.filter(c => !c.nearest).map(async c => ({ c, l: await live(c.path) })))).filter(x => x.l);
-  if (others.length === 1) return { path: others[0]!.c.path, why: `the only running outline, ${others[0]!.l!.workspace}` };
-  if (!others.length) return { error: `no outline service is running (looked in ${base}); start one, or pass --ws <workspace root> or a socket path` };
+  const answered = await Promise.all(all.filter(c => !c.nearest).map(async c => ({ c, l: await live(c.path) })));
+  const others = answered.flatMap(x => (x.l && "workspace" in x.l ? [{ c: x.c, l: x.l }] : []));
+  const refused = answered.flatMap(x => (x.l && "refused" in x.l ? [x.l.refused] : []));
+  if (others.length === 1 && !refused.length) return { path: others[0]!.c.path, why: `the only running outline, ${others[0]!.l.workspace}` };
+  if (!others.length && refused.length === 1) return { error: refused[0]! };
+  if (!others.length && !refused.length) return { error: `no outline service is running (looked in ${base}); start one, or pass --ws <workspace root> or a socket path` };
+  if (!others.length) return { error: `every running outline is older than this door:\n${refused.map(r => `  ${r}`).join("\n")}` };
   return { error: `several outlines are running; pick one with --ws:\n${others.map(x => `  ep0ch --ws ${x.l!.workspace}`).join("\n")}` };
 }
 

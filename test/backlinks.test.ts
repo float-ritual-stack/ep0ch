@@ -1,7 +1,7 @@
 // PIE-442: backlinks you can use. src/backlinks.ts mirrors Detail's backlink view (pi-herdr-outliner
 // src/backlink-view.ts) and its panel's text (src/detail-pi-preview.ts); these tests check it against the
 // outliner's own functions over fictional sources and every option, then drive the board's drawer against
-// a scratch service: the defaults, filter and sort, the toggles by key, click and act, and an older service.
+// a scratch service: the defaults, filter and sort, and the toggles by key, click and act.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
