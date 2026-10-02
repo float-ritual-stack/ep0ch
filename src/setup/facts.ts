@@ -13,29 +13,56 @@ import { linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
 
-/** Runs a command to completion; never throws. */
-export async function run(cmd: string[], opts: { cwd?: string; env?: Env; timeoutMs?: number } = {}): Promise<{ code: number; out: string; err: string }> {
+/** A line of a child's output as it arrives (the progress line under a running step shows the latest). */
+export type OnLine = (line: string) => void;
+
+/**
+ * Runs a command to completion; never throws. With `onLine`, its output is read as it arrives and each
+ * chunk's latest line (a `\r`-redrawn progress line too) is passed on; the whole output is still returned.
+ */
+export async function run(cmd: string[], opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<{ code: number; out: string; err: string }> {
   try {
     const p = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...(opts.env ?? process.env), GIT_TERMINAL_PROMPT: "0" } as Record<string, string>, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
     const timer = setTimeout(() => p.kill(), opts.timeoutMs ?? 20_000);
-    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    const [out, err, code] = await Promise.all([drain(p.stdout, opts.onLine), drain(p.stderr, opts.onLine), p.exited]);
     clearTimeout(timer);
     return { code: p.signalCode ? 124 : code, out: out.trim(), err: (p.signalCode ? `timed out after ${(opts.timeoutMs ?? 20_000) / 1000}s` : err).trim() };
   } catch (e) { return { code: 127, out: "", err: (e as Error).message }; }
 }
 
+/** A stream's text; with `onLine`, read chunk by chunk, each chunk's latest non-blank line passed on as it comes. */
+export async function drain(stream: ReadableStream<Uint8Array>, onLine?: OnLine): Promise<string> {
+  if (!onLine) return new Response(stream).text();
+  const decoder = new TextDecoder();
+  let all = "", partial = "";
+  for await (const chunk of stream) {
+    const text = decoder.decode(chunk, { stream: true });
+    all += text;
+    const parts = (partial + text).split(/\r\n|\r|\n/);
+    partial = parts.pop()!;
+    const last = [partial, ...parts.reverse()].find(l => l.trim());
+    if (last) onLine(last);
+  }
+  return all + decoder.decode();
+}
+
 const real = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
-const firstLine = (s: string) => s.split("\n").find(l => l.trim())?.trim() ?? s;
+/** What went wrong in git's stderr: its fatal: or error: line, not the progress lines before it. */
+const gitError = (s: string) => s.split(/\r|\n/).map(l => l.trim()).find(l => /^(fatal|error):/.test(l)) ?? s.split(/\r|\n/).map(l => l.trim()).filter(Boolean).at(-1) ?? "";
 
 /** A checkout against origin/main, fetching first unless `fetch` is false. */
-export async function inspectCheckout(root: string, fetch = true, env: Env = process.env): Promise<Checkout> {
+/** How long a `git fetch` may take: a slow link needs more than a few seconds, and the person sees it run. */
+export const FETCH_TIMEOUT_MS = 90_000;
+
+export async function inspectCheckout(root: string, fetch = true, env: Env = process.env, onLine?: OnLine): Promise<Checkout> {
   const git = (...args: string[]) => run(["git", "-C", root, ...args], { env });
   const none: Checkout = { root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false };
   if (!existsSync(root) || (await git("rev-parse", "--is-inside-work-tree")).out !== "true") return none;
   let fetchError: string | undefined;
   if (fetch) {
-    const f = await run(["git", "-C", root, "fetch", "--quiet", "origin", "main"], { env, timeoutMs: 20_000 });
-    if (f.code !== 0) fetchError = firstLine(f.err) || `git fetch exited ${f.code}`;
+    // --progress: git's counting and receiving lines, for the line under the spinner (stderr isn't a terminal).
+    const f = await run(["git", "-C", root, "fetch", "--progress", "origin", "main"], { env, timeoutMs: FETCH_TIMEOUT_MS, onLine });
+    if (f.code !== 0) fetchError = gitError(f.err) || `git fetch exited ${f.code}`;
   }
   const [branch, head, upstream, status] = await Promise.all([git("symbolic-ref", "--quiet", "--short", "HEAD"), git("rev-parse", "HEAD"), git("rev-parse", "--verify", "--quiet", "origin/main"), git("status", "--porcelain", "--untracked-files=no")]);
   let ahead = 0, behind = 0;
@@ -79,7 +106,7 @@ export async function pluginCode(root: string): Promise<{ protocol: number | nul
   catch { return { protocol: null, capabilities: null }; }
 }
 
-export async function pluginFacts(env: Env, fetch: boolean): Promise<PluginFacts | null> {
+export async function pluginFacts(env: Env, fetch: boolean, onLine?: OnLine): Promise<PluginFacts | null> {
   const p = outlinerPlugin(env);
   if (!p) return null;
   const root: string = p.plugin_root;
@@ -88,7 +115,7 @@ export async function pluginFacts(env: Env, fetch: boolean): Promise<PluginFacts
   const source = kind === "github" ? { owner: src.owner ?? undefined, repo: src.repo ?? undefined, ref: src.requested_ref ?? undefined, commit: src.resolved_commit ?? undefined } : undefined;
   const isGit = existsSync(join(root, ".git"));
   const [checkout, code, remote] = await Promise.all([
-    kind === "local" || isGit ? inspectCheckout(root, fetch && kind === "local", env) : Promise.resolve(null),
+    kind === "local" || isGit ? inspectCheckout(root, fetch && kind === "local", env, onLine) : Promise.resolve(null),
     pluginCode(root),
     kind === "github" && fetch && source?.owner && source.repo ? lsRemote(`https://github.com/${source.owner}/${source.repo}.git`, "main", env) : Promise.resolve(kind === "github" ? { commit: null, error: fetch ? "Herdr recorded no source repository" : "not fetched" } : undefined),
   ]);
@@ -100,8 +127,8 @@ export async function pluginFacts(env: Env, fetch: boolean): Promise<PluginFacts
 /** A ref's commit on a remote; a full commit id is its own answer. */
 async function lsRemote(url: string, ref: string, env: Env): Promise<{ commit: string | null; error?: string }> {
   if (/^[0-9a-f]{40}$/.test(ref)) return { commit: ref };
-  const r = await run(["git", "ls-remote", url, `refs/heads/${ref}`, `refs/tags/${ref}`], { env, timeoutMs: 15_000 });
-  if (r.code !== 0) return { commit: null, error: firstLine(r.err) || `git ls-remote exited ${r.code}` };
+  const r = await run(["git", "ls-remote", url, `refs/heads/${ref}`, `refs/tags/${ref}`], { env, timeoutMs: 60_000 });
+  if (r.code !== 0) return { commit: null, error: gitError(r.err) || `git ls-remote exited ${r.code}` };
   const commit = r.out.split("\n")[0]?.split(/\s+/)[0];
   return commit ? { commit } : { commit: null, error: `${ref} isn't a branch or tag of ${url}` };
 }
@@ -255,7 +282,15 @@ function which(name: string, pathDirs: string[]): string | null {
   return null;
 }
 
-export interface GatherOptions { env?: Env; fetch?: boolean; doorRoot?: string; platform?: string }
+/** Which of the facts' parts are still being gathered, for a progress line; each change is reported. */
+export interface GatherProgress { done: number; total: number; waiting: string[] }
+export interface GatherOptions {
+  env?: Env; fetch?: boolean; doorRoot?: string; platform?: string;
+  /** Called as each part (bun, Herdr, the plugin, the door checkout …) is gathered. */
+  onProgress?: (p: GatherProgress) => void;
+  /** The fetches' output as it arrives, prefixed with what is fetched. */
+  onLine?: OnLine;
+}
 
 export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const env = o.env ?? process.env;
@@ -271,15 +306,22 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const herdrPath = env.HERDR_BIN_PATH && existsSync(env.HERDR_BIN_PATH) ? env.HERDR_BIN_PATH : which("herdr", pathDirs);
   const configPath = env.HERDR_CONFIG_PATH || join(env.XDG_CONFIG_HOME || join(home, ".config"), "herdr/config.toml");
 
+  const waiting: string[] = [];
+  let done = 0;
+  const part = <T>(name: string, p: Promise<T> | T): Promise<T> => {
+    waiting.push(name);
+    return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
+  };
+  const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
   const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services, agents] = await Promise.all([
-    bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null,
-    herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null,
-    herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null,
-    herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch) : null,
-    inspectCheckout(doorRoot, fetch, env),
-    hostFacts(base, platform, home),
-    serviceFacts(base),
-    doorAgents(env).catch(() => undefined),
+    part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
+    part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
+    part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
+    part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
+    part("the door checkout", inspectCheckout(doorRoot, fetch, env, lines("door"))),
+    part("the outline host", hostFacts(base, platform, home)),
+    part("folder services", serviceFacts(base)),
+    part("door agents", doorAgents(env).catch(() => undefined)),
   ]);
 
   const found = which("ep0ch", pathDirs);

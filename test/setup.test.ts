@@ -325,6 +325,19 @@ describe("the doctor", () => {
     expect(byName(f)["plugin/for the door"]!.detail).toContain("fragments.candidates");
   });
 
+  test("a checkout whose fetch failed is never ✓: it couldn't be checked, and the summary says so", () => {
+    const f = current();
+    f.door = { ...f.door, checkout: checkout(f.door.checkout.root, { fetchError: "timed out after 90s" }) };
+    const door = buildPlan(f, opts()).steps[2]!;
+    expect(door).toMatchObject({ status: "manual", unchecked: true });
+    expect(door.why).toContain("couldn't check against origin/main: git fetch failed (timed out after 90s), so the door checkout wasn't updated");
+    expect(byName(f)["door/checkout"]!.status).toBe("unknown");
+    const text = formatDoctor(f);
+    expect(text).toMatch(/^ {2}\? checkout/m);
+    expect(text).not.toContain("all current");
+    expect(text).toContain("1 couldn't be checked (? above); the rest is current");
+  });
+
   test("a managed install that can't be compared says so, without failing", () => {
     const c = byName(laptop({ plugin: { ...laptop().plugin!, remote: { commit: null, error: "offline" } } }));
     expect(c["plugin/installed"]!.status).toBe("info");

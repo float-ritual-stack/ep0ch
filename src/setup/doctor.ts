@@ -5,10 +5,11 @@ import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { chooseLinkDir, claudeModState, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
 
-export type CheckStatus = "ok" | "behind" | "missing" | "info";
+/** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
+export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
 export interface Check { group: string; name: string; status: CheckStatus; detail: string; fix?: string }
 
-export const MARK: Record<CheckStatus, string> = { ok: "✓", behind: "!", missing: "✗", info: "·" };
+export const MARK: Record<CheckStatus, string> = { ok: "✓", behind: "!", missing: "✗", info: "·", unknown: "?" };
 
 /** a.b.c ≥ min.b.c */
 export function versionAtLeast(version: string, min: string): boolean {
@@ -32,9 +33,9 @@ export function doctorChecks(f: Facts): Check[] {
   if (!p) add("plugin", PLUGIN_ID, "missing", plugin.why, plugin.commands[0]);
   else {
     const how = p.kind === "local" ? `linked checkout ${p.root}` : `managed install ${p.root}`;
-    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : p.kind === "github" && !p.remote?.commit ? "info" : "behind";
+    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : plugin.unchecked ? "unknown" : p.kind === "github" && !p.remote?.commit ? "info" : "behind";
     const commit = p.kind === "local" ? (p.checkout?.head ? ` at ${short(p.checkout.head)}${p.checkout.branch ? ` on ${p.checkout.branch}` : ""}` : "") : p.source?.commit ? ` at ${short(p.source.commit)}` : "";
-    add("plugin", "installed", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" ? undefined : plugin.commands.filter(c => !c.includes("# when")).join(" && ") || "ep0ch install --apply");
+    add("plugin", "installed", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" || plugin.unchecked ? undefined : plugin.commands.filter(c => !c.includes("# when")).join(" && ") || "ep0ch install --apply");
     add("plugin", "protocol", p.protocol === null ? "missing" : "info",
       p.protocol === null ? `couldn't read the protocol from ${p.root}/src/types.ts` : `protocol ${p.protocol}, ${p.capabilities?.length ?? 0} service capabilities`);
     const lacking = p.capabilities ? OUTLINE_CAPABILITIES.filter(c => !p.capabilities!.includes(c)) : [];
@@ -44,7 +45,7 @@ export function doctorChecks(f: Facts): Check[] {
   // the door
   const door = doorStep(f);
   const c = f.door.checkout;
-  add("door", "checkout", door.status === "skip" ? "ok" : "behind", `${c.root}${c.head ? ` at ${short(c.head)}${c.branch ? ` on ${c.branch}` : ""}` : ""}; ${door.why}`,
+  add("door", "checkout", door.status === "skip" ? "ok" : door.unchecked ? "unknown" : "behind", `${c.root}${c.head ? ` at ${short(c.head)}${c.branch ? ` on ${c.branch}` : ""}` : ""}; ${door.why}`,
     door.status === "do" ? door.commands.filter(x => !x.includes("# when")).join(" && ") : undefined);
   add("door", "bun install", f.door.deps.needed ? "behind" : "ok", f.door.deps.why, f.door.deps.needed ? `(cd ${c.root} && bun install --frozen-lockfile)` : undefined);
   const link = linkStep(f);
@@ -144,6 +145,8 @@ export function formatDoctor(f: Facts, checks = doctorChecks(f)): string {
     if (c.fix) lines.push(`    ${" ".repeat(width)}  fix: ${c.fix}`);
   }
   const bad = checks.filter(c => c.status === "behind" || c.status === "missing").length;
-  lines.push("", bad ? `${bad} to fix; \`ep0ch install\` shows the plan, \`ep0ch install --apply\` runs it` : "all current");
+  const unknown = checks.filter(c => c.status === "unknown").length;
+  const unchecked = unknown ? `${unknown} couldn't be checked (? above)` : "";
+  lines.push("", bad ? `${bad} to fix${unchecked ? `, ${unchecked}` : ""}; \`ep0ch install\` shows the plan, \`ep0ch install --apply\` runs it` : unchecked ? `${unchecked}; the rest is current` : "all current");
   return lines.join("\n");
 }
