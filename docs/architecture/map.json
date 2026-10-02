@@ -810,7 +810,7 @@
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 365, "m": "private changed(c: Change, e: OutlineEvent)" } },
       { "label": "lanes repaint", "at": "door.board", "what": "Each marked lane, a query tile in the board's columns container, reads its view again with views.read and draws. In the door that moved it, moveTo's finally reloads the source and target lanes.",
-        "ref": { "r": "door", "p": "src/desk/query.ts", "l": 138, "m": "readView(desk.ctx.board, def)" } }
+        "ref": { "r": "door", "p": "src/desk/query.ts", "l": 139, "m": "readView(desk.ctx.board, def)" } }
     ]
   }
 }
