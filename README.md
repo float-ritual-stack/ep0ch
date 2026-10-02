@@ -234,7 +234,9 @@ macOS and Linux alike:
     ep0ch install --apply --restart-services
                                      also restart per-folder services running old code
 
-`doctor` marks each piece ✓ current, ! behind, ✗ missing (· is information):
+`doctor` marks each piece ✓ current, ! behind, ✗ missing, ? couldn't be checked (a `git fetch` that failed
+or timed out after 90s, or a source `git ls-remote` couldn't reach: never ✓ on an old fetch, and doctor
+exits 1), and · for information:
 
 - **bun**: its path and version.
 - **the plugin**: linked (a checkout: its commit against `origin/main`, after a `git fetch`) or managed
@@ -280,11 +282,18 @@ macOS and Linux alike:
    doesn't run (another process answers its socket) is left to you. Only a unit whose `OUTLINER_STATE_DIR`
    (or the default) is the host's own state folder counts as its unit.
 
-A checkout that isn't on `main`, has diverged, or is behind with local changes is left for you, with
-what to do. Install never writes a database (it only copies them), never creates or starts an outline,
+A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
+for you, with what to do. Install never writes a database (it only copies them), never creates or starts an outline,
 never edits Herdr's config or Claude's settings, and never writes a systemd or launchd unit (it only asks
 one to restart or start the host): a missing unit, the keys and the Claude mod are reported as notes. It stops at the first failure, with
 the recovery. `--json` gives agents the same report or plan.
+
+At a terminal, both show progress while they work: checking the stack (the fetches among it) spins with
+what it's waiting on, and a running step's line spins with its elapsed time, the latest line of what it
+runs (a clone, a build, `bun install`) dimmed under it, and its items counted (`[████░░░░] 1/3 · notes 41 MB`
+for the backups); the line ends as a timed ✓ or ✗. Ctrl+C says which step it interrupted. Piped, in CI,
+with `TERM=dumb` or `--json`, the output is plain lines as before; `NO_COLOR` drops the colour. The spinner
+is braille dots, or `| / - \` where the door would draw in cells.
 
 A door checkout from before `install` gets it by hand, once:
 

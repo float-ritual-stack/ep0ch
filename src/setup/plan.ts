@@ -19,6 +19,8 @@ export interface Step {
   backups?: (DatabaseFacts & { dest: string })[];
   /** restart: the services it restarts. */
   services?: ServiceFacts[];
+  /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
+  unchecked?: true;
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -50,7 +52,7 @@ export const linkCandidates = (home: string) => [join(home, ".local/bin"), "/opt
 const bunInstall = (root: string) => `(cd ${root} && bun install --frozen-lockfile)`;
 
 /** A checkout's update: fast-forward to origin/main, then `bun install` when needed; or why a person must. */
-export function checkoutStep(c: Checkout, deps: Deps | null, name: string): Pick<Step, "status" | "why" | "commands"> {
+export function checkoutStep(c: Checkout, deps: Deps | null, name: string): Pick<Step, "status" | "why" | "commands" | "unchecked"> {
   const pull = `git -C ${c.root} pull --ff-only origin main`;
   if (!c.git) return { status: "manual", why: `${c.root} isn't a git checkout`, commands: [] };
   if (!c.branch) return { status: "manual", why: `${name} has a detached HEAD; git -C ${c.root} switch main, then rerun`, commands: [] };
@@ -63,8 +65,13 @@ export function checkoutStep(c: Checkout, deps: Deps | null, name: string): Pick
     return { status: "do", why: `${c.behind} commit${c.behind === 1 ? "" : "s"} behind origin/main (${short(c.head)} → ${short(c.upstream)})${fetched}`,
       commands: [pull, `${bunInstall(c.root)}   # when the pull changes what's installed`] };
   }
-  if (deps?.needed) return { status: "do", why: `current with origin/main, but ${deps.why}`, commands: [bunInstall(c.root)] };
-  return { status: "skip", why: `current at ${short(c.head)}${c.ahead ? `, ${c.ahead} ahead of origin/main` : " (origin/main)"}${fetched}`, commands: [] };
+  if (deps?.needed) return { status: "do", why: `current with origin/main${fetched}, but ${deps.why}`, commands: [bunInstall(c.root)] };
+  // Never "current" on an old fetch: origin/main may have moved on since, so it's left as it is, and said.
+  if (c.fetchError) {
+    return { status: "manual", unchecked: true, commands: [],
+      why: `couldn't check against origin/main: git fetch failed (${c.fetchError}), so ${name} wasn't updated; the last fetch had it at ${short(c.head)}. Check the network (git -C ${c.root} fetch origin main), then rerun` };
+  }
+  return { status: "skip", why: `current at ${short(c.head)}${c.ahead ? `, ${c.ahead} ahead of origin/main` : " (origin/main)"}`, commands: [] };
 }
 
 export function pluginStep(f: Facts): Step {
