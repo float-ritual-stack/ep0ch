@@ -29,7 +29,7 @@ import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surfac
 import type { OpenHow } from "../surface/note";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { Desk } from "../desk/desk";
-import type { LNode } from "../desk/layout";
+import type { LNode } from "../desk/screen-layout";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import { PreviewPane } from "../desk/preview";
 import { DetailPane } from "../desk/tiles";
@@ -443,10 +443,14 @@ export class Welcome extends Desk {
     if (size === this.sizedFor || root.t !== "split" || root.kids.length !== 3 || mid?.t !== "split" || mid.kids.length !== 2) return;
     this.sizedFor = size;
     const list = Math.max(0.12, Math.min(0.24, 30 / cols));
-    root.weights = [list, (1 - list) * 0.57, (1 - list) * 0.43];
     const area = Math.max(10, rows - 2 - (this.logoFor(rows)?.rows.length ?? 1) - 1);
     const b = Math.max(7, Math.min(12, Math.round(area * 0.3))) / area;
-    mid.weights = [1 - b, b];
+    // The screen sizes its own preset, by the layout's operation (a lock the person set keeps their sizes).
+    for (const [split, shares] of [[root.id, [list, (1 - list) * 0.57, (1 - list) * 0.43]], [mid.id, [1 - b, b]]] as const) {
+      if (!split) continue;
+      const r = this.ask({ op: "shares", split, shares: [...shares] });
+      if (r.ok) this.commit(r);
+    }
   }
 
   protected override drawBand(canvas: Canvas, r: Rect): Placement[] {

@@ -26,7 +26,7 @@ import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { LastCallers, MessageReader, WhoOnline } from "../screens";
-import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/layout";
+import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";

@@ -103,6 +103,8 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(ran(() => key({ kind: "enter" }))).toEqual(["board.hub"]);
     await until(() => B().hub?.id === garden.id && B().lanes.every((l: any) => l.items), "the garden board");
     expect(B().hubPicker).toBeNull();
+    // The lanes are the garden's, read again (both boards name their lanes the same: their cards tell them apart).
+    await until(() => B().lanes.some((l: any) => l.items?.some((m: any) => m.text.startsWith("Sow the beans"))), "the garden's cards in its lanes");
     // esc puts the picker away as it was (board.hub close=true), the person's own.
     key(char("g")); await until(() => !!B().hubPicker, "the picker");
     expect(ran(() => key({ kind: "esc" }))).toEqual(["board.hub"]);

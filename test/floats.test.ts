@@ -1,14 +1,14 @@
-// PIE-510: floats and containers keep their tiles and their rules. A float has no place in the tree, so a swap,
-// an open beside it, a split of it, a preview of it are refused with the reason (one rule, `floatRefusal`); a
-// float docks only where the containers take it; the last docked tile isn't put in a drawer and the last drawer
-// showing anything doesn't shut; a tiny terminal moves the keys off a tile left no room and keeps a float on the
-// screen; an agent never pins or moves the tile the person is typing in, and never undoes the person's lock.
-// Scratch services, fictional notes.
+// PIE-510, PIE-513: the desk's paths into the screen-layout module's rules. The rules themselves (a float has no
+// place in the tree, it docks only where the containers take it, the last docked tile stays, the person's lock is
+// theirs, an agent never moves the tile the person types in: B7–B11, C3, C4) are tested through the module's
+// interface in screen-layout.test.ts, with no App. Here, what only the desk can show: the person's keys and clicks
+// reach the same operations and say the refusal, a tiny terminal keeps the keys and the floats on the screen, and
+// the desk tells the module where the person is really typing. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { leaves, visible } from "../src/desk/layout";
+import { leaves } from "../src/desk/screen-layout";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -17,7 +17,7 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
-describe.skipIf(!outliner)("floats and containers keep their tiles and their rules", () => {
+describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout's rules", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
   let key: (k: Key) => void = () => {};
@@ -31,7 +31,6 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; floats: any[]; locked: boolean };
   const treeNames = () => (leaves(D().root) as number[]).map((id: number) => D().nameOf(id)) as string[];
   const floats = () => D().floats.map((f: any) => D().nameOf(f.id)) as string[];
-  const tileNames = () => [...D().panes.keys()].map((id: number) => D().nameOf(id)).sort() as string[];
   const refused = async (p: Promise<unknown> | unknown, re: RegExp) => { let err: unknown; try { await p; } catch (e) { err = e; } expect(String((err as Error)?.message)).toMatch(re); };
   const fresh = (layout = "desk") => {
     if ((app as any).stack.at(-1) instanceof Desk) { D().dispose(); app.pop(); }
@@ -51,91 +50,32 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
   }, 30_000);
   afterAll(async () => { D()?.dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
-  test("a swap with a float is refused, by act and by ^W s on it: no tile lost, none shown twice", async () => {
+  test("^W s on a float says why, and nothing moves; pane.split and tile.preview of a float are refused the same way", async () => {
     fresh();
     await mine("pane.float", {}, "reader");
-    const tree = treeNames(), all = tileNames();
-    await refused(act("layout.swap", { to: "reader" }, "tree"), /reader is a float: a swap needs a tile in the layout/);
-    await refused(act("layout.swap", { to: "tree" }, "reader"), /reader is a float/);
-    // ^W s with the keys on the float: the swap says why, and nothing moves.
+    const tree = treeNames();
     expect(get().focus).toBe("reader");
     key(ctrl("w")); key(char("s"));
-    await until(() => /reader is a float/.test(message()), "the refusal said");
+    await until(() => /reader is a float: a swap needs a tile in the layout/.test(message()), "the refusal said");
     expect(treeNames()).toEqual(tree);
     expect(floats()).toEqual(["reader"]);
-    expect(tileNames()).toEqual(all);
-    // Two tiles in the tree still swap.
-    await mine("layout.swap", { to: "thread" }, "tree");
-    expect(treeNames().indexOf("thread")).toBeLessThan(treeNames().indexOf("tree"));
-  });
-
-  test("nothing opens beside a float or in its tabs: tile.open, pane.split and tile.preview are refused, no tile made", async () => {
-    fresh();
-    await mine("pane.float", {}, "reader");
-    const all = tileNames();
-    await refused(act("tile.open", { kind: "reader", name: "ghost", to: "reader", where: "right" }), /reader is a float: putting ghost beside it needs a tile in the layout/);
-    await refused(act("tile.open", { kind: "reader", name: "ghost", to: "reader", where: "tabs" }), /into its tabs/);
     await refused(act("pane.split", {}, "reader"), /reader is a float/);
     await refused(act("tile.preview", {}, "reader"), /reader is a float/);
-    expect(tileNames()).toEqual(all);
-    // Along an outer edge, a float as the base is fine: the edge is the whole layout's.
-    const r = await mine("tile.open", { kind: "reader", name: "edgy", to: "reader", where: "edge-right" }) as any;
-    expect(treeNames()).toContain("edgy");
-    expect(r.n).toBeGreaterThan(0);
   });
 
-  test("a float docks only where the containers take it: another place if the first refuses, else refused with why", async () => {
+  test("a click on a float's ⧉ docks it where the containers take it", async () => {
     fresh();
     await mine("pane.float", {}, "thread");
-    // The keys on activity: a float docks beside it, in the container that takes only query tiles.
     await mine("layout.policy", { accepts: "query" }, "activity");
     await mine("tile.focus", {}, "activity");
-    // Docked by the mouse: a click on the ⧉ before its title.
     render();
-    const f = D().floats[0].rect;
+    const f = get().floats[0].rect;
     key({ kind: "mouse", action: "down", button: 0, x: f.col + 3, y: f.row }); key({ kind: "mouse", action: "up", button: 0, x: f.col + 3, y: f.row });
     expect(floats()).toEqual([]);
-    const policyOver = (name: string) => (D().policyAt([...D().names].find(([, v]: any) => v === name)![0]) as any).accepts;
-    expect(policyOver("thread")).toBeNull();                       // docked where reader tiles go
-    // The screen takes only query tiles: there's nowhere, and it stays a float.
-    await mine("pane.float", {}, "thread");
-    await mine("layout.policy", { node: "screen", accepts: "query" });
-    await refused(act("pane.float", {}, "thread"), /takes only query: not thread \(thread\)/);
-    expect(floats()).toEqual(["thread"]);
-    await mine("layout.policy", { node: "screen", clear: "accepts" });
-    // The other places are beside a docked tile, never in a shut drawer where the float wouldn't be shown.
-    fresh();
-    await mine("tile.pin", { on: false, edge: "left" }, "tree");
-    await mine("tile.drawer", { open: false }, "tree");
-    await mine("pane.float", {}, "reader");
-    await mine("layout.policy", { accepts: "query" }, "activity");
-    await mine("pane.float", {}, "reader");
-    expect(floats()).toEqual([]);
-    expect((visible(D().root) as number[]).map((id: number) => D().nameOf(id))).toContain("reader");
-    expect(get().focus).toBe("reader");
+    expect(treeNames()).toContain("thread");
   });
 
-  test("the last docked tile isn't put in a drawer; the last drawer showing anything doesn't shut; a blank screen opens one", async () => {
-    fresh();
-    const all = treeNames();
-    for (const n of all.slice(0, -1)) await mine("tile.pin", { on: false }, n);
-    await refused(mine("tile.pin", { on: false }, all.at(-1)), /last tile docked/);
-    await refused(mine("tile.pin", { on: false, edge: "right" }, all.at(-1)), /last tile docked/);
-    for (const n of all.slice(0, -1)) await mine("tile.drawer", { open: false }, n);
-    expect((visible(D().root) as number[]).map((id: number) => D().nameOf(id))).toEqual([all.at(-1)]);
-    // Close the one docked tile: the drawers are all that's left, and the screen opens one with the keys on it.
-    await mine("tile.focus", {}, all[0]);
-    await mine("tile.drawer", { open: false }, all[0]);
-    await mine("tile.close", {}, all.at(-1));
-    render();
-    expect(visible(D().root).length).toBeGreaterThan(0);
-    expect(visible(D().root)).toContain(D().focus);
-    const shown = drawerName();
-    await refused(mine("tile.drawer", { open: false }, shown), /all the screen shows/);
-  });
-  const drawerName = () => D().nameOf(visible(D().root)[0]) as string;
-
-  test("a tiny terminal: the keys leave a tile with no room, and a float stays on the screen", async () => {
+  test("a tiny terminal: the keys leave a tile with no room, and a float is drawn on the screen", async () => {
     fresh();
     await mine("pane.float", {}, "activity");
     await mine("float.place", { col: 120, row: 30, cols: 60, rows: 20 }, "activity");
@@ -147,31 +87,29 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
       expect(r.col).toBeGreaterThanOrEqual(0);
       expect(r.col + r.cols).toBeLessThanOrEqual(14);
     }
-    const f = D().floats[0].rect;
+    // Drawn on the screen as it is (its own rectangle stays as it was put, for when the terminal grows again).
+    const f = get().floats[0].rect;
     expect(f.col + f.cols).toBeLessThanOrEqual(14);
     await mine("tile.focus", {}, "thread");
     render();
     const fr = D().rectsNow().get(D().focus);
     expect(fr === undefined || (fr.cols > 0 && fr.rows > 0)).toBe(true);
     info.cols = 160; info.rows = 48;
+    render();
+    expect(get().floats[0].rect.col).toBe(100);
   });
 
-  test("locked: a tile doesn't fold and a float doesn't move (the shape is fixed); a spine still opens", async () => {
+  test("H J K L on a float of a locked screen say why it doesn't move", async () => {
     fresh();
-    await mine("tile.collapse", { on: true }, "reader");
     await mine("pane.float", {}, "activity");
     await mine("layout.lock", { on: true });
-    await refused(mine("tile.collapse", { on: true }, "tree"), /the screen is locked: folding tree is refused/);
-    await refused(mine("float.place", { dx: 4 }, "activity"), /the screen is locked: moving activity is refused/);
     await mine("tile.focus", {}, "activity");
     key({ kind: "char", ch: "L" });
     await until(() => /moving activity is refused/.test(message()), "H J K L on a float say why");
-    await mine("tile.collapse", { on: false }, "reader");
-    expect(get().tiles.find(t => t.name === "reader").collapsed).toBeUndefined();
     await mine("layout.lock", { on: false });
   });
 
-  test("an agent never pins or moves the tile the person is typing in, and never undoes the person's lock", async () => {
+  test("the desk tells the layout where the person types: an agent's pin or move of that reader is refused, of another isn't", async () => {
     fresh();
     const note = await board.request<any>("create", { parentId: null, text: "Rake the gravel path\nBefore the frost.", author: "user" });
     await act("open", { id: note.id }, "reader");
@@ -180,30 +118,15 @@ describe.skipIf(!outliner)("floats and containers keep their tiles and their rul
     key(char("e"));
     await until(() => !!D().personIn()?.editing, "the person editing");
     await refused(act("tile.pin", { on: false }, "reader"), /where the person is typing; an agent doesn't move it/);
-    await refused(act("tile.pin", { on: false, edge: "left" }, "reader"), /where the person is typing/);
+    await refused(act("layout.move", { where: "edge-left" }, "reader"), /where the person is typing/);
     expect(D().layoutGet().tiles.find((t: any) => t.name === "reader").drawer).toBeUndefined();
+    await act("layout.move", { where: "edge-left" }, "activity");
+    expect(treeNames()[0]).toBe("activity");
+    expect(get().focus).toBe("reader");
     key({ kind: "esc" });
-    // A float the person is typing in: an agent doesn't move or size it.
-    await mine("pane.float", {}, "reader");
-    key(char("e"));
-    await until(() => !!D().personIn()?.editing, "the person editing the float");
-    await refused(act("float.place", { dx: 4 }, "reader"), /where the person is typing/);
-    key({ kind: "esc" });
-    // The person's lock is theirs: an agent can't undo it by layout.lock or layout.policy.
+    // The person's lock is theirs, through the socket too.
     await mine("layout.lock", { on: true });
     await refused(act("layout.lock", { on: false }), /locked by the person; an agent doesn't unlock it/);
-    await refused(act("layout.policy", { node: "screen", locked: false }), /locked by the person/);
-    await refused(act("layout.policy", { node: "screen", clear: "locked" }), /locked by the person/);
-    expect(get().locked).toBe(true);
     await mine("layout.lock", { on: false });
-    // An agent's own lock it may undo; a container the person locked it may not.
-    await act("layout.lock", { on: true });
-    await act("layout.lock", { on: false });
-    expect(get().locked).toBe(false);
-    await mine("layout.policy", { locked: true }, "thread");
-    await refused(act("layout.policy", { clear: "locked" }, "thread"), /was locked by the person/);
-    // Nor by loading a layout, which would drop the container's lock with the tree.
-    await refused(act("layout.load", { name: "desk" }), /was locked by the person; loading desk would undo it/);
-    await mine("layout.policy", { clear: "locked" }, "thread");
   });
 });

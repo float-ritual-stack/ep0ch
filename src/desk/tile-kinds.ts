@@ -8,7 +8,7 @@ import type { Actor, Change } from "../socket";
 import type { ActionSet, ActRequest } from "../surface/actions";
 import type { Key } from "../term";
 import { wrap } from "../text";
-import type { Policy } from "./layout";
+import type { Policy } from "./screen-layout";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { PtyPane, type PtySpec } from "./pty";
 import type { TileSpec } from "./tiles";

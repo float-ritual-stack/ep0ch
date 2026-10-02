@@ -3,15 +3,20 @@
 // weight. A tab set (PIE-413) stacks tiles in one place, one of them shown. A drawer (PIE-505) holds any tiles
 // and slides out over the others from an edge: it's placed as if it were docked, and nothing else moves for
 // it; shut, it takes no room. Columns (PIE-511) are tiles side by side in an order that comes from data (its
-// `source`: the board's lanes are a hub's views), each resizable. Every container carries a policy (what it
-// allows: drags, drops, which kinds, resizing, locked), saved with the screen. Pure functions; the view owns
-// its tree. Around the tree a screen has floats: tiles with their own rectangle, above everything.
+// `source`: the board's lanes are a hub's views), each resizable. A flow (PIE-513) is the river's columns: each
+// opens into the next, and they squeeze full → peek → spine around the wide one (`flow.ts`). Every container
+// carries a policy (what it allows: drags, drops, which kinds, resizing, locked), saved with the screen. Around
+// the tree a screen has floats: tiles with their own rectangle, above everything.
+//
+// Internal to the screen-layout module (`screen-layout.ts`, PIE-513): pure tree arithmetic. Nothing outside the
+// module changes a tree; it asks the module to apply an operation, and reads what these queries say.
 //
 // The tile operations (move beside, into tabs, to an outer edge, normalise) are floatty's binary-tree
 // model (`moveLeafToTarget`, `moveLeafToRoot`, `removeNode`'s collapse, `clampRatio`) ported to n-ary
 // splits by weight: a move beside a tile inside a split along the same axis joins that split instead of
 // nesting a new pair.
 import type { Rect } from "../canvas";
+import { placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
 
 export type Dir = "left" | "right" | "up" | "down";
 /** row: kids side by side; col: one over another. */
@@ -43,8 +48,24 @@ export interface Policy {
   locked?: boolean;
   /** Where opens from its tiles land when a tile has no link of its own: a tile's name. */
   opensInto?: string;
+  /**
+   * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
+   * opens-into says: the current note (`current`), or a new column right after the tile's own in its flow
+   * (`next`, a flow's own rule when it says none).
+   */
+  opens?: OpenRule;
+  /**
+   * A screen's own (its outermost policy, PIE-513): where the host layer (the agent, the admin outline, terminals,
+   * above every screen) may appear over it: `beside` it (the screen narrower), `over` it (a drawer, the default),
+   * or `none` (a full-screen screen: the host layer stays put away while it's shown).
+   */
+  host?: HostMode;
 }
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto"] as const;
+/** Where the host layer may appear over a screen. */
+export type HostMode = "beside" | "over" | "none";
+/** Where an open with no link lands: the current note, or the next column of the flow it's in. */
+export type OpenRule = "current" | "next";
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host"] as const;
 
 export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[]; policy?: Policy;
@@ -70,14 +91,28 @@ export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: strin
  * its size when open); `overlay: false` in its policy makes it take that room while open instead.
  */
 export type Drawer<I = number> = { t: "drawer"; kid: LNode<I>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+/**
+ * A flow (PIE-513): the river's columns as a container. Its kids are columns side by side (a tile, or tiles
+ * stacked in a col split), squeezed full, peek or spine around the `anchor` by `flow.ts`, never by weight. It stays
+ * with one column. Its memory names columns by a tile in them: the wide one (`anchor`), the one kept full beside it
+ * (`keep`), the one the person read before (`read`), the docked ones, and the trail back and forward.
+ */
+export type Flow<I = number> = {
+  t: "flow"; dir: "row"; kids: LNode<I>[]; weights: number[];
+  anchor?: I; keep?: I; read?: I; docked?: I[]; trail?: { tile: I; from?: I; ahead?: I }[];
+  key?: string; id?: string; policy?: Policy;
+};
 const hasPolicy = (n: { policy?: Policy }) => !!n.policy && Object.keys(n.policy).length > 0;
 const idOf = (n: { id?: string; policy?: Policy }) => ({ ...(n.id ? { id: n.id } : {}), ...(n.policy && Object.keys(n.policy).length ? { policy: { ...n.policy } } : {}) });
-export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I> | Drawer<I> | Columns<I>;
-/** What holds tiles: a split, a tab set, a drawer, columns. */
-export type Container<I = number> = Split<I> | Tabs<I> | Drawer<I> | Columns<I>;
-/** What lays its kids out by weight along an axis: a split, or columns (a row). */
-export type Line<I = number> = Split<I> | Columns<I>;
-export const isLine = <I>(n: LNode<I> | null | undefined): n is Line<I> => !!n && (n.t === "split" || n.t === "columns");
+export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I> | Drawer<I> | Columns<I> | Flow<I>;
+/** What holds tiles: a split, a tab set, a drawer, columns, a flow. */
+export type Container<I = number> = Split<I> | Tabs<I> | Drawer<I> | Columns<I> | Flow<I>;
+/** What lays its kids out along an axis: a split or columns (a row) by weight; a flow (a row) by its squeeze. */
+export type Line<I = number> = Split<I> | Columns<I> | Flow<I>;
+export const isLine = <I>(n: LNode<I> | null | undefined): n is Line<I> => !!n && (n.t === "split" || n.t === "columns" || n.t === "flow");
+/** A flow of `kids`, built around the first column unless told (`anchor`). */
+export const flowOf = <I>(kids: LNode<I>[], o: { key?: string; policy?: Policy; anchor?: I } = {}): Flow<I> =>
+  ({ t: "flow", dir: "row", kids, weights: kids.map(() => 1), ...(o.anchor !== undefined ? { anchor: o.anchor } : {}), ...(o.key ? { key: o.key } : {}), ...(o.policy ? { policy: o.policy } : {}) });
 /** Columns of `kids` from `source`, equal unless weighed. */
 export const columnsOf = <I>(kids: LNode<I>[], o: { source?: string; key?: string; weights?: number[]; policy?: Policy } = {}): Columns<I> =>
   ({ t: "columns", dir: "row", kids, weights: o.weights ?? kids.map(() => 1), ...(o.source ? { source: o.source } : {}), ...(o.key ? { key: o.key } : {}), ...(o.policy ? { policy: o.policy } : {}) });
@@ -92,6 +127,8 @@ export interface PlaceOpts<I> {
   sized?(id: I): boolean;
   /** The drawers placed as if docked, open or shut (where an open one slides out to): every one, or those it names. */
   docked?: boolean | ((d: Drawer<I>) => boolean);
+  /** A tile holding work (a draft): its flow column resists compression. */
+  holds?(id: I): boolean;
 }
 
 export interface Placed<I = number> {
@@ -103,6 +140,12 @@ export interface Placed<I = number> {
   dividers: Divider<I>[];
   /** Each drawer met, and the room it had (none when it slides over, or is shut). */
   drawers?: { node: Drawer<I>; rect: Rect }[];
+  /** Each tile in a flow: full, peek or spine (PIE-513). */
+  covers?: Map<I, Cover>;
+  /** A peek's whole box, its right side under its neighbour (its rect is what shows). */
+  boxes?: Map<I, Rect>;
+  /** Each flow met: where it is, and each column shown. */
+  flows?: { node: Flow<I>; rect: Rect; cols: PlacedColumn[] }[];
 }
 /** The border between `node.kids[i]` and `kids[i + 1]`: `at` is the first cell of the second. */
 export interface Divider<I = number> { node: Line<I>; i: number; area: Rect; at: number; sizes: [number, number] }
@@ -184,6 +227,8 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
     if (id !== undefined) { out.rects.set(id, r); (out.tabsets ??= []).push({ node: n, rect: r }); }
     return out;
   }
+  // A flow squeezes its columns around its anchor (flow.ts); nothing there is by weight.
+  if (n.t === "flow") return placeFlow(n, r, opts, out, place);
   if (n.key) out.nodes.set(n.key, r);
   // Columns are placed as a row split is.
   const row = n.dir === "row", S = row ? r.cols : r.rows;
@@ -296,6 +341,8 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   n.kids.forEach((k, i) => { const r = remove(k, id); if (r) { kids.push(r); weights.push(n.weights[i]!); } });
   // Columns stay with one tile or none: their tiles come and go with the data.
   if (n.t === "columns") return { ...n, kids, weights };
+  // A flow stays with one column (it still opens into the next); empty, it's gone unless named.
+  if (n.t === "flow") return kids.length || n.key ? tidyFlow({ ...n, kids, weights }) : null;
   if (!kids.length) return null;
   // A split that carries a policy stays with one kid, as a named one does: its rule outlives the move.
   if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
@@ -347,7 +394,8 @@ export function even<I>(n: LNode<I>, skip?: (n: Line<I>) => boolean): void {
   if (n.t === "drawer") return even(n.kid, skip);
   if (!isLine(n)) return;
   n.kids.forEach(k => even(k, skip));
-  if (skip?.(n)) return;
+  // A flow's columns aren't sized by weight: its squeeze sizes them.
+  if (skip?.(n) || n.t === "flow") return;
   // A drawer's weight is its size when it slides out: it keeps its share, and the docked kids share the rest.
   const total = n.weights.reduce((a, w) => a + w, 0) || 1;
   const kept = n.kids.reduce((a, k, i) => a + (k.t === "drawer" ? n.weights[i]! / total : 0), 0);
@@ -483,8 +531,8 @@ function mapSlot<I>(n: LNode<I>, id: I, f: (slot: LNode<I>) => LNode<I>): LNode<
 export function besideSlot<I>(root: LNode<I>, target: I, add: LNode<I>, dir: Dir, weight = 0.5): LNode<I> {
   const axis = axisOf(dir);
   const p = parentOf(root, target);
-  // Beside a tile in a split along the same axis (or in columns, across), it joins it.
-  if (p && p.parent.dir === axis && (!p.parent.key || p.parent.t === "columns")) {
+  // Beside a tile in a split along the same axis (or in columns or a flow, across), it joins it: in a flow, a new column.
+  if (p && p.parent.dir === axis && (!p.parent.key || p.parent.t === "columns" || p.parent.t === "flow")) {
     const w = p.parent.weights[p.i]!;
     const at = before(dir) ? p.i : p.i + 1;
     p.parent.kids.splice(at, 0, add);
@@ -689,6 +737,8 @@ function without<I>(n: LNode<I>, c: LNode<I>): LNode<I> | null {
   const kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k, i) => { const r = without(k, c); if (r) { kids.push(r); weights.push(n.weights[i]!); } });
   if (n.t === "columns") return { ...n, kids, weights };
+  // A flow stays with one column (it still opens into the next), as `remove` keeps it; empty, it's gone unless named.
+  if (n.t === "flow") return kids.length || n.key ? tidyFlow({ ...n, kids, weights }) : null;
   if (!kids.length) return null;
   if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
   return { ...n, kids, weights };
@@ -703,6 +753,8 @@ export function unwrapDrawer<I>(root: LNode<I>, d: Drawer<I>): LNode<I> {
 export interface Effective {
   locked: boolean; draggable: boolean; droppable: boolean; closable: boolean; resizable: boolean; collapsible: boolean;
   accepts: string[] | null; opensInto: string | null;
+  /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
+  opens: OpenRule;
   /** Which layer said each: "screen", a container's id, or "kind". */
   by: Partial<Record<keyof Policy, string>>;
 }
@@ -710,10 +762,13 @@ export interface Effective {
  * The policy in effect under `layers` (outermost first, each with who it is): the nearest that says a field
  * wins, and `locked` anywhere locks everything under it.
  */
-export function effective(layers: { by: string; policy?: Policy }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, by: {} };
-  for (const { by, policy: p } of layers) {
+export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
+  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, opens: "current", by: {} };
+  for (const { by, policy: p, flow } of layers) {
+    // A flow's own rule, when it says none: its tiles open into the next column.
+    if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
     if (!p) continue;
+    if (p.opens) { out.opens = p.opens; out.by.opens = by; }
     if (p.locked) { out.locked = true; out.by.locked ??= by; }
     for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible"] as const) if (p[k] !== undefined) { out[k] = p[k]!; out.by[k] = by; }
     if (p.accepts) { out.accepts = p.accepts; out.by.accepts = by; }
@@ -722,10 +777,10 @@ export function effective(layers: { by: string; policy?: Policy }[]): Effective 
   return out;
 }
 
-/** Drop the ids (`s<n>`, `g<n>`, `d<n>`, `c<n>`) of the splits, tab sets, drawers and columns whose number `gone` says was given out already. */
+/** Drop the ids (`s<n>`, `g<n>`, `d<n>`, `c<n>`, `f<n>`) of the splits, tab sets, drawers, columns and flows whose number `gone` says was given out already. */
 export function forgetIds<I>(n: LNode<I>, gone: (num: number) => boolean): void {
   if (n.t === "leaf") return;
-  const m = n.id ? /^[sgdc](\d+)$/.exec(n.id) : null;
+  const m = n.id ? /^[sgdcf](\d+)$/.exec(n.id) : null;
   if (n.id && (!m || gone(Number(m[1])))) delete n.id;
   for (const k of kidsOf(n)) forgetIds(k, gone);
 }
@@ -735,6 +790,7 @@ export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
   if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
   if (n.t === "drawer") return { ...n, kid: clone(n.kid), ...idOf(n) };
+  if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.docked ? { docked: [...n.docked] } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...idOf(n) } as LNode<I>;
 }
 
@@ -758,6 +814,12 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
     if (!ids.length) return { t: "tabs", ids: [], active: 0, ...idOf(n) };
     if (ids.length === 1 && !n.policy) return leaf(ids[0]!);
     return { t: "tabs", ids, active: Math.max(0, Math.min(ids.length - 1, Number.isInteger(n.active) ? n.active : 0)), ...idOf(n) };
+  }
+  if (n.t === "flow") {
+    // Its columns as they are, each a column (a split along its row joins it as columns); its memory kept to them.
+    const kids: LNode<I>[] = [];
+    n.kids.forEach(k0 => { const k = normalise(k0, min, false); if (empty(k)) return; if (k.t === "split" && k.dir === "row" && !k.key && !k.policy) kids.push(...k.kids); else kids.push(k); });
+    return tidyFlow({ ...n, kids, weights: kids.map(() => 1) });
   }
   if (n.t === "columns") {
     // Its tiles as they are (none is fine), each weight positive; nothing merges into it or out of it.
@@ -795,8 +857,13 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
 // ── saved forms ──────────────────────────────────────────────────────────────
 
 /** The desk.json form before PIE-412: binary splits by ratio. The desk still writes it (it only makes pairs). */
-export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DrawerForm<L> | ColumnsForm<L>;
-export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string; policy?: Policy } | TabsForm<L> | DrawerForm<L> | ColumnsForm<L>;
+export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DrawerForm<L> | ColumnsForm<L> | FlowForm<L>;
+export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string; policy?: Policy } | TabsForm<L> | DrawerForm<L> | ColumnsForm<L> | FlowForm<L>;
+/**
+ * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
+ * full, the one read before, the docked ones, and each column's way back (`from`) and forward (`ahead`).
+ */
+export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; docked?: number[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
 /** Columns as saved (PIE-511): its tiles as they were last filled, its weights, and where its tiles come from. */
 export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: number[]; source?: string; key?: string; id?: string; policy?: Policy };
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
@@ -823,6 +890,8 @@ export function policyOf(x: unknown): Policy {
   for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
+  if (o.opens === "current" || o.opens === "next") out.opens = o.opens;
+  if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
   return out;
 }
 const savedPolicy = (x: unknown) => { const p = policyOf(x); return Object.keys(p).length ? { policy: p } : {}; };
@@ -832,6 +901,18 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
   if (s.t === "leaf") return leaf(leafOf(s as L));
   const x = s as any;
   if (x.t === "drawer") return { t: "drawer", kid: x.kid ? revive(x.kid, leafOf) : { t: "tabs", ids: [], active: 0 }, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...savedId(x) };
+  if (x.t === "flow") {
+    const kids: LNode<I>[] = (Array.isArray(x.kids) ? x.kids : []).map((k: any) => revive(k, leafOf));
+    const col = (i: unknown): I | undefined => (Number.isInteger(i) && (i as number) >= 0 && kids[i as number] ? leaves(kids[i as number]!)[0] : undefined);
+    const f: Flow<I> = flowOf(kids, { ...(typeof x.key === "string" ? { key: x.key } : {}) });
+    for (const k of ["anchor", "keep", "read"] as const) { const t = col(x[k]); if (t !== undefined) f[k] = t; }
+    const docked = (Array.isArray(x.docked) ? x.docked : []).map(col).filter((t: I | undefined): t is I => t !== undefined);
+    if (docked.length) f.docked = docked;
+    const trail = (Array.isArray(x.trail) ? x.trail : []).map((t: any) => ({ tile: col(t?.col), from: col(t?.from), ahead: col(t?.ahead) })).filter((t: any) => t.tile !== undefined)
+      .map((t: any) => ({ tile: t.tile as I, ...(t.from !== undefined ? { from: t.from as I } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead as I } : {}) }));
+    if (trail.length) f.trail = trail;
+    return { ...tidyFlow(f), ...savedId(x) };
+  }
   if (x.t === "columns") {
     const kids = (Array.isArray(x.kids) ? x.kids : []).map((k: any) => revive(k, leafOf));
     const ok = Array.isArray(x.weights) && x.weights.length === kids.length && x.weights.every(good);
@@ -863,6 +944,15 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L
   if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
   if (n.t === "drawer") return { t: "drawer", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
   if (n.t === "columns") return { t: "columns", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.source ? { source: n.source } : {}), ...(n.key ? { key: n.key } : {}), ...idOf(n) };
+  if (n.t === "flow") {
+    const col = (id: I | undefined) => (id === undefined ? -1 : n.kids.findIndex(k => leaves(k).includes(id)));
+    const at = (id: I | undefined) => { const i = col(id); return i >= 0 ? i : undefined; };
+    const docked = (n.docked ?? []).map(col).filter(i => i >= 0);
+    const trail = (n.trail ?? []).map(t => ({ col: col(t.tile), from: at(t.from), ahead: at(t.ahead) })).filter(t => t.col >= 0 && (t.from !== undefined || t.ahead !== undefined))
+      .map(t => ({ col: t.col, ...(t.from !== undefined ? { from: t.from } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead } : {}) }));
+    const memory = { ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(docked.length ? { docked } : {}), ...(trail.length ? { trail } : {}) };
+    return { t: "flow", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), ...memory, ...(n.key ? { key: n.key } : {}), ...idOf(n) };
+  }
   if (n.kids.length === 2 && !n.key) {
     const sum = n.weights[0]! + n.weights[1]! || 1;
     return { t: "split", dir: n.dir, ratio: n.weights[0]! / sum, a: serialize(n.kids[0]!, leafOf) as BinaryForm<L>, b: serialize(n.kids[1]!, leafOf) as BinaryForm<L>, ...idOf(n) };
@@ -877,7 +967,8 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L
  */
 export type LayoutView = { pane: string; id?: string; share: number; fixed?: number } | { split: Axis; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
   | { tabs: string[]; id?: string; policy?: Policy; active: string; share: number } | { drawer: Dir; open: boolean; id?: string; policy?: Policy; path: string; share: number; kid: LayoutView }
-  | { columns: string | null; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] };
+  | { columns: string | null; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
+  | { flow: true; key?: string; id?: string; policy?: Policy; path: string; share: number; wide?: string; docked?: string[]; kids: LayoutView[] };
 export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: PlaceOpts<I> = {}, leafId?: (id: I) => string, sh = 1, parent: Axis = "row", path = ""): LayoutView {
   const round = (x: number) => Math.round(x * 1000) / 1000;
   if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { pane: name(n.id), ...(leafId ? { id: leafId(n.id) } : {}), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
@@ -886,6 +977,7 @@ export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: Plac
   if (n.t === "drawer") return { drawer: n.edge, open: n.open, ...idOf(n), path, share: round(sh), kid: describeTree(n.kid, name, opts, leafId, 1, parent, path ? `${path}.0` : "0") };
   const sum = n.weights.reduce((a, w) => a + w, 0) || 1;
   const kids = n.kids.map((k, i) => describeTree(k, name, opts, leafId, n.weights[i]! / sum, n.dir, path ? `${path}.${i}` : String(i)));
+  if (n.t === "flow") return { flow: true, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), ...(n.anchor !== undefined ? { wide: name(n.anchor) } : {}), ...(n.docked?.length ? { docked: n.docked.map(name) } : {}), kids };
   if (n.t === "columns") return { columns: n.source ?? null, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), kids };
   return { split: n.dir, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), kids };
 }

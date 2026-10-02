@@ -14,7 +14,7 @@ import type { Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
 import { Desk } from "../desk/desk";
-import { pair } from "../desk/layout";
+import { pair } from "../desk/screen-layout";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 
 export const WAITING_QUERY = "type=outbox-item outbox=waiting";

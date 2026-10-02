@@ -55,11 +55,23 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   Don't call the Herdr UI legacy.
 - **The layout words** (UI-GRAMMAR, "Layout: block, tile, container, screen"): a *block* is outline content,
   never UI; a *tile* shows one thing (its kind from the tile-kind registry); a *container* arranges tiles
-  (`split`, `tabs`, `columns`, `drawer`; `flow`, the river's, is next) under a saved *policy* (`layout.policy`,
-  `^W P`; `locked` fixes a screen's shape); a *screen* is a saved tree of
-  containers and tiles. *Pane* means Herdr's or tmux's box only. Don't switch on a tile kind's name. A
-  container's tiles can come from data (a tile source: the board's columns are `hub:<id>`); a screen is a
-  preset on the desk's one engine (the board, the welcome, the brief), never a second layout host.
+  (`split`, `tabs`, `columns`, `drawer`, `flow`: the river's columns, each opening into the next, squeezed full,
+  peek or spine around the wide one) under a saved *policy* (`layout.policy`, `^W P`; `locked` fixes a screen's
+  shape; `opens` is the open rule); a *screen* is a saved tree of containers and tiles. *Pane* means Herdr's or
+  tmux's box only. Don't switch on a tile kind's name. A container's tiles can come from data (a tile source:
+  the board's columns are `hub:<id>`); a screen is a preset on the desk's one engine (the board, the welcome,
+  the brief), never a second layout host.
+- **A layout changes one way:** an operation of the screen-layout module (`src/desk/screen-layout.ts`,
+  `apply(state, op, ctx)`): one step for one actor, the new state or a refusal with its reason. Its rules
+  (floats, policy, the lock, never the tile the person types in) live inside it, so a view never checks them
+  itself and never writes to a tree: it calls `Desk.apply` (the state is frozen under test; a write throws).
+  Need a new kind of change? Add an operation to the module and test it through `apply`, with no App
+  (`test/screen-layout.test.ts`, `test/flow.test.ts`).
+- **Two layers:** the *screen layer* is swapped per screen and stays as small as it was designed; the *host
+  layer* (the agent, admin outline and detail, terminals) is above every screen and kept across switches. It is a
+  layout on the same module (`hostLayer`, `placeHost`): a slot for the screen beside a drawer of tabs; a screen's
+  policy `host` (`beside`, `over`, `none`) says where it may appear. Put what the person carries between screens
+  there, never as a tile duplicated on each screen.
 - **Build the real shape.** Prefer the design that makes the end state true (the open registry over a
   closed list with one escape hatch) and ship it in coherent slices of that architecture. Don't pick the
   minimal option "until we outgrow it".

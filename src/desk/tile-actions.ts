@@ -6,7 +6,7 @@
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./layout";
+import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./screen-layout";
 import { tileNoun, type TileKindName } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
@@ -42,6 +42,7 @@ export interface TileHost {
   focusTile(sel: string | undefined, actor: Actor): TileDone;
   pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | undefined, actor: Actor, container?: string): TileDone;
   collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
+  widenTile(sel: string | undefined, actor: Actor): TileDone;
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone;
   lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean };
   setPolicy(sel: string | undefined, node: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy };
@@ -100,9 +101,10 @@ export const TILE_ACTIONS = new ActionSet<{
   "tile.focus": Record<string, never>;
   "tile.pin": { on?: boolean; edge?: string; container?: string };
   "tile.collapse": { on?: boolean };
+  "tile.widen": Record<string, never>;
   "float.place": { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number };
   "layout.lock": { on?: boolean };
-  "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; closable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; stays?: boolean; locked?: boolean; opensInto?: string; clear?: string };
+  "layout.policy": { node?: string; draggable?: boolean; droppable?: boolean; closable?: boolean; accepts?: string; resizable?: boolean; min?: number; max?: number; fixed?: number; collapsible?: boolean; overlay?: boolean; stays?: boolean; locked?: boolean; opensInto?: string; opens?: string; host?: string; clear?: string };
   "tile.drawer": { open?: boolean; container?: string };
   "tile.preview": { where?: string };
   "tile.info": Record<string, never>;
@@ -271,6 +273,16 @@ export const TILE_ACTIONS = new ActionSet<{
       return r;
     },
   },
+  "tile.widen": {
+    summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
+    keys: "^W W; a click on a flow column's spine",
+    args: {},
+    run(_, { d, reader }, actor) {
+      const r = d.widenTile(reader, actor);
+      say(d, actor, `widened ${r.tile}`);
+      return r;
+    },
+  },
   "float.place": {
     summary: "move or size tile=<a float> (a tile popped out over the others, tile.float): dx dy step it (columns, rows), col row put its corner there, cols rows size it. Never smaller than a float is drawn, never off the screen",
     keys: "H J K L on a float, drag its title or its ◢ corner",
@@ -296,7 +308,7 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "layout.policy": {
-    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a drawer, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a drawer), locked, opensInto=<tile> (where its tiles' opens land when they have no link); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
+    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a drawer, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a drawer), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
     keys: "^W P (⏎ or a click on a row changes it; alt+k locks the screen)",
     args: {
       node: { type: "string", optional: true, about: "the container's id, or screen" },
@@ -313,14 +325,18 @@ export const TILE_ACTIONS = new ActionSet<{
       stays: { type: "boolean", optional: true, about: "an open drawer stays open when the keys leave it" },
       locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
       opensInto: { type: "string", optional: true, about: "the tile its tiles' opens land in (empty clears)" },
+      opens: { type: "string", optional: true, about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
+      host: { type: "string", optional: true, about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
       clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
     },
-    run({ node, clear, accepts, opensInto, min, max, fixed, ...flags }, { d, reader }, actor) {
+    run({ node, clear, accepts, opensInto, opens, host, min, max, fixed, ...flags }, { d, reader }, actor) {
       const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
       for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
       for (const [k, v] of Object.entries({ min, max, fixed })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
       if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
       if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
+      if (opens !== undefined) { if (opens !== "current" && opens !== "next") throw new ActionRefused(`layout.policy: opens is current or next, not ${opens}`); set.opens = opens; }
+      if (host !== undefined) { if (host !== "over" && host !== "beside" && host !== "none") throw new ActionRefused(`layout.policy: host is over, beside or none, not ${host}`); set.host = host; }
       if (!Object.keys(set).length && !gone.length && node === undefined) return d.policyGet(reader);
       const r = d.setPolicy(reader, node, set, gone, actor);
       say(d, actor, `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`, true);
