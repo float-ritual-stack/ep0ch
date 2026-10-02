@@ -61,6 +61,12 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   honest provenance (`author: agent`, its actor id, said on screen). It never moves the person's focus,
   selection or keys, and never the reader they type in; refusals say why. Safety comes from revision
   checks, attribution and undo, not from forbidding agents.
+- **One session, many terminals** (PIE-418, `src/session/`): the door can run as a session that outlives every
+  terminal; quitting detaches (`Ctx.logoff`), `session.end` ends it. Anything that must outlive a terminal lives in
+  the session; never a second keep-alive. A frame goes to a `Display` (`src/display.ts`): a `Painter` per terminal,
+  so never write CP437 or Kitty bytes from a screen. A program the person runs in their own terminal (the drop
+  shell, `$EDITOR`) goes through `Ctx.suspend`'s `Handover`, never `stdio: "inherit"` from the door: in a session the
+  door has no terminal.
 - **Two clients, one outline.** Tree/Detail in Herdr is the sysop console (find any block, edit it); the door
   is the everyday board. Both are maintained. A service capability added for one stays usable by the other.
   Don't call the Herdr UI legacy.
@@ -127,7 +133,8 @@ tmux send-keys -t try j                                       # a key
 tmux send-keys -t try -l $'\e[<0;6;7M'; tmux send-keys -t try -l $'\e[<0;6;7m'   # click col 6, row 7
 tmux send-keys -t try -l $'\e[<65;6;7M'                       # wheel down (64 is up)
 tmux capture-pane -p -t try                                   # or: bun src/main.ts snap out.png
-tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts of yours is left
+EP0CH_STATE=$d/s ep0ch session end --yes      # a session (EP0CH_DAEMON=1) outlives its pane: end yours
+tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts (or `session serve`) of yours is left
 ```
 
 - **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or

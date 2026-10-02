@@ -1,0 +1,88 @@
+// Opening the door on a terminal: the App over a service connection, its control socket, its first screens. The
+// door's own terminal (`ep0ch --no-daemon`, src/main.ts) and a door session (src/session/daemon.ts, every client
+// attached to it) open it the same way; only the terminal differs.
+import { App, type AppTerm } from "./app";
+import { startControl } from "./control";
+import type { Mirror } from "./mirror";
+import { Logon } from "./screens";
+import { startScreens } from "./start";
+import type { BoardInfo } from "./board";
+import { SocketBoard } from "./socket";
+import { resolveTarget } from "./discover";
+import { attachTarget } from "./outlines";
+import { alive, claimState, readLastCall, readState, writeLastCall } from "./state";
+import { recoverEdits } from "./surface/editor";
+import type { TermInfo } from "./term";
+import { setTheme, startTheme } from "./theme";
+
+export { readLastCall, writeLastCall };
+
+export interface DoorOpen {
+  term: AppTerm;
+  /** What the terminal was sent, for `peek` and `snap`. */
+  mirror: Mirror;
+  info: () => TermInfo;
+  board: SocketBoard;
+  service: BoardInfo;
+  args: readonly string[];
+  /** Said once it's up, when nothing more pressing is (`created outline pie`, the folder's binding). */
+  notice?: string;
+  /** The door is ending (App.quit): put the terminal back, close up, exit. */
+  done(app: App): void;
+}
+
+export interface Door { app: App; control: { path: string; close(): void } | null }
+
+export async function openDoor(o: DoorOpen): Promise<Door> {
+  const lastCall = readLastCall();
+  // The theme: EP0CH_THEME, else the one chosen last time (theme.set keeps it in the state dir), else calm.
+  setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
+  const app: App = new App(o.term, o.board, lastCall, () => o.done(app));
+  app.host = o.service.host;
+  app.workspace = o.service.workspace;
+  app.outline = o.service.outline;
+  o.board.subscribe(e => app.event(e));
+  // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
+  void app.loadExtensions();
+  // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
+  let refused = "";
+  const control = await startControl({ app, mirror: o.mirror, info: o.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });
+  // Another door on the same state: marks are shared (marks.json is merged), the desk layout is whoever saves last.
+  const others = claimState();
+  // ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
+  const recovered = recoverEdits(alive);
+  for (const s of startScreens(o.args, process.env, then => new Logon(app, then))) app.push(s);
+  if (refused) app.flash(refused, 20_000);
+  else if (others.length) app.flash(`another door (pid ${others.join(", ")}) uses this state dir · marks are shared, the desk layout is whichever saves last`, 20_000);
+  else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);
+  else {
+    // The outliner's grammar differs from the door's (info.warning), said with the outline's own notice.
+    const said = [o.service.warning, o.notice].filter(Boolean);
+    if (said.length) app.flash(said.join(" · "), 12_000);
+  }
+  return { app, control };
+}
+
+/**
+ * The service the door opens on (`--ws <name|root>`, a socket, EP0CH_SOCKET, the folder's binding: resolveTarget),
+ * connected and answering; or what's wrong, to print. The door opens a session, so it attaches to its outline and
+ * creates it when there is none (like herdr --session <name>).
+ */
+export async function connectTarget(args: readonly string[]): Promise<{ board: SocketBoard; service: BoardInfo; notice?: string } | { error: string }> {
+  const target = await resolveTarget(args);
+  if ("error" in target) return { error: target.error };
+  const board = new SocketBoard(target.path, undefined, target.outline);
+  let created = false;
+  if (target.attach && target.outline) {
+    try { created = (await attachTarget(target)).created; }
+    catch (e) { board.close(); return { error: `can't open the outline "${target.outline}" on ${target.path}\n  ${(e as Error).message}` }; }
+  }
+  try {
+    const service = await board.info();
+    const notice = created ? `created outline ${target.outline}` : target.notice;
+    return { board, service, ...(notice ? { notice } : {}) };
+  } catch (e) {
+    board.close();
+    return { error: `no carrier on ${board.path}\n  ${(e as Error).message}` };
+  }
+}

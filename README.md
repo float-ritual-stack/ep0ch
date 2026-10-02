@@ -130,11 +130,11 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in eighteen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in nineteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; it is under every section) have no section yet. The newest parts are in their rows' sections:
-the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
+the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
 (`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
@@ -165,7 +165,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-18|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-19|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -326,6 +326,7 @@ A door checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the installed Outliner plugin's, found through Herdr), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
+| `ep0ch session list`, `attach [--watch]`, `end [--yes]` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
 `bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
@@ -333,6 +334,7 @@ A door checkout from before `install` gets it by hand, once:
 | Env | Meaning |
 |---|---|
 | `EP0CH_SOCKET` | socket path (same as the argument) |
+| `EP0CH_DAEMON` | `1` runs the door as a session that quitting only detaches from (see [Sessions](#sessions-quit-is-detach)); `0` (or `--no-daemon`) opens it in this terminal even when a session runs. Unset: a running session is attached to, else the door opens in this terminal |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
@@ -346,6 +348,42 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_DAILY_AGENT` | the command the agent drawer's agent runs (default `claude`; the host layer's, with no tile on any screen); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
 | `EP0CH_HERDR_AGENT_CMD` | the agent that wrapper starts in its Herdr pane (default `door-claude` when it's on PATH, else `claude`) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
+
+## Sessions: quit is detach
+
+    EP0CH_DAEMON=1 ep0ch       # the door as a session: started when none runs, then attached
+    ep0ch                      # with a session running: attach to it
+    ep0ch session list         # who's attached, what runs in its tiles
+    ep0ch session attach --watch
+    ep0ch session end          # asks while programs run in its tiles; --yes doesn't
+
+A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs. One runs per
+user and state dir (`EP0CH_STATE`), started on demand in the background, and holds everything the door holds:
+the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
+agent drawer, the service connection and its change feed. Your terminal is a **client**: it shows what the session
+sends and sends what you type.
+
+- **Quitting detaches.** `G` (Goodbye), `ctrl+c`, closing the terminal or a dropped ssh connection lets go of that
+  terminal; everything goes on running. `ep0ch` attaches again and you're where you were: the layout, nvim with its
+  unsaved buffer, a shell's scrollback, a half-written draft. Flags that open a screen (`--board`, `--layout daily`)
+  apply when a session starts; attaching says it didn't apply them.
+- **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end`. With programs running in its tiles
+  it asks first (`E` again within 3s, or `--yes`). Unsaved drafts are copied to disk and put aside, as when the door quits.
+- **Several terminals at once** (the laptop and the phone, two screens): one session, one person, one focus. The keys
+  are wherever you last typed (tmux's `window-size latest`): the session is drawn at that terminal's size and in its
+  video mode, and the drop shell or `$EDITOR` runs there. Another terminal of another size sees the same frame cut to
+  its size, its bottom row saying whose size it's drawn at; its first key takes the session over, and its first click
+  only does that (it was aimed at the other size's frame). Each terminal has its own video mode and its own Kitty
+  images. `ep0ch session attach --watch` shows the session read-only (`q` stops watching).
+- **Agents** reach the session through its control socket as before (`peek`, `act`, `subscribe`); `peek` says which
+  terminals are attached (`session.clients`). An agent's act never takes the person's keys, whichever terminal they're on.
+- **In this terminal instead:** `--no-daemon` or `EP0CH_DAEMON=0` opens the door here, as before: quitting it ends it.
+
+How it's built: the session sends frames, not state. It renders once, as the door always has, and paints each
+client the bytes its terminal takes (rows diffed per client, Kitty images uploaded per client), so a client is a
+few hundred lines that work over ssh as is. The session's files are in the state dir: `session.sock` (mode 0600, the
+dir 0700), `session.json` (who it is), `session.log`. A test door on its own `EP0CH_STATE` has its own session and
+never reaches yours. See `src/session/`.
 
 ## The desk
 
@@ -459,7 +497,8 @@ the drawer; a terminal you made yourself stays yours.
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
 | loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut drawer on the right |
-| quitting the door (`ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
+| detaching from a session (`ctrl+c`, logging off with `G`, closing the terminal, a dropped ssh; see [Sessions](#sessions-quit-is-detach)) | keep running, scrollback and all: the next `ep0ch` attaches to them. `E` on the main menu or `ep0ch session end` ends them with the session (asking first) |
+| quitting a door in its own terminal (`--no-daemon`: `ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
 | SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
 | `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |
 | a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its file was copied to `drafts/` when the door ended) |

@@ -399,7 +399,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // ── every screen the menu opens, as it opens ──
   const SCREENS: Scenario[] = [
     ["main menu", () => new MainMenu()],
-    ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!").map(([key, make]): Scenario => [key, () => make(app) as Screen]),
+    ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!" && key !== "E").map(([key, make]): Scenario => [key, () => make(app) as Screen]),
     ["message reader", () => new MessageReader(notes, 0)],
   ];
 

@@ -40,16 +40,47 @@ export function shellCwd(cwd = process.cwd(), home = process.env.HOME || homedir
   return cwd && existsSync(cwd) ? cwd : home;
 }
 
-/** Run the person's login shell in the terminal (already handed over by `suspend`); its exit code. */
-export async function runLoginShell(control: string | null = controlPath): Promise<number | null> {
-  const shell = loginShell();
-  if (process.stdout.isTTY) process.stdout.write(`\x1b[2J\x1b[H${SHELL_BANNER}\n`);
-  const opts = { cwd: shellCwd(), env: shellEnv(process.env, control), stdio: ["inherit", "inherit", "inherit"] as ["inherit", "inherit", "inherit"] };
+/**
+ * A terminal handed to another program (App.suspend): `run` starts the program in it, with the terminal as its stdio,
+ * and resolves to its exit code. `banner` is printed first. The door's own terminal is `ownTerminal`; a session's is
+ * the terminal of the client with the person's keys (src/session/), whose client runs the program there.
+ */
+export interface Handover {
+  run(argv: string[], o?: { cwd?: string; env?: Record<string, string>; banner?: string }): Promise<number | null>;
+}
+
+/** The door's own terminal: the program runs here, as this process's child, with the terminal as its stdio. */
+export const ownTerminal: Handover = {
+  async run(argv, o = {}) {
+    if (o.banner && process.stdout.isTTY) process.stdout.write(`\x1b[2J\x1b[H${o.banner}\n`);
+    return runProgram(argv, o);
+  },
+};
+
+/** `argv` with this terminal as its stdio; when its first word isn't there, `fallback` instead. Its exit code. */
+export async function runProgram(argv: string[], o: { cwd?: string; env?: Record<string, string> } = {}, fallback?: string[]): Promise<number | null> {
+  const opts = { cwd: o.cwd, env: o.env ?? (process.env as Record<string, string>), stdio: ["inherit", "inherit", "inherit"] as ["inherit", "inherit", "inherit"] };
   let p;
-  try { p = Bun.spawn([shell, "-l"], opts); }
-  catch { p = Bun.spawn(["sh", "-l"], opts); }   // $SHELL names a program that isn't there
+  try { p = Bun.spawn(argv, opts); }
+  catch (e) { if (!fallback) throw e; p = Bun.spawn(fallback, opts); }   // $SHELL names a program that isn't there
   return await p.exited;
 }
 
+/**
+ * The drop shell's command, folder and environment: the person's login shell (`sh -l` where $SHELL isn't there,
+ * src/session/client.ts and `ownTerminal` fall back to it), with this door's control socket.
+ */
+export function loginShellRun(control: string | null = controlPath): { argv: string[]; cwd: string; env: Record<string, string>; banner: string } {
+  return { argv: [loginShell(), "-l"], cwd: shellCwd(), env: shellEnv(process.env, control), banner: SHELL_BANNER };
+}
+
+/** Run the person's login shell in the terminal handed over (`suspend`); its exit code. */
+export async function runLoginShell(terminal: Handover, control: string | null = controlPath): Promise<number | null> {
+  const { argv, ...o } = loginShellRun(control);
+  // A shell that isn't there: sh. The terminal's own `run` can't know which fallback a program has, so it's tried here.
+  if (!Bun.which(argv[0]!, { PATH: o.env.PATH })) argv[0] = "sh";
+  return terminal.run(argv, o);
+}
+
 /** How `screen.shell` runs the shell once the terminal is handed over (a test gives its own). */
-export const shellRunner: { run: () => Promise<number | null> } = { run: () => runLoginShell() };
+export const shellRunner: { run: (terminal: Handover) => Promise<number | null> } = { run: t => runLoginShell(t) };

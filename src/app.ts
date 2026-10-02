@@ -1,6 +1,6 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import type { Placement } from "./kitty";
-import { KittyLayer } from "./kitty";
+import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
 import { Dispatcher } from "./surface/dispatch";
@@ -9,9 +9,7 @@ import { SHELL_ACTIONS } from "./screens";
 import { isCopyKey, osc52 } from "./surface/selection";
 import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
-import { toCp437Glyphs } from "./ansi";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
-import { crtUnderlay } from "./crt";
 import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
@@ -23,13 +21,30 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
+import { ownTerminal, type Handover } from "./drop";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
 
 export interface Frame { lines: string[]; placements?: Placement[] }
 
-export type Video = "kitty+crt" | "kitty" | "cells";
+/**
+ * The terminal App reads keys from and draws on: the door's own (Term, drawn through a Painter), a test's fake, or a
+ * session's (src/session/session-term.ts: every attached client, a Display itself, handing over the terminal of the
+ * client with the person's keys).
+ */
+export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "invalidate" | "stop" | "resume">
+  & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink">>
+  & {
+    /** Run a program in the terminal of the client with the person's keys (a session's): its exit code. */
+    handOver?(argv: string[], o: { cwd?: string; env?: Record<string, string>; banner?: string }): Promise<number | null>;
+    /** Let go of the terminal the person is typing on (a session's): true when one was attached. */
+    detachActive?(): boolean;
+    /** The session's terminals, for `peek` (a session's). */
+    session?(): unknown;
+  };
+
+export type { Video };
 
 export interface Ctx {
   t: TermInfo;
@@ -61,12 +76,19 @@ export interface Ctx {
    */
   confirmQuit?(): boolean;
   /**
-   * Hand the terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e) runs in
-   * it synchronously; the drop shell (`screen.shell`) returns a promise, and the door waits for it with its
-   * event loop running (tiles read, the control socket answering) and nothing painted. `what` is said by `peek`.
+   * The person logs off (the menu's Goodbye, ctrl+c): in a session, their terminal detaches and everything goes on
+   * running (`detaches`); in the door's own terminal, the door quits.
    */
-  suspend(run: () => void): void;
-  suspend(run: () => Promise<unknown>, what?: string): Promise<void>;
+  logoff?(): void;
+  /** Logging off only detaches this terminal: the door is a session (src/session/), which goes on without it. */
+  readonly detaches?: boolean;
+  /**
+   * Hand the person's terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e), the drop
+   * shell (`screen.shell`). `run` starts its program through the Handover it is given (src/drop.ts): in the door's own
+   * terminal, or, in a session, the terminal of the client with the person's keys. The door waits with its event loop
+   * running (tiles read, the control socket answering); nothing is painted to that terminal meanwhile. `what` is said by `peek`.
+   */
+  suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>;
   /** What has the terminal while the door is suspended ("shell", "editor"), or null. */
   suspended?(): string | null;
   /**
@@ -177,7 +199,8 @@ export function agentActor(as?: string): Actor {
 
 export class App implements Ctx {
   private stack: Screen[] = [];
-  private kitty: KittyLayer;
+  /** Where frames go: this terminal (a Painter over it), or every client of a session (src/session/). */
+  private readonly display: Display;
   private message = "";
   private messageUntil = 0;
   private timer: Timer | null = null;
@@ -190,7 +213,9 @@ export class App implements Ctx {
   host = "";
   workspace = "";
   outline: string | undefined;
-  video: Video;
+  /** The video mode (the display's: in a session, the client with the person's keys). */
+  get video(): Video { return this.display.video; }
+  set video(v: Video) { this.display.video = v; }
   events = 0;
   /** Changes extensions wrote since logon (a refreshed ticket): counted apart, shown when asked for. */
   extEvents = 0;
@@ -205,10 +230,9 @@ export class App implements Ctx {
   private dockRun: DockRun;
 
   /** `now`: the clock the status bar reads (a test's fake one). */
-  constructor(private readonly term: Term, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
+  constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.started = now();
-    this.kitty = new KittyLayer(term.write);
-    this.video = term.info.kitty ? "kitty+crt" : "cells";
+    this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
     this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person() });
@@ -276,6 +300,14 @@ export class App implements Ctx {
   }
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
+  get detaches(): boolean { return !!this.term.detachActive; }
+  logoff(): void {
+    if (!this.term.detachActive) return this.quit();
+    // The session stays where the person was, not on the Goodbye.
+    if (this.stack.at(-1)?.title === "logoff") this.stack.pop();
+    this.term.detachActive();
+    this.redraw();
+  }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
   flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
   /** Flashes said so far: a key that said nothing and ran nothing is found by it (cmd+c with nothing to copy). */
@@ -361,31 +393,28 @@ export class App implements Ctx {
     this.redraw();
   }
   cycleVideo() {
-    if (!this.term.info.kitty) { this.flash("this terminal did not answer the Kitty graphics query; cells only"); return; }
-    this.video = this.video === "kitty+crt" ? "kitty" : this.video === "kitty" ? "cells" : "kitty+crt";
-    this.term.invalidate();
-    this.flash(`video: ${this.video}`);
+    const no = this.display.cycleVideo();
+    this.flash(no ?? `video: ${this.video}`);
   }
 
   /** What has the terminal while the door is suspended, or null (see Ctx.suspend). */
   private away: string | null = null;
   suspended(): string | null { return this.away; }
-  suspend(run: () => void): void;
-  suspend(run: () => Promise<unknown>, what?: string): Promise<void>;
-  suspend(run: () => void | Promise<unknown>, what = "editor"): void | Promise<void> {
+  async suspend(run: (terminal: Handover) => Promise<unknown>, what = "editor"): Promise<void> {
     if (this.away) throw new Error(`the terminal is already handed over (${this.away})`);
-    this.kitty.dispose();                  // images don't survive the screen switch; the next paint re-uploads
-    this.term.stop();
+    // A session hands over the terminal of the client with the person's keys; the others go on showing the session.
+    const session = this.term.handOver ? this.term as Required<Pick<AppTerm, "handOver">> : null;
+    if (!session) {
+      this.display.dispose();              // images don't survive the screen switch; the next paint re-uploads
+      this.term.stop();
+    }
     this.away = what;
-    const back = () => {
+    try { await run(session ? { run: (argv, o) => session.handOver(argv, o ?? {}) } : ownTerminal); }
+    finally {
       this.away = null;
-      this.term.resume();
+      if (!session) this.term.resume();
       this.redraw();
-    };
-    let r: void | Promise<unknown>;
-    try { r = run(); } catch (e) { back(); throw e; }
-    if (r instanceof Promise) return r.then(() => {}).finally(back);
-    back();
+    }
   }
 
   event(e: OutlineEvent) {
@@ -423,7 +452,7 @@ export class App implements Ctx {
     const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence,
       uses: (["views.read", "blocks.read", "changes.since", "properties.preview", "query.expression", "resources.projection"] as const).map(c => `${c}:${b.supports(c) ?? "untried"}`) };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
-    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
@@ -532,7 +561,7 @@ export class App implements Ctx {
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
-    this.kitty.dispose();
+    this.display.dispose();
     this.done();
   }
 
@@ -575,7 +604,12 @@ export class App implements Ctx {
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }
-    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) { if (this.leaving([...this.stack, ...this.background], true)) this.quit(); return; }
+    // ctrl+c: in a session the person's terminal detaches (nothing ends, nothing is asked); else the door quits, asking first.
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) {
+      if (this.detaches) this.logoff();
+      else if (this.leaving([...this.stack, ...this.background], true)) this.quit();
+      return;
+    }
     // cmd+c (super+c) is the copy wherever a reader or a draft has a selection (its copy action runs); where
     // nothing took it (no reader has the keys, or nothing ran and nothing was said), it says so. In a terminal
     // tile it's the program's, as it came (rawKeys).
@@ -629,18 +663,10 @@ export class App implements Ctx {
     if (s && !this.paintTimer && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
-  /**
-   * A row as this terminal can draw it. Under kitty+crt the font is CP437 (the VGA font the CRT is drawn for): a
-   * glyph it lacks would show as ?, so it goes as its nearest lookalike (ansi.ts CP437_NEAREST). That covers a
-   * terminal tile's program output too, which a CP437 screen can't draw either. `peek` keeps the Unicode.
-   */
-  private onScreen(line: string): string { return this.video === "kitty+crt" ? toCp437Glyphs(line) : line; }
-
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
   private paintStatus(s: Screen) {
     const { cols, rows } = this.term.info;
-    if (this.term.paintRow) this.term.paintRow(rows - 1, this.onScreen(this.statusBar(s, cols)));
-    else this.redraw();
+    if (!this.display.showRow(rows - 1, this.statusBar(s, cols))) this.redraw();
   }
 
   /**
@@ -686,7 +712,7 @@ export class App implements Ctx {
   }
 
   private paint() {
-    if (this.away) return;                 // another program has the terminal; resume repaints
+    if (this.away && !this.term.handOver) return;   // another program has the terminal; resume repaints
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;
@@ -712,11 +738,8 @@ export class App implements Ctx {
     } else this.dock.rect = null;
     if (this.toast) lines = withToast(lines, this.toast.text, cols);
     lines.push(this.statusBar(s, cols));
-    if (this.video === "kitty+crt") placements.unshift(crtUnderlay(this.term.info));
-    // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
-    const draw = () => { this.term.paint(lines.map(l => this.onScreen(l))); this.kitty.sync(placements); };
-    if (this.term.frame) this.term.frame(draw);
-    else draw();
+    // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
+    this.display.show(lines, placements);
     this.schedulePublish();
   }
 

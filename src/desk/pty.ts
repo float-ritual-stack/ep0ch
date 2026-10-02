@@ -67,6 +67,8 @@ let saidNoCtty = false;
 /** Every live pty, so the door's exit takes them down with it. */
 const LIVE = new Set<PtyPane>();
 process.on("exit", () => { for (const p of LIVE) p.kill(); });
+/** Every program running in a terminal tile (and the agent drawer) right now: what ending a session would stop. */
+export const livePrograms = (): readonly PtyPane[] => [...LIVE].filter(p => p.running);
 
 /** The escape chord: ctrl+] leaves the terminal, the keys go back to the door. */
 export const ESCAPE_CHORD = "ctrl+]";

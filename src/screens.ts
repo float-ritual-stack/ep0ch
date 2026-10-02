@@ -218,7 +218,7 @@ export class Logon implements Screen {
  * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
  */
 /** `action`: the item runs a shell action instead of opening a screen (`!`, `screen.shell`). */
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" }
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" }
 
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
@@ -243,6 +243,8 @@ const ITEMS: MenuItem[] = [
   { key: "C", label: "Welcome", open: () => openScreen("welcome"), one: "welcome" },
   // Drop to shell, the BBS's drop to DOS: the person's login shell in their terminal, the door back when it exits.
   { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
+  // End the session (PIE-418): logging off (G) only detaches this terminal; this stops the door and its programs.
+  { key: "E", label: "End", open: () => null, action: "session.end" },
 ];
 
 /** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
@@ -406,11 +408,11 @@ function itemNamed(name: string): MenuItem | undefined {
 const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
-  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"],
+  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
 };
 
 type ShellArgs = {
-  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>;
+  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": Record<string, never>;
   "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
   "theme.set": { name: string }; "theme.cycle": Record<string, never>;
   "open": { id: string };
@@ -481,9 +483,21 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       const away = ctx.suspended?.();
       if (away) throw new ActionRefused(`the terminal is already handed over (${away})`);
       let code: number | null = null;
-      await ctx.suspend(async () => { code = await shellRunner.run(); }, "shell");
+      await ctx.suspend(async t => { code = await shellRunner.run(t); }, "shell");
       ctx.flash(code === 0 ? "back from the shell" : `back from the shell · it exited ${code ?? "on a signal"}`);
       return { exited: code };
+    },
+  },
+  "session.end": {
+    summary: "end the session: the door stops, with every program in its terminal tiles and the agent drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
+    keys: "E on the main menu (or a click on End on its key line); `ep0ch session end` from a shell",
+    touches: "screen", replay: "ask",
+    person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
+    args: {},
+    run(_, { ctx }) {
+      if (ctx.confirmQuit && !ctx.confirmQuit()) return { ended: false, asked: true };
+      ctx.quit();
+      return { ended: true };
     },
   },
   "screen.help": {
@@ -1383,17 +1397,19 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call)",
+  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
+  E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
 };
 
 export class Goodbye implements Screen {
-  title = "logoff";
+  readonly title = "logoff";
   readonly noDock = true;
   private at = Date.now();
   /** Logging off quits the door: with programs still running (the desk in the background), it asks first. */
-  enter(ctx: Ctx) { if (ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
-  tick(ctx: Ctx) { if (Date.now() - this.at > 1600) { ctx.quit(); return false; } return true; }
+  /** In a session it only detaches this terminal (nothing ends, so nothing is asked); else, with programs running, it asks first. */
+  enter(ctx: Ctx) { if (!ctx.detaches && ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
+  tick(ctx: Ctx) { if (Date.now() - this.at > 1600) { if (ctx.logoff) ctx.logoff(); else ctx.quit(); return false; } return true; }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
     const t = Date.now() - this.at;

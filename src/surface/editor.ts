@@ -1,6 +1,7 @@
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
 // status line, wherever text is written — a note's whole text, a comment, a reply. Ctrl+E hands any of
 // them to $VISUAL/$EDITOR and back through the same path.
+import { ownTerminal, type Handover } from "../drop";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -130,46 +131,38 @@ export function writtenBy(d: Draft, verb: "save" | "send"): string | null {
   return `${names.join(" and ")} typed this · ${verb === "save" ? `saved as whoever saves it, naming ${all}` : `sent as the agent's, naming ${all}`}`;
 }
 
-export interface Suspender { suspend(run: () => void): void; editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean }
+export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean }
 
 /**
  * Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back, replacing the draft's text.
- * The base revision stays: the service still judges the save.
+ * The base revision stays: the service still judges the save. Resolves once the draft is back.
  */
-export function openInEditor(ctx: Suspender, d: Draft): void {
+export function openInEditor(ctx: Suspender, d: Draft): Promise<void> {
   // In the door's state (edit/<pid>-…, private), not /tmp: if the door ends first, the file is copied to
   // drafts/ and said (keepEditFile), or, after a kill -9, by the next door (recoverEdits).
   const dir = mkdtempSync(join(stateSub("edit") ?? tmpdir(), `${process.pid}-`));
   const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
   writeFileSync(path, d.text + "\n", { mode: 0o600 });
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  const back = (code: number | null) => {
+    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
+    else {
+      const before = d.text;
+      d.replace(readFileSync(path, "utf8"));
+      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+    }
+  };
+  const tidyUp = () => rmSync(dir, { recursive: true, force: true });
   // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
-  if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { rmSync(dir, { recursive: true, force: true }); } })) {
+  if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { tidyUp(); } })) {
     d.note = `editing in ${editor} beside · the draft comes back when it exits`;
-    return;
+    return Promise.resolve();
   }
-  function back(code: number | null) {
-    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
-    else {
-      const before = d.text;
-      d.replace(readFileSync(path, "utf8"));
-      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
-    }
-  }
+  // Else in the person's terminal (the door's own, or a session client's), the door stepping aside meanwhile.
   let code: number | null = null;
-  try {
-    ctx.suspend(() => {
-      code = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], { stdio: ["inherit", "inherit", "inherit"] }).exitCode;
-    });
-    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
-    else {
-      const before = d.text;
-      d.replace(readFileSync(path, "utf8"));
-      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return ctx.suspend(async terminal => { code = await (terminal ?? ownTerminal).run(["sh", "-c", `${editor} "$1"`, "sh", path]); }, "editor")
+    .then(() => back(code), e => { d.note = `couldn't run ${editor}: ${e instanceof Error ? e.message : String(e)} · the draft is unchanged`; })
+    .finally(tidyUp);
 }
 
 /**
