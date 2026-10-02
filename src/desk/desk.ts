@@ -216,8 +216,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     this.state = init({ tree: leaf(0), names: new Map() }, { rev: Math.max(n(last?.rev), Date.now()), nextNode: Math.max(this.layout.nextNode, n(last?.next?.node)) });
   }
 
-  /** The id the next tile instance gets (an operation is asked about it before the tile is made). */
-  protected nextTileId() { return this.nextId; }
   /** A tile instance joins the desk: its id (the layout names and places it, by an operation). */
   protected put(p: Pane): number {
     const id = this.nextId++;
@@ -514,7 +512,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (!this.filledOnce.has(cid)) for (const id of leaves(c1)) if (!this.sourced.has(id)) { const key = src.source.key(this.specOf(id)); if (key) this.sourced.set(id, { columns: cid, source: asked, key }); }
     const mine = [...this.sourced].filter(([id, s]) => s.columns === cid && this.panes.has(id));
     const byKey = new Map(mine.filter(([, s]) => s.source === asked).map(([id, s]) => [s.key, id] as const));
-    const order: number[] = [], fresh: { id: number; kind: string; name?: string }[] = [];
+    const order: number[] = [], fresh: { id: number; kind: string; name?: string }[] = [], names: [number, string][] = [];
     for (const t of got.tiles) {
       const key = src.source.key(t.spec) ?? `${t.spec.kind}:${t.spec.name ?? ""}`;
       let id = byKey.get(key);
@@ -522,7 +520,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
         id = this.put(makeTile(t.spec));
         this.sourced.set(id, { columns: cid, source: asked, key });
         fresh.push({ id, kind: t.spec.kind, ...(t.spec.name ? { name: t.spec.name } : {}) });
-      }
+      } else if (t.spec.name) names.push([id, t.spec.name]);
       t.prime?.(this.panes.get(id)!);
       this.modelOf(cid)?.supplied?.(this.panes.get(id)!);
       order.push(id);
@@ -531,7 +529,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const drop = mine.map(([id]) => id).filter(id => !order.includes(id));
     for (const id of drop) this.sourced.delete(id);
     // Its tiles in the source's order; one the person moved out stays where they put it; others they put in, after.
-    this.apply({ op: "fill", container: cid, order, fresh, drop });
+    this.apply({ op: "fill", container: cid, order, fresh, drop, names });
     for (const id of drop) this.dropTile(id);
     for (const [id] of [...this.sourced]) if (!this.panes.has(id)) this.sourced.delete(id);
     const c = this.columnsIn().find(x => x.id === cid);
@@ -1585,8 +1583,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     return true;
   }
 
-  /** alt+l is waiting for the tile to link to: its next key (a tile's number, h j k l) is the desk's. */
-  protected linkingNow(): boolean { return !!this.linking; }
   /** The band across the top (the spec's `band`: a tile whose kind draws it), if the screen has one. */
   private band(): { pane: Pane; kind: NonNullable<TileKind["band"]> } | null {
     const id = this.spec.band ? this.idNamed(this.spec.band) : undefined;
@@ -1790,7 +1786,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       return `|14 ${f instanceof DetailPane && f.label ? f.label : this.nameOf(this.focus)} · collapsed${holds}|08 · ${h.spine ?? ""}`;
     }
     if (this.isFloat(this.focus) && h.float !== undefined) return h.float;
-    return h[f.kind] ?? h["*"] ?? null;
+    const k = h[f.kind] ?? h["*"] ?? null;
+    // A tile that doesn't close (closable off, or kept by its source) isn't offered x: its kind's hint says it for the rest.
+    return k && (!this.policyAt(this.focus).closable || this.facts(this.focus).keeps) ? k.split(" · ").filter(p => !/^(?:\|\d\d)?\s*\|15x\|08 close$/.test(p)).join(" · ") : k;
   }
 
   /** A float's frame hint, with this screen's keys for docking and closing it (the board has its own o and x). */
@@ -3135,6 +3133,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   }
 }
 
+/** The names of the leaves in a saved or spec'd tree (either form; anything else in it skipped). */
+function leafNames(n: any): string[] {
+  return !n || typeof n !== "object" ? [] : n.t === "leaf" ? (typeof n.name === "string" ? [n.name] : []) : [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(leafNames);
+}
+
 /**
  * A screen as it was saved (its spec's `saves`), when it can come back: one missing a tile its spec names (taken apart,
  * or saved by an older door) comes back as its spec instead. A board saved before PIE-515 kept its layout under
@@ -3145,12 +3148,34 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
   let o = x as Record<string, any>;
   if (!o.root && o.layout && typeof o.layout === "object" && o.layout.root) o = { ...o.layout, models: { lanes: { hubs: o.hubs, lane: o.lane } } };
   if (!o.root) return o.models ? { root: undefined as never, focus: 0, models: o.models } : null;
-  const names = (n: any): string[] => (!n || typeof n !== "object" ? [] : n.t === "leaf" ? (typeof n.name === "string" ? [n.name] : []) : [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(names));
+  const names = leafNames;
   const keys = (n: any): string[] => (!n || typeof n !== "object" || n.t === "leaf" ? [] : [...(typeof n.key === "string" ? [n.key] : []), ...[...(Array.isArray(n.kids) ? n.kids : []), n.kid, n.a, n.b].flatMap(keys)]);
   const want = names(spec.layout.root), have = new Set(names(o.root)), wantKeys = keys(spec.layout.root), haveKeys = new Set(keys(o.root));
   // The desk's tiles are the person's own: anything goes. A screen of a fixed shape needs its tiles and named containers.
   if (!spec.layouts && (!want.every(n => have.has(n)) || !wantKeys.every(k => haveKeys.has(k)))) return { ...(o as SavedDesk), root: undefined as never };
-  return o as SavedDesk;
+  return spec.layouts ? o as SavedDesk : { ...(o as SavedDesk), root: heldAsSpecced(o.root, spec.layout.root) };
+}
+
+/**
+ * A fixed screen's tiles its spec holds in a tab set of one for its policy (the river's library: closable off), held
+ * so again in a save written before the spec said it (a bare leaf by that name): the rule comes back with the save.
+ */
+function heldAsSpecced(saved: any, specRoot: unknown): any {
+  const held = new Map<string, any>();
+  const find = (n: any) => {
+    if (!n || typeof n !== "object") return;
+    if (n.t === "tabs" && n.policy && Array.isArray(n.tabs) && n.tabs.length === 1 && typeof n.tabs[0]?.name === "string") held.set(n.tabs[0].name, n.policy);
+    for (const k of [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b]) find(k);
+  };
+  find(specRoot);
+  if (!held.size) return saved;
+  const fix = (n: any): any => {
+    if (!n || typeof n !== "object") return n;
+    if (n.t === "leaf") return typeof n.name === "string" && held.has(n.name) ? { t: "tabs", tabs: [n], active: 0, policy: { ...held.get(n.name) } } : n;
+    if (n.t === "tabs") return n;
+    return { ...n, ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(n.kid ? { kid: fix(n.kid) } : {}), ...(n.a ? { a: fix(n.a) } : {}), ...(n.b ? { b: fix(n.b) } : {}) };
+  };
+  return fix(saved);
 }
 
 /**
@@ -3195,10 +3220,6 @@ const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
 /** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */
 const placeOf = (where: Where, at: number): At<number> => (where === "next" ? { kind: "next", from: at } : where === "tabs" ? { kind: "tabs", target: at } : where.startsWith("edge-") ? { kind: "edge", dir: where.slice(5) as Dir } : { kind: "split", target: at, dir: where as Dir });
-/** A tile's name as a preset or a source gives it: as given when it's a good name not taken, else by its kind. */
-function nameFor(names: ReadonlyMap<number, string>, name: string | undefined, kind: string): string {
-  return name && !tileNameProblem(name) && ![...names.values()].includes(name) ? name : autoName({ names }, kind);
-}
 /** A command line as words, "quoted words" kept together. */
 export function splitWords(s: string): string[] { return [...s.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2] ?? m[3]!); }
 

@@ -148,7 +148,7 @@ export type Op<I = number> =
   | { op: "tab"; tile: I; by?: number }
   | { op: "zoom"; tile: I; on?: boolean }
   | { op: "load"; name: string }
-  | { op: "fill"; container: string; order: I[]; fresh?: { id: I; kind: string; name?: string }[]; drop?: I[]; weights?: [I, number][] }
+  | { op: "fill"; container: string; order: I[]; fresh?: { id: I; kind: string; name?: string }[]; drop?: I[]; weights?: [I, number][]; names?: [I, string][] }
   | { op: "source"; container: string; source: string }
   | { op: "flow.widen"; tile: I }
   | { op: "flow.travel"; tile: I; dir: -1 | 1 }
@@ -453,7 +453,8 @@ class Step<I> {
    * kinds; or the tile it would join as a tab takes only other kinds. Nothing goes beside a float or into its tabs.
    */
   private into(kind: string, label: string, to: At<I>) {
-    if (to.kind === "split" || to.kind === "tabs") this.notFloat(to.target, `putting ${label} ${to.kind === "tabs" ? "into its tabs" : "beside it"}`);
+    // A place by a tile that isn't here is no place: refused, never a tile left out of the tree.
+    if (to.kind === "split" || to.kind === "tabs") { this.present(to.target); this.notFloat(to.target, `putting ${label} ${to.kind === "tabs" ? "into its tabs" : "beside it"}`); }
     let e: Effective, there: string;
     if (to.kind === "tabs") { e = this.policyAt(to.target); there = this.name(to.target); }
     else if (to.kind === "split") {
@@ -608,7 +609,9 @@ class Step<I> {
       const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
       // An edit in it is said first: it's what the person would lose.
       if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
-      if (!e.closable) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`);
+      // A tab set of one holding the rule is the tile's own place (the board's preview, the river's library).
+      const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
+      if (!e.closable) refuse(own ? `${name} stays: its place (${own.id}) keeps it (closable off)${fold}` : `${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
       if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
@@ -680,6 +683,8 @@ class Step<I> {
       return { ...n, kids: n.kids.map(go) };
     };
     this.d.tree = go(this.d.tree);
+    // A spine swapped where it isn't side by side with others opens, as a move does.
+    for (const id of [a, b]) if (this.d.collapsed.has(id) && parentOf(this.d.tree, id)?.parent.dir !== "row") this.d.collapsed.delete(id);
   }
 
   /** Where a new float goes: half the screen, a little lower and to the right of the last one. */
@@ -1015,11 +1020,12 @@ class Step<I> {
 
   /**
    * Columns filled from their source (PIE-511): its tiles in the source's order (a tile the person moved out stays
-   * where they put it; others they put in, after); the new ones named; the ones the source no longer names gone.
+   * where they put it; others they put in, after); the ones the source no longer names gone; then the new ones named,
+   * so a new tile takes the name of one it replaces (another hub's lane "Done"). A tile it keeps gets the source's
+   * name back (`names`) when that's free: one named by its kind while its name was taken, or a view renamed.
    */
   private fill(op: Extract<Op<I>, { op: "fill" }>) {
     if (this.agent) refuse("a columns container is filled from its source by the screen; an agent changes the source's data (its hub's views) instead");
-    for (const t of op.fresh ?? []) this.d.names.set(t.id, t.name !== undefined && named(this.d, t.name) === undefined ? t.name : autoName(this.d, t.kind));
     for (const id of op.drop ?? []) {
       if (!this.all().includes(id)) { this.forget(id); continue; }
       const next = this.isFloat(id) ? this.d.tree : remove(this.d.tree, id);
@@ -1027,6 +1033,13 @@ class Step<I> {
       this.forget(id);
       if (this.d.focus === id) this.d.focus = visible(this.d.tree).find(x => !this.d.collapsed.has(x)) ?? visible(this.d.tree)[0] ?? this.all()[0]!;
     }
+    // In two steps, so two kept tiles whose views swapped names both get theirs: each that differs lets its name go, then
+    // takes the source's when no other tile holds it (else it's named by its kind).
+    const renames = (op.names ?? []).filter(([id, name]) => this.d.names.has(id) && this.d.names.get(id) !== name);
+    const was = new Map(renames.map(([id]) => [id, this.d.names.get(id)!] as const));
+    for (const [id] of renames) this.d.names.delete(id);
+    for (const [id, name] of renames) this.d.names.set(id, named(this.d, name) === undefined ? name : named(this.d, was.get(id)!) === undefined ? was.get(id)! : autoName(this.d, this.facts(id).kind));
+    for (const t of op.fresh ?? []) this.d.names.set(t.id, t.name !== undefined && named(this.d, t.name) === undefined ? t.name : autoName(this.d, t.kind));
     const c = nodeById(this.d.tree, op.container);
     if (!c || c.t !== "columns") { if (op.drop?.length) return; refuse(`no columns ${op.container} in the layout`); }
     const col = c as Extract<Container<I>, { t: "columns" }>;

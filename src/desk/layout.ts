@@ -925,6 +925,8 @@ const savedPolicy = (x: unknown) => { const p = policyOf(x); return Object.keys(
 
 /** Read either saved form (binary `ratio a b` or `kids weights`), making each leaf with `leafOf`. */
 export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L>, leafOf: (l: L) => I): LNode<I> {
+  // A kid that isn't a node (a hand-edited save's null) is nothing: an empty tab set, which normalise drops.
+  if (!s || typeof s !== "object") return { t: "tabs", ids: [], active: 0 };
   if (s.t === "leaf") return leaf(leafOf(s as L));
   const x = s as any;
   if (x.t === "drawer") return { t: "drawer", kid: x.kid ? revive(x.kid, leafOf) : { t: "tabs", ids: [], active: 0 }, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...savedId(x) };
@@ -963,7 +965,8 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
 }
 
 const good = (w: unknown): w is number => typeof w === "number" && Number.isFinite(w) && w > 0;
-const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key) || (k.t === "drawer" && empty(k.kid));
+// An unnamed flow with no columns is gone too, as `remove` leaves it (a named one stays: its screen opens into it).
+const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key) || (k.t === "flow" && !k.kids.length && !k.key) || (k.t === "drawer" && empty(k.kid));
 
 /** Write a tree, pairs in the binary form (so an older door still reads it), anything wider as kids and weights. */
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): BinaryForm<L> | NaryForm<L> {

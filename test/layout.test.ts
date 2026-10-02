@@ -1,8 +1,12 @@
 // PIE-412: the layout tree is the one pane model. The desk's binary splits place exactly as they did,
 // n-ary splits share by weight around spines, drawers slide over or join the layout, borders follow the
-// pointer, and the desk's saved form still reads and writes as older doors expect. Pure functions only: the tree
-// arithmetic inside the screen-layout module (its rules are tested through its interface, screen-layout.test.ts).
+// pointer, and the desk's saved form still reads and writes as older doors expect. Pure functions (and one desk
+// started from a hand-broken save): the tree arithmetic inside the screen-layout module (its rules are tested
+// through its interface, screen-layout.test.ts).
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import {
   columnsOf, dividerAt, dragShare, drawerOf, drawers, drawerToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
@@ -216,6 +220,37 @@ describe("saved forms", () => {
   test("review: a saved tab set with no tiles is dropped, not given an empty pane", () => {
     const t = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "tabs", tabs: [], active: 0 }], weights: [1, 1] } as any, () => 1);
     expect(normalise(t)).toEqual(leaf(1));
+  });
+
+  test("round 3 (B-L1): a saved kid that isn't a node (a hand-edited null) is dropped, never a throw", () => {
+    let n = 0;
+    const t = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, null, 7, { t: "leaf" }], weights: [1, 1, 1, 1] } as any, () => ++n);
+    expect(normalise(t)).toMatchObject({ t: "split", kids: [leaf(1), leaf(2)] });
+    expect(normalise(revive({ t: "split", dir: "col", ratio: 0.5, a: null, b: { t: "leaf" } } as any, () => 9))).toEqual(leaf(9));
+    expect(normalise(revive({ t: "flow", kids: [null, { t: "leaf" }], docked: [0] } as any, () => 4))).toMatchObject({ t: "flow", kids: [leaf(4)] });
+  });
+
+  test("round 3 (B-L1): a desk.json with a null kid starts the desk with the tiles it has", async () => {
+    const { Desk } = await import("../src/desk/desk");
+    const dir = mkdtempSync(join(tmpdir(), "r3-desk-"));
+    const was = process.env.EP0CH_STATE;
+    process.env.EP0CH_STATE = dir;
+    try {
+      writeFileSync(join(dir, "desk.json"), JSON.stringify({ root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "tree", name: "tree" }, null, { t: "leaf", kind: "reader", name: "reader" }], weights: [1, 1, 1] }, focus: 0 }));
+      const d = new Desk() as any;
+      expect([...d.layout.names.values()]).toEqual(["tree", "reader"]);
+      d.dispose?.();
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("round 3 (B-L4): an unnamed flow with no columns takes no room; a named one stays, as remove leaves them", () => {
+    const t = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "flow", kids: [] }], weights: [1, 1] } as any, () => 1);
+    expect(normalise(t)).toEqual(leaf(1));
+    const named = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, { t: "flow", key: "river", kids: [] }], weights: [1, 1] } as any, () => 1);
+    expect(normalise(named)).toMatchObject({ t: "split", kids: [leaf(1), { t: "flow", key: "river", kids: [] }] });
   });
 
   test("pairs are written in the binary form (an older door reads them), wider splits as kids and weights", () => {

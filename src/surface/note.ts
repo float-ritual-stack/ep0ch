@@ -767,10 +767,7 @@ export class NoteSurface {
       maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold, components: this.components.catalog,
     };
     const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
-    // A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section.
-    const keys = new Set(points.map(p => p.key));
-    for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
-    if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
+    this.keepFolds(points);
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -879,33 +876,45 @@ export class NoteSurface {
   /**
    * The note's body for a host that draws its own column around it (the river's): the same renderer as
    * `render` (Markdown, links, transclusions nested, step controls and an open status choice), `w` wide,
-   * without the reader's header, folds or scroll. Its links, embeds and steps are this surface's elements:
-   * `[ ]` walks them, ⏎ and space act on the current one, a click on one goes through `open`. `current`:
-   * the row of the current element, for the host to keep in view; `links`: where each link, step box and
-   * status-choice row landed, by row, in the returned lines' cells.
+   * without the reader's header or scroll. Its links, embeds, steps and fold points are this surface's elements:
+   * `[ ]` walks them, ⏎ and space act on the current one, a click on one goes through `open`; its folds are this
+   * surface's (`( )`, `f`, `F`, `fold n=`), drawn ▾/▸ as a reader draws them. `current`: the row of the current
+   * element (a fold `( )` selected is one), for the host to keep in view; `links`: where each link, step box
+   * and status-choice row landed, by row, in the returned lines' cells; `folds`: each fold point's heading row,
+   * its width in cells and its number (`fold.toggle n=`), for a click on it.
    */
-  digest(m: Msg, w: number, host: SurfaceHost): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; current: number | null; key: string | null } {
+  digest(m: Msg, w: number, host: SurfaceHost): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; current: number | null; key: string | null } {
     const src = this.use(host);
     this.drawn = null;
     this.digesting = true;
     const t = host.ctx.t;
     if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
     const env: DocEnv = { width: Math.max(1, w), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: false, maxImageRows: 8, unfold: this.unfold, components: this.components.catalog };
-    const { text, lines: noteLines, literal } = this.foldsIn(m);
+    const { text, lines: noteLines, literal, points } = this.foldsIn(m);
+    this.keepFolds(points);
     const drawn: Link[] = [];
     const rendered = renderDoc(presentLinks(text, true, src, m.text, drawn), {
       ...env, literal, ...this.bodyHooks(m, noteLines, env, src, drawn),
       present: x => presentLinks(x, false, src, m.text, drawn),
+      folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x) => linkTag(drawn.push({ block, role: "row" }) - 1) + x + LINK_END,
     });
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
-    this.elems = this.elementsOf(doc, drawn, [], [], [], [], 0, [], 0);
+    this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: "task", choice: i } });
-    return { lines, links, current: current ? current.row : null, key: current?.key ?? null };
+    const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
+    return { lines, links, folds, current: current ? current.row : null, key: current?.key ?? null };
+  }
+
+  /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
+  private keepFolds(points: readonly FoldPoint[]) {
+    const keys = new Set(points.map(p => p.key));
+    for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
+    if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
   }
 
   /** What a host's header is told (SurfaceHost.header). */
@@ -1747,7 +1756,8 @@ export class NoteSurface {
     const m = this.msg, d = this.drawn;
     if (!this.foldSel || !m || m.partial) return null;
     const p = this.visibleFolds(m).find(p => p.key === this.foldSel);
-    if (!p || this.reveal) return p ?? null;
+    // A host's digest (a river column) draws it whole, with no scroll of the surface's own: it's in view.
+    if (!p || this.reveal || this.digesting) return p ?? null;
     const row = d?.doc.heads.find(h => h.key === p.key)?.row;
     return d && row !== undefined && row >= d.scroll && row < d.scroll + d.room ? p : null;
   }
@@ -3080,8 +3090,8 @@ export class NoteSurface {
   closeSession() { this.session = null; }
   followLink(i: number, host: SurfaceHost, fresh = false) { return this.follow(i, host, fresh); }
   clearLink() { this.letGo(); }
-  /** Where the reader's cursor is (its current element, its selected link): a host that reuses a digest keys on it. */
-  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}`; }
+  /** Where the reader's cursor is (its current element, its selected link) and what it folded: a host that reuses a digest keys on it. */
+  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}`; }
   selectLink(i: number) {
     const l = this.links[i];
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
