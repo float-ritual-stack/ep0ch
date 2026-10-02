@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import "../src/screens";
 import { Desk } from "../src/desk/desk";
-import { keyName, readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
+import { readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
 import { openScreen } from "../src/desk/screen-specs";
+import { keyName } from "../src/surface/actions";
 import { leaf, place, splitOf } from "../src/desk/layout";
 
 describe("a screen is a spec", () => {
@@ -53,8 +54,15 @@ describe("a screen is a spec", () => {
     expect(keyName({ kind: "char", ch: "e", ctrl: true })).toBe("ctrl+e");
     expect(keyName({ kind: "alt", ch: "c" })).toBe("alt+c");
     expect(keyName({ kind: "enter" })).toBe("enter");
-    expect(keyName({ kind: "mouse", action: "down", button: 0, x: 0, y: 0 })).toBeNull();
+    expect(keyName({ kind: "char", ch: " " })).toBe("space");
+    expect(keyName({ kind: "backtab" })).toBe("shift+tab");
+    expect(keyName({ kind: "back" })).toBe("alt+left");                         // the mouse's back button is alt+←
     expect(keyName({ kind: "char", ch: "x", pasted: true })).toBeNull();
+    expect(keyName({ kind: "enter", pasted: true })).toBeNull();
+    // A key map names keys this way only: the old words are refused, not read as another key.
+    expect(() => readSpec({ name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "r" } }, keys: [{ key: "alt-left", action: "x" }] })).toThrow(/names no key/);
+    for (const never of [" ", "ctrl+E"]) expect(() => readSpec({ name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "r" } }, keys: [{ key: never, action: "x" }] })).toThrow(/names no key/);
+    expect(readSpec({ name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "r" } }, keys: [{ key: "alt+left", action: "x" }, { key: "space", action: "x" }, { key: "shift+tab", action: "x" }] }).keys!.length).toBe(3);
   });
 
   test("the desk is the only screen host: nothing in the door subclasses it", () => {
@@ -84,6 +92,17 @@ describe("what a spec says, the desk does", () => {
     d.key({ kind: "char", ch: "L" }, a);
     expect(ran).toEqual(["keys.more"]);
     expect(d.render(a).lines.at(-1)!.replace(/\x1b\[[\d;]*m/g, "")).toContain("x marks");
+  });
+
+  test("a key map's alt+left runs on alt+← and on the mouse's back button alike", () => {
+    const d = new Desk({ name: "back", title: "back", keys: [{ key: "alt+left", action: "keys.more" }], layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }), a = app();
+    a.push(d);
+    const ran: string[] = [];
+    const press = d.dispatch.press.bind(d.dispatch);
+    d.dispatch.press = (name, args, tile) => { ran.push(name); return press(name, args, tile); };
+    d.key({ kind: "alt-left" }, a);
+    d.key({ kind: "back" }, a);
+    expect(ran).toEqual(["keys.more", "keys.more"]);
   });
 
   test("a key may name the tile its action runs in, or the kinds it's for; screen.spec answers the spec as data", async () => {
