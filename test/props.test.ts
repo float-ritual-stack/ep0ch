@@ -83,7 +83,15 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
     }),
     resolvePage: async (address: string) => ({ address, status: address === "garden" ? "resolved" : "missing", ...(address === "garden" ? { block: notes.a } : {}) }),
     read: async (id: string) => { if (id === "ffffffff-dead-4000-8000-000000000000") throw new Error("socket closed"); return notes[id] ?? null; },
-    readSavedView: async () => null,
+    // Each embed as the service projects it: a note whole, or why not, in the service's words.
+    readTransclusions: async (targets: { blockId: string }[]) => ({
+      limits: { maxDepth: 4, maxPerDocument: 16, maxNodes: 64 }, dependencies: [],
+      results: targets.map(({ blockId }) => {
+        const m = notes[blockId];
+        return m && !m.deleted ? { blockId, depth: 0, status: "ready", kind: "note", title: m.text.split("\n")[0], revision: m.revision, block: m }
+          : { blockId, depth: 0, status: m ? "deleted" : "missing", message: m ? "In Trash" : "Missing target" };
+      }),
+    }),
     propertyRecords: async () => null,
     request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
     listFields: () => ({}),
@@ -115,20 +123,9 @@ describe("links read as titles", () => {
 });
 
 describe("transclusions", () => {
-  test("an older service (no transclusions.read): each failure is explicit, a fragment shows the whole note and says why, and the 17th embed is the limit", async () => {
-    invalidateEmbeds();
-    const src = fakeSource(notes);
-    const body = (m: Msg) => m.text.split("\n").slice(1);
-    const region = (id: string, frag?: string, n = 0) => embedRegion(id, frag, n, 60, src, body).map(strip).map(l => l.trimEnd());
-    for (const [id, frag] of [[A], [A, "beds"], [A, "nope"], [T], [GONE], ["ffffffff-dead-4000-8000-000000000000"]] as [string, string?][]) region(id, frag);
-    await Bun.sleep(10);
-    expect(region(A)).toEqual(["▌» Garden plan", "▌ Beans along the fence.", "▌ ## Beds ^beds", "▌ Two beds."]);
-    expect(region(A, "beds").slice(0, 2)).toEqual(["▌» Garden plan ^beds", "▌the whole note: this service can't slice fragments"]);
-    expect(region(A, "nope")).toEqual(["▌!((aaaaaaaa…^nope)) · MISSING FRAGMENT"]);
-    expect(region(T)).toEqual(["▌!((bbbbbbbb…)) · IN TRASH · Old shed"]);
-    expect(region(GONE)).toEqual(["▌!((cccccccc…)) · MISSING TARGET"]);
-    expect(region("ffffffff-dead-4000-8000-000000000000")).toEqual(["▌!((ffffffff…)) · TARGET FAILED · socket closed"]);
-    expect(region(A, undefined, MAX_EMBEDS)).toEqual([`▌!((aaaaaaaa…)) · EMBED LIMIT · maximum ${MAX_EMBEDS}`]);
+  test("the 17th embed is the limit, said without asking the service", () => {
+    const strip = (l: string) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+    expect(embedRegion(A, undefined, MAX_EMBEDS, 60, fakeSource(notes), m => m.text.split("\n").slice(1)).map(strip)).toEqual([`▌!((aaaaaaaa…)) · EMBED LIMIT · maximum ${MAX_EMBEDS}`]);
   });
 
   test("the renderer numbers embeds in reading order and keeps the text around them", () => {
@@ -166,7 +163,7 @@ describe("the surface: summary, panel and embeds at any width", () => {
     expect(lines.join("\n")).not.toContain("[work-stage::");
     expect(lines.join("\n")).toContain("A bin by Garden plan.");
     expect(lines.join("\n")).toContain("» Garden plan");
-    expect(lines.join("\n")).toContain("MISSING TARGET");
+    expect(lines.join("\n")).toContain("Missing target");
     s.key(char("i"), h);
     expect(s.holdsKeys && !s.editing).toBe(true);
     const panel = s.render(60, 40, h).lines.map(strip).join("\n");
@@ -216,16 +213,6 @@ describe("live figures: the query grammar", () => {
     expect(seen[0].filters).toBeUndefined();
   });
 
-  test("without it, a live query says which capability it needs instead of parsing the query itself", async () => {
-    const seen: any[] = [];
-    setLiveSource(fake(false, seen), () => {}); invalidateLive();
-    const plain = { query: "type=chore priority=high" };
-    answer(plain);
-    await until(() => answer(plain)?.state === "error", "the answer");
-    expect(answer(plain)!.error).toBe("a live query needs a service that parses queries (query.expression, PIE-398)");
-    expect(seen).toHaveLength(0);
-  });
-
   test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
     const asked: [string, string[]][] = [];
     const b = { ...fake(true, []), matchQuery: async (e: string, ids: string[]) => { asked.push([e, ids]); return new Set(ids); } };
@@ -247,9 +234,9 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   const ids = {} as Record<"plan" | "shed" | "chores" | "nested" | "card", string>;
   const B = () => BV.view(b);
   const AS = "test-agent-9";
-  const act = (action: string, args: Record<string, unknown> = {}, reader = "preview") => app.act({ action, args, reader, as: AS }) as Promise<any>;
+  const act = (action: string, args: Record<string, unknown> = {}, reader = "preview") => app.act({ action, args, tile: reader, as: AS }) as Promise<any>;
   /** The person's own action (their key's path): the preview is theirs, so the scene is set this way. */
-  const mine = (action: string, args: Record<string, unknown> = {}, reader = "preview") => b.dispatch.act({ action, args, reader }, { kind: "user" }) as Promise<any>;
+  const mine = (action: string, args: Record<string, unknown> = {}, reader = "preview") => b.dispatch.act({ action, args, tile: reader }, { kind: "user" }) as Promise<any>;
   const create = async (parentId: string | null, text: string) => (await board.request("create", { parentId, text, author: "agent" })).id as string;
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const shown = (h = 60) => B().preview.render(110, h, true, b).lines.map(strip).join("\n") as string;
@@ -320,7 +307,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
 
   test("the panel: every token with scope, by keys and by an agent; copy returns the value", async () => {
     // One key from the lanes: the preview takes focus with its panel open.
-    await act("focus", {}, "lanes");
+    await act("tile.focus", {}, "lanes");
     key(char("i"));
     expect([BV.where(b), !!B().preview.surface.panel]).toEqual(["preview", true]);
     const r = await act("props");

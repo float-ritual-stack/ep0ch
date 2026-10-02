@@ -12,7 +12,7 @@ import { subject } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import { USER, type Actor, type Capability, type OutlineEvent } from "../socket";
+import { USER, type Actor, type OutlineEvent } from "../socket";
 import { bg, C, fg, pad, paint, RESET, tint } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
@@ -104,7 +104,7 @@ export const SECTIONS: Section[] = [
       const r = new ReaderPane();
       const list = new ActionsPane();
       const d = deskOf({ title: "showcase · actions", panes: [list, r], layout: ([a, b]) => row(0.55, a!, b!) }, show, [[r, n.whiteboard]]);
-      list.run = (name, actor) => d.dispatch.act({ action: name, reader: "2" }, actor);
+      list.run = (name, actor) => d.dispatch.act({ action: name, tile: "2" }, actor);
       return d;
     },
   },
@@ -250,7 +250,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · selection", panes: [r] }, show, [[r, n.recipe]]); },
   },
   {
-    key: "service", need: "know anything the service can answer", part: "ask the service: views.read, blocks.read, properties.preview, changes.since, references.*, gated by Capability", files: "src/socket.ts",
+    key: "service", need: "know anything the service can answer", part: "ask the service: views.read, blocks.read, properties.preview, changes.since, references.*, protocol 82 with every capability, refused otherwise", files: "src/socket.ts",
     stage(n, show) { const p = new ServicePane(n); return deskOf({ title: "showcase · service", panes: [p] }, show, []); },
   },
   {
@@ -541,7 +541,7 @@ export class ActionsPane implements Pane {
     const cur = this.rows[this.sel];
     if (cur && "a" in cur) {
       const args = Object.entries(cur.a.args).map(([k, s]) => `${k}${s.optional ? "?" : ""}: ${s.type}`).join(", ") || "no arguments";
-      lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}${cur.a.aliases?.length ? ` · also ${cur.a.aliases.join(", ")}` : ""}`, w) + RESET);
+      lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}`, w) + RESET);
     }
     return { lines, scroll: { top: this.top, room, total: this.rows.length } };
   }
@@ -574,8 +574,6 @@ export class ActionsPane implements Pane {
   wheel(dir: 1 | -1, desk: DeskApi) { this.step(dir); desk.redraw(); }
 }
 
-const CAPS: Capability[] = ["views.read", "blocks.read", "properties.preview", "changes.since", "query.expression", "references.backlinks.facets", "views.planWrite", "query.matches", "ping.propertyGrammar"];
-
 /** What the service says about the seed, asked the way the door asks it. `r` asks again. */
 export class ServicePane implements Pane {
   readonly kind = "exhibit";
@@ -591,20 +589,18 @@ export class ServicePane implements Pane {
     const say = (k: string, v: string) => out.push(`${fg(C.lcyan)}${pad(k, 34)}${fg(C.grey)}${v}${RESET}`);
     const tryIt = async (k: string, f: () => Promise<string>) => { try { say(k, await f()); } catch (e) { say(k, `${fg(C.lred)}${e instanceof Error ? e.message : String(e)}`); } };
     say("capabilities (ping)", b.capabilities ? [...b.capabilities].join(", ") || "none" : "not asked yet");
-    for (const c of CAPS) say(`  supports ${c}`, String(b.supports(c) ?? "untried"));
-    say("roadmap allocator (protocol ≥ 82)", String(b.hasRoadmapAllocator() ?? "unknown"));
     out.push("");
-    if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return r ? `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(subject).join(", ")}` : "this service can't read views"; });
+    if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(subject).join(", ")}`; });
     if (n.hub) await tryIt(`blocks.read (${SEED.hub}'s lanes)`, async () => { const kids = await b.children(n.hub!.id); const r = await b.readMany(kids.map(k => k.id), ["title", "properties"]); return r.map(subject).join(", "); });
     if (n.hub) await tryIt(`views.planWrite (a new card, first lane)`, async () => {
       const lane = (await b.children(n.hub!.id))[0];
       const p = lane ? await b.planCreate(lane.id) : null;
-      return !lane ? "no lanes" : !p ? "this service can't plan writes" : p.kind === "refused" ? `refused: ${p.reason}` : `${subject(lane)}: born with ${p.born.map(x => `${x.key}=${x.value}`).join(" ") || "nothing"}${p.needs.length ? ` · needs ${p.needs.join(" and ")}` : ""}`;
+      return !lane || !p ? "no lanes" : p.kind === "refused" ? `refused: ${p.reason}` : `${subject(lane)}: born with ${p.born.map(x => `${x.key}=${x.value}`).join(" ") || "nothing"}${p.needs.length ? ` · needs ${p.needs.join(" and ")}` : ""}`;
     });
     say("property grammar (vendored)", `version ${PROPERTY_GRAMMAR_VERSION} · src/vendor/property-grammar.ts, the outliner's own file`);
-    if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r ? r.map(p => `${p.key}::${p.value}`).join(" ") : "this service can't preview"; });
+    if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r.map(p => `${p.key}::${p.value}`).join(" "); });
     if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => { const c = await b.backlinks(n.shed!.id); return `${describeBacklinkView(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, new Set()).status}: ${c.sources.map(x => x.title).join(", ") || "none"}`; });
-    await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return !r ? "this service has no change feed" : r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });
+    await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });
     this.answers = out;
     desk.redraw();
   }

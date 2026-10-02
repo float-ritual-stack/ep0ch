@@ -97,12 +97,10 @@ describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/d
 
 const note = (text: string, revision = 4): Msg => ({ id: NOTE_ID, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, props: {} });
 
-function stub(read: () => ResourceProjectionRead | Promise<ResourceProjectionRead>, ...has: [boolean | undefined] | []) {
-  const capability = has.length ? has[0] : true;
+function stub(read: () => ResourceProjectionRead | Promise<ResourceProjectionRead>) {
   const b = {
     reads: 0,
     ancestors: async () => [], comments: async () => [],
-    supports: (name: string) => (name === "resources.projection" ? capability : undefined),
     readResourceProjections: async (id: string) => { b.reads++; expect(id).toBe(NOTE_ID); return read(); },
   };
   return b;
@@ -257,15 +255,7 @@ describe("a projection in a reader", () => {
     expect(r.flashes.at(-1)).toStartWith("nothing is selected");
   });
 
-  test("an older service (no capability, or none advertised) is never asked, and the note draws as before", async () => {
-    const plainNote = (await shown(stub(() => readOf([]), true), note(TEXT))).lines().map(plain);
-    for (const capability of [false, undefined]) {
-      const b = stub(() => readOf([READY]), capability);
-      const r = await shown(b, note(TEXT));
-      expect(r.lines().map(plain)).toEqual(plainNote);
-      expect(b.reads).toBe(0);
-    }
-    // A note that names no provider is never asked about either.
+  test("a note that names no provider is never asked about", async () => {
     const b = stub(() => readOf([READY]));
     await shown(b, note("Plain note\nNo tickets here."));
     expect(b.reads).toBe(0);
@@ -356,8 +346,6 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   afterAll(async () => { board?.close(); seeder?.close(); await scratch.stop(); });
 
   test("opening a note is the one step: the service fetches its tickets and the preview draws each from its ticket block", async () => {
-    expect(board.supports("resources.projection")).toBe(true);
-    expect(board.supports("resources.projection.materialize")).toBe(true);
     await until(() => frame().includes("Jira ACME-12 · Rollout checklist for the vendor switch"), "the ticket", 10_000);
     // ACME-14 was never registered: the open registered and fetched it too.
     await until(() => frame().includes("Jira ACME-14 · Label printer drops the last line"), "the other ticket", 10_000);

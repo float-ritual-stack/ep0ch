@@ -238,16 +238,16 @@ function fakeScreen(person: Partial<Whereabouts> = {}) {
 describe("the dispatcher, on a fake screen", () => {
   test("tile= is one grammar: a name, an id, a number, an alias, focused, a block id; an answer names the tile", async () => {
     const { d, ran } = fakeScreen();
-    for (const sel of ["side", "t3", "3", "#3", "bbbbbbbb", "bbbbbbbb-2222-4000-8000-000000000002"]) await d.act({ action: "go.nothing", reader: sel }, USER);
+    for (const sel of ["side", "t3", "3", "#3", "bbbbbbbb", "bbbbbbbb-2222-4000-8000-000000000002"]) await d.act({ action: "go.nothing", tile: sel }, USER);
     expect(ran.map(r => r.tile)).toEqual(["side", "side", "side", "side", "side", "side"]);
     ran.length = 0;
-    await d.act({ action: "go.nothing", reader: "detail" }, USER);                 // an alias: a place, like a number
-    await d.act({ action: "go.nothing", reader: "focused" }, USER);
+    await d.act({ action: "go.nothing", tile: "detail" }, USER);                 // an alias: a place, like a number
+    await d.act({ action: "go.nothing", tile: "focused" }, USER);
     await d.act({ action: "go.nothing" }, USER);                                     // none named: the action's own default
     expect(ran.map(r => r.tile)).toEqual(["middle", "middle", undefined]);
-    await expect(d.act({ action: "go.nothing", reader: "nope" }, USER)).rejects.toThrow("no tile nope on the fake; tiles: #1 tree (t1), #2 middle (t2), #3 side (t3), focused, or a block id");
+    await expect(d.act({ action: "go.nothing", tile: "nope" }, USER)).rejects.toThrow("no tile nope on the fake; tiles: #1 tree (t1), #2 middle (t2), #3 side (t3), focused, or a block id");
     // A place word the action takes instead of a tile (the board's new-detail), passed as it is.
-    await d.act({ action: "go.nothing", reader: "new" }, USER);
+    await d.act({ action: "go.nothing", tile: "new" }, USER);
     expect(ran.at(-1)).toMatchObject({ place: "new" });
     // An argument that names a tile is read the same way.
     await d.act({ action: "go.nothing", args: { to: "#1" } }, USER);
@@ -257,26 +257,26 @@ describe("the dispatcher, on a fake screen", () => {
 
   test("an action in one kind of tile: the focused one, else the first; another kind is refused saying what it is", async () => {
     const { d, ran } = fakeScreen();
-    await d.act({ action: "go.tile", reader: "side" }, USER);
+    await d.act({ action: "go.tile", tile: "side" }, USER);
     await d.act({ action: "go.tile" }, USER);
     expect(ran.map(r => r.tile)).toEqual(["side", "middle"]);
-    await expect(d.act({ action: "go.tile", reader: "tree" }, USER)).rejects.toThrow("tree is an outline tile: go.tile is for a reader; here: middle, side");
-    await expect(d.act({ action: "go.tile", reader: "cccccccc" }, USER)).rejects.toThrow("no reader shows cccccccc");
+    await expect(d.act({ action: "go.tile", tile: "tree" }, USER)).rejects.toThrow("tree is an outline tile: go.tile is for a reader; here: middle, side");
+    await expect(d.act({ action: "go.tile", tile: "cccccccc" }, USER)).rejects.toThrow("no reader shows cccccccc");
   });
 
   test("a block id prefers the tile holding the agent's own edit, then one on screen editing it, then showing it", async () => {
     const { d, ran } = fakeScreen();
-    await d.act({ action: "go.tile", reader: "bbbbbbbb" }, AGENT);
+    await d.act({ action: "go.tile", tile: "bbbbbbbb" }, AGENT);
     expect(ran.at(-1)!.tile).toBe("side");
     // Named by place while its own edit is elsewhere: refused, told the tile's id.
-    await expect(d.act({ action: "go.draft", reader: "2" }, AGENT)).rejects.toThrow("2 isn't where your edit or comment is: that's tile t3 (side now)");
+    await expect(d.act({ action: "go.draft", tile: "2" }, AGENT)).rejects.toThrow("2 isn't where your edit or comment is: that's tile t3 (side now)");
   });
 
   test("a tile that's a read-only view now (a peek, a spine) refuses an agent's note action, never the person's own key", async () => {
     const { ran, tiles, tileSet } = fakeScreen();
     const seen = new Dispatcher({ title: "fake", ctx: () => ({ flash() {}, redraw() {}, person: () => ({ ...NOBODY, focus: "middle" }) }), tiles: () => tiles.map(t => (t.name === "middle" ? { ...t, readOnly: "middle is a peek" } : t)) },
       [{ set: tileSet, takes: "tile", seen: true, in: t => t.kind === "reader", on: at => ({ tile: at.tile?.name }) }]);
-    await expect(seen.act({ action: "go.typing", reader: "middle" }, AGENT)).rejects.toThrow("middle is a peek");
+    await expect(seen.act({ action: "go.typing", tile: "middle" }, AGENT)).rejects.toThrow("middle is a peek");
     await seen.pressIn(tileSet, "go.typing", {}, "middle");
     expect(ran.at(-1)).toMatchObject({ tile: "middle", actor: "user" });
   });
@@ -292,14 +292,14 @@ describe("the dispatcher, on a fake screen", () => {
   test("the actor rule runs once, before the action: an agent refused with the reason, nothing run; the person never", async () => {
     const typing = fakeScreen({ typingIn: "middle", busy: true, why: "the person is typing in middle", idle: 0 });
     await expect(typing.d.act({ action: "go.tile" }, AGENT)).rejects.toThrow("the person is typing in middle; an agent does it elsewhere");
-    await expect(typing.d.act({ action: "go.typing", reader: "middle" }, AGENT)).rejects.toThrow("the person is typing in middle");
+    await expect(typing.d.act({ action: "go.typing", tile: "middle" }, AGENT)).rejects.toThrow("the person is typing in middle");
     await expect(typing.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; not moved");
     await expect(typing.d.act({ action: "go.mine" }, AGENT)).rejects.toThrow("that's the person's");
     expect(typing.ran).toEqual([]);
     for (const a of ["go.tile", "go.typing", "go.screen", "go.mine", "go.shape", "go.nothing"]) await typing.d.act({ action: a }, USER);
     expect(typing.ran.map(r => r.actor)).toEqual(["user", "user", "user", "user", "user", "user"]);
     // Elsewhere than the person's tile, an agent's runs while they type.
-    await typing.d.act({ action: "go.tile", reader: "side" }, AGENT);
+    await typing.d.act({ action: "go.tile", tile: "side" }, AGENT);
     expect(typing.ran.at(-1)).toMatchObject({ tile: "side", actor: "agent" });
   });
 
@@ -333,7 +333,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
   const AS = "router-514";
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, ...(reader !== undefined ? { reader } : {}), as: AS }) as Promise<any>;
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, ...(reader !== undefined ? { tile: reader } : {}), as: AS }) as Promise<any>;
   const notes: Record<string, any> = {};
 
   beforeAll(async () => {
@@ -442,7 +442,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.reader).id;
     expect(await act("folds", {}, id)).toMatchObject({ reader: b.reader });
     const focus = V().focused;
-    const sp = await act("split", {}, lib);                                          // the Library's selected card, stacked
+    const sp = await act("column.split", {}, lib);                                          // the Library's selected card, stacked
     expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.tile]);
     expect(V().focused).toBe(focus);                                                   // an agent's never moves the keys
     await expect(act("tile.type", { text: "x" })).rejects.toThrow(/no terminal tile/);
@@ -458,7 +458,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   async function sweep(screen: string) {
     const before = app.person();
     (app as any).lastInput = Date.now();
-    const skip = new Set(["screen.shell", "screen.back", "screen.open", "tile.restart", "agent.restart", "layout.load", "layout.restore"]);
+    const skip = new Set(["screen.shell", "screen.back", "screen.open", "tile.restart", "agent.restart", "layout.load", "layout.load"]);
     for (const a of app.actions().actions) {
       if (skip.has(a.name) || a.name.startsWith("ext.")) continue;
       const out = await Promise.race([act(a.name, {}, before.focus ?? undefined).then(() => "ran", (e: Error) => `refused: ${e.message}`), Bun.sleep(1500).then(() => "waiting")]);
@@ -471,9 +471,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   test("every action an agent runs on the desk, the board and the river leaves the person's keys where they are", async () => {
     const desk = twoReaders();
     app.push(desk);
-    await desk.dispatch.act({ action: "tile.focus", reader: "side" }, USER);
+    await desk.dispatch.act({ action: "tile.focus", tile: "side" }, USER);
     await act("open", { id: notes.beans.id }, "middle");
-    await desk.dispatch.act({ action: "tile.focus", reader: "middle" }, USER);
+    await desk.dispatch.act({ action: "tile.focus", tile: "middle" }, USER);
     await sweep("desk");
     app.pop();
     const b = boardScreen(notes.hub.id, false), B: any = BV.view(b);

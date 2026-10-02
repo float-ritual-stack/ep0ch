@@ -259,7 +259,7 @@ export function tellDoor(env: Record<string, string | undefined>, pane: string, 
   return new Promise(res => {
     let done = false;
     const finish = (ok: boolean) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* gone */ } res(ok); };
-    const sock = connect(control, () => sock.write(JSON.stringify({ cmd: "act", action: "tile.herdr", args: { pane, name: as }, reader: tile, as }) + "\n"));
+    const sock = connect(control, () => sock.write(JSON.stringify({ cmd: "act", action: "tile.herdr", args: { pane, name: as }, tile, as }) + "\n"));
     const timer = setTimeout(() => finish(false), timeoutMs);
     let buf = "";
     sock.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) finish(!!json(buf.slice(0, i))?.ok); });

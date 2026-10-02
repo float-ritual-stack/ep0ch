@@ -19,7 +19,7 @@ import { hostname } from "node:os";
 import type { Actor, SocketBoard } from "./socket";
 import { printable } from "./text";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
-import { kindsChanged, registerTileKind, serviceKind, setMissingKindReason, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
+import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
@@ -316,17 +316,15 @@ let asking = 0;
 /**
  * Read the service's list and bind it (`reload`: the service reads its folders now, not waiting for its
  * watcher). Only the newest read binds: one that answers after a later one (an event, then a reconnect) is
- * dropped. A service without `extensions.list` binds nothing, and a tile of an extension's kind says why; a
- * failed read keeps what was bound and says so.
+ * dropped. A failed read keeps what was bound and says so.
  */
-export async function loadExtensions(board: SocketBoard, reload = false): Promise<(Bound & { unsupported?: true }) | { error: string } | null> {
+export async function loadExtensions(board: SocketBoard, reload = false): Promise<Bound | { error: string } | null> {
   const mine = ++asking;
-  let list: ExtensionList | null;
+  let list: ExtensionList;
   try { list = await board.listExtensions(reload); } catch (e) {
     if (mine !== asking) return null;
     return { error: oneLine(e instanceof Error ? e.message : String(e)) };
   }
   if (mine !== asking) return null;
-  setMissingKindReason(list ? null : "this outline service lists no extensions (it lacks extensions.list); restart it from a current checkout");
-  return { ...bindExtensions(list), ...(list ? {} : { unsupported: true as const }) };
+  return bindExtensions(list);
 }

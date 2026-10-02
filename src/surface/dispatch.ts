@@ -3,8 +3,7 @@
 // the dispatcher, which:
 //
 // - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id `t4`, a number on
-//   screen `#3`, `focused`, a block id, and the aliases a screen keeps for older names: the board's
-//   `detail`), and the arguments that name a tile (`to=`) the same way;
+//   screen `#3`, `focused`, a block id, and the places a screen names: the board's `detail`), and the arguments that name a tile (`to=`) the same way;
 // - finds the set that owns an action name, in the order the screen registered them (its own sets, the desk's
 //   tile actions, the tile kinds', a reader's note actions, then the shell's, the host layer's and the extensions');
 // - checks `expected=` against the layout's revision;
@@ -209,11 +208,8 @@ export class Dispatcher {
       const infos = "set" in r ? r.set.list() : r.listed === false ? [] : r.delegate()?.list().actions ?? [];
       for (const a of infos) {
         if (seen.has(a.name)) continue;
-        // An alias some earlier set has as an action of its own is that set's (the board's focus, not tile.focus's).
-        const aliases = a.aliases?.filter(x => !seen.has(x));
-        out.push(aliases?.length ? { ...a, aliases } : (({ aliases: _, ...rest }) => rest)(a));
+        out.push(a);
         seen.add(a.name);
-        for (const x of aliases ?? []) seen.add(x);
       }
     }
     return { actions: out, tiles: this.tilesNow().map(t => t.name) };
@@ -274,7 +270,7 @@ export class Dispatcher {
    * never thrown at the key handler; the screen is redrawn either way. Resolves to the answer, or undefined when refused.
    */
   press(name: string, args: Record<string, unknown> = {}, tile?: string): Promise<unknown> {
-    return this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { reader: tile } : {}) }, USER, true));
+    return this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true));
   }
 
   /**
@@ -284,7 +280,7 @@ export class Dispatcher {
   pressIn(set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, tile?: string, say: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const at = this.registered(set);
     if (!at) return this.asPerson(() => { throw new Error(`${set.scope} actions aren't registered on the ${this.host.title}`); });
-    return this.asPerson(() => at.d.runIn(at.reg, { action: name, args, ...(tile !== undefined ? { reader: tile } : {}) }, USER, true, given), say);
+    return this.asPerson(() => at.d.runIn(at.reg, { action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true, given), say);
   }
 
   /** Where a set is registered: here, or on a dispatcher this one hands to (a desk's tile kinds). */
@@ -340,7 +336,7 @@ export class Dispatcher {
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
     const where = this.where();
-    // What the def sees: coerced from the wire and mapped from an alias (`locked=true` is true, not "true").
+    // What the def sees: coerced from the wire (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
     const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
     // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
@@ -385,7 +381,7 @@ export class Dispatcher {
 
   /** Where a request runs: the tile `tile=` names (one grammar), a place word, or the action's own default. */
   private target(reg: Registration, def: ActionDef<unknown, unknown>, req: ActRequest, actor: Actor, tiles: TileRef[]): Target {
-    const sel = req.reader;
+    const sel = req.tile;
     if (reg.takes === "none") {
       if (sel !== undefined && sel !== "focused") throw new ActionRefused(`the ${this.host.title} has no tiles; ${req.action} takes no tile=`);
       return reg.fixed ? { tile: reg.fixed() } : {};

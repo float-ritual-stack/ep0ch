@@ -64,7 +64,7 @@ three layout models and four searches (§4).
   one grammar everywhere, and whether an agent may is read from each action's declared `touches` against one
   whereabouts query, not decided screen by screen.
 - **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `tile.*`
-  actions (open, close, resize, zoom, float, pin, collapse; `pane.*` their older names) are shared by the desk
+  actions (open, close, resize, zoom, float, pin, collapse) are shared by the desk
   and the board. The river has
   its own column actions. The BBS message reader has the note actions and its own `message.*`; the
   menu and every screen have the shell's `screen.*`, and the BBS lists `list.*` (PIE-489).
@@ -142,7 +142,7 @@ pane, region or column, the table below says what it is today.
 | screen layer | The screen shown (board, desk, river, reader, LORD): swapped per screen, each as small as it was designed. |
 | layout operation | One change to a screen's layout, applied for one actor as one transaction by the screen-layout module: the new state or a refusal with its reason, nothing done (PIE-513). The only way a layout changes; keys, clicks and `act` reach it through actions. `Op`, `apply` in `src/desk/screen-layout.ts`. |
 | screen | A **screen spec** on the desk, the one screen host (PIE-515): its containers and tiles, a key map naming actions, a hint, a band, where opens land. Board, desk, river, welcome, waiting and brief are all screens; the desk, the board, the welcome, waiting, the brief and a pinned page are specs (the river too, since PIE-515), plain data a note can hold (gap 4). Today a screen's layout is saved in the door's state (`desk.json`, `delivery.json`, `layouts.json` by name, §3's persist row); storing screens as notes in the outline is the planned PIE-412 step (gap 4). |
-| pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still names a tile's class `Pane` (`ReaderPane`, `PaneView`, …), a rename left for later; the `pane.*` actions are older names (aliases) of the `tile.*` ones, and `tile=` names a tile in `act` (`reader=` its older name). |
+| pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still names a tile's class `Pane` (`ReaderPane`, `PaneView`, …), a rename left for later; `pane.split` is the one `pane.*` action left, and `tile=` names a tile in `act`. |
 
 ### View and tile
 
@@ -196,7 +196,7 @@ pane, region or column, the table below says what it is today.
 | selection | Text selected in a reader (reading state). One made with the mouse is copied when the button comes up (copy on select, as Herdr's `ui.copy_on_select`; `EP0CH_COPY_ON_SELECT=0` turns it off); `y`, `Y`, cmd+c or the copy control copy it any time. An agent's is never copied to the person's clipboard | `Selection` `sel:52` | text selection |
 | element | What `[ ]` stops on in a reader: a link, a fold, a figure row, an embed, a resource projection, a comment mark, a checklist step; one is current | `elements` `note` | none |
 | reading ruler | The tint under the block the current element is in | `RULER_BG` `sel` | none |
-| tint | A block (maybe a passage) tinted in the ruler's colour inside one reader, with who set it named; PIE-423's "focus mark". `block.tint` (`focus.set` is its older name) | `block.tint` `note` | focus mark (PIE-423) |
+| tint | A block (maybe a passage) tinted in the ruler's colour inside one reader, with who set it named; PIE-423's "focus mark". `block.tint` | `block.tint` `note` | focus mark (PIE-423) |
 | attention mark | A mark on a block (or an nvim line) with a reason and who set it, framed and labelled in every tile showing it, until dismissed | `block.mark` `src/desk/marks.ts` | focus mark (PIE-423's shared part) |
 | embed | `!((id))` transclusion region; `!((id^fragment))` shows the fragment's slice; nested to the service's depth. Drawn quietly: a dim, clickable `» note` source line (`≡ view` for a view) and a dim bar; only a problem heading stays loud | `src/embeds.ts` | generated embed |
 | step | A checklist item (`- [ ]`, `[x]`, `[~]`, `[!]`) whose box is a control, in the note or an embed | `task` elements, `src/steps.ts` | checklist control (PIE-367) |
@@ -241,7 +241,7 @@ pane, region or column, the table below says what it is today.
 | region | Board pane (gone with PIE-511: the board's areas are named tiles) | Outliner PreviewRegion (focusable item) | "tile" |
 | spine | River compression tier | Board collapsed lane or reader | fine: same idea, one part (`src/spine.ts`) |
 | `alt+⏎` | Board: second detail | Outliner: keep Preview as Current | a link's `alt+⏎` (or a ctrl- or alt-click) opens beside, never in a tile's link (PIE-473) |
-| focus | The person's keys: which tile has them (`tile.focus`, `focus`) | PIE-423's "focus mark" (`focus.set`) | **focus** is only the keys; an in-reader highlight is a **tint** (`block.tint`); a mark with a reason is an **attention mark** (`block.mark`) |
+| focus | The person's keys: which tile has them (`tile.focus`, `focus`) | PIE-423's "focus mark" | **focus** is only the keys; an in-reader highlight is a **tint** (`block.tint`); a mark with a reason is an **attention mark** (`block.mark`) |
 
 ---
 
@@ -424,7 +424,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
   PIE-491), the policy's `layout.lock` and `layout.policy` (PIE-505), and since PIE-506 `search`, `tile.enter` (the terminal kind's),
   `tile.leave` and each tile kind's own (`thread.pick`, `activity.pick`, `tree.fold`, `backlinks.fold`,
   `reader.hold`, registered on the kind).
-- Board: the desk's `tile.*` (`reader.collapse`, `reader.expand` are `tile.collapse`), `card.*`, and since PIE-506 `board.hub` (the `g` picker), `lane.collapse`,
+- Board: the desk's `tile.*`, `card.*`, and since PIE-506 `board.hub` (the `g` picker), `lane.collapse`,
   `outline`, `float.place`, `backlinks.pick`, `board.reload`; the lane cursor is `card.select by=` (an agent's
   is its own selection).
 - River: since PIE-515 a column kind's (`column.select`, `column.replies`, `column.scroll`, `column.filter`, `column.tag`,
@@ -693,8 +693,8 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | a click on a flow column's header | widen it (`tile.widen`), as the river's header click always did; on any flow on the desk | the header's press starts a drag of the tile; a click without a drag did nothing | new for every flow |
 | `Esc` on the main menu | stays, says `G` logs off | it logged off (review C F1) | changed; Goodbye is `G`, a click, or the logon's `Q` |
 | `ctrl+]` | leave a terminal tile, or the agent drawer; with the drawer up and the person out of it, go back in (twice at once: in, and a `ctrl+]` sent to the agent, as a tile's second sends it to its program) | nothing binds it; telnet's escape. A screen's terminal tile the person is in keeps its own `ctrl+]` and its second | new |
-| `alt+a` | pull the agent drawer up, or put it away (`host.toggle`, older `agent.toggle`; PIE-498, PIE-513), on every screen but the logon; also inside the drawer, where every other key is the agent's | none on any screen, the surface or a draft (alt keys in use: `alt+b alt+f` history, `alt+c` the board's lanes, the desk's `alt+l alt+d alt+n alt+p alt+m alt+x`). `alt+c` was the other candidate: it's the board's lanes | new; inside a terminal tile the person is typing in, it's the program's (`ctrl+]` first) |
-| `alt+A` | the agent drawer's height: 40, 50, 60, 75% (`host.size`, older `agent.height`) | none | new, with `alt+a` |
+| `alt+a` | pull the agent drawer up, or put it away (`host.toggle`; PIE-498, PIE-513), on every screen but the logon; also inside the drawer, where every other key is the agent's | none on any screen, the surface or a draft (alt keys in use: `alt+b alt+f` history, `alt+c` the board's lanes, the desk's `alt+l alt+d alt+n alt+p alt+m alt+x`). `alt+c` was the other candidate: it's the board's lanes | new; inside a terminal tile the person is typing in, it's the program's (`ctrl+]` first) |
+| `alt+A` | the agent drawer's height: 40, 50, 60, 75% (`host.size`) | none | new, with `alt+a` |
 | `alt+R`, a click on the chip's `⟳` | restart the agent so it picks up the door's variables and the installed Claude mod, keeping the conversation (`agent.restart`); the chip shows `⟳` when it started before an update | none on any screen, the surface, a draft or the desk (alt keys in use: `alt+a alt+A`, `alt+b alt+f`, `alt+c`, `alt+l alt+d alt+n alt+p alt+m alt+x`); `R` alone is free of alt. Inside the drawer it's the agent's, as every key but `ctrl+]`, `alt+a`, `alt+A` | new; only outside the drawer, so a restart is never one stray chord while typing to the agent |
 | `alt+v`, a click on the status bar's video mode | the next video mode (`video.cycle`): Kitty+CRT, Kitty, cells, on every screen; `V` stays on the menu (and the screens that had it) | none on any screen, the surface, a draft, the desk, the board, the river or the drawer (alt keys in use: `alt+a alt+A alt+R`, `alt+b alt+f`, `alt+c`, `alt+l alt+d alt+n alt+p alt+m alt+x alt+k`); `V` and `v` can't be global (`v` selects in a reader, `V` is the art viewer's and a terminal's), `alt+v` is free everywhere; the status bar's video mode took no click | new; the App's, before the screen, like `alt+a`; inside a terminal tile or the drawer the program's, as every key there |
 | `alt+t`, a click on the status bar's theme | the next theme (`theme.cycle`): calm, night, classic, on every screen; `theme.set name=` picks one (src/theme.ts) | none on any screen, the surface, a draft, the desk, the board, the river or the drawer (the same alt keys as `alt+v`; `t` alone is the board's outline drawer and a list's thread, untouched); the status bar had no theme | new, with `alt+v`; inside a terminal tile or the drawer the program's. A Mac typing Option as characters: `†` and `√` read as `alt+t` and `alt+v` only where nobody is typing text (`OPTION_KEYS`); in a draft they stay the typed letter |
@@ -726,22 +726,20 @@ desk's.
 
 ### Tiles and their actions
 
-`tile=` names the tile an action is for (`reader=`, its older name, still works: `act` resolves both in one
-place, `oneTile`, and refuses the two naming different tiles). A name in brackets is an alias: the same action,
-listed once with it in `actions`, answering as it did (`pane.close` its `pane` number, `focus` its `focus`) (PIE-510).
+`tile=` names the tile an action is for. Each action has one name.
 
 | Action | Args | Keys, mouse |
 |---|---|---|
 | `layout.get` | | `peek` shows the same `tree` |
-| `layout.list`, `layout.save`, `layout.load` (`layout.restore`) | `name` | `^W r`, `^W w`, `alt+d` |
+| `layout.list`, `layout.save`, `layout.load` | `name` | `^W r`, `^W w`, `alt+d` |
 | `layout.move` | `tile=<tile>`, `to`, `where`, `index` | drag a header, `^W m t T H J K L` |
 | `tile.open` (`pane.split`: `kind`, `dir`) | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | `^W o`, `^W O` |
-| `tile.close` (`pane.close`), `tile.focus` (`focus`), `tile.info` | `tile=<tile>` | `^W x`, the board's `x`; click, Tab, 1-9 |
-| `tile.resize` (`pane.resize`), `tile.zoom` (`pane.zoom`) | `by`, `axis`; `on` | `^W < > + -`, the board's `{ } < >`; `^W z` |
-| `tile.float` (`pane.float`), `tile.collapse` (`reader.collapse`, `reader.expand`) | none; `on` | `^W f`, the board's `o`, a click on a float's `⧉`; `^W c`, the board's `c`, `alt+c` |
+| `tile.close`, `tile.focus`, `tile.info` | `tile=<tile>` | `^W x`, the board's `x`; click, Tab, 1-9 |
+| `tile.resize`, `tile.zoom` | `by`, `axis`; `on` | `^W < > + -`, the board's `{ } < >`; `^W z` |
+| `tile.float`, `tile.collapse` | none; `on` | `^W f`, the board's `o`, a click on a float's `⧉`; `^W c`, the board's `c`, `alt+c` |
 | `tile.widen` | `tile=<tile>` | `^W W`, a click on a flow column's spine |
 | `tile.link` | `tile=<tile>`, `to` (none unlinks) | `alt+l` then a click |
-| `tile.pin` (`pane.pin`) | `on`, `edge`, `container` | `^W p`; the policy panel's edge row; the board's `T` `B`; a click on a header's `⇤ drawer` |
+| `tile.pin` | `on`, `edge`, `container` | `^W p`; the policy panel's edge row; the board's `T` `B`; a click on a header's `⇤ drawer` |
 | `tile.drawer` | `open` | `^W d`, a handle's click, `Esc` in an open drawer; it shuts when the keys leave |
 | `layout.lock` | `on` | `alt+k`, a click on the hint row's lock chip; the policy panel's locked row on the screen |
 | `layout.policy` | `node`, the policy's fields, `clear`; nothing: a read | `^W P`, `⏎` or a click on a row |

@@ -13,7 +13,7 @@ import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
 import { embedRegion, embedsLoading, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
-import { extensionRegion, projectionRegion, projectionsOf, projectionsServed, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, type LinkTarget } from "../refs";
@@ -1605,7 +1605,7 @@ export class NoteSurface {
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
     // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
-    if (c === "r" && this.msg && isOutlineNote(this.msg) && projectionsServed(host.ctx.board)) { void this.runKey("projection.refresh", {}, host, true); return true; }
+    if (c === "r" && this.msg && isOutlineNote(this.msg)) { void this.runKey("projection.refresh", {}, host, true); return true; }
     return false;
   }
 
@@ -1839,7 +1839,7 @@ export class NoteSurface {
   viewport(): { first: number | null; last: number | null; top: number; room: number; total: number } | null {
     const d = this.drawn;
     if (!d) return null;
-    // The drawn rows' note lines are 0-based; a line here is 1-based, as focus.set and comments count them.
+    // The drawn rows' note lines are 0-based; a line here is 1-based, as block.tint and comments count them.
     const lineOf = (row: number) => { const b = d.doc.source[row]; const l = b === undefined ? undefined : d.lines[b]; return l === undefined ? null : l + 1; };
     const shown = Array.from({ length: Math.max(0, Math.min(d.room, d.body.length - d.scroll)) }, (_, i) => lineOf(d.scroll + i)).filter((x): x is number => x !== null);
     return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top: d.scroll, room: d.room, total: d.body.length };
@@ -2596,7 +2596,6 @@ export class NoteSurface {
     try { now = await this.whole(); } catch { return; }
     if (now.id !== m.id) return;
     const name = `${subject(m).slice(0, 40)} ^${fragment}`;
-    if (!read) { host.ctx.flash(`${name}: this service can't say where a fragment is (it needs fragments.read); the note opens at the top`); return; }
     if ("error" in read) { host.ctx.flash(`${name}: ${read.error}`); return; }
     if (read.status === "missing") { host.ctx.flash(`${name} · Missing fragment: no ^${fragment} in the note now`); return; }
     if (read.status === "duplicate") { host.ctx.flash(`${name} · Duplicate fragment: ^${fragment} is on ${read.duplicates.length} lines (${read.duplicates.map(d => d.line + 1).join(", ")})`); return; }
@@ -3832,11 +3831,9 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
     },
   },
-  // A tint (PIE-423's focus mark): "focus" is the person's keys only, so the tint is block.tint; focus.set and
-  // focus.clear are its older names, kept for callers that use them.
-  // focus.set and focus.clear are their older names (PIE-423's focus mark), declared as aliases.
-  "block.tint": { ...TINT, aliases: ["focus.set"] },
-  "block.untint": { ...UNTINT, aliases: ["focus.clear"] },
+  // A tint (PIE-423's focus mark): "focus" is the person's keys only, so the tint is block.tint.
+  "block.tint": TINT,
+  "block.untint": UNTINT,
   "projection.refresh": {
     summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line, and every @name request not answered yet). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
     touches: "nothing", replay: "ask",

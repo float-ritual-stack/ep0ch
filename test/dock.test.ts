@@ -205,30 +205,29 @@ describe("the agent drawer", () => {
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
-  test("agent.toggle and agent.height by act: an agent's pull never takes the keys, waits for the person to be idle, and is said", async () => {
+  test("host.toggle and host.size by act: an agent's pull never takes the keys, waits for the person to be idle, and is said", async () => {
     const d = door();
     try {
       d.app.push(d.screen("main menu") as any);
-      // The host layer's actions, by their names and their older ones.
-      expect(d.app.actions().actions.flatMap(a => [a.name, ...(a.aliases ?? [])])).toEqual(expect.arrayContaining(["host.toggle", "host.size", "agent.toggle", "agent.height"]));
+      expect(d.app.actions().actions.map(a => a.name)).toEqual(expect.arrayContaining(["host.toggle", "host.size"]));
       d.A.lastInput = Date.now();
-      await expect(d.app.act({ action: "agent.toggle", args: { open: true }, as: "claude-7" })).rejects.toThrow(/at the keys/);
+      await expect(d.app.act({ action: "host.toggle", args: { open: true }, as: "claude-7" })).rejects.toThrow(/at the keys/);
       d.A.lastInput = 0;
-      const r: any = await d.app.act({ action: "agent.toggle", args: { open: true }, as: "claude-7" });
+      const r: any = await d.app.act({ action: "host.toggle", args: { open: true }, as: "claude-7" });
       expect(r).toMatchObject({ open: true, entered: false });
       expect(d.A.message).toContain("an agent (claude-7)");
       expect(d.term.rawSink()).toBeNull();                     // the keys stay the screen's
       expect(plain(d.paint()[d.app.dock.rect!.row]!)).toContain("pulled up by an agent (claude-7)");
       expect(d.app.describe().dock).toMatchObject({ open: true, entered: false, openedBy: "claude-7" });
-      await d.app.act({ action: "agent.height", args: { share: "0.3" }, as: "claude-7" });
+      await d.app.act({ action: "host.size", args: { share: "0.3" }, as: "claude-7" });
       expect(d.app.dock.share).toBeCloseTo(0.3);
-      await expect(d.app.act({ action: "agent.height", args: { share: 3 }, as: "claude-7" })).rejects.toThrow(/fraction/);
+      await expect(d.app.act({ action: "host.size", args: { share: 3 }, as: "claude-7" })).rejects.toThrow(/fraction/);
       // The person comes in: now an agent can't put it away or resize it under them.
       d.key(mouse("down", 10, 27)); d.key(mouse("up", 10, 27));
       expect(d.app.dock.entered).toBe(true);
       d.A.lastInput = 0;
-      await expect(d.app.act({ action: "agent.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
-      await expect(d.app.act({ action: "agent.height", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
+      await expect(d.app.act({ action: "host.size", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
       // Nor move their screen.
       await expect(d.app.act({ action: "screen.open", args: { name: "S" }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
@@ -263,7 +262,7 @@ describe("the agent drawer", () => {
       await wait(() => d.app.dock.state() === "working");
       expect(d.app.dock.state(Date.now() + 5000)).toBe("idle");
       // The launcher says it lives in Herdr: the door asks Herdr (read-only) for its state.
-      const r: any = await d.app.act({ action: "tile.herdr", reader: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      const r: any = await d.app.act({ action: "tile.herdr", tile: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       expect(r).toEqual({ tile: DOCK_TILE_ID, herdr: { pane: "door-claude" } });
       d.app.dock.state();
       await wait(() => d.app.dock.state() === "blocked");
@@ -287,7 +286,7 @@ describe("the agent drawer", () => {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
       await wait(() => d.app.dock.tile?.running === true);
-      await d.app.act({ action: "tile.herdr", reader: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      await d.app.act({ action: "tile.herdr", tile: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       await wait(() => d.app.dock.state() === "watching");
       expect(d.app.dock.chipText()).toBe("▼ claude · watching");
       const shown = d.paint().join("\n");
@@ -397,7 +396,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
     const d = await dailyDoor();
     try {
       expect(d.ptys().some((p: any) => p.run.cmd.join(" ") === "cat")).toBe(false);
-      await d.desk.dispatch.act({ action: "tile.focus", reader: "middle" }, { kind: "user" } as any);
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "middle" }, { kind: "user" } as any);
       const tall = (d.desk.describe().panes as any[]).find(p => p.name === "middle").rect.rows;
       d.key(ALT("a"));
       expect(d.app.dock.entered).toBe(true);
@@ -429,7 +428,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
       await wait(() => d.app.dock.tile?.running === true);
       expect(d.app.dock.entered).toBe(true);
       await expect(d.app.act({ action: "agent.type", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
-      await expect(d.app.act({ action: "tile.type", reader: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
+      await expect(d.app.act({ action: "tile.type", tile: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
       d.key(CTRL_RB);                                            // out of it: an agent may type there again
       const r: any = await d.app.act({ action: "agent.type", args: { text: "seed list" }, as: "claude-7" });
       expect(r).toMatchObject({ tile: "claude" });

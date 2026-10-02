@@ -64,8 +64,6 @@ export interface TileKind {
   readonly accepts?: { notes?: boolean; tiles?: readonly TileKindName[] };
   /** What it needs to be built again, beyond its kind, name and link (default: the tile's own `spec()`). */
   save?(p: Pane): Record<string, unknown>;
-  /** A saved spec as this door reads it (an older form brought up to date); default as it is. */
-  revive?(spec: TileSpec): TileSpec;
   /** Why tile.open's fields won't do (a preview's source that isn't tile: or file:), or null. */
   check?(spec: Partial<TileSpec>): string | null;
   /** What a new one opened beside tile `at` starts with when tile.open didn't say (a preview follows `at`). */
@@ -145,12 +143,9 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
 }
 /** The entries of kinds that went away: a tile of one still running asks its kind's hooks (holds work, when it's free). */
 const wentAway = new Map<TileKindName, TileKind>();
-let missingReason: string | null = null;
-/** Why no extension's kind can come here at all (an outline service without extensions), or null. */
-export function setMissingKindReason(why: string | null): void { missingReason = why; }
 /** Why there's no kind by that name: it went (and why), or nothing here registers it (and why not). */
 export function missingKind(kind: TileKindName): string {
-  return gone.get(kind) ?? missingReason ?? "nothing here registers it (an extension's kind: the extension isn't loaded yet, or isn't installed for this outline)";
+  return gone.get(kind) ?? "nothing here registers it (an extension's kind: the extension isn't loaded yet, or isn't installed for this outline)";
 }
 /** Whether `kind` was registered once and went away (an extension removed while the door runs). */
 export const wasTileKind = (kind: TileKindName): boolean => gone.has(kind);

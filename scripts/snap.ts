@@ -119,7 +119,7 @@ if (scenario === "live") {
 if (scenario === "float") {
   app.push(new MainMenu()); app.push(boardScreen(process.env.HUB));
   await Bun.sleep(5000);
-  await app.openBlock(process.env.BLOCK!); await Bun.sleep(4000);
+  await app.act({ action: "open", args: { id: process.env.BLOCK! } }); await Bun.sleep(4000);
   await snap("1-detail", 500);
   console.log("focus", (app as any).stack.at(-1).focus, (app as any).stack.at(-1).title); ch("o"); await snap("2-float", 1500);
   console.log(JSON.stringify((app as any).stack.at(-1).placed.map((x: any) => [x.layer, x.p.key, x.p.row, x.p.rows])));
@@ -254,7 +254,7 @@ if (scenario === "spines") {
   press({ kind: "esc" }); press({ kind: "right" }); press({ kind: "right" }); ch("c");  // collapse Done
   press({ kind: "left" }); press({ kind: "left" });
   const held = BV.view(b).details[0].msg;
-  await app.act({ action: "edit.text", args: { text: `${held.text}\nOil the hinge before the frost.` }, reader: "detail1", as: "snap-agent" });
+  await app.act({ action: "edit.text", args: { text: `${held.text}\nOil the hinge before the frost.` }, tile: "detail1", as: "snap-agent" });
   await snap("1-open", 800);
   press({ kind: "tab" }); press({ kind: "tab" }); ch("c");                              // the detail, holding the agent's draft
   await snap("2-detail-spine", 800);
@@ -263,7 +263,7 @@ if (scenario === "spines") {
   console.log(JSON.stringify(b.render(app as any).placements?.map((p: { key: string }) => p.key)), JSON.stringify((app.describe() as any).state.collapsedReaders));
   press({ kind: "alt", ch: "c" });
   await snap("4-all-open", 800);
-  await app.act({ action: "edit.close", args: { discard: true }, reader: "detail1", as: "snap-agent" });
+  await app.act({ action: "edit.close", args: { discard: true }, tile: "detail1", as: "snap-agent" });
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "backlinks") {
@@ -420,7 +420,7 @@ if (scenario === "scroll") {
   const gate = (await board.query("stage=doing", 5))[0]!;
   board.subscribe(e => app.event(e));
   const B = boardScreen(hub.id), S: any = BV.view(B);
-  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const wheelAt = (region: string, n: number) => { const r = BV.rectOf(B, region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
   app.push(new MainMenu()); app.push(B);
   await snap("1-board", 2500);
@@ -509,7 +509,7 @@ if (scenario === "select") {
   };
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
   app.push(new MainMenu()); app.push(B);
-  await app.act({ action: "open", reader: "detail", args: { id: plan.id }, as: "snap-agent" });
+  await app.act({ action: "open", tile: "detail", args: { id: plan.id }, as: "snap-agent" });
   await snap("1-open", 2000);
   const a = at("detail0", "Sow peas"), z = at("detail0", "past the shed");
   mouse("down", a.x, a.y); mouse("drag", a.x + 1, a.y); mouse("drag", z.x + 12, z.y); mouse("up", z.x + 12, z.y);
@@ -521,7 +521,7 @@ if (scenario === "select") {
   press({ kind: "esc" });
   const w = at("detail0", "dig the bed");
   mouse("down", w.x, w.y); mouse("drag", w.x + 3, w.y); mouse("up", w.x + 3, w.y);
-  await app.act({ action: "select", reader: "detail", args: { text: "Nothing out before mid May" }, as: "snap-agent" });
+  await app.act({ action: "select", tile: "detail", args: { text: "Nothing out before mid May" }, as: "snap-agent" });
   await snap("5-agent-and-person", 400);
   ch("V"); ch("V");
   await snap("6-cells", 400);
@@ -539,7 +539,7 @@ if (scenario === "fold") {
   const plan = await mk(null, text);
   board.subscribe(e => app.event(e));
   const B = boardScreen(hub.id), S: any = BV.view(B);
-  const agent = (action: string, reader: string, args: Record<string, unknown> = {}) => app.act({ action, reader, args, as: "snap-agent" });
+  const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const clickOn = (region: string, words: string, dx = 4) => {
     const r = BV.rectOf(B, region), rows = emu.text();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
@@ -637,9 +637,9 @@ if (scenario === "elements") {
   press({ kind: "enter" }); await snap("6-thread-inline", 600);
   ch("]"); ch("]"); await snap("6b-reply-control", 300);
   press({ kind: "esc" });
-  await app.act({ action: "open", reader: "detail", args: { id: jobs.id }, as: "snap-agent" });
+  await app.act({ action: "open", tile: "detail", args: { id: jobs.id }, as: "snap-agent" });
   await Bun.sleep(600);
-  await app.act({ action: "focus.set", reader: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
+  await app.act({ action: "block.tint", tile: "detail1", args: { quote: "The hose runs along the fence past the shed." }, as: "snap-agent" });
   await snap("7-agent-focus", 400);
   // PIE-453: the detail follows its first link in place, then alt+← comes back with [ ] on it.
   BV.at(B, "detail0");
@@ -954,7 +954,7 @@ if (scenario === "agent") {
   app.push(new MainMenu()); app.push(B);
   const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("agent-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
-    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, tile: reader, as: "claude-demo" }) + "\n"));
     let buf = "";
     c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
     c.on("error", rej);
@@ -1026,7 +1026,7 @@ if (scenario === "river-write") {
   app.push(new MainMenu()); app.push(R);
   const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("river-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
-    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, reader, as: "claude-demo" }) + "\n"));
+    const c = connect(ctl.path, () => c.write(JSON.stringify({ cmd: "act", action, args, tile: reader, as: "claude-demo" }) + "\n"));
     let buf = "";
     c.on("data", d => { buf += d; const i = buf.indexOf("\n"); if (i >= 0) { c.end(); const r = JSON.parse(buf.slice(0, i)); console.log(`  act ${action}${reader ? ` (${reader})` : ""} -> ${JSON.stringify(r.ok ? r.result : r.error).slice(0, 160)}`); res(r); } });
     c.on("error", rej);

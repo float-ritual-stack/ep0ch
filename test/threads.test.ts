@@ -51,7 +51,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
   const B = () => BV.view(b);
   const AS = "test-agent-420";
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, tile: reader, as });
   const frame = () => b.render(B().ctx).lines;
   const rect = (region: string): Rect => { b.render(B().ctx); return BV.rectOf(b, region); };
   const find = (lines: string[], text: string, r: Rect) => {

@@ -6,8 +6,7 @@
 // show changes.
 //
 // The service owns the rules (pi-herdr-outliner PIE-424, `transclusions.read`): what a fragment covers,
-// where a cycle is, how deep embeds go and what each failure is called. The door asks and draws. Against an
-// older service (no `transclusions.read`) an embed shows its whole note once, not nested, and says why.
+// where a cycle is, how deep embeds go and what each failure is called. The door asks and draws.
 //
 // Steps inside an embed are the service's too (PIE-472): each ready projection carries the checklist steps
 // in what it shows, so the reader can offer their status controls where they're drawn.
@@ -25,12 +24,7 @@ import { readView, type ViewRead } from "./views";
 export const MAX_EMBEDS = 16;
 
 type State =
-  | { kind: "loading" }
-  // An older service's answers (no transclusions.read): the target read whole, never nested.
-  | { kind: "missing" } | { kind: "deleted"; title: string } | { kind: "failed"; error: string }
-  | { kind: "fragment-missing" } | { kind: "fragment-duplicate" }
-  | { kind: "note"; target: Msg }
-  | { kind: "view"; target: Msg; view: ViewRead }
+  | { kind: "loading" } | { kind: "failed"; error: string }
   // The service's projection: the embed and everything nested in it, with each view's results read.
   | { kind: "node"; node: TransclusionNode; views: Map<TransclusionNode, ViewRead> };
 /** `deps`: the notes the answer shows (a change to one re-reads it); `volatile`: any change may alter it (a view's results). */
@@ -74,8 +68,7 @@ type Waiter = { resolve: (n: TransclusionNode | null) => void; reject: (e: Error
 const queued = new WeakMap<object, Map<string, Map<string, Waiter[]>>>();
 
 /**
- * An embed as the service projects it, or null when it can't (no `transclusions.read`). The embeds one
- * render asks for in one note go out together, as one `transclusions.read` naming that note (so embedding it
+ * An embed as the service projects it. The embeds one render asks for in one note go out together, as one `transclusions.read` naming that note (so embedding it
  * again is a cycle).
  */
 function readNode(b: SocketBoard, host: string, id: string, fragment?: string): Promise<TransclusionNode | null> {
@@ -100,7 +93,7 @@ async function flush(b: SocketBoard) {
       const targets = part.map(k => { const [blockId, fragmentId] = k.split("^"); return { blockId: blockId!, ...(fragmentId ? { fragmentId } : {}) }; });
       try {
         const r = await b.readTransclusions(targets, host || undefined);
-        part.forEach((k, i) => q.get(k)!.forEach(w => w.resolve(r ? r.results[i] ?? null : null)));
+        part.forEach((k, i) => q.get(k)!.forEach(w => w.resolve(r.results[i] ?? null)));
       } catch (e) {
         for (const k of part) q.get(k)!.forEach(w => w.reject(e as Error));
       }
@@ -123,61 +116,11 @@ async function viewsIn(b: SocketBoard, n: TransclusionNode, out = new Map<Transc
 }
 
 async function project(b: SocketBoard, host: string, id: string, fragment?: string): Promise<{ state: State; deps: string[]; volatile: boolean }> {
-  if (b.supports?.("transclusions.read") !== false && typeof b.readTransclusions === "function") {
-    let node: TransclusionNode | null;
-    try { node = await readNode(b, host, id, fragment); } catch (e) { return { state: { kind: "failed", error: (e as Error).message }, deps: [id], volatile: false }; }
-    if (node) {
-      const d = depsOf(node);
-      return { state: { kind: "node", node, views: await viewsIn(b, node) }, deps: [...d.ids], volatile: d.volatile };
-    }
-  }
-  return { state: await legacy(b, id, fragment), deps: [id], volatile: false };
-}
-
-// ── an older service: one read per target, the whole note, never nested ──────────────────────────────
-
-type BlockWaiter = { resolve: (m: Msg | null) => void; reject: (e: Error) => void };
-const blockQueue = new WeakMap<object, Map<string, BlockWaiter[]>>();
-/**
- * An embed's target, whole. The targets one render asks for go out together as one `blocks.read`
- * (PIE-400); a trashed one is read on its own for its title, and a service without `blocks.read` gets
- * one read per target.
- */
-function readTarget(b: SocketBoard, id: string): Promise<Msg | null> {
-  if (typeof b.readBlocks !== "function") return b.read(id);
-  let q = blockQueue.get(b);
-  if (!q) { blockQueue.set(b, (q = new Map())); setTimeout(() => void flushBlocks(b), 0); }
-  const waiting = q.get(id) ?? [];
-  q.set(id, waiting);
-  return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
-}
-
-async function flushBlocks(b: SocketBoard) {
-  const q = blockQueue.get(b);
-  blockQueue.delete(b);
-  if (!q) return;
-  const settle = (id: string, p: Promise<Msg | null>) => p.then(m => q.get(id)!.forEach(w => w.resolve(m)), (e: Error) => q.get(id)!.forEach(w => w.reject(e)));
-  let got: Awaited<ReturnType<SocketBoard["readBlocks"]>>;
-  try { got = await b.readBlocks([...q.keys()]); } catch (e) { for (const id of q.keys()) settle(id, Promise.reject(e)); return; }
-  for (const id of q.keys()) {
-    const found = got?.blocks.find(m => m.id === id);
-    const gone = got?.unavailable.find(u => u.id === id);
-    settle(id, found ? Promise.resolve(found) : gone?.status === "missing" ? Promise.resolve(null) : b.read(id));
-  }
-}
-
-async function legacy(b: SocketBoard, id: string, fragment?: string): Promise<State> {
-  let target: Msg | null;
-  try { target = await readTarget(b, id); } catch (e) { return { kind: "failed", error: (e as Error).message }; }
-  if (!target) return { kind: "missing" };
-  if (target.deleted) return { kind: "deleted", title: subject(target) };
-  if (fragment) {
-    const [r] = await b.resolveReferences(`((${id}^${fragment}))`);
-    if (r?.status === "stale") return { kind: "fragment-missing" };
-    if (r?.status === "duplicate") return { kind: "fragment-duplicate" };
-  }
-  if ((target.props.type ?? "").toLowerCase() === "virtual-branch") return { kind: "view", target, view: await readView(b, target) };
-  return { kind: "note", target };
+  let node: TransclusionNode | null;
+  try { node = await readNode(b, host, id, fragment); } catch (e) { return { state: { kind: "failed", error: (e as Error).message }, deps: [id], volatile: false }; }
+  if (!node) return { state: { kind: "failed", error: "the service projected nothing for it" }, deps: [id], volatile: false };
+  const d = depsOf(node);
+  return { state: { kind: "node", node, views: await viewsIn(b, node) }, deps: [...d.ids], volatile: d.volatile };
 }
 
 /**
@@ -234,7 +177,8 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
   if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink);
-  return legacyRegion(st, id, fragment, w, body, sink);
+  if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
+  return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error).slice(0, 200)}` + RESET)];
 }
 
 const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.slice(0, 8) + "…" : id}${fragment ? `^${fragment}` : ""}))`;
@@ -333,28 +277,4 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   const part = node.fragment ? { text: node.fragment.text, startLine: node.fragment.startLine } : null;
   for (const l of body(target, part, Math.max(4, w - 2), { embed, task })) out.push(S(" " + l));
   return out;
-}
-
-/** An older service's projection: the whole note, its own embeds left as they are. */
-function legacyRegion(st: Exclude<State, { kind: "node" }>, id: string, fragment: string | undefined, w: number, body: EmbedBody, sink: LinkTarget[] | undefined): string[] {
-  const ref = shortRef(id, fragment);
-  const S = (line: string) => shade(line, w);
-  const fail = (what: string) => [S(fg(C.lred) + `${ref} · ${what}` + RESET)];
-  switch (st.kind) {
-    case "loading": return [S(fg(C.dark) + `${ref} · reading…` + RESET)];
-    case "missing": return fail("MISSING TARGET");
-    case "deleted": return fail(`IN TRASH · ${printable(st.title)}`);
-    case "failed": return fail(`TARGET FAILED · ${printable(st.error).slice(0, 200)}`);
-    case "fragment-missing": return fail("MISSING FRAGMENT");
-    case "fragment-duplicate": return fail("DUPLICATE FRAGMENT");
-    case "view": return viewRegion(st.target, st.view, w, sink);
-    case "note": {
-      const title = printable(subject(st.target));
-      const out = [heading(id, fragment, fragment ? `» ${title} ^${fragment}` : `» ${title}`, w, sink, C.dark, !fragment && isOpenProposal(st.target) ? st.target : null)];
-      if (fragment) out.push(S(fg(C.dark) + "the whole note: this service can't slice fragments" + RESET));
-      const none = (cid: string, cfrag: string | undefined, _n: number, width: number) => [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not nested with this service` + RESET, width)];
-      for (const l of body(st.target, null, Math.max(4, w - 2), { embed: none, task: () => null })) out.push(S(" " + l));
-      return out;
-    }
-  }
 }

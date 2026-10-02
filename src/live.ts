@@ -49,9 +49,7 @@ async function fetchSource(p: Props): Promise<{ items: Msg[]; truncated: boolean
   const ids = r.items.map(m => m.id);
   const subset = async (k: "done" | "now") => {
     if (!p[k]) return undefined;
-    const set = await board!.matchQuery(String(p[k]), ids).catch((e: Error) => { throw new Error(`${k}: ${e.message}`); });
-    if (!set) throw new Error(`${k}: needs a service that matches queries (query.matches, PIE-490)`);
-    return set;
+    return board!.matchQuery(String(p[k]), ids).catch((e: Error) => { throw new Error(`${k}: ${e.message}`); });
   };
   const [done, now] = [await subset("done"), await subset("now")];
   return { ...r, ...(done ? { done } : {}), ...(now ? { now } : {}) };
@@ -71,9 +69,7 @@ async function fetchItems(p: Props): Promise<{ items: Msg[]; truncated: boolean 
   const limit = Math.min(1000, Number(p.limit) || 200);
   const q = String(p.query);
   const sort = { field: p.sort === "created" ? "created" : "updated", direction: p.direction === "asc" ? "asc" : "desc" };
-  // The service parses the query (PIE-398). Only a service that advertised it gets `expression`: one that
-  // didn't might ignore the field and answer with every block.
-  if (board.supports?.("query.expression") !== true) throw new Error("a live query needs a service that parses queries (query.expression, PIE-398)");
+  // The service parses the query (PIE-398).
   const r = await board.request<{ blocks: any[]; completeness: { kind: string } }>("blocks.query", { query: { expression: q, limit, sort } });
   return { items: board.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated" };
 }

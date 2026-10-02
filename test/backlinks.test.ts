@@ -410,26 +410,4 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(peek().options).toMatchObject({ stage: "done", sortField: "title" });
     expect(drawer()[0]).toBe(peek().status);
   }, 20_000);
-
-  test("an older service without facets: today's flat list without the note itself, and the status line says nothing is grouped", async () => {
-    await openDrawer();
-    const request = board.request.bind(board);
-    (board as any).request = async (action: string, params: any) => {
-      const r: any = await request(action, params);
-      return action === "references.backlinks" ? { ...r, sources: [...r.sources.map(({ facets: _, ...s }: any) => s), { ...r.sources[0], facets: undefined, blockId: params.query.targetBlockId, title: "Seed swap" }] } : r;
-    };
-    try {
-      const flat = await board.backlinks(target.id);
-      expect(flat.sources.some(s => s.blockId === target.id)).toBe(false);          // today's rule: never the note itself
-      key({ kind: "esc" }); ch("b");
-      // The drawer read again (the list from before esc, grouped, is shown until the new answer comes).
-      await until(() => !!B().linksTile.data && peek()?.faceted === false, "the backlinks without facets");
-      const p = peek();
-      expect(p.status).toBe("9 of 9 match · not grouped: this service sends no facets · Sort: Updated ↓");
-      expect(p.rows.every((r: any) => r.id)).toBe(true);
-      expect(drawer()[0]).toBe(p.status);
-      ch("K");
-      expect((app as any).message).toContain("no backlink kinds");
-    } finally { (board as any).request = request; }
-  }, 20_000);
 });

@@ -12,7 +12,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
 import { subject } from "../board";
-import { leaf, serializeTree, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
+import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
@@ -27,7 +27,7 @@ export interface TileSpec {
   kind: TileKindName;
   /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
-  /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. Absent before PIE-491. */
+  /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
   id?: string;
   /** A detail's note (block id). */
   note?: string;
@@ -35,11 +35,6 @@ export interface TileSpec {
   page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
   cmd?: string[];
-  /**
-   * The daily layout's agent tile, in a layout saved before the agent moved to the host layer (PIE-513): read once
-   * and left out (`withoutAgentTile`): the agent has one home, the host layer's drawer.
-   */
-  agent?: true;
   cwd?: string;
   file?: string;
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
@@ -48,11 +43,6 @@ export interface TileSpec {
   preview?: boolean;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   link?: string;
-  /**
-   * Before PIE-505, a drawer was a flag on its tile: slides over (`over`), shut (`shut`). Read once and turned
-   * into a drawer container holding the tile (`migrateDrawers`); never written now.
-   */
-  drawer?: "over" | "shut";
   /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
   state?: Record<string, unknown>;
   /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */
@@ -83,34 +73,6 @@ export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: O
 export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number } }
 
 /**
- * A layout saved before PIE-505 marks a drawer on its tile (`drawer: "over"` or `"shut"`). Each such tile (a tab
- * set whose tiles all say so, as one) is put in a drawer container where it was, sliding from the edge it sits
- * at, open or shut as it was. A layout with drawer containers comes back as it was.
- */
-export function migrateDrawers(spec: LayoutSpec): LayoutSpec {
-  if (!savedLeaves(spec.root).some(l => l.drawer)) return spec;
-  const strip = (l: TileSpec): TileSpec => { const { drawer: _d, ...rest } = l; return rest; };
-  const wrap = (n: any, edge: Dir): any => {
-    if (n?.t === "leaf" && n.drawer) return { t: "drawer", edge, open: n.drawer === "over", kid: strip(n) };
-    if (n?.t === "tabs" && Array.isArray(n.tabs) && n.tabs.length && n.tabs.every((l: any) => l?.drawer)) return { t: "drawer", edge, open: n.tabs.some((l: any) => l.drawer === "over"), kid: { ...n, tabs: n.tabs.map(strip) } };
-    return fix(n);
-  };
-  const fix = (n: any): any => {
-    if (!n || typeof n !== "object") return n;
-    if (n.t === "leaf") return n.drawer ? strip(n) : n;
-    if (n.t === "tabs") return { ...n, tabs: (n.tabs ?? []).map((l: any) => (l?.drawer ? strip(l) : l)) };
-    if (n.t === "drawer") return { ...n, kid: fix(n.kid) };
-    const row = n.dir !== "col";
-    if (n.a) return { ...n, a: wrap(n.a, row ? "left" : "up"), b: wrap(n.b, row ? "right" : "down") };
-    if (Array.isArray(n.kids)) return { ...n, kids: n.kids.map((k: any, i: number) => wrap(k, i === n.kids.length - 1 && i > 0 ? (row ? "right" : "down") : (row ? "left" : "up"))) };
-    return n;
-  };
-  // A whole layout that was one drawer has nothing to slide over: it's just its tiles.
-  return { ...spec, root: fix(spec.root) };
-}
-
-
-/**
  * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the
  * shape of an id (`t4` a tile, `s2` a split, `g1` a tab set: one of those letters, then digits). So a name is
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
@@ -124,117 +86,6 @@ export function tileNameProblem(name: string): string | null {
   return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
 }
 
-/**
- * A layout saved before PIE-491 may name a tile with digits (`2`), which now means the tile numbered 2. Each
- * such name becomes the tile's kind (numbered when taken, `detail2`), and the links, sources and focus that
- * named it follow. A spec with good names comes back as it was.
- */
-export function migrateNames(spec: LayoutSpec): LayoutSpec {
-  const all = savedLeaves(spec.root);
-  const bad = all.filter(l => typeof l.name === "string" && tileNameProblem(l.name));
-  if (!bad.length) return spec;
-  const taken = new Set(all.map(l => l.name).filter((n): n is string => !!n && !tileNameProblem(n)));
-  const renamed = new Map<string, string>();
-  for (const l of bad) {
-    if (renamed.has(l.name!)) continue;
-    const kind = /^[A-Za-z]/.test(String(l.kind)) ? String(l.kind) : "tile";
-    let n = kind;
-    for (let i = 2; taken.has(n); i++) n = `${kind}${i}`;
-    taken.add(n); renamed.set(l.name!, n);
-  }
-  const to = (x: string | undefined) => (x !== undefined && renamed.has(x) ? renamed.get(x)! : x);
-  const root = mapLeaves(spec.root, (n: any) => {
-    const src = typeof n.source === "string" && n.source.startsWith("tile:") ? `tile:${to(n.source.slice(5))}` : n.source;
-    return { ...n, ...(n.name !== undefined ? { name: to(n.name) } : {}), ...(n.link !== undefined ? { link: to(n.link) } : {}), ...(src !== undefined ? { source: src } : {}) };
-  });
-  return { ...spec, root, ...(typeof spec.focus === "string" ? { focus: to(spec.focus) } : {}) };
-}
-
-/**
- * A desk saved from built-in layout `from` before PIE-491 (no tile has an id yet), or a layout saved in
- * layouts.json under a built-in's name then, gets the links that layout has gained since, on tiles of the
- * same name and kind that have none: the daily layout's now tile links to middle, so an agent's
- * `open from=claude` lands in middle, as the Claude mod's `--reader middle` did. Once saved with ids, a link
- * the person took away stays away.
- */
-export function migrateLinks(spec: LayoutSpec, from: string | undefined): LayoutSpec {
-  const preset = from ? builtin(from) : null;
-  const all = savedLeaves(spec.root);
-  if (!preset || all.some(l => l.id)) return spec;
-  const names = new Set(all.map(l => l.name));
-  const want = new Map(savedLeaves(preset.root).filter(l => l.name && l.link).map(l => [l.name!, l] as const));
-  const root = mapLeaves(spec.root, (l: TileSpec) => {
-    const w = l.name ? want.get(l.name) : undefined;
-    return !l.link && w && w.kind === l.kind && names.has(w.link) && w.link !== l.name ? { ...l, link: w.link } : l;
-  });
-  return { ...spec, root };
-}
-
-/**
- * A tile has one home (PIE-513): the agent lives in the host layer's drawer, above every screen, so a layout saved
- * with the daily agent tile comes back without it, and its screen lets the host layer sit beside it (`host:
- * beside`, where the tile was) unless it says otherwise. The agent tile is one flagged `agent`; in a layout named
- * `daily` saved before the flag, a pty tile named `claude` whose command is exactly `["claude"]`. A terminal the
- * person made themselves (any other command) is theirs, and stays.
- */
-export function withoutAgentTile(spec: LayoutSpec, from: string | undefined): LayoutSpec {
-  const isAgent = (l: TileSpec) => !!l.agent || (from === "daily" && l.kind === "pty" && l.name === "claude" && l.cmd?.length === 1 && l.cmd[0] === "claude");
-  const floats = Array.isArray(spec.floats) ? spec.floats : [];
-  const gone = [...savedLeaves(spec.root), ...floats.map(f => f.tile)].filter(l => l && isAgent(l));
-  if (!gone.length) return spec;
-  // Nothing but the agent: the desk as it always opened (a second attach to the agent is never made).
-  const root = dropLeaves(spec.root, isAgent) ?? builtin("desk")!.root;
-  const names = new Set(gone.map(l => l.name));
-  const tidy = mapLeaves(root, l => (l.link && names.has(l.link) ? (({ link: _l, ...rest }) => rest)(l) : l));
-  const kept = floats.filter(f => !(f.tile && isAgent(f.tile)));
-  return {
-    ...spec, root: tidy, policy: { host: "beside", ...(spec.policy ?? {}) }, ...(Array.isArray(spec.floats) ? { floats: kept } : {}),
-    ...(typeof spec.focus === "string" && names.has(spec.focus) ? { focus: undefined } : {}),
-  };
-}
-
-/** A saved tree with the tiles `gone` says left out (a split left one kid, a tab set or drawer left none, give way). */
-function dropLeaves(root: SavedTree, gone: (l: TileSpec) => boolean): SavedTree | null {
-  const drop = (n: any): any => {
-    if (!n || typeof n !== "object") return n;
-    if (n.t === "leaf") return gone(n) ? null : n;
-    if (n.a || n.b) { const a = drop(n.a), b = drop(n.b); return a && b ? { ...n, a, b } : a ?? b; }
-    if (n.t === "tabs") { const tabs = (Array.isArray(n.tabs) ? n.tabs : []).filter((l: any) => !(l?.t === "leaf" && gone(l))); return tabs.length ? { ...n, tabs, active: Math.max(0, Math.min(Number(n.active) || 0, tabs.length - 1)) } : null; }
-    if (n.t === "drawer") { const kid = drop(n.kid); return kid ? { ...n, kid } : null; }
-    if (Array.isArray(n.kids)) {
-      const kids: any[] = [], weights: number[] = [];
-      n.kids.forEach((k: any, i: number) => { const r = drop(k); if (r) { kids.push(r); if (Array.isArray(n.weights)) weights.push(n.weights[i]); } });
-      if (!kids.length && n.t !== "columns") return null;
-      return { ...n, kids, ...(Array.isArray(n.weights) ? { weights } : {}) };
-    }
-    return n;
-  };
-  return drop(root);
-}
-
-/** Every tile spec in a saved tree (either form, tab sets too). */
-function savedLeaves(root: SavedTree): TileSpec[] {
-  const all: TileSpec[] = [];
-  const walk = (n: any) => {
-    if (!n || typeof n !== "object") return;
-    if (n.t === "leaf") { all.push(n); return; }
-    for (const k of [n.a, n.b, n.kid, ...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : [])]) walk(k);
-  };
-  walk(root);
-  return all;
-}
-
-/** A saved tree with each tile spec replaced by `f`'s (a copy; the tree it was given is left as it was). */
-function mapLeaves(root: SavedTree, f: (l: TileSpec) => TileSpec): SavedTree {
-  const fix = (n: any): any => {
-    if (!n || typeof n !== "object") return n;
-    if (n.t === "leaf") return f(n);
-    return { ...n, ...(n.a ? { a: fix(n.a), b: fix(n.b) } : {}), ...(n.kid ? { kid: fix(n.kid) } : {}), ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(Array.isArray(n.tabs) ? { tabs: n.tabs.map(fix) } : {}) };
-  };
-  return fix(root);
-}
-
-
 /** The kinds a tile can be: every kind in the registry, built-ins first. */
 export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
 
@@ -246,7 +97,7 @@ export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
 export function makeTile(s: Partial<TileSpec> & { kind: TileKindName }): Pane {
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
-  return k.make(k.revive ? (k.revive({ t: "leaf", ...s } as TileSpec) as typeof s) : s);
+  return k.make(s);
 }
 export { isTileKind };
 
@@ -337,7 +188,7 @@ export function saveLayout(name: string, spec: LayoutSpec) { const all = savedLa
 /** A layout by name: the one saved under it, else the built-in. */
 export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
   const s = savedLayouts()[name];
-  if (s?.root) return { spec: withoutAgentTile(migrateLinks(s, name), name), saved: true };
+  if (s?.root) return { spec: s, saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }

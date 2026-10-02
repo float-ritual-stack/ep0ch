@@ -20,8 +20,8 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
   const info = { cols: 220, rows: 50, cellW: 9, cellH: 16, kitty: false };
   const AS = "flow-agent-513";
   const D = () => desk as any;
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[] };
   const flow = () => get().tree.kids.find((k: any) => k.flow);

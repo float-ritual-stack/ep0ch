@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   const B = () => BV.view(b);
   const AS = "test-agent-441";
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, tile: reader, as });
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
   const frame = () => b.render(B().ctx).lines;
   const rect = (region: string): Rect => { b.render(B().ctx); return BV.rectOf(b, region); };
@@ -174,7 +174,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     // link.select picks the element it's drawn as, so the ruler and ⏎ agree with it.
     const beans = p.surface.describe().links.findIndex(l => l.block === n.beans.id) + 1;
     // (The person's: their preview has their keys, so an agent's would be refused there.)
-    await (app as any).stack.at(-1).dispatch.act({ action: "link.select", args: { n: beans }, reader: "preview" }, { kind: "user" });
+    await (app as any).stack.at(-1).dispatch.act({ action: "link.select", args: { n: beans }, tile: "preview" }, { kind: "user" });
     frame();
     expect(current(p)).toMatchObject({ kind: "link", label: "Stake the beans" });
   }, 30_000);
@@ -313,7 +313,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     const r = rect("preview");
     const before = { cur: current(p), scroll: p.surface.scroll, focus: BV.where(b), selection: p.surface.describe().selection };
     expect(before.selection).toMatchObject({ text: "First" });
-    const out = await act("focus.set", { quote: "edge it with boards" }, "preview", AS) as any;
+    const out = await act("block.tint", { quote: "edge it with boards" }, "preview", AS) as any;
     expect(out).toMatchObject({ reader: "preview", marked: "\"edge it with boards\"", by: AS });
     const lines = frame().slice(r.row, r.row + r.rows);
     expect(lines.map(plain).some(l => l.includes(`focus · an agent (${AS}) marked "edge it with boards"`))).toBe(true);
@@ -330,14 +330,14 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     key({ kind: "enter" });
     await until(() => B().details[0]?.msg?.id === n.beans.id, "the person's link");
     // Refusals say why; focus.clear (or the person's esc once nothing else is selected) takes it away.
-    await expect(act("focus.set", { quote: "not in the note" }, "preview", AS)).rejects.toThrow("isn't in the note's current text");
-    await expect(act("focus.set", { line: 3, quote: "x" }, "preview", AS)).rejects.toThrow("say what to mark");
+    await expect(act("block.tint", { quote: "not in the note" }, "preview", AS)).rejects.toThrow("isn't in the note's current text");
+    await expect(act("block.tint", { line: 3, quote: "x" }, "preview", AS)).rejects.toThrow("say what to mark");
     // A block it embeds: the embed's region is tinted. The note itself with a passage: the passage's lines.
-    await act("focus.set", { block: n.shed.id.slice(0, 8) }, "preview", AS);
+    await act("block.tint", { block: n.shed.id.slice(0, 8) }, "preview", AS);
     expect(frame().filter(l => l.includes(RULER_BG)).map(plain).some(l => l.includes("» Paint the shed"))).toBe(true);
-    expect(await act("focus.set", { block: n.jobs.id, quote: "dig the north bed" }, "preview", AS)).toMatchObject({ marked: "\"dig the north bed\"" });
-    await expect(act("focus.set", { block: n.shed.id, quote: "Two coats" }, "preview", AS)).rejects.toThrow("a passage is found in the note this reader shows");
-    expect(await act("focus.clear", {}, "preview", AS)).toMatchObject({ cleared: true, by: AS });
+    expect(await act("block.tint", { block: n.jobs.id, quote: "dig the north bed" }, "preview", AS)).toMatchObject({ marked: "\"dig the north bed\"" });
+    await expect(act("block.tint", { block: n.shed.id, quote: "Two coats" }, "preview", AS)).rejects.toThrow("a passage is found in the note this reader shows");
+    expect(await act("block.untint", {}, "preview", AS)).toMatchObject({ cleared: true, by: AS });
     expect(p.surface.describe().focus).toBeNull();
   }, 30_000);
 
@@ -350,7 +350,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     BV.at(b, "detail0");
     stepTo(d, "Garden plan");
     expect(d.surface.scroll).toBe(0);
-    await act("focus.set", { quote: "Mulch everything." }, "detail1", AS);
+    await act("block.tint", { quote: "Mulch everything." }, "detail1", AS);
     frame();
     expect(d.surface.scroll).toBeGreaterThan(40);                     // brought into view
     expect(frame().filter(l => l.includes(RULER_BG)).map(plain).some(l => l.includes("Mulch everything."))).toBe(true);

@@ -312,7 +312,7 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     app.push(desk);
     desk.setCurrent(lamp);
     await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "source"), "the lamp's backlinks");
-    await app.act({ action: "tile.focus", reader: "backlinks" });
+    await app.act({ action: "tile.focus", tile: "backlinks" });
     const d = desk as any;
     d.key({ kind: "char", ch: "j" }, d.ctx);
     d.key({ kind: "char", ch: "k" }, d.ctx);

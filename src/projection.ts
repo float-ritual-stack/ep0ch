@@ -430,16 +430,12 @@ export function resourceChanged(resourceId: string | null, blockId?: string): bo
 /** Tests: stop tracking every connection's answers seen so far, so an event only reaches readers created after. */
 export function forgetProjectionAnswers(): void { caches.clear(); }
 
-/** Whether this connection reads projections: only a service that says it has them. */
-export const projectionsServed = (b: SocketBoard) => typeof b.supports === "function" && b.supports("resources.projection") === true;
-
 /**
  * The projections to draw in note `m`, from the last answer (read again in the background when it may
- * have changed; the reader redraws when it lands). Empty without the capability, for a note that names no
- * provider, after a failed read, and while the answer is for another revision of the note.
+ * have changed; the reader redraws when it lands). Empty for a note that names no provider, after a failed read, and while the answer is for another revision of the note.
  */
 export function projectionsOf(m: Msg, src: Source | null | undefined): readonly ResourceProjection[] {
-  if (!src || m.partial || !mayHaveProjections(m.text) || !projectionsServed(src.board)) return [];
+  if (!src || m.partial || !mayHaveProjections(m.text)) return [];
   let cache = cacheBy.get(src.board);
   if (!cache) { cacheBy.set(src.board, (cache = new Map())); caches.add(new WeakRef(cache)); }
   const hit = cache.get(m.id);

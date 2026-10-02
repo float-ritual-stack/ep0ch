@@ -292,7 +292,7 @@ describe("what a running agent knows", () => {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
       await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
-      await d.app.act({ action: "tile.herdr", reader: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      await d.app.act({ action: "tile.herdr", tile: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       d.key({ kind: "char", ch: "]", ctrl: true });
       d.app.dock.tile!.personKeyAt = 0;
       // The fake Herdr lists no pane labelled door-claude.

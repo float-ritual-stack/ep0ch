@@ -72,39 +72,17 @@ export interface ActionDef<A, H> {
   /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
   places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
-  /**
-   * Other names for this same action (an older name agents' scripts use, a view's own word for it). Each runs
-   * this def, is listed with it (not as an action of its own) and is one action to the keys and the parity test.
-   */
-  aliases?: (string | ActionAlias)[];
   run(args: A, host: H, actor: Actor): Promise<unknown> | unknown;
 }
 
 /**
- * An alias with its own arguments: `args` (when they differ) are what it takes, and `map` turns them into the
- * action's. `keys`: the keys a view binds to it (the board's `c` on a reader).
+ * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
+ * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionAlias {
-  name: string;
-  keys?: string;
-  args?: Record<string, ArgSpec>;
-  map?(args: Record<string, unknown>): Record<string, unknown>;
-  /** The answer as the older name gave it (a field it named differently, `pane` or `focus`), from the action's. */
-  answer?(result: any): unknown;
-}
+export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true }
 
-/**
- * An action as `ep0ch-door actions` lists it: `aliases` are its other names, each the same action; `touches`, `replay`
- * and `person` are its declarations (what it touches of the person's, whether a restarted door may run it again, the
- * person's only).
- */
-export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; aliases?: string[]; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true }
-
-/**
- * What the control socket sends: an action on the current screen, in one of its tiles, as someone. `reader` is
- * the tile it names: `tile=` on the wire and the command line, `reader=` its older name (parseActArgs, control).
- */
-export interface ActRequest { action: string; reader?: string; args?: Record<string, unknown>; as?: string }
+/** What the control socket sends: an action on the current screen, in one of its tiles (`tile=`), as someone. */
+export interface ActRequest { action: string; tile?: string; args?: Record<string, unknown>; as?: string }
 
 /** An action refused before anything happened, with the reason in plain words. */
 export class ActionRefused extends Error {
@@ -117,32 +95,16 @@ export class ActionRefused extends Error {
  * checked (and coerced from strings) here.
  */
 export class ActionSet<M extends { [K in keyof M]: object }, H> {
-  /** Each alias's name, to its action's and how it maps its arguments. */
-  private readonly aliasOf = new Map<string, { of: string; alias: ActionAlias }>();
   constructor(readonly scope: string, private readonly defs: { [K in keyof M]: ActionDef<M[K], H> }) {
-    for (const name of Object.keys(defs) as (keyof M & string)[]) this.addAliases(name, defs[name]);
     everySet.add(new WeakRef(this as ActionSet<any, any>));
   }
-  private addAliases(name: string, def: ActionDef<any, H>) {
-    for (const a of def.aliases ?? []) {
-      const alias = typeof a === "string" ? { name: a } : a;
-      if (Object.hasOwn(this.defs, alias.name) || this.aliasOf.has(alias.name)) throw new Error(`${this.scope}: ${alias.name} is already an action`);
-      this.aliasOf.set(alias.name, { of: name, alias });
-    }
-  }
 
-  has(name: string): name is Extract<keyof M, string> { return Object.hasOwn(this.defs, name) || this.aliasOf.has(name); }
-  /** The action a name runs: itself, or the one it's an alias of. */
-  canonical(name: string): string { return Object.hasOwn(this.defs, name) ? name : this.aliasOf.get(name)?.of ?? name; }
-  /** The def a name runs (an alias's action's), with its declarations; undefined when the set has no such action. */
-  def(name: string): ActionDef<any, H> | undefined { return this.has(name) ? (this.defs as Record<string, ActionDef<any, H>>)[this.canonical(name)] : undefined; }
-  /** The arguments a name takes (an alias's own when it has them). */
-  argsOf(name: string): Record<string, ArgSpec> | undefined {
-    if (!this.has(name)) return undefined;
-    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
-    return (a?.alias.args ?? this.def(name)!.args) as Record<string, ArgSpec>;
-  }
-  /** Every action's name, in order (no aliases). */
+  has(name: string): name is Extract<keyof M, string> { return Object.hasOwn(this.defs, name); }
+  /** The def a name runs, with its declarations; undefined when the set has no such action. */
+  def(name: string): ActionDef<any, H> | undefined { return this.has(name) ? (this.defs as Record<string, ActionDef<any, H>>)[name] : undefined; }
+  /** The arguments a name takes. */
+  argsOf(name: string): Record<string, ArgSpec> | undefined { return this.def(name)?.args as Record<string, ArgSpec> | undefined; }
+  /** Every action's name, in order. */
   names(): string[] { return Object.keys(this.defs); }
 
   /**
@@ -152,31 +114,23 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   define(name: string, def: ActionDef<any, H>): void {
     this.forget(name);
     (this.defs as Record<string, ActionDef<any, H>>)[name] = def;
-    this.addAliases(name, def);
   }
-  /** Take an action out (its extension went away), with its aliases. */
+  /** Take an action out (its extension went away). */
   forget(name: string): boolean {
     if (!Object.hasOwn(this.defs, name)) return false;
     delete (this.defs as Record<string, unknown>)[name];
-    for (const [a, x] of this.aliasOf) if (x.of === name) this.aliasOf.delete(a);
     return true;
   }
 
-  /** Each action once, its aliases named with it and their keys among its own. */
+  /** Each action once. */
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      const aliases = [...this.aliasOf].filter(([, x]) => x.of === name).map(([a]) => a);
-      return { name, summary: d.summary, keys: this.keysOf(name), args: d.args as Record<string, ArgSpec>, scope: this.scope, ...(aliases.length ? { aliases } : {}), touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}) };
+      return { name, summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}) };
     });
   }
-  /** An action's keys and the keys its aliases are bound to: one action, every key that runs it. */
-  private keysOf(name: keyof M & string): string | undefined {
-    const more = [...this.aliasOf.values()].filter(x => x.of === name && x.alias.keys).map(x => x.alias.keys!);
-    return [this.defs[name].keys, ...more].filter(Boolean).join("; ") || undefined;
-  }
 
-  /** Run an action (or an alias of one) with arguments already typed (keys, code). */
+  /** Run an action with arguments already typed (keys, code). */
   run<K extends keyof M & string>(name: K, args: M[K], host: H, actor: Actor): Promise<unknown> {
     return Promise.resolve(this.call(name, args, host, actor));
   }
@@ -186,28 +140,20 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
    * action did as soon as it's done; `run` is this, always a promise).
    */
   call<K extends keyof M & string>(name: K, args: M[K], host: H, actor: Actor): unknown {
-    // An action of its own by that name (an extension's, defined later) is that action, not an alias.
-    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
-    const of = (a?.of ?? name) as K;
-    const mapped = (a?.alias.map ? a.alias.map(args as Record<string, unknown>) : args) as M[K];
     // The screen key that ran it names only the action it ran, not one that action runs in turn.
     const bound = boundKey;
     boundKey = null;
-    for (const t of tracers) t({ scope: this.scope, name: of, keys: [this.keysOf(of), bound].filter(Boolean).join("; ") || undefined, actor });
-    const r = this.defs[of].run(mapped, host, actor);
-    const answer = a?.alias.answer;
-    return !answer ? r : r instanceof Promise ? r.then(x => answer(x)) : answer(r);
+    for (const t of tracers) t({ scope: this.scope, name, keys: [this.defs[name].keys, bound].filter(Boolean).join("; ") || undefined, actor });
+    return this.defs[name].run(args, host, actor);
   }
 
   /**
    * The arguments an action's own def sees (its `touchesWith`, its `says`): the wire's checked and coerced (`typed`
-   * false), then an alias's mapped to its action's. Running still goes through `call`/`callUntyped`.
+   * false). Running still goes through `call`/`callUntyped`.
    */
   defArgs(name: string, raw: Record<string, unknown>, typed: boolean): Record<string, unknown> {
-    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
-    const spec = (a?.alias.args ?? this.defs[(a?.of ?? name) as keyof M & string]?.args) as Record<string, ArgSpec> | undefined;
-    const args = typed || !spec ? raw : coerce(name, spec, raw);
-    return a?.alias.map ? a.alias.map(args) : args;
+    const spec = this.argsOf(name);
+    return typed || !spec ? raw : coerce(name, spec, raw);
   }
 
   /** Run an action named on the wire: unknown names and wrong arguments are refused before it starts. */
@@ -217,9 +163,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   /** `runUntyped`, answering as the action does (see `call`). */
   callUntyped(name: string, raw: Record<string, unknown>, host: H, actor: Actor): unknown {
     if (!this.has(name)) throw new ActionRefused(`no action ${name} here; try: ${Object.keys(this.defs).join(", ")}`);
-    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
-    const spec = (a?.alias.args ?? this.defs[(a?.of ?? name) as keyof M & string].args) as Record<string, ArgSpec>;
-    return this.call(name, coerce(name, spec, raw) as any, host, actor);
+    return this.call(name, coerce(name, this.argsOf(name)!, raw) as any, host, actor);
   }
 }
 
@@ -397,33 +341,23 @@ export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: A
 }
 
 /**
- * `key=value` words from the command line: `tile=` (or its older name `reader=`) and `as=` go to the request,
- * the rest are the action's arguments. A value `@path` is read from that file and `@-` from stdin, so long text needn't
- * be quoted.
+ * `key=value` words from the command line: `tile=` and `as=` go to the request, the rest are the action's
+ * arguments. A value `@path` is read from that file and `@-` from stdin, so long text needn't be quoted.
  */
-/**
- * The tile a request names, from `tile` and `reader` (its older name): either, or both naming the same tile.
- * Two different tiles are refused, never one picked over the other.
- */
-export function oneTile(a: string | undefined, b: string | undefined): string | undefined {
-  if (a !== undefined && b !== undefined && a !== b) throw new ActionRefused(`tile= and reader= name two tiles (${a}, ${b}); reader= is tile='s older name, so give one`);
-  return a ?? b;
-}
-
 export async function parseActArgs(words: string[], stdin: () => Promise<string> = () => Bun.stdin.text()): Promise<ActRequest> {
   const [action, ...rest] = words;
   if (!action) throw new ActionRefused("act needs an action name; `actions` lists them");
   const req: ActRequest = { action, args: {} };
   for (let i = 0; i < rest.length; i++) {
     const w = rest[i]!;
-    if (w === "--as" || w === "--tile" || w === "--reader") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.reader = oneTile(req.reader, v); continue; }
+    if (w === "--as" || w === "--tile") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.tile = v; continue; }
     const eq = w.indexOf("=");
     if (eq <= 0) throw new ActionRefused(`arguments are key=value, not ${JSON.stringify(w)}`);
     const k = w.slice(0, eq);
     let v = w.slice(eq + 1);
     if (v === "@-") v = (await stdin()).replace(/\n$/, "");
     else if (v.startsWith("@") && v.length > 1) v = (await Bun.file(v.slice(1)).text()).replace(/\n$/, "");
-    if (k === "tile" || k === "reader") req.reader = oneTile(req.reader, v);
+    if (k === "tile") req.tile = v;
     else if (k === "as") req.as = v;
     else req.args![k] = v;
   }

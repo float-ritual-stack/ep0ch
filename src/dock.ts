@@ -582,7 +582,6 @@ type DockArgs = { "agent.type": { text: string }; "host.toggle": { open?: boolea
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
   "host.enter": {
-    aliases: ["agent.enter"],
     summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe",
@@ -591,7 +590,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     run({ send, restart }, { dock }) { return dock.enter(send, restart); },
   },
   "host.leave": {
-    aliases: ["agent.leave"],
     summary: "the person's keys go back to the screen from the agent drawer; the drawer stays up. The person's only",
     keys: "ctrl+], click on the screen above the drawer",
     touches: "screen", replay: "safe",
@@ -600,7 +598,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     run({ quiet }, { dock, here }) { return dock.leave(here, !quiet); },
   },
   "host.toggle": {
-    aliases: ["agent.toggle"],
     summary: "pull the host layer's drawer (the agent, its first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
     touches: "screen", replay: "safe",
@@ -613,7 +610,6 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     },
   },
   "host.size": {
-    aliases: ["agent.height"],
     summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",

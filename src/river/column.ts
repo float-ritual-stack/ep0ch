@@ -660,7 +660,6 @@ export const COLUMN_ACTIONS = new ActionSet<{
   },
   "column.replies": {
     summary: "show or hide a listed note's replies in place in a river column (the selected one, or id=; open= true or false, default toggles)", keys: "space, a click on » replies",
-    aliases: [{ name: "replies" }],
     touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column, or act on another column",
     args: { id: { type: "string", optional: true, about: "which listed note; default the selected one" }, open: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
     run: ({ id, open }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).replies(id, open, desk) }),
@@ -674,7 +673,6 @@ export const COLUMN_ACTIONS = new ActionSet<{
   "column.filter": {
     summary: "filter what a river column lists: type:hub -status:done author:codex word (query= empty clears it). The person's /, typing, ⏎",
     keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
-    aliases: [{ name: "filter" }],
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     run: ({ query }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).setFilter(query, desk) }),
@@ -682,7 +680,6 @@ export const COLUMN_ACTIONS = new ActionSet<{
   "column.tag": {
     summary: "open a column of every note with the same property (key::value, the river's virtual branch) next to a river column; value defaults to the selected note's. The person's # then 1-9 gives them the column; an agent's leaves their keys",
     keys: "# then 1-9",
-    aliases: [{ name: "tag" }],
     touches: "shape", replay: "safe", says: r => `opened #${r.value} beside ${r.from}`,
     args: { key: { type: "string", about: "the property key" }, value: { type: "string", optional: true, about: "its value; default the selected note's" } },
     async run({ key, value }, { pane, desk, tile }, actor) {
@@ -698,7 +695,6 @@ export const COLUMN_ACTIONS = new ActionSet<{
   "column.split": {
     summary: "stack the selected note of a river column as its own column tile under it, in the same column of the flow; the person's s moves to it, an agent's leaves the keys",
     keys: "s",
-    aliases: [{ name: "split" }],
     touches: "shape", replay: "safe", says: r => `stacked ${r.tile} under ${r.from}`,
     args: {},
     async run(_, { pane, desk, tile }, actor) {
@@ -713,7 +709,6 @@ export const COLUMN_ACTIONS = new ActionSet<{
   "column.copy": {
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
     keys: "y, cmd+c, the release of a drag (or a double or triple click)",
-    aliases: [{ name: "copy" }],
     touches: "nothing", replay: "safe",
     args: {},
     run: (_, { pane, desk }, actor) => columnOf(pane).copy(actor, desk),

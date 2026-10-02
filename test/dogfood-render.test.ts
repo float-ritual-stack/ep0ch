@@ -102,7 +102,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     expect(all).toContain("M. Thorn");
     expect(all).toContain("R. Pike");
     expect(all).toContain("A. Oak, B. Ash");                           // repeated values joined, as the reader does
-    // The tile keeps its name for reader=.
+    // The tile keeps its name for tile=.
     expect(b.layoutGet().tiles.map((t: any) => t.name)).toContain("Reading-now");
     app.pop();
   });

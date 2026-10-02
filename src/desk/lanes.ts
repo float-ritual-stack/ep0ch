@@ -15,7 +15,7 @@ import { bg, C, chip, fg, pad, paint, RESET } from "../style";
 import { themed } from "../theme";
 import type { Key } from "../term";
 import { ago } from "../text";
-import { applyMove, describeChanges, NO_PLANNER, planMoves, type MovePlan } from "../move";
+import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
 import { wheelRows } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
@@ -180,8 +180,7 @@ export class Lanes implements SourceModel {
       if (failed.length) this.loadLanes(failed);
       return;
     }
-    if (!e.change) return this.legacyEvent(e);
-    this.changed(e.change, e);
+    if (e.change) this.changed(e.change, e);
   }
 
   /** Its overlays over the screen (the hub picker, the mover, the steps, the composer): true when one took it. */
@@ -327,16 +326,6 @@ export class Lanes implements SourceModel {
     for (const l of which) void l.load(this.host);
   }
 
-  /** A service without a change feed: the board reloads every lane shortly after any change. */
-  private legacyEvent(e: OutlineEvent) {
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => this.loadLanes(), 1200);
-    // Any open reader showing the changed block re-reads it in place.
-    const id = e.blockId;
-    if (id && this.readers().some(r => r.msg?.id === id))
-      this.host.ctx.board.get(id).then(m => { if (m) { for (const r of this.readers()) r.refresh(m); this.host.redraw(); } }, () => {});
-  }
-
   /** Everything again: after a reconnect the door couldn't catch up on. Drafts are kept, only marked. */
   private reloadAll() {
     if (this.reload) clearTimeout(this.reload);
@@ -393,7 +382,7 @@ export class Lanes implements SourceModel {
     const ready = this.lanes.filter(l => !members.includes(l) && l.read?.status === "ready");
     if (!ready.length) return this.markLanes(members);
     this.host.ctx.board.planMoves(ready.map(l => l.view), id).then(r => {
-      this.markLanes(r ? [...members, ...ready.filter(l => r.plans.get(l.view)?.kind === "already")] : this.lanes);
+      this.markLanes([...members, ...ready.filter(l => r.plans.get(l.view)?.kind === "already")]);
     }, () => this.markLanes(this.lanes));
   }
 
@@ -634,7 +623,7 @@ export class Lanes implements SourceModel {
     // From here until it lands or is refused, this card is moving: a second move waits for it.
     this.moving = card.id; this.status = `${actor.kind === "agent" ? `${agentLabel(actor)} is ` : ""}moving to ${target.name}...`; this.host.redraw();
     const plan = (await planMoves(this.host.ctx.board, card, [target.view]).catch((e: Error) => new Map<string, MovePlan>([[target.view, { kind: "refused", reason: e.message }]]))).get(target.view)
-      ?? { kind: "refused" as const, reason: NO_PLANNER };
+      ?? { kind: "refused" as const, reason: NO_PLAN };
     if (plan.kind !== "patch") { this.moving = null; this.status = ""; }
     if (plan.kind === "refused") {
       this.lastMove = { card: card.id, to: target.name, result: `refused: ${plan.reason}`, ...by };
@@ -665,10 +654,9 @@ export class Lanes implements SourceModel {
       ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
     } finally {
       this.moving = null; this.status = "";
-      // Either way, show the lanes as the service has them now. After a move that landed, with a change
-      // feed, the source and target are enough: the move's own change record refreshes any other lane.
-      const feed = this.host.ctx.board.supports("changes.since") === true;
-      this.loadLanes(landed && feed ? [this.lanes[from]!, target].filter(Boolean) : this.lanes);
+      // Either way, show the lanes as the service has them now. After a move that landed, the source and
+      // target are enough: the move's own change record refreshes any other lane.
+      this.loadLanes(landed ? [this.lanes[from]!, target].filter(Boolean) : this.lanes);
     }
   }
 
@@ -684,7 +672,7 @@ export class Lanes implements SourceModel {
     planMoves(this.host.ctx.board, card, ids).then(
       plans => {
         if (this.mover !== M) return;
-        M.plans = ids.map(id => plans.get(id) ?? { kind: "refused", reason: NO_PLANNER });
+        M.plans = ids.map(id => plans.get(id) ?? { kind: "refused", reason: NO_PLAN });
         const first = M.plans.findIndex((p, i) => i !== M.from && p.kind === "patch");
         if (first >= 0 && M.sel === M.from) M.sel = first;
         this.host.redraw();
@@ -754,12 +742,9 @@ export class Lanes implements SourceModel {
    */
   private async cardPlan(lane: Lane, parent?: string, text = ""): Promise<CardPlan> {
     const plan = await this.host.ctx.board.planCreate(lane.view, text);
-    if (!plan) throw new ActionRefused(`this outline can't plan new cards (views.planWrite, PIE-490); restart it from a current pi-herdr-outliner`);
     if (plan.kind === "refused") throw new ActionRefused(plan.reason);
     const { needs } = plan;
     if (plan.roadmap) {
-      if (this.host.ctx.board.hasRoadmapAllocator() === false)
-        throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
       if (parent) throw new ActionRefused(`${lane.name} lists roadmap items: the workboard's allocator puts them under their project's work queue, so parent= can't be chosen`);
       return { born: plan.born, defaults: plan.defaults, needs, parent: null, plan };
     }
@@ -901,7 +886,7 @@ export class Lanes implements SourceModel {
     const input = plan.plan.item;
     if (!input) throw new ActionRefused(`the outline planned no roadmap item for ${lane.name}`);
     const since = Date.now();
-    let made: { workId: string; workQueueId: string; block: Msg } | null;
+    let made: { workId: string; workQueueId: string; block: Msg };
     try { made = await board.createRoadmapItem(input, actor); }
     catch (e) {
       if (e instanceof Refused) throw new ActionRefused(e.message);
@@ -909,7 +894,6 @@ export class Lanes implements SourceModel {
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
       made = { workId: found.props["work-id"] ?? "", workQueueId: found.parentId ?? "", block: found };
     }
-    if (!made) throw new ActionRefused(`${lane.name} lists roadmap items, which are made by the workboard's allocator (roadmap.items.create), and this outline doesn't have it; create them in the outliner`);
     const m = made.block;
     const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
     this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
@@ -938,8 +922,7 @@ export class Lanes implements SourceModel {
       this.lane = this.lanes.indexOf(lane); this.toLanes();
       this.unfold(lane);
     }
-    // The create's change record asks the lanes that could hold it; without a feed, ask this one now.
-    if (this.host.ctx.board.supports("changes.since") !== true) this.loadLanes([lane]);
+    // The create's change record asks the lanes that could hold it.
     this.host.redraw();
   }
 
@@ -1089,7 +1072,6 @@ export class Lanes implements SourceModel {
     this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
     asActor(this.host.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
-    if (this.host.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.host.redraw();
     return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: "not recorded: the service's delete takes no author" };
   }
@@ -1109,7 +1091,6 @@ export class Lanes implements SourceModel {
     }
     this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(byOf(actor)) };
     asActor(this.host.ctx, actor).flash(`restored "${title}"`);
-    if (this.host.ctx.board.supports("changes.since") !== true) this.loadLanes();
     this.host.redraw();
     return { restored: m.id, title };
   }

@@ -24,8 +24,8 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
   const info = { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false };
   const AS = "float-agent-510";
   const D = () => desk as any;
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const message = () => (app as any).message as string;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; floats: any[]; locked: boolean };
@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
 
   test("^W s on a float says why, and nothing moves; pane.split and tile.preview of a float are refused the same way", async () => {
     fresh();
-    await mine("pane.float", {}, "reader");
+    await mine("tile.float", {}, "reader");
     const tree = treeNames();
     expect(get().focus).toBe("reader");
     key(ctrl("w")); key(char("s"));
@@ -65,7 +65,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
 
   test("a click on a float's ⧉ docks it where the containers take it", async () => {
     fresh();
-    await mine("pane.float", {}, "thread");
+    await mine("tile.float", {}, "thread");
     await mine("layout.policy", { accepts: "query" }, "activity");
     await mine("tile.focus", {}, "activity");
     render();
@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
 
   test("a tiny terminal: the keys leave a tile with no room, and a float is drawn on the screen", async () => {
     fresh();
-    await mine("pane.float", {}, "activity");
+    await mine("tile.float", {}, "activity");
     await mine("float.place", { col: 120, row: 30, cols: 60, rows: 20 }, "activity");
     info.cols = 14; info.rows = 9;
     render();
@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
 
   test("H J K L on a float of a locked screen say why it doesn't move", async () => {
     fresh();
-    await mine("pane.float", {}, "activity");
+    await mine("tile.float", {}, "activity");
     await mine("layout.lock", { on: true });
     await mine("tile.focus", {}, "activity");
     key({ kind: "char", ch: "L" });

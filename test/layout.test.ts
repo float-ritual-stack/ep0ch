@@ -134,7 +134,7 @@ describe("drawers over the board, and columns (PIE-511)", () => {
     expect(node(none, "lanes")!.kids).toEqual([]);
     expect(normalise(none)).toMatchObject({ kids: [{ t: "columns", kids: [] }, { t: "leaf", id: "p" }] });
     const saved = serialize(root, id => ({ t: "leaf" as const, kind: "query", name: id }));
-    expect(saved).toMatchObject({ t: "split", a: { t: "columns", source: "hub:h1", key: "lanes", policy: { draggable: false, accepts: ["query"] } } });
+    expect(saved).toMatchObject({ t: "split", kids: [{ t: "columns", source: "hub:h1", key: "lanes", policy: { draggable: false, accepts: ["query"] } }, { t: "leaf" }] });
     const back = revive(saved as any, (l: any) => l.name as string);
     expect(back).toMatchObject({ kids: [{ t: "columns", source: "hub:h1", kids: [{ t: "leaf", id: "a" }] }, { t: "leaf", id: "p" }] });
     // A tile moved beside a column joins the columns (n-ary), not a nested pair.
@@ -253,10 +253,12 @@ describe("saved forms", () => {
     expect(normalise(named)).toMatchObject({ t: "split", kids: [leaf(1), { t: "flow", key: "river", kids: [] }] });
   });
 
-  test("pairs are written in the binary form (an older door reads them), wider splits as kids and weights", () => {
+  test("splits are written as kids and weights, pairs too; a binary save still reads", () => {
     const t = pair("row", 0.3, leaf(1), pair("col", 0.5, leaf(2), leaf(3)));
     const s = serialize(t, id => ({ t: "leaf" as const, kind: `k${id}` }));
-    expect(s).toEqual({ t: "split", dir: "row", ratio: 0.3, a: { t: "leaf", kind: "k1" }, b: { t: "split", dir: "col", ratio: 0.5, a: { t: "leaf", kind: "k2" }, b: { t: "leaf", kind: "k3" } } } as any);
+    expect(s).toEqual({ t: "split", dir: "row", kids: [{ t: "leaf", kind: "k1" }, { t: "split", dir: "col", kids: [{ t: "leaf", kind: "k2" }, { t: "leaf", kind: "k3" }], weights: [0.5, 0.5] }], weights: [0.3, 0.7] } as any);
+    let m = 0;
+    expect(revive({ t: "split", dir: "row", ratio: 0.3, a: { t: "leaf" }, b: { t: "leaf" } } as any, () => ++m)).toEqual(pair("row", 0.3, leaf(1), leaf(2)));
     const wide = splitOf("row", [leaf(1), leaf(2), leaf(3)], [1, 2, 3], "readers");
     const w = serialize(wide, id => ({ t: "leaf" as const, kind: `k${id}` }));
     expect(w).toEqual({ t: "split", dir: "row", kids: [{ t: "leaf", kind: "k1" }, { t: "leaf", kind: "k2" }, { t: "leaf", kind: "k3" }], weights: [1, 2, 3], key: "readers" } as any);

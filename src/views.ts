@@ -1,7 +1,6 @@
 // Read a saved virtual-branch view. The service owns what a view means: `views.read` (PIE-397) answers
 // its members, in branch order, within its limit. The door shows that answer and never evaluates a
-// view itself; against a service without `views.read` it says so instead of guessing. What a write into
-// a view must change is the service's answer too (`views.planWrite`, src/move.ts).
+// view itself. What a write into a view must change is the service's answer too (`views.planWrite`, src/move.ts).
 import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 
@@ -19,10 +18,7 @@ const DEFAULT_LIMIT = 200;
 
 export async function readView(board: SocketBoard, def: Msg): Promise<ViewRead> {
   const served = await board.readSavedView(def.id).catch((e: Error) => ({ failed: e.message }));
-  if (served && "failed" in served) return { status: "failed", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: [served.failed] };
-  if (!served) {
-    return { status: "unsupported", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: ["this outline can't read saved views (views.read, PIE-397); restart it from a current pi-herdr-outliner"] };
-  }
+  if ("failed" in served) return { status: "failed", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: [served.failed] };
   return {
     status: served.status,
     items: served.blocks,

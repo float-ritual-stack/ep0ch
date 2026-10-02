@@ -265,11 +265,11 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     desk.render(D().ctx);
     await until(() => tiles().find(t => t.kind === "tarot.reading")?.terminal?.running !== false, "its program");
     // Its actions are its kind's: an agent keeps the reading under the tile's block.
-    const kept = await app.act({ action: "ext.tarot.keep", args: {}, reader: tarot.name, as: AS }) as any;
+    const kept = await app.act({ action: "ext.tarot.keep", args: {}, tile: tarot.name, as: AS }) as any;
     expect(kept.tile).toBe(tarot.name);
     const reading = (await board.children(spot.id)).find(m => m.author === "ext:tarot");
     expect(reading).toBeDefined();
-    const drew = await app.act({ action: "ext.tarot.draw", args: {}, reader: tarot.name, as: AS }) as any;
+    const drew = await app.act({ action: "ext.tarot.draw", args: {}, tile: tarot.name, as: AS }) as any;
     expect(drew.extension).toBe("tarot");
     // Opened by act too, on a block named by note=.
     await app.act({ action: "tile.open", args: { kind: "tarot.reading", note: note.id, name: "cards" }, as: AS });
@@ -347,7 +347,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => tiles().some(t => t.kind === "tarot.reading" && !before.has(t.name)), "a tarot tile from the tree");
     const fresh = tiles().find(t => t.kind === "tarot.reading" && !before.has(t.name));
     expect(fresh.args ?? {}).toEqual({});
-    await expect(app.act({ action: "ext.tarot.keep", args: {}, reader: fresh.name, as: AS })).rejects.toThrow(/opened on none/);
+    await expect(app.act({ action: "ext.tarot.keep", args: {}, tile: fresh.name, as: AS })).rejects.toThrow(/opened on none/);
     // A reader the person reads in gives its note, even a top-level one (an outline may have several roots).
     const reader = D().namedReaders()[0];
     reader.pane.hold?.(note, desk);
@@ -391,14 +391,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     bindExtensions(list);
   });
 
-  test("against a service without extensions.list: nothing is bound, and a tile of an extension's kind says why", async () => {
-    const older = { listExtensions: async () => null } as any;
-    const r = await loadExtensions(older);
-    expect(r).toMatchObject({ unsupported: true, added: [], problems: [] });
-    expect(EXT_ACTIONS.list()).toEqual([]);
-    expect(mentionsExtension("x\nmoon:: 2026-10-26")).toBe(false);
-    expect(missingKind("compost.heap")).toContain("lacks extensions.list");
-    // A failed read keeps what was bound, and says so.
+  test("a failed read of the service's list keeps what was bound, and says so", async () => {
     await app.loadExtensions();
     expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
     const broken = { listExtensions: async () => { throw new Error("the service went away"); } } as any;

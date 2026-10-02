@@ -108,8 +108,8 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
   let key: (k: Key) => void = () => {};
   const AS = "reviewer-3";
   const D = () => desk as any;
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const tile = (name: string) => (D().layoutGet().tiles as any[]).find(t => t.name === name);
   const idOf = (name: string) => [...D().names].find(([, v]: any) => v === name)![0];
   const message = () => (app as any).message as string;
@@ -147,9 +147,9 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     await mine("tile.pin", { on: false }, "side");                 // a drawer, to try shutting under them
     enter("claude");
     expect(D().describe().inTerminal).toBe("claude");
-    await expect(act("focus", {}, "middle")).rejects.toThrow(/the person is typing/);
     await expect(act("tile.focus", {}, "middle")).rejects.toThrow(/the person is typing/);
-    await app.openBlock(notes.shed.id);                             // the control socket's `open`
+    await expect(act("tile.focus", {}, "middle")).rejects.toThrow(/the person is typing/);
+    await app.act({ action: "open", args: { id: notes.shed.id } });                             // an agent's `open <id>`
     await until(() => (D().layoutGet().tiles as any[]).some(t => t.showing?.id === notes.shed.id), "the note shown somewhere");
     expect(D().describe().inTerminal).toBe("claude");
     await expect(act("layout.load", { name: "desk" })).rejects.toThrow(/the person is typing/);
@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect(D().focus).not.toBe(idOf("reader"));                     // an agent's split leaves the keys
     const col = (D().layoutGet().tree.kids as any[]).find(k => k.kids?.some((x: any) => x.pane === "reader"));
     expect(col.kids.map((k: any) => k.pane)).toContain("middle");  // joined the column, not a nested pair
-    await act("pane.close", {}, "reader");
+    await act("tile.close", {}, "reader");
     const names = (n: any): string => n.pane ?? `${n.split}(${n.kids.map(names).join(",")})`;
     expect(names(D().layoutGet().tree)).toBe(names(before));
   });

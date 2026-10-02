@@ -403,8 +403,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(touched).toBe(0);                                              // an agent's patch never touches
     d.replace("Plan\nmore\nmine");
     expect(touched).toBe(1);
-    if (!readFileSync(join(outliner!, "src/types.ts"), "utf8").includes('"drafts.touch"')) return;   // an outliner before #273
-    expect(board.supports("drafts.touch")).toBe(true);
     cpSync(join(outliner!, "extensions", "tidy"), join(scratch.workspace, "extensions", "tidy"), { recursive: true });
     const end = Date.now() + 15_000;
     while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "tidy" && e.state === "active") && Date.now() < end) await Bun.sleep(100);

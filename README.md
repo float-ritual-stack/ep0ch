@@ -662,8 +662,7 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   Herdr, its pane closes with it and the launcher makes a new `door-claude` pane, with today's variables, and
   starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
   within 10s of your last key in it.
-- **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9` (their older names `agent.toggle` and
-  `agent.height` still work), `agent.type text=…`, `agent.knows` and `agent.restart` work on every screen through
+- **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9`, `agent.type text=…`, `agent.knows` and `agent.restart` work on every screen through
   `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.
@@ -678,8 +677,8 @@ The last board per workspace is remembered.
 (`~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`).
 
 - **Lanes** are saved views, read by the service with `views.read` (see "On the service platform"). A lane
-  says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty. Against a
-  service without `views.read` each lane says so; the door doesn't evaluate views itself.
+  says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty. The door
+  doesn't evaluate views itself.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
 - **`c`** collapses what has focus to a spine: a lane, or the preview or a detail. A reader's spine shows its
   note's title (rotated under Kitty graphics, stacked letters in cells) and marks what it holds: `✎` an
@@ -688,8 +687,7 @@ The last board per workspace is remembered.
   A collapsed reader keeps its edit, comment or property panel exactly: nothing is saved, sent or dropped,
   `Ctrl+C` still asks twice, and opening it returns to it (`e` enters it again). Its own keys don't reach
   it while collapsed. A note opened into a collapsed reader (`⏎`, `open`) opens it. Floats don't collapse.
-- **Agents** collapse and open readers with `tile.collapse tile=detail1` (`on=true` folds, `on=false` opens;
-  `reader.collapse` and `reader.expand` are its older names), and `tile=all on=false` is `alt+c`. It's flashed with the agent's id and shown by `peek` (`collapsedBy`). An
+- **Agents** collapse and open readers with `tile.collapse tile=detail1` (`on=true` folds, `on=false` opens), and `tile=all on=false` is `alt+c`. It's flashed with the agent's id and shown by `peek` (`collapsedBy`). An
   agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
   a collapsed reader are refused until it's opened.
 - **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
@@ -721,8 +719,7 @@ The last board per workspace is remembered.
   hidden · Kind: all · Stage: all · Sort: Updated ↓`); click any of its controls, or use Detail's keys:
   `/` filter as you type (⏎ keeps it, esc undoes it), `s` sort (updated, created, title), `h` resolved,
   `n` this note, `.` or space folds a group (⏎ or a click on its header too). Detail's `k` and `t` are the
-  board's up and outline drawer, so kind is **`K`** and stage is **`w`**. Against a service without facets
-  it's one flat list, and the status line says nothing is grouped.
+  board's up and outline drawer, so kind is **`K`** and stage is **`w`**.
 - The board's layout (sizes, drawers pinned or shut and their sides, collapsed lanes and preview) is saved to
   `delivery.json` as a layout, with the hub per workspace and the lane the cursor was in. Details and floats
   aren't saved.
@@ -755,8 +752,7 @@ the same capability's answer.
     a NOT or changes when a card was created): the reason names the term and what the card has, e.g.
     `Doing needs (project=pi-outliner OR project=ep0ch-door) and the card has project=garden-club; a move
     sets only the plain clauses beside it`. A card the service already lists in a lane is "already there".
-  - invalid lanes: on older services `not`, `or` and `and` aren't in the query grammar, nor are `-key` or
-    `key:value`; lanes with no `query::` (sort-only, limit-only) are invalid too
+  - invalid lanes: lanes with no `query::` (sort-only, limit-only) are invalid
   - a bare word or `key` clause the card lacks: it asks for any value, and a move can't pick one
   - two values for one key (`stage=a stage=b`)
   - a card with two values for the key being changed: the door won't guess which one moves
@@ -823,9 +819,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
 - **After.** The flash names the work-id: `created HOME-012 in Queued · Oil the hinges · priority=medium
   arc=home track=doors project=ep0ch-door`; `card.create` returns `workId`. The allocator needs a Work-ID
   prefix and exactly one active `type=work-queue` block for the project; otherwise its refusal is shown
-  as it is (`Expected exactly one active work queue for project …`). A service without the allocator
-  (older than protocol 82, or one that answers "Unsupported action") refuses roadmap lanes' `n` rather
-  than falling back. A lost answer is looked for among the project's newest items, never retried.
+  as it is (`Expected exactly one active work queue for project …`). A lost answer is looked for among the project's newest items, never retried.
 
 - **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
   `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
@@ -916,7 +910,7 @@ The board's new-card composer is the same control too.
   in the draft; in another note the service adds it when chosen (`fragments.ensure`, recorded as yours or
   the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
-  token indents. A service without a lookup says so in the popup, and typing carries on.
+  token indents.
 - **Agents edit above while you type** (pi-herdr-outliner PIE-501, `draft.patch`). An open draft is held on
   the service, on a lease the door renews every 5 s, so an agent's compare-and-swap on a span of the note
   lands in your draft instead of the saved note. It applies only while the text it read is still there (at
@@ -946,9 +940,9 @@ The board's new-card composer is the same control too.
 - **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
   border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.
 - **Properties:** the service decides which `[key::value]` tokens are properties (one followed by more
-  text on its line is plain text). When the service offers `properties.preview` (pi-herdr-outliner
-  PIE-401), the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
-  again saves. Older services save at once, and the reader then says which properties changed.
+  text on its line is plain text). The service's `properties.preview` (pi-herdr-outliner PIE-401) reads
+  them first: the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
+  again saves.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
@@ -1033,7 +1027,7 @@ element is current, and `esc` lets go of the element or selection first, then go
   a lane whose view names none shows what its cards carry (track, or an outbox's to, channel, waiting on).
 - **Which lines are metadata** is the service's call: `properties.preview` (PIE-401) says which tokens
   are block-scope metadata lines. Bare `key:: value` lines (line scope) and inline tokens stay in the body.
-  An older service gets the documented rule (the first run of property-only lines after the subject).
+  Until it answers, the documented rule (the first run of property-only lines after the subject).
 - **Links** read as Detail shows them: `((id))` as the target's title, `((id|label))` as its label,
   `[[page]]` as written, without delimiters. Titles, trash state and fragments come from
   `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
@@ -1061,9 +1055,7 @@ element is current, and `esc` lets go of the element or selection first, then go
   them, a click acts on them. Embeds refresh when any note they show changes, nested ones included (an
   embedded view: when anything does). `!((…))` in inline code or a code fence stays code. A note's embeds
   are read together (one `transclusions.read`), and its links and block-valued properties resolve in one
-  `references.resolve`, asked again only when a change record names one of those blocks. Against a
-  service without `transclusions.read`, an embed shows its whole note once, not nested, and a fragment
-  says the service can't slice it.
+  `references.resolve`, asked again only when a change record names one of those blocks.
 - **Following a fragment link** (PIE-425). A click on `((id^fragment))`, or `[ ]` then `⏎`, opens the
   note where links open, scrolled so the fragment is at the top, whatever folds hid it unfolded, and
   marked in the reading ruler's tint (`◆ ^beds · the fragment the link names`; `esc` lets go). Where the
@@ -1128,10 +1120,10 @@ An agent sees the same list with `elements` and acts on one with `element.open n
 opens where the person's would; a fold toggles; a comment mark opens the thread list as its session, and
 leaves the person's expanded threads alone). The
 `[ ]` position is the person's: `element.select` is theirs only, and an agent's `element.open` leaves it
-where it was. Instead an agent sets a **focus mark** with `focus.set` (`block=`, `line=`/`to=`, or
+where it was. Instead an agent sets a **focus mark** with `block.tint` (`block=`, `line=`/`to=`, or
 `quote=`/`near=`, the same passage shape as a comment): the marked lines get the ruler's tint, the header
 says `◆ focus · an agent (<id>) marked …`, and the reader scrolls to it if it isn't in view. The person's
-position, selection and keys don't move. `focus.clear` takes it away. The mark lives in this door's reader;
+position, selection and keys don't move. `block.untint` takes it away. The mark lives in this door's reader;
 sharing it through the service, so other clients see it too, is PIE-423's service part. A river column
 draws the note's body through the surface's renderer inside its own column (its header and replies are
 the river's; folds and elements are the reader's), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
@@ -1292,8 +1284,7 @@ Bodies render with `src/doc.ts`:
     in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
     `blocks.query` `expression` (capability `query.expression`, PIE-398). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
-    properties only; there is no `author=` pseudo-key. A service without these capabilities makes the figure
-    say which one is missing instead of showing a guess.
+    properties only; there is no `author=` pseudo-key.
 - Long callout titles keep a short head on the border and flow the rest into the box.
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
@@ -1422,7 +1413,7 @@ the door runs without a socket and says why.
                                       # the focused tile's opens land; river: a column; elsewhere a message reader). --as names you
     bun src/main.ts subscribe [types] # the live feed: focus.changed, viewport, cursor, layout.changed, marks.changed, one JSON event per line
     bun src/main.ts actions           # what the current screen can do, with arguments and the keys that do the same
-    bun src/main.ts act <action> [tile=<tile>] [key=value…] [--as <actor-id>]   # reader= is tile='s older name (both, naming two tiles, is refused)
+    bun src/main.ts act <action> [tile=<tile>] [key=value…] [--as <actor-id>]
 
 `snap` comes from a mirror that receives every byte written to the terminal (`src/mirror.ts`, the same
 compositor the snapshot harness uses), so it shows what is actually on screen, not a re-render.
@@ -1453,11 +1444,11 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tree.fold` | `n=` or `id=`, `open=true\|false`: a tree row's children. An agent can't fold away the rows your selection is in | `l → space h ←`, a click on a row's mark |
 | `backlinks.fold` | `kind=`: a group in a backlinks tile (`backlinks.view` takes `step=` for its status-line controls) | `.`, `space`; `s K w h n` |
 | `section.try` | `name=`: the showcase's part, given the keys. The person's only (`section` is the agent's) | `⏎ → l Tab`, a click into the stage |
-| `host.enter`, `host.leave` (aliases `agent.enter`, `agent.leave`) | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
+| `host.enter`, `host.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the agent drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
 | `tree.links`, `tree.pick` | `tile=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
-| `projection.refresh` | `reader=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
-| `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `reader=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
+| `projection.refresh` | `tile=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
+| `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `tile=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
 | `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
 | `backlinks.pick`, `backlinks.view` | `tile=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `tile=<tile>` or `tile=lanes`. An agent's is refused while you're typing, and within 2s of your last key. On the desk it is `tile.focus` | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |
@@ -1473,10 +1464,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
-| `tile.collapse` (`reader.collapse`, `reader.expand`) | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles; `reader.collapse` is `on=true`, `reader.expand` `on=false`); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c` |
-| `tile.resize` (`pane.resize`) | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
-| `tile.close`, `tile.float`, `tile.pin` (`pane.close`, `pane.float`, `pane.pin`) | `tile=<tile>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer's tile (it shuts the drawer); the lanes and the preview stay and say why. `float` pops a reader out or docks a float, `pin` on the board's `tree` and `backlinks` docks or slides the whole drawer. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
-| `tile.zoom` (`pane.zoom`) | `tile=<tile>`, `on=true\|false` (default toggles). The desk and every screen on it, the board too. An agent zooms only the tile that has your keys | `^W z` |
+| `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c` |
+| `tile.resize` | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
+| `tile.close`, `tile.float`, `tile.pin` | `tile=<tile>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer's tile (it shuts the drawer); the lanes and the preview stay and say why. `float` pops a reader out or docks a float, `pin` on the board's `tree` and `backlinks` docks or slides the whole drawer. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
+| `tile.zoom` | `tile=<tile>`, `on=true\|false` (default toggles). The desk and every screen on it, the board too. An agent zooms only the tile that has your keys | `^W z` |
 | `pane.split` | `kind=` any tile kind (`actions` lists them: reader, tree, detail, preview, thread, activity, who, art, an extension's, …), `dir=row\|col` (default along the longer side): `tile.open` with its own arguments. On the board a detail opens with a note (`open tile=new-detail`) | desk `^W o` |
 | `backlinks` (the backlinks tile's) | `id` (default the tile's note; yours, none: the reader you read through), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: hand the draft to `$EDITOR`, the person's only) | `e`, typing or `Ctrl+E` (`$EDITOR`), `Ctrl+S`, `Ctrl+R`, `Esc` |
@@ -1498,7 +1489,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `callouts` | `show=true\|false` (default toggles): the reader's callouts drawn open. The person's only | `z` |
 | `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
 | `fold.select` | `by=1\|-1`: the next or previous heading or list item to fold. The person's only | `( )` |
-| `focus.set`, `focus.clear` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
+| `block.tint`, `block.untint` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
 | `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
@@ -1513,7 +1504,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 Readers are named `preview`, `detail1`, `detail2`, `float1`…, `tree`, `backlinks` on the board (a detail
 keeps its name while it lives: close `detail1` and the other is still `detail2`), by tile name, id (`t4`) or
 number (`#2`) on the desk, and `message` in the BBS message reader (which adds `message.next`, `message.previous`
-and `message.thread`); `tile=focused` (`reader=` is its older name), or a block id (the reader showing it) work too, and no reader means
+and `message.thread`); `tile=focused`, or a block id (the reader showing it) work too, and no reader means
 the focused one. `peek` lists them with what each shows. A value `@file` is read from a file, `@-` from
 stdin. For example:
 
@@ -1570,17 +1561,15 @@ The edit frame says which before you save (`an agent (claude-7) typed this · it
 
 ## On the service platform
 
-The service owns what things mean; the door asks it. Each newer service feature is used when the service
-has it. Without it the door falls back where the fallback doesn't re-derive meaning (reading whole notes
-instead of projected rows, reloading instead of following the feed), and otherwise says which capability is
-missing rather than computing the answer itself.
+The service owns what things mean; the door asks it, and never computes the answer itself.
 
-- **Capabilities.** `ping.capabilities` (PIE-402) is trusted when the service sends it. Without it the door
-  tries each newer action once and remembers an "Unsupported action" answer for the session. `peek` shows
-  what the door uses (`service.uses`).
+- **Capabilities.** The door needs protocol 82 and every capability it names (`OUTLINE_CAPABILITIES`,
+  src/socket.ts) in `ping.capabilities` (PIE-402). A service older than that is refused at start, with what
+  it lacks and the fix: `ep0ch install --apply`, or restart the outline host on current code. `ep0ch doctor`
+  flags such a service before that. `peek` shows what the service offers (`service.capabilities`).
 - **Saved views** (lanes, and `view:` in live figures) come from `views.read` (PIE-397). Moves and new
   cards are planned by `views.planWrite`, and a live figure's `done:` and `now:` by `query.matches`
-  (PIE-490). The door has no evaluator of its own: without these it says which capability is missing.
+  (PIE-490). The door has no evaluator of its own.
 - **Property grammar.** The door finds `[key::value]` tokens while it paints (titles, digests, metadata
   lines) with `src/vendor/property-grammar.ts`, a byte-for-byte copy of the outliner's
   `src/property-grammar.ts`; `test/grammar.test.ts` checks the copy's checksum and compares it with the
@@ -1673,7 +1662,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 ## Known limits
 
 - Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
-  cards need `views.planWrite`, and lanes `views.read`. The door has no fallback evaluator for older services.
+  cards need `views.planWrite`, and lanes `views.read`. The door has no evaluator of its own.
 - Nested embeds each keep their quiet `»` source line and bar; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.

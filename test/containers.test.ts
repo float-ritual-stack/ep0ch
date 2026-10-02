@@ -2,14 +2,13 @@
 // claude and a detail are dropped into the same drawer (a drag onto its handle, and layout.move), the screen is
 // locked (alt+k, the chip, act) and a locked drag or border drag is refused with the reason; a container's policy
 // (accepts, draggable, opens-into) is set by act and by the ^W P panel; the drawer and the lock come back after a
-// restart; an old layout's drawer flags are read as drawer containers; and a tile kind registered from outside
+// restart; and a tile kind registered from outside
 // (one the service draws) opens, saves and comes back like a built-in. Scratch services, fictional notes, `sh` only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { migrateDrawers } from "../src/desk/tiles";
 import { registerTileKind, serviceKind, unregisterTileKind, kindForKey, kindsChanged } from "../src/desk/tile-kinds";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -21,28 +20,14 @@ const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const alt = (ch: string): Key => ({ kind: "alt", ch });
 
-describe("an old layout's drawer flags", () => {
-  test("a tile marked over or shut is read as a drawer container where it was, open or shut", () => {
-    const spec = migrateDrawers({ root: { t: "split", dir: "row", ratio: 0.3, a: { t: "leaf", kind: "tree", name: "tree", drawer: "shut" }, b: { t: "split", dir: "col", kids: [{ t: "leaf", kind: "reader", name: "r" }, { t: "tabs", tabs: [{ t: "leaf", kind: "detail", name: "d", drawer: "over" }, { t: "leaf", kind: "detail", name: "e", drawer: "over" }], active: 0 }], weights: [1, 1] } } as any });
-    const root = spec.root as any;
-    expect(root.a).toEqual({ t: "drawer", edge: "left", open: false, kid: { t: "leaf", kind: "tree", name: "tree" } });
-    expect(root.b.kids[1].t).toBe("drawer");
-    expect(root.b.kids[1].edge).toBe("down");
-    expect(root.b.kids[1].open).toBe(true);
-    expect(root.b.kids[1].kid.tabs.map((l: any) => l.drawer)).toEqual([undefined, undefined]);
-    const same = { root: { t: "leaf", kind: "tree" } } as any;
-    expect(migrateDrawers(same)).toBe(same);
-  });
-});
-
 describe.skipIf(!outliner)("containers with policy on the desk", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
   let key: (k: Key) => void = () => {};
   const AS = "container-agent-505";
   const D = () => desk as any;
-  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
+  const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const message = () => (app as any).message as string;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; locked: boolean; rev: number };
@@ -148,7 +133,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(message()).toContain("the screen is locked: resizing is refused");
     // Agents are refused the same way, by the same rule; reading and the drawer still work (the contents are live).
     await expect(act("layout.move", { to: "middle", where: "tabs" }, "side")).rejects.toThrow(/the screen is locked: moving side is refused/);
-    await expect(act("pane.resize", { by: 2 }, "side")).rejects.toThrow(/locked/);
+    await expect(act("tile.resize", { by: 2 }, "side")).rejects.toThrow(/locked/);
     await expect(act("tile.close", {}, "middle")).rejects.toThrow(/closing middle is refused/);
     await expect(mine("layout.load", { name: "river" })).rejects.toThrow(/the screen is locked: loading river/);
     await expect(mine("tile.open", { kind: "reader" }, "middle")).rejects.toThrow(/locked/);

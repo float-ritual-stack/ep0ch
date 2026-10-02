@@ -311,21 +311,6 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     await until(() => flashes.some(f => f.includes("Missing fragment: no ^t-gone")), "the missing fragment said");
   }, 30_000);
 
-  test("an older service without transclusions.read: the whole note, not nested, and why", async () => {
-    const old = new SocketBoard(board.path);
-    await old.info();
-    old.capabilities = new Set([...(old.capabilities ?? [])].filter(c => c !== "transclusions.read" && c !== "fragments.read"));
-    const s = new NoteSurface();
-    const host: SurfaceHost = { ctx: { board: old, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} };
-    try {
-      s.show(await old.get(n.plan.id), host);
-      const draw = () => s.render(72, 60, host).lines.map(plain);
-      await settle(draw, t => t.includes("this service can't slice fragments"), "the older service's fragment");
-      expect(draw().some(l => l.includes("not nested with this service"))).toBe(true);
-      expect(old.sent).not.toContain("transclusions.read");
-    } finally { old.close(); }
-  }, 30_000);
-
   test("on the desk: live in every reader, and the keys reach a step inside an embed", async () => {
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
@@ -362,7 +347,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       await app.act({ action: "open", args: { id: n.plan.id } });
       const col = () => R().byNote(n.plan.id);
       await until(() => !!col(), "the plan's column");
-      await river.dispatch.act({ action: "tile.focus", reader: R().name(col()!) }, USER);
+      await river.dispatch.act({ action: "tile.focus", tile: R().name(col()!) }, USER);
       const draw = () => (river.render(river.ctx).lines.join("\n") as string).replace(/\x1b\[[0-9;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
       await until(() => draw().includes("CYCLE") && draw().includes("» Allotment checklist ^t-d4e5f6"), "the embeds in the column", 10_000);
       expect(draw()).not.toContain("embed not expanded here");
