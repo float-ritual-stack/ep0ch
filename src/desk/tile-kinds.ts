@@ -110,6 +110,10 @@ export interface TileKind {
   band?: { rows(p: Pane, cols: number, rows: number, desk: DeskApi): number; draw(p: Pane, canvas: Canvas, r: Rect, desk: DeskApi): Placement[]; press?(p: Pane, x: number, y: number, desk: DeskApi): void };
   /** What `peek` says about the screen a tile of it is on (the welcome's notes, the brief's day), beside the tiles. */
   peek?(p: Pane, desk: DeskApi): Record<string, unknown>;
+  /** A note opened from a tile of it into the next column of a flow opens as this tile (the river's column on a note); left out, a detail. */
+  opensNext?(p: Pane, m: Msg): TileSpec;
+  /** Its note is the one selected in a list it shows (the river's Library and #tag columns), not one it holds: an open doesn't reuse it. */
+  lists?(p: Pane): boolean;
   /** A frame of its own animation: true when it changed (a screen in a tile, revealing its art). */
   tick?(p: Pane): boolean;
   /** Call `then` once it no longer holds work (`holdsWork`): a terminal's program exited. */

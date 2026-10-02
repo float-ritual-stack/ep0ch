@@ -1,7 +1,7 @@
-// PIE-513: the flow container, the river's columns on the one layout engine. These are the River screen's own
-// behaviours (src/river/river.ts: its squeeze, its calm focus, its explicit shift, opens into the next column, back
-// and forward, docked columns), held at layout level through the screen-layout module's interface: no App, no
-// Scratch, no River. PIE-515 ports the river screen onto this. Fictional tiles.
+// PIE-513: the flow container, the river's columns on the one layout engine: its squeeze, its calm focus, its explicit
+// shift, opens into the next column, back and forward, docked columns, held at layout level through the screen-layout
+// module's interface: no App, no Scratch. Since PIE-515 the river is a flow of river columns (src/river/column.ts).
+// Fictional tiles.
 import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";

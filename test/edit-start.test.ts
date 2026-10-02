@@ -7,9 +7,10 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { boardScreen } from "../src/desk/screen-specs";
 import { Desk } from "../src/desk/desk";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { traceActions, type ActionRun } from "../src/surface/actions";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -161,21 +162,22 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       desk.dispose?.();
       app.pop();
       // The river's e brings back what was put aside in a column the same way.
-      const river = new River() as any;
+      const river = openScreen("river") as Desk, V = () => riverView(river);
       app.push(river);
-      await until(() => !!river.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await until(() => !!V().column(1)?.items?.length, "the Library", 10_000);
       await app.act({ action: "open", args: { id: notes.hedge.id }, as: "edit-start-test" });
       key(char("l"));
-      const p = river.paneS;
+      const p = V().focused;
       await until(() => p.surface.msg?.id === notes.hedge.id, "the column's note");
       key(char("e"));
       await typeAndPutAside(p.surface, " and the gate");
-      river.entered = null;
+      key(char("h")); key(char("l"));                                    // away and back: the person isn't in an edit
       key(char("e"));
       await until(() => !!p.surface.draft, "the column's edit");
-      expect(p.surface.draft.text).toContain("and the gate");
+      expect(p.surface.draft!.text).toContain("and the gate");
       p.surface.closeDraftAction(true);
-      river.dispose?.();
+      await river.dispatch.act({ action: "tile.close", reader: V().name(p) }, USER);   // the next river starts on the Library alone
+      river.dispose();
     } finally { desk.dispose?.(); }
   }, 60_000);
 
@@ -183,22 +185,23 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    const river = new River() as any;
+    const river = openScreen("river") as Desk, V = () => riverView(river);
     app.push(river);
     try {
-      await until(() => !!river.cols[0]?.panes[0].items?.length, "the Library", 10_000);
+      await until(() => !!V().column(1)?.items?.length, "the Library", 10_000);
       await app.act({ action: "open", args: { id: notes.hedge.id }, as: "edit-start-test" });
       key(char("l"));
-      const p = river.paneS;
+      const p = V().focused;
       await until(() => p.surface.msg?.id === notes.hedge.id, "the column's note");
       for (const s of STARTS.filter(x => x.opens !== "panel")) {
         const runs = await press(key, s.key, opened(p.surface, s.opens), `${s.name} opened in the column`);
         expect(runs.filter(r => r.actor.kind === "user").map(r => r.name), s.name).toContain(s.action);
-        await until(() => river.entered?.p === p, `${s.name}: the person is in the column's session`);
-        if (s.name === "ctrl+e") await until(() => /no changes from true/.test(p.surface.draft?.note ?? ""), "$EDITOR came back", 5000);
+        // ctrl+e: $EDITOR runs in a terminal tile beside the column (the desk's), which has the keys until it exits.
+        if (s.name !== "ctrl+e") await until(() => river.isIn(p), `${s.name}: the person is in the column's session`);
+        else await until(() => { river.render(river.ctx); return /no changes from true/.test(p.surface.draft?.note ?? ""); }, "$EDITOR came back", 10_000);
         await closeAll(p.surface);
-        river.entered = null;
+        key(char("h")); key(char("l"));                                  // away and back: out of the session
       }
-    } finally { river.dispose?.(); }
+    } finally { river.dispose(); }
   }, 60_000);
 });

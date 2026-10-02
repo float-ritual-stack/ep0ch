@@ -29,7 +29,7 @@ import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
 import { boardScreen } from "../desk/screen-specs";
-import { RIVER_ACTIONS } from "../river/river";
+import { COLUMN_ACTIONS } from "../river/column";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { LastCallers, MessageReader, SHELL_ACTIONS, WhoOnline } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
@@ -128,7 +128,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "panes", need: "open, split, zoom, close tiles; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: `${PARALLEL}: the river's strip (src/river/river.ts); the board (section 5) is a preset on this engine since PIE-511`,
+    aside: "the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
@@ -482,7 +482,7 @@ const SETS: { name: string; file: string; list: () => ActionInfo[] }[] = [
   { name: "PANE_ACTIONS", file: "src/desk/pane-actions.ts", list: () => PANE_ACTIONS.list() },
   { name: "DRAFT_ACTIONS", file: "src/edit.ts", list: () => DRAFT_ACTIONS.list() },
   { name: "BOARD_ACTIONS", file: "src/desk/lanes.ts", list: () => BOARD_ACTIONS.list() },
-  { name: "RIVER_ACTIONS", file: "src/river/river.ts", list: () => RIVER_ACTIONS.list() },
+  { name: "COLUMN_ACTIONS", file: "src/river/column.ts", list: () => COLUMN_ACTIONS.list() },
   { name: "SHOWCASE_ACTIONS", file: "src/showcase/showcase.ts", list: () => SHOWCASE_ACTIONS.list() },
 ];
 

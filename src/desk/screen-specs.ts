@@ -6,6 +6,7 @@ import { pinnedKind, pinnedSpec } from "../hub/pinned";
 import { WAITING_KIND, waitingSpec } from "../hub/waiting";
 import { welcomeKinds, welcomeSpec } from "../hub/welcome";
 import { boardSpec } from "./delivery";
+import { riverSpec } from "../river/column";
 import { Desk, deskSpec } from "./desk";
 import { registerScreen, screenNames, screenSpec } from "./screen-spec";
 import { registerTileKind, tileKind } from "./tile-kinds";
@@ -21,6 +22,7 @@ export function registerBuiltinScreens(): void {
   add("brief", () => briefSpec());
   add("pinned", args => pinnedSpec(args));
   add("board", args => boardSpec(args));
+  add("river", () => riverSpec());
 }
 registerBuiltinScreens();
 

@@ -62,6 +62,16 @@ export interface DeskApi {
   personTyping?(): boolean;
   /** Tile `p` is on screen now (not in a shut drawer, not a hidden tab). */
   shownNow?(p: Pane): boolean;
+  /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
+  travelPeek?(p: Pane, dir: -1 | 1): string | null;
+  /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
+  within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
+  /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
+  coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
+  /** The tile named `name` on this screen. */
+  paneNamed?(name: string): Pane | undefined;
+  /** Tile `p`'s name (what `tile=` and `open from=` take). */
+  nameOfPane?(p: Pane): string;
   /** Tile `p` is in a drawer (not docked in the layout). */
   inDrawer?(p: Pane): boolean;
   /** The side of the screen tile `p` is on (its drawer's edge, else where it's placed). */
@@ -245,7 +255,7 @@ export class ReaderPane implements Pane {
   /** j k, arrows, PgUp PgDn, space, Home End scroll the note while it is shown (not under a draft or a comment; see NoteSurface.scrollKey). */
   scrollKey(k: Key, desk: DeskApi) { return this.surface.scrollKey(k, this.host(desk)); }
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
-  act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return this.surface.act(name, args, this.host(desk), actor); }
+  act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return desk.within ? desk.within(name, args, actor, this) : this.surface.act(name, args, this.host(desk), actor); }
   describe() { return { title: this.title(), held: this.held, ...this.surface.describe() }; }
 
   // ── folded to a spine (tile.collapse): what it holds is kept; comments arriving meanwhile mark the spine ──

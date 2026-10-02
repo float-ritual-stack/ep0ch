@@ -5,7 +5,6 @@ import type { Screen } from "./app";
 import { boardScreen } from "./desk/screen-specs";
 import { Desk } from "./desk/desk";
 import { openScreen } from "./desk/screen-specs";
-import { River } from "./river/river";
 import { MainMenu } from "./screens";
 import { Showcase } from "./showcase/showcase";
 
@@ -24,7 +23,7 @@ export function startScreens(args: readonly string[], env: Record<string, string
   const boardAt = args.indexOf("--board");
   if (boardAt >= 0) return [new MainMenu(), boardScreen(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])];
   if (args.includes("--showcase")) return [new MainMenu(), new Showcase()];
-  if (args.includes("--river")) return [new MainMenu(), new River()];
+  if (args.includes("--river")) return [new MainMenu(), openScreen("river")];
   const layoutAt = args.indexOf("--layout");
   if (layoutAt >= 0 && args[layoutAt + 1]) return [new MainMenu(), new Desk(undefined, { layout: args[layoutAt + 1] })];
   if (args.includes("--desk")) return [new MainMenu(), new Desk()];

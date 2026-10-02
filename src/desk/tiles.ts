@@ -61,6 +61,8 @@ export interface TileSpec {
   collapsed?: true;
   /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
   label?: string;
+  /** A river column's filter (its clauses, as `/` takes them). */
+  filter?: string;
   /** A backlinks tile whose groups start open (the welcome's). */
   groups?: "open";
 }
@@ -320,7 +322,8 @@ export function builtin(name: string): LayoutSpec | null {
       ], [0.34, 0.33, 0.33])),
     };
   }
-  if (name === "river") return { name, rule: "current", focus: "river", root: serial(splitOf("row", [T("river", "river"), T("preview", "card", { source: "tile:river" })], [0.7, 0.3])) };
+  // The river's columns are a flow on the desk itself (PIE-515), a preview following whichever column the keys are in.
+  if (name === "river") return { name, rule: "current", focus: "library", root: { t: "split", dir: "row", weights: [0.7, 0.3], kids: [{ t: "flow", key: "river", kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" }] }, { t: "leaf", kind: "preview", name: "card", source: "tile:river" }] } as SavedTree };
   if (name === "board") return { name, rule: "current", focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
   if (name === "desk") return { name, rule: "current", focus: 2, root: serial(splitOf("row", [T("tree", "tree"), splitOf("row", [T("reader", "reader"), splitOf("col", [T("thread", "thread"), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
   return null;

@@ -414,7 +414,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 and loaded with `^W r`, `alt+d` for `daily`, or `act layout.load name=…`. Built in: `daily` (an agent
 terminal over the "now" detail; the outline over its preview, above the middle detail; the editor on the
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
-(the River screen in a tile, a preview following its card), `board` (the kanban with a preview tile
+(the river's flow of columns, a preview following the column with the keys), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
 running programs or unsaved edits the new layout has no place for go in one shut drawer on the right, never ended.
 
@@ -429,7 +429,7 @@ lands in a tile opened there), `keep` (how many such tiles it keeps), `shuts` (a
 A locked screen comes back locked after a restart. A **flow** (PIE-513) is the river's columns as a container: an
 open from one of its tiles (a link followed) lands in a new column right after its own, the columns squeeze full,
 peek or spine around the wide one, and only `^W W` (or a click on a spine) moves the wide place. A layout saved
-with one (`{"t": "flow", "kids": [...]}` in `layouts.json`) works on the desk; the River screen moves onto it next.
+with one (`{"t": "flow", "kids": [...]}` in `layouts.json`) works on the desk; the River is one (PIE-515).
 Every layout change, by key, click or `act`, is one operation of one module (`src/desk/screen-layout.ts`): it is
 done whole or refused with the reason, and its rules (floats, policy, the lock, the tile you type in) are checked there.
 Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an
@@ -766,7 +766,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
 ## Editing notes
 
 Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
-On a board lane, `e` edits the selected card in the preview. The river stays read-only for now.
+On a board lane, `e` edits the selected card in the preview; in a river column, the column's note.
 
 Every reader is the same **note surface** (`src/surface/note.ts`): it draws the note, follows links, holds
 the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
@@ -1020,7 +1020,7 @@ unfolded.
 | `z` | unfold callouts that start folded (`[!x]-`); unchanged |
 
 Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
-`all=true`), and leave the person's selection and scroll where they were. River columns show only a note's first lines, so they don't fold.
+`all=true`), and leave the person's selection and scroll where they were. A river column is a reader too: its note folds the same way.
 
 ### Moving through a reader
 
@@ -1051,7 +1051,7 @@ says `◆ focus · an agent (<id>) marked …`, and the reader scrolls to it if 
 position, selection and keys don't move. `focus.clear` takes it away. The mark lives in this door's reader;
 sharing it through the service, so other clients see it too, is PIE-423's service part. A river column
 draws the note's body through the surface's renderer inside its own column (its header and replies are
-the river's; no folds or comment marks there), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
+the river's; folds and elements are the reader's), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
 opens a link or an embed beside or in a new column, and a step's box opens its status choice.
 
 ### Extensions in a note
@@ -1217,30 +1217,25 @@ Bodies render with `src/doc.ts`:
 ## The river
 
 `Q` on the menu, or `bun src/main.ts --river`. Quay's model (built with Grok from an outline export, in
-`~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file:
+`~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file. Since PIE-515 the River is a
+screen spec on the desk: its columns are tiles of one kind (`river.column`) in a **flow** container, so the layout
+is the engine's (`src/desk/screen-layout.ts`) and every column is a reader of the shared note surface.
 
-- **Placement (niri):** `⏎` inserts a column right after its source, or jumps to it if that note is already a column. `alt+⏎` forces a duplicate.
-- **Focus is not the layout:** a click in a column, `h` `l` and `tab` give it the keys and nothing else moves. `w` (or a click on a column's header, its top border, or anywhere on a spine) widens it: the layout is built around that column, and the one you were reading stays full beside it when there's room. ⏎ and a followed link add the column after its source and shift only if the new one wouldn't show full; the source stays full. A click opens a card only in the column that already has the keys.
-- **Compression (Andy's notes):** columns get full, peek or spine width by distance from the wide column; docked (`p`) columns resist. A peek draws its whole note at reading width, covered by its right-hand neighbour like a drawer (`▒` on the edge) and dimmed; only the far columns become spines. Spine titles are rotated VGA text (Kitty) or stacked letters (cells), drawn by the same spine part as the board's lanes and readers (`src/spine.ts`).
-- **Threads (Twitter):** `space` expands replies in place under a rail; `s` splits a note into a stacked tile in the same column; `tab` moves between stacked tiles.
-- **Per-tile filters:** `f`, then `type:hub -status:done author:codex word`.
-- **Virtual branches:** `#` lists the note's properties; pick one for a column of every note sharing it.
-- **Jump:** `/` searches the whole outline index locally, with no round trip per keystroke.
-- **The note surface:** every full-width column hosts the same note surface as the board's readers. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `C` picks a passage to comment on, `m` lists its comment threads (reply, resolve), `[ ]` select a link and `⏎` follows it beside (a click on a link in the column's note does too, and its links read as titles), `u` opens the parent beside. Back and forward (alt+← alt+→, backspace, the mouse's side buttons, or the `← back` row under the title) go between the columns: to the one this was opened from, and back again. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. Reading looks as it did; the edit, the passage picker and the threads draw in the column. A column holding an edit resists compression, and a spine shows `✎` for it. Peek and spine columns are read-only views. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
-- **Agents:** `actions` lists the river's own (`open`, `focus`, `select`, `replies`, `split`, `pin`, `widen`, `close`, `column.scroll`, `filter`, `tag`, `jump`, `back`, `forward`, `copy`) and every note action it doesn't shadow. Every river key and click runs one of them (PIE-506). `focus` moves only the person's keys; `widen` moves only the layout (and says so on screen). `filter query=` filters a column without opening the person's filter line, `tag key= [value=]` opens a `#` column, and `jump query=` lists matches (`id=` or `n=` opens one beside); none moves the person's focus. `back` and `forward` are the person's (an agent opens beside); an agent's `copy` gets the text back and leaves the clipboard alone.
-  - `reader=` (or `tile=`) is a tile id (`r7`: stable while the tile is open, returned by `open` and `split`, listed by `peek` and `actions`), a column number (`2`, or `2.1` for a stacked tile), `focused`, or a block id. Replies carry both: `reader: "r7"`, `at: "3"`.
-  - Column numbers shift as columns open and close. An agent's edit or comment carries on only in the tile holding it: addressed by a number that now names another tile, it's refused with the tile's id.
-  - A block id prefers the tile holding the agent's own edit or comment on the note, then a full-width column opened on it, then any tile editing it, then a list selecting it.
-  - An agent never moves the person's focus: `open`, `split`, `up` and `link.follow` open beside and leave the keys where they are (`focus` is the explicit handover).
-  - Starting a note action in a compressed column is refused; `widen` or `pin` (dock) widens it without taking the keys. An edit or comment already open in a squeezed column still takes its actions.
-- **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working on the river, and `e` or `⏎` enters it. `esc esc` on unsaved text an agent wrote copies it to disk before closing.
-- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that tile, or, in a tile you aren't in, on your first action after 30 seconds on screen.
-- **Back:** `q`, or `Esc` once no link is selected, goes back to the menu (PIE-489: `q` used to be the quote flash).
-- **Quote** (a new note quoting this one) isn't here yet; `"` says so, and `C` comments on a passage instead.
+- **Placement (niri):** `⏎` inserts a column right after its source, or goes to the column that already has that note. `alt+⏎` forces a duplicate.
+- **Focus is not the layout:** a click in a column, `h` `l` (`tile.focus dir=`) and `tab` give it the keys and nothing else moves. `w` (`tile.widen`, or a click on a column's header, or anywhere on a spine) widens it: the layout is built around that column, and the one you were reading stays full beside it when there's room. ⏎ and a followed link add the column after its source and shift only if the new one wouldn't show full. A click opens a card only in the column that already has the keys.
+- **Compression (Andy's notes):** columns get full, peek or spine width by distance from the wide column; docked (`p`, `tile.dock`; `⊙` on the header) columns resist, and the Library starts docked. A peek draws its whole note at reading width, covered by its right-hand neighbour like a drawer (`▒` on the edge) and dimmed; only the far columns become spines.
+- **Threads (Twitter):** `space` expands replies in place under a rail; `s` stacks the selected note as its own column tile under this one (`column.split`).
+- **Filter this column:** `/`, then `type:hub -status:done author:codex word`; the hint row is the prompt.
+- **Same property:** `#` lists the selected note's properties (or says it has none to follow); a digit opens a column of every note sharing that one (`column.tag`).
+- **Go to:** `g` is the desk's search; ⏎ on a hit opens it in the next column.
+- **The note surface:** every full-width column is a reader of the same note surface as every screen's. `e` edits the column's note (`ctrl+e` in `$EDITOR`), `C` picks a passage to comment on, `m` lists its comment threads, `i` its properties, `[ ]` step through its elements and `f` `( )` fold, as in every reader; `⏎` on a link follows it into the next column (a click on a link does too), `u` opens the parent there. Back and forward (alt+← alt+→, backspace, the mouse's side buttons, or the `← back` row under the title: `tile.travel`) go between the columns: to the one this was opened from, and back again. The column's note is the one it was opened on; in the Library and a `#tag` column it's the selected one. A column holding an edit resists compression. Peek and spine columns are read-only to note actions. Leaving the river (or a SIGTERM) with unsaved text copies it to disk first.
+- **Agents:** columns are tiles, named as any tile (`library`, then `column`, `column2`…), so `tile=` takes their names and every desk action works there. The column's own actions: `column.select` (by `id=`, `n=` or `by=`), `column.replies` (alias `replies`), `column.scroll`, `column.filter` (alias `filter`), `column.tag` (alias `tag`), `column.split` (alias `split`), `column.copy` (alias `copy`); the layout's: `tile.widen` (alias `widen`), `tile.dock` (`on=`; the old `pin`), `tile.close`, `tile.travel dir=back|forward` (the person's: an agent opens beside). `open id= from=<column>` opens a note in the column after that one (`fresh=true` for a duplicate); an `open` naming no tile lands after the column with the person's keys. `search query=` lists notes. An agent never moves the person's focus, and the column they have the keys in is theirs (its cursor, scroll and filter).
+- **The person's keys and an agent's session:** a column holding an agent's edit or comment (or one of yours you moved away from) doesn't take your keys: `h l`, `tab` and `x` keep working, and `e` or `⏎` enters it.
+- **Notices:** "properties changed" and an agent's line under a note clear on your next key or click in that column, or, in one you aren't in, after 30 seconds on screen.
+- **Back:** `q`, or `Esc` once no link is selected, goes back to the menu.
 
-Reply counts, titles and the jump palette come from one `tree.index` call (about 1.4 MB for 1.5k blocks,
-cached in `river-index.json` and refreshed in the background on its own connection). Card bodies come
-from `children`. The layout is saved to `river.json`.
+Reply counts come from one `tree.index` call (cached in `river-index.json` and refreshed in the background).
+Card bodies come from `children`. The layout is saved to `river.json` (the desk's layout shape).
 
 ## What maps to what
 
@@ -1559,7 +1554,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     bun scripts/snap.ts           # drives the real door against the live outline and writes out/snap-kitty-*.png
     bun scripts/snap.ts cells     # same, cells mode
     bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a tile, dock, search
-    bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression, jump
+    bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression
     bun scripts/render.ts SHY-EMNU.ANS   # one piece to out/*.png
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts edit   # seeds a board, edits, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts move   # seeds a board, moves by key, picker and drag, a refusal, a stale card

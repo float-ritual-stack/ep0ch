@@ -16,7 +16,8 @@ import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
 import * as BV from "./board-view";
 import { ReaderPane } from "../src/desk/panes";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER, type Actor } from "../src/socket";
 import { ActionRefused, ActionSet, allActionSets, type ActionDef, type Touches } from "../src/surface/actions";
@@ -318,10 +319,11 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(await act("open", { id: notes.beans.id }, notes.peas.id.slice(0, 8))).toMatchObject({ reader: "keep" });
     await expect(act("open", { id: notes.peas.id }, "shell")).rejects.toThrow("shell is a terminal tile, not a reader");
     expect(D.focus).toBe(focus);
-    // A whole screen in a tile (the river) is reached by its tile's name, id and number: its own actions there.
+    // A whole screen in a tile (the river) is reached by its tile's name, id and number. (Its columns' own actions,
+    // column.*, are the inner screen's tiles' kind's: the desk's kind check refuses them on the outer tile.)
     const q = await act("tile.open", { kind: "river", name: "quay" }, "side");
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
-    for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("jump", { query: "beans" }, sel)).toMatchObject({ tile: "quay" });
+    for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
     await act("tile.close", {}, "quay");
     await act("tile.close", { }, "shell").catch(() => {});
     await act("tile.close", { }, "shell").catch(() => {});
@@ -354,27 +356,29 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     app.pop();
   }, 30_000);
 
-  test("the river: open beside a column by its id, its place (3, 3.2) or a block id; tile.type isn't the river's", async () => {
-    const r = new River(), R = r as any;
+  test("the river: open beside a column by its name or id, or a block id; tile.type isn't the river's", async () => {
+    const r = openScreen("river") as Desk, V = () => riverView(r);
     app.push(r);
-    await until(() => R.cols[0]?.panes[0]?.items?.length > 0, "the Library");
-    const lib = R.readerId(R.cols[0].panes[0]);
-    const a = await act("open", { id: notes.beans.id }, lib);
-    expect(a).toMatchObject({ at: "2", id: notes.beans.id });
-    const b = await act("open", { id: notes.peas.id }, "2");
-    expect(b.at).toBe("3");
-    await act("pin", { docked: true }, b.reader);                                    // docked: full width, its note actions run
-    expect(await act("open", { id: notes.beans.id }, a.reader)).toMatchObject({ reader: a.reader });   // its own column, found
-    // A note action by the block a column shows, and by its place; a stacked pane's place is 3.2.
+    await until(() => (V().column(1)?.items?.length ?? 0) > 0, "the Library");
+    const lib = V().name(V().column(1));
+    const a = await act("open", { id: notes.beans.id, from: lib });
+    expect(a).toMatchObject({ id: notes.beans.id });
+    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader]);
+    const b = await act("open", { id: notes.peas.id, from: a.reader });
+    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader, b.reader]);
+    await act("tile.dock", { on: true }, b.reader);                                    // docked: full width, its note actions run
+    expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ reader: a.reader });   // its own column, found
+    // A note action by the block a column shows, by its name and by its stable id.
     expect(await act("folds", {}, notes.peas.id)).toMatchObject({ reader: b.reader });
-    expect(await act("folds", {}, "3")).toMatchObject({ reader: b.reader });
-    const focus = R.focus;
+    expect(await act("folds", {}, b.reader)).toMatchObject({ reader: b.reader });
+    const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.reader).id;
+    expect(await act("folds", {}, id)).toMatchObject({ reader: b.reader });
+    const focus = V().focused;
     const sp = await act("split", {}, lib);                                          // the Library's selected card, stacked
-    expect(sp.at).toBe("1.2");
-    expect(await act("folds", {}, "1.2")).toMatchObject({ reader: sp.reader });
-    expect(R.focus).toBe(focus);                                                       // an agent's never moves the keys
-    await expect(act("tile.type", { text: "x" })).rejects.toThrow("no action tile.type on the river");
-    await expect(act("open", { id: notes.beans.id }, "nope")).rejects.toThrow("no tile nope on the river");
+    expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.tile]);
+    expect(V().focused).toBe(focus);                                                   // an agent's never moves the keys
+    await expect(act("tile.type", { text: "x" })).rejects.toThrow(/no terminal tile/);
+    await expect(act("open", { id: notes.beans.id }, "nope")).rejects.toThrow("no tile nope");
     app.pop();
   }, 30_000);
 
@@ -408,9 +412,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await until(() => B.lanes.length === 2 && B.lanes.every((l: any) => l.items), "the lanes", 10_000);
     await sweep("board");
     app.pop();
-    const r = new River(), R = r as any;
+    const r = openScreen("river") as Desk;
     app.push(r);
-    await until(() => R.cols[0]?.panes[0]?.items?.length > 0, "the Library");
+    await until(() => (riverView(r).column(1)?.items?.length ?? 0) > 0, "the Library");
     await sweep("river");
     app.pop();
   }, 120_000);

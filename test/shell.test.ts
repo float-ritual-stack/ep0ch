@@ -6,9 +6,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen, openScreen } from "../src/desk/screen-specs";
 import * as BV from "./board-view";
-import { River } from "../src/river/river";
 import { Conferences, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { shellRunner } from "../src/drop";
@@ -94,12 +93,10 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(titles()).toEqual(["main menu"]);
     });
 
-    test("q on the river goes back to the menu; \" says quoting isn't here yet", () => {
+    test("q on the river goes back to the menu", () => {
       home();
-      app.push(new River());
-      key(char("\""));
-      expect(message()).toContain("quote");
-      expect(top()).toBeInstanceOf(River);
+      app.push(openScreen("river"));
+      expect(top().name).toBe("river");
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
     });
@@ -107,11 +104,11 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     test("q on the menu is still the Quay (the menu is the top: nothing to go back to); q on the Quay comes back", () => {
       home();
       key(char("q"));
-      expect(top()).toBeInstanceOf(River);
+      expect(top().name).toBe("river");
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
       key(char("Q"));
-      expect(top()).toBeInstanceOf(River);
+      expect(top().name).toBe("river");
       key(ESC);
       expect(titles()).toEqual(["main menu"]);
       key(ESC);
@@ -313,13 +310,13 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(top()).toBe(b);
     });
 
-    test("the river's jump palette being typed holds the person's screen too", async () => {
+    test("a river column's filter being typed (/) holds the person's screen too", async () => {
       home();
-      app.push(new River());
+      app.push(openScreen("river"));
       key(char("/"));
       idle();
       await expect(act("screen.back")).rejects.toThrow(/edit, a comment or the property panel/);
-      expect(top()).toBeInstanceOf(River);
+      expect(top().name).toBe("river");
       key(ESC);
       idle();
       await act("screen.back");
@@ -328,7 +325,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
 
     test("an agent can't open a second copy of a screen already on the stack (a desk would start its programs twice)", async () => {
       home();
-      app.push(new River());
+      app.push(openScreen("river"));
       idle();
       await expect(act("screen.open", { name: "Q" })).rejects.toThrow(/already open/);
       idle();

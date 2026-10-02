@@ -18,7 +18,7 @@ export const SCREEN_KINDS: readonly ScreenKind[] = ["board", "river"];
 function make(kind: ScreenKind): Screen {
   // Loaded here, not at the top: the brief is built on the desk, which builds these tiles.
   if (kind === "board") return require("./screen-specs").boardScreen();
-  return new (require("../river/river").River)();
+  return require("./screen-specs").openScreen("river");
 }
 
 export class ScreenTile implements Pane {

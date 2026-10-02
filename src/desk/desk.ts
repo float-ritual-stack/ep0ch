@@ -30,7 +30,7 @@ import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   allTiles, apply as applyOp, autoName, chainOf, copyTree, describe as describeLayout, dividerAt, dragShare, drawerOf, drawers, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
   neighbour, node, pair, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, shown, splitOf, tabsOf, visible, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float,
+  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float, type Flow,
   type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDrawer, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawSpine, SPINE } from "../spine";
@@ -639,6 +639,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     // On a locked screen nothing new opens (its shape is fixed): the open lands as the current one instead.
     if (m && opts.fresh && opts.from instanceof ReaderPane) {
       const at = this.idOf(opts.from);
+      // In a flow (the river's columns): a new column after its own, as its kind opens one.
+      if (at !== undefined && this.inFlow(at)) { if (this.openNext(at, m, opts.by ?? USER, true) !== undefined) return this.redraw(); }
       // A held reader: a detail by another name, as it has been since PIE-441.
       if (at !== undefined && this.openReader(m, { kind: "split", target: at, dir: "right" }, opts.by ?? USER)) return this.redraw();
     }
@@ -650,7 +652,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (m && from !== undefined && (opts.link || opts.reveal) && this.routes(opts.from!)) {
       const to = landing(this.layout, from, this.facts(from));
       if (to && "to" in to && this.openInto(to.to, m)) return this.redraw();
-      if (to && "next" in to && this.openNext(from, m, opts.by ?? USER)) return this.redraw();
+      if (to && "next" in to && this.openNext(from, m, opts.by ?? USER, !!opts.fresh) !== undefined) return this.redraw();
     }
     this.current = m;
     for (const p of this.panes.values()) {
@@ -694,11 +696,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * `tile.open`'s operation. False, said, when the layout refuses it (a locked screen): the open lands as the
    * current note instead.
    */
-  private openReader(m: Msg, at: At<number>, actor: Actor, kind: "reader" | "detail" = "reader"): boolean {
+  private openReader(m: Msg, at: At<number>, actor: Actor, kind: "reader" | "detail" = "reader", spec?: TileSpec): boolean {
+    const as: TileSpec = { ...(spec ?? { t: "leaf", kind }) };
+    // Named for what it is (its kind's word: a river column is a column), numbered after the first.
+    if (!as.name) as.name = this.autoName(kindOf({ kind: as.kind } as Pane)?.word ?? as.kind);
     // Asked before the tile is made: a refused open makes nothing.
-    const r = this.ask({ op: "open", tile: this.nextId, kind, loose: true, at }, actor);
+    const r = this.ask({ op: "open", tile: this.nextId, kind: as.kind, name: as.name, loose: true, at }, actor);
     if (!r.ok) { this.ctx.flash(`${r.refused} · opened here instead`); return false; }
-    const id = this.put(makeTile({ kind }));
+    const id = this.put(makeTile(as));
     this.commit(r);
     this.startTile(id);
     (this.panes.get(id) as ReaderPane).hold(m, this);
@@ -710,10 +715,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * the layout), or the column that shows `m` already (back from it returns to `from`). The person's goes there; an
    * agent's leaves their keys where they are.
    */
-  private openNext(from: number, m: Msg, actor: Actor): boolean {
-    const there = this.namedReaders().find(x => x.id !== from && x.pane.msg?.id === m.id && !x.pane.editing);
-    if (there) { const r = this.ask({ op: "open", tile: there.id, kind: "reader", at: { kind: "next", from } }, actor); if (r.ok) { this.commit(r); this.save(); return true; } }
-    return this.openReader(m, { kind: "next", from }, actor, "detail");
+  private openNext(from: number, m: Msg, actor: Actor, fresh = false): number | undefined {
+    // A tile that holds it already (not one that only has it selected in a list: the river's Library) is where it opens.
+    const there = fresh ? undefined : this.namedReaders().find(x => x.id !== from && x.pane.msg?.id === m.id && !x.pane.editing && !kindOf(x.pane)?.lists?.(x.pane));
+    if (there) { const r = this.ask({ op: "open", tile: there.id, kind: "reader", at: { kind: "next", from } }, actor); if (r.ok) { this.commit(r); this.save(); return there.id; } }
+    // A tile of a kind that opens its own (a river column) opens one; else a detail.
+    const p = this.panes.get(from), spec = p ? kindOf(p)?.opensNext?.(p, m) : undefined;
+    const id = this.nextId;
+    return this.openReader(m, { kind: "next", from }, actor, "detail", spec) ? id : undefined;
   }
 
   protected idOf(p: Pane | undefined): number | undefined { return p ? [...this.panes].find(([, x]) => x === p)?.[0] : undefined; }
@@ -934,6 +943,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * thrown (an agent's `open` is told why); else where the focused tile's opens land (`openShown`).
    */
   private landBlock(m: Msg, by: Actor) {
+    // A flow by its key (the river's): the note opens in the column after the one the keys are in (or the last), its way.
+    const flow = this.spec.lands !== undefined && this.idNamed(this.spec.lands) === undefined ? node(this.root, this.spec.lands) : null;
+    if (flow?.t === "flow") {
+      const ids = leaves(flow), from = ids.includes(this.focus) ? this.focus : ids.at(-1);
+      if (from === undefined || this.openNext(from, m, by) === undefined) throw new ActionRefused(`not opened: ${this.spec.lands} took no column for it`);
+      this.current = m;
+      this.redraw();
+      return;
+    }
     // A container by its key (the board's readers row): a tile opened there holds it, quietly for an agent.
     if (this.spec.lands !== undefined && this.idNamed(this.spec.lands) === undefined && node(this.root, this.spec.lands)) {
       this.current = m;
@@ -972,6 +990,16 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const into = landing(this.layout, t.id, this.facts(t.id));
     if (into && "into" in into) return this.openPlace(id, fresh ? "new-detail" : "detail", actor, t.id);
     const to = this.linkOf(t.id);
+    // A column of a flow (the river's): the column after it (`fresh`: a new one even when a column has the note).
+    if (to === undefined && this.inFlow(t.id)) {
+      const m = this.onScreenBlock(id) ?? await this.ctx.board.get(id);
+      if (!m) throw new ActionRefused(`no block ${id}`);
+      const at = this.openNext(t.id, m, actor, fresh);
+      if (at === undefined) throw new ActionRefused(`not opened: ${t.name}'s flow took no column for it`);
+      this.current = m;
+      this.redraw();
+      return { reader: this.nameOf(at), id: m.id };
+    }
     if (to !== undefined && this.panes.get(to) instanceof ReaderPane) return this.openIn(id, this.nameOf(to), actor);
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
@@ -1111,13 +1139,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
         ...(rd ? { holds: (a: Actor) => rd.surface.heldBy(a) } : {}),
         // A note action doesn't change a note where the person can't see it: a spine, a reader in a shut drawer.
         ...(this.collapsed.has(id) ? { readOnly: `${name} is collapsed to a spine; tile.collapse on=false tile=${name} opens it first` }
+          : rd && !rd.editing && (this.coverNow(id) === "peek" || this.coverNow(id) === "spine") ? { readOnly: `${name} is a ${this.coverNow(id)} in its flow; a compressed column is a read-only view until it's full width · tile.widen tile=${name} or tile.dock tile=${name}; neither takes the person's keys` }
           : rd && !shown.has(id) && drawerOf(this.root, id) ? { readOnly: `${name} isn't on screen (its drawer is shut); open it first (tile.drawer open=true tile=${name})` } : {}),
         ...(aliases?.length ? { aliases } : {}),
       };
     });
   }
   /** A tile's instance by its name. */
-  protected paneNamed(name: string): Pane | undefined { const id = this.idNamed(name); return id === undefined ? undefined : this.panes.get(id); }
+  paneNamed(name: string): Pane | undefined { const id = this.idNamed(name); return id === undefined ? undefined : this.panes.get(id); }
   /** The tile named `name` (a name from the spec or `tile=`), for what holds the screen: a test, the showcase. */
   pane(name: string): Pane | undefined { return this.paneNamed(name); }
 
@@ -1131,10 +1160,33 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   activePane(key: string): Pane | undefined { const id = this.activeIn(key); return id === undefined ? undefined : this.panes.get(id); }
   /** The floats, the top one last. */
   floatPanes(): Pane[] { return this.floats.map(f => this.panes.get(f.id)!); }
+  /** The person's keys are in a column of a flow (the river's). */
+  focusInFlow(): boolean { return this.inFlow(this.focus); }
+  /** Tile `id` is a column (or in one) of a flow. */
+  private inFlow(id: number): boolean { return chainOf(this.root, id).some(c => c.t === "flow"); }
   /** The name of the tile with the person's keys. */
   focusedName(): string { return this.nameOf(this.focus); }
   /** Tile `p` is in a drawer (not docked in the layout). */
   inDrawer(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && !!drawerOf(this.root, id); }
+  /** The columns of the flow (or columns container) with key `key`, in order: each column's tiles (a stacked one has several). */
+  columnsOf(key: string): Pane[][] { const n = node(this.root, key); return n && "kids" in n ? n.kids.map(k => leaves(k).map(id => this.panes.get(id)!)) : []; }
+  /** How tile `p` shows in its flow now: full, peek or spine (undefined outside a flow, or off its strip). */
+  coverOf(p: Pane): "full" | "peek" | "spine" | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.coverNow(id); }
+  /** How tile `id` shows in its flow in the layout as it is now (not as last painted: an action may have just docked it). */
+  private coverNow(id: number): "full" | "peek" | "spine" | undefined {
+    if (this.coversAt?.state !== this.state || this.coversAt.area !== this.area) {
+      const ps = placeLayout(this.layout, this.area, this.holds), m = new Map(ps.covers ?? []);
+      for (const d of ps.slid) for (const [k, v] of d.placed.covers ?? []) m.set(k, v);
+      this.coversAt = { state: this.state, area: this.area, covers: m };
+    }
+    return this.coversAt.covers.get(id) as "full" | "peek" | "spine" | undefined;
+  }
+  private coversAt: { state: LayoutState<number>; area: Rect; covers: Map<number, string> } | null = null;
+  /** Tile `p`'s column is the wide one of its flow. */
+  isWide(p: Pane): boolean {
+    const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
+    return !!flow && flow.anchor !== undefined && flow.kids.findIndex(k => leaves(k).includes(flow.anchor!)) === flow.kids.findIndex(k => leaves(k).includes(id!));
+  }
   /** The id of the container with key `key` (the board's `lanes`), as `layout.get` and `layout.policy` name it. */
   containerId(key: string): string | undefined { return node(this.root, key)?.id; }
   /** The person is in tile `p`'s edit, comment or panel (they opened it, or entered it with e or ⏎). */
@@ -1180,6 +1232,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
     const id = this.idOf(p);
+    if (p && id === undefined) return Promise.reject(new ActionRefused("that tile isn't on this screen any more"));
     return this.dispatch.act({ action, args, ...(id !== undefined ? { reader: this.nameOf(id) } : {}) }, by);
   }
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
@@ -1576,7 +1629,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const out: Placement[] = [];
     if (!view) return out;
     // A peek's images would show through its neighbour: it draws text only.
-    if (cover === "peek") { view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols)); return out; }
+    if (cover === "peek") {
+      view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+      // Covered like a drawer: what shows of it dimmed (less while the keys are in it), and the edge its neighbour slides over.
+      const edge = r0.col + r0.cols - 1;
+      canvas.dim({ ...r0, cols: r0.cols - 1 }, focused ? 0.8 : PEEK_DIM);
+      for (let y = r0.row; y < r0.row + r0.rows; y++) canvas.text(edge, y, fg(C.dark) + "▒" + RESET, 1);
+      return out;
+    }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
     for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
@@ -1598,6 +1658,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + text.length), row: r.row });
       this.headOut += sgr + text + RESET; x += text.length;
     };
+    // A docked column of a flow (the river's p): it resists compression, and says so.
+    const flow = chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
+    if (flow?.docked?.some(t => flow.kids.findIndex(k => leaves(k).includes(t)) === flow.kids.findIndex(k => leaves(k).includes(id)))) put("⊙ ", fg(C.yellow));
     if (set && set.ids.length > 1) {
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
@@ -2176,14 +2239,14 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (bad) throw new ActionRefused(`tile.open: ${bad}`);
     if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
     const base = this.tile(at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name, ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = { ...spec, ...(k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {}) };
     // The layout says yes (or why not) before the tile is made: a refused open starts no program.
     const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(t.name ? { name: t.name } : {}), at: placeOf(where, base.id) }, actor);
+    const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: placeOf(where, base.id) }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     this.put(makeTile(spec));
     this.commit(r);
@@ -2485,7 +2548,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const at = this.focus;
     // A locked screen keeps its shape: the editor runs over the whole door instead (as on a screen without tiles).
     if (!this.panes.has(at) || this.screenLocked()) return false;
-    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: "edit", loose: true, at: { kind: "split", target: at, dir: "right" } });
+    // In a flow (the river's columns) the editor is the next column, at reading width; elsewhere it splits beside.
+    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir: "right" };
+    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: "edit", loose: true, at: where });
     if (!r.ok) return false;
     const pane = makeTile({ kind: "pty", cmd: [...words(cmd), path], file: path, name: "edit" }) as PtyPane;
     pane.run.temp = true;
@@ -2801,6 +2866,50 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   }
 
   /** `tile.widen`: the tile's flow column takes the wide place (the column read before stays full); the keys stay. */
+  /**
+   * The tile `dir` of tile `sel` (or the focused one), by name: in a flow, the column before or after (a column off its
+   * strip too; the focus brings it on), else the tile placed that way.
+   */
+  neighbourOf(sel: string | undefined, dir: Dir): string {
+    const t = this.tile(sel);
+    const flow = chainOf(this.root, t.id).find(c => c.t === "flow");
+    if (flow && "kids" in flow && (dir === "left" || dir === "right")) {
+      const ci = flow.kids.findIndex(k => leaves(k).includes(t.id)), to = flow.kids[ci + (dir === "left" ? -1 : 1)];
+      if (!to) throw new ActionRefused(`no column ${dir === "left" ? "before" : "after"} ${t.name}`);
+      return this.nameOf(leaves(to)[0]!);
+    }
+    const n = neighbour(this.rectsNow(), t.id, dir);
+    if (n === null) throw new ActionRefused(`no tile ${dir} of ${t.name}`);
+    return this.nameOf(n);
+  }
+
+  /** DeskApi.travelPeek: the title of the column back (-1) or forward (1) from tile `p`'s column goes to, if any. */
+  travelPeek(p: Pane, dir: -1 | 1): string | null {
+    const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
+    if (!flow || id === undefined) return null;
+    const ci = flow.kids.findIndex(k => leaves(k).includes(id)), to = travelTarget(flow, ci, dir), t = to < 0 ? undefined : tileOfColumn(flow, to);
+    const q = t === undefined ? undefined : this.panes.get(t);
+    return q ? q.headName?.() ?? q.title() : null;
+  }
+
+  /** `tile.travel`: back (-1) or forward (1) in tile `sel`'s flow, the column it was opened from or the one back left. The person's keys. */
+  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor): TileDone {
+    const t = this.tile(sel);
+    const r = this.apply({ op: "flow.travel", tile: t.id, dir }, actor);
+    this.entered.clear();
+    this.panes.get(this.focus)?.focused?.(this, actor);
+    this.save(); this.redraw();
+    return { tile: String(r.answer.tile ?? this.nameOf(this.focus)), from: t.name };
+  }
+
+  /** `tile.dock`: tile `sel`'s column resists compression in its flow (the river's `p`), or lets go; default toggles. */
+  dockTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone {
+    const t = this.tile(sel);
+    const r = this.apply({ op: "flow.dock", tile: t.id, ...(on !== undefined ? { on } : {}) }, actor);
+    this.save(); this.redraw();
+    return { tile: t.name, docked: !!r.answer.docked };
+  }
+
   widenTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
     this.apply({ op: "flow.widen", tile: t.id }, actor);
@@ -2893,7 +3002,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
         const drop = d.drop;
         this.cmd("layout.move", drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir }, this.nameOf(d.src));
       } else if (d) { this.ctx.flash("not moved: dropped where it was"); this.redraw(); }
-      else if (h) this.redraw();
+      else if (h) {
+        // A click on a flow column's header is the shift (the river's): it takes the wide place.
+        if (this.inFlow(h.id)) this.cmd("tile.widen", {}, this.nameOf(h.id));
+        this.redraw();
+      }
       if (this.mouseTile) { const m = this.mouseTile; this.mouseTile = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col - 1, k.y - m.r.row - 1, this); }
       if (p) { this.pressed = null; p.pane.release(k.x - p.col, k.y - p.row, this, p.fresh ? (m, how) => this.setCurrent(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined); this.redraw(); }
       return;
@@ -3054,6 +3167,8 @@ function readerHears(r: ReaderPane, e: OutlineEvent): boolean {
   return !!id && m.id === id && c.kind === "edit";
 }
 
+/** How dim a peek column is drawn under its neighbour (the river's cover). */
+const PEEK_DIM = 0.55;
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
 let MORE = "";
 themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });
@@ -3079,7 +3194,7 @@ const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
 /** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */
-const placeOf = (where: Where, at: number): Place<number> => (where === "tabs" ? { kind: "tabs", target: at } : where.startsWith("edge-") ? { kind: "edge", dir: where.slice(5) as Dir } : { kind: "split", target: at, dir: where as Dir });
+const placeOf = (where: Where, at: number): At<number> => (where === "next" ? { kind: "next", from: at } : where === "tabs" ? { kind: "tabs", target: at } : where.startsWith("edge-") ? { kind: "edge", dir: where.slice(5) as Dir } : { kind: "split", target: at, dir: where as Dir });
 /** A tile's name as a preset or a source gives it: as given when it's a good name not taken, else by its kind. */
 function nameFor(names: ReadonlyMap<number, string>, name: string | undefined, kind: string): string {
   return name && !tileNameProblem(name) && ![...names.values()].includes(name) ? name : autoName({ names }, kind);
@@ -3259,6 +3374,8 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string;
       // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
       // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
       if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
+      // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
+      if (from === undefined && reader === undefined && actor.kind !== "agent" && d.focusInFlow()) return d.openFrom(id, d.focusedName(), actor, !!fresh);
       return from !== undefined ? d.openFrom(id, from, actor, !!fresh)
         : reader === undefined && actor.kind === "agent" ? d.openLanding(id, actor)
         : d.openIn(id, reader, actor);

@@ -8,7 +8,8 @@ import { App } from "../src/app";
 import { boardScreen } from "../src/desk/screen-specs";
 import * as BV from "./board-view";
 import { Desk } from "../src/desk/desk";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MessageReader } from "../src/screens";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -98,12 +99,12 @@ describe.skipIf(!outliner)("a child shown while its parent goes to the Trash, on
 
   test("a river column says the child is in the Trash", async () => {
     const { parent, child } = await family("quinces");
-    const river = new River(), R = river as any;
+    const river = openScreen("river") as Desk, R = () => riverView(river);
     app.push(river);
     try {
       await app.act({ action: "open", args: { id: child.id }, as: "walker-510" });
-      const col = () => R.cols.find((c: any) => c.panes[0].source.kind === "block" && c.panes[0].source.id === child.id);
-      await until(() => !!col() && lines().includes("Jars of quinces") && col().panes[0].surface.msg?.id === child.id, "the child's column", 10_000);
+      const col = () => R().byNote(child.id);
+      await until(() => !!col() && lines().includes("Jars of quinces") && col()!.surface.msg?.id === child.id, "the child's column", 10_000);
       expect(lines()).not.toContain("in the Trash");
       await agent.trash(parent.id, SWEEP);
       await until(() => lines().includes("in the Trash"), "the column saying the child is in the Trash", 10_000);

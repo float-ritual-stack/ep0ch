@@ -9,7 +9,8 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
-import { River } from "../src/river/river";
+import { openScreen } from "../src/desk/screen-specs";
+import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -579,28 +580,27 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
 
   test("a river column selects by drag (from a link too, which doesn't open), and y writes it", async () => {
     app.pop();
-    const river = new River();
+    const river = openScreen("river") as Desk, R = () => riverView(river);
     app.push(river);
-    const R = () => river as any;
     try {
-      await until(() => !!R().cols[0]?.panes[0].items, "the Library", 10_000);
+      await until(() => !!R().column(1)?.items, "the Library", 10_000);
       await app.act({ action: "open", args: { id: card.id }, as: "test-agent-419" });
-      const lines = () => river.render(app).lines;
+      const lines = () => river.render(river.ctx).lines;
       await until(() => plain(lines().join("\n")).includes(LINE()), "the card's column");
       await Bun.sleep(500);
-      const cols = R().cols.length;
+      const cols = R().columns.length;
       lines();
-      const h = R().hits.find((x: any) => R().cols[x.col].panes[x.pane].source?.id === card.id);
-      const l = where(lines(), "Stake the beans", h.rect);
+      const col = R().byNote(card.id)!;
+      const l = where(lines(), "Stake the beans", river.rectOf(col)!);
       writes.length = 0;
       drag({ x: l.x, y: l.y }, { x: l.x + 4, y: l.y });
       await Bun.sleep(150);
-      expect(R().cols.length).toBe(cols);                            // the link didn't open a column
+      expect(R().columns.length).toBe(cols);                         // the link didn't open a column
       expect(copied()).toEqual(["Stake"]);                           // copy on select
       key(CMD_C);
       expect(copied()).toEqual(["Stake", "Stake"]);
       key({ kind: "esc" });
-      expect(R().sel).toBeNull();
+      expect(col.text).toBeNull();
     } finally { app.pop(); }
   });
 });
