@@ -16,7 +16,7 @@
 // splits by weight: a move beside a tile inside a split along the same axis joins that split instead of
 // nesting a new pair.
 import type { Rect } from "../canvas";
-import { placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
+import { columnOf, placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
 
 export type Dir = "left" | "right" | "up" | "down";
 /** row: kids side by side; col: one over another. */
@@ -975,7 +975,7 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
   if (n.t === "drawer") return { t: "drawer", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
   if (n.t === "columns") return { t: "columns", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.source ? { source: n.source } : {}), ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   if (n.t === "flow") {
-    const col = (id: I | undefined) => (id === undefined ? -1 : n.kids.findIndex(k => leaves(k).includes(id)));
+    const col = (id: I | undefined) => columnOf(n, id);
     const at = (id: I | undefined) => { const i = col(id); return i >= 0 ? i : undefined; };
     const docked = (n.docked ?? []).map(col).filter(i => i >= 0);
     const trail = (n.trail ?? []).map(t => ({ col: col(t.tile), from: at(t.from), ahead: at(t.ahead) })).filter(t => t.col >= 0 && (t.from !== undefined || t.ahead !== undefined))

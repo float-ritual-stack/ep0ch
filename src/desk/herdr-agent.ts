@@ -27,9 +27,9 @@
 // so the agent's `show` falls back to Herdr instead of reaching a door that doesn't show it.
 import { spawn as spawnDetached } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
-import { connect } from "node:net";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
+import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, stateDir } from "../state";
 import { AGENT_VARS, agentVars, DOOR_START_VARS, lineWithContinue } from "./agent-env";
@@ -256,16 +256,7 @@ export const WATCH_TITLE = "watching · another door has it · ⏎ takes it over
 export function tellDoor(env: Record<string, string | undefined>, pane: string, as: string, timeoutMs = 2000): Promise<boolean> {
   const control = env.EP0CH_CONTROL, tile = env.EP0CH_TILE_ID || env.EP0CH_TILE;
   if (!control || !tile) return Promise.resolve(false);
-  return new Promise(res => {
-    let done = false;
-    const finish = (ok: boolean) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* gone */ } res(ok); };
-    const sock = connect(control, () => sock.write(JSON.stringify({ cmd: "act", action: "tile.herdr", args: { pane, name: as }, tile, as }) + "\n"));
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    let buf = "";
-    sock.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) finish(!!json(buf.slice(0, i))?.ok); });
-    sock.on("error", () => finish(false));
-    sock.on("close", () => finish(false));
-  });
+  return ask(control, { cmd: "act", action: "tile.herdr", args: { pane, name: as }, tile, as }, timeoutMs).then(r => !!r?.ok);
 }
 
 /** Runs a program on the tile's terminal and resolves to its exit code (its stderr kept too, for attach). */
@@ -307,15 +298,11 @@ function watch(bin: string, terminal: string): Promise<"takeover" | "quit" | "cl
       const p = Bun.spawn([bin, "terminal", "session", "observe", terminal, "--cols", cols!, "--rows", rows!], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
       obs = p;
       void (async () => {
-        let buf = "";
-        for await (const chunk of p.stdout as ReadableStream<Uint8Array>) {
-          buf += new TextDecoder().decode(chunk);
-          for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
-            const rec = json(buf.slice(0, i)); buf = buf.slice(i + 1);
-            if (rec?.type === "terminal.frame" && typeof rec.bytes === "string") out.write(Buffer.from(rec.bytes, "base64"));
-            else if (rec?.type === "terminal.closed") return finish("closed");
-          }
-        }
+        const lines = new JsonLines(rec => {
+          if (rec?.type === "terminal.frame" && typeof rec.bytes === "string") out.write(Buffer.from(rec.bytes, "base64"));
+          else if (rec?.type === "terminal.closed") finish("closed");
+        });
+        for await (const chunk of p.stdout as ReadableStream<Uint8Array>) { lines.feed(Buffer.from(chunk)); if (done) return; }
         // The stream ended without a close (restarted at a new size, or the server went): only the live one counts.
         if (obs === p) finish("closed");
       })();

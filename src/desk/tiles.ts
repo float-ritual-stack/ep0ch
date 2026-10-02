@@ -14,9 +14,7 @@ import { readState, stateDir, writeState } from "../state";
 import { subject } from "../board";
 import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
-import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
-import { SCREEN_KINDS, type ScreenKind } from "./screen-tile";
 import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
 

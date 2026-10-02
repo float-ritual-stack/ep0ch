@@ -13,11 +13,11 @@ import { subject, type Msg } from "./board";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
-import { LIST_FIELDS, type SocketBoard } from "./socket";
+import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
 import { handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
-import { BOLD, C, fg, LINK_END, linkTag, RESET, UNBOLD } from "./style";
+import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 
 /** The statuses the service sends today; a newer one is drawn generically, with its reason. */

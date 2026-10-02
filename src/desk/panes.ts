@@ -8,7 +8,7 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import { USER, type Activity, type Actor, type Comment } from "../socket";
+import type { Activity, Actor, Comment } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
@@ -157,7 +157,6 @@ function rowN(n: number | undefined, sel: number, count: number, what: string): 
 // ── outline tree: src/desk/tree.ts ─────────────────────────────────────────────
 
 export { TreePane } from "./tree";
-import { TreePane } from "./tree";
 
 // ── reader ───────────────────────────────────────────────────────────────────
 

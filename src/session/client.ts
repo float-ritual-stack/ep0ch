@@ -12,7 +12,7 @@
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { listening } from "../control";
+import { listening } from "../jsonl";
 import { resolveTarget } from "../discover";
 import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";

@@ -23,7 +23,8 @@ export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
 export { stripMarks };
 
 export const refKey = (id: string, fragment?: string, label?: string) => `${id}${fragment ? `^${fragment}` : ""}${label !== undefined ? `|${label}` : ""}`;
-const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
+/** An id cut to its first eight characters and …, once it is longer than twelve (a link's, an embed's, a property's). */
+export const shortId = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
 
 // ── what changed: a cached answer is asked again only when a change could have altered it ──────────
 
@@ -180,9 +181,9 @@ export type LinkTarget = {
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
-  if (!r) return { text: label ?? short(id) + (fragment ? `^${fragment}` : ""), missing: false };
-  if (r.status === "missing") return { text: `${label ?? short(id)} · Missing target`, missing: true };
-  const title = (label ?? r.title ?? short(id)) + (label === undefined && fragment ? `^${fragment}` : "");
+  if (!r) return { text: label ?? shortId(id) + (fragment ? `^${fragment}` : ""), missing: false };
+  if (r.status === "missing") return { text: `${label ?? shortId(id)} · Missing target`, missing: true };
+  const title = (label ?? r.title ?? shortId(id)) + (label === undefined && fragment ? `^${fragment}` : "");
   const suffix = r.status === "deleted" ? " · Trash" : r.status === "stale" ? " · Missing fragment" : r.status === "duplicate" ? " · Duplicate fragment" : "";
   return { text: title + suffix, missing: false };
 }

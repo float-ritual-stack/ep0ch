@@ -13,7 +13,7 @@
 // never reused), so the bookkeeping survives every tree change that keeps the tile.
 import type { Rect } from "../canvas";
 import { SPINE } from "../spine";
-import type { Flow, LNode, Placed, PlaceOpts } from "./layout";
+import { leaves, type Flow, type LNode, type Placed, type PlaceOpts } from "./layout";
 
 export type Cover = "full" | "peek" | "spine";
 /** A peek's width before the leftover room is shared out. */
@@ -21,14 +21,10 @@ export const PEEK = 24;
 /** A full column's width in a flow `w` cells wide: about four tenths of it, between 40 and 76. */
 export const fullWidth = (w: number) => Math.max(40, Math.min(76, Math.round(w * 0.42)));
 
-/** Every tile in a node (a tab set's hidden ones too). */
-function tilesIn<I>(n: LNode<I>): I[] {
-  return n.t === "leaf" ? [n.id] : n.t === "tabs" ? [...n.ids] : n.t === "drawer" ? tilesIn(n.kid) : n.kids.flatMap(k => tilesIn(k));
-}
 /** The column (kid index) of the flow holding tile `id`, or -1. */
-export const columnOf = <I>(f: Flow<I>, id: I | undefined): number => (id === undefined ? -1 : f.kids.findIndex(k => tilesIn(k).includes(id)));
+export const columnOf = <I>(f: Flow<I>, id: I | undefined): number => (id === undefined ? -1 : f.kids.findIndex(k => leaves(k).includes(id)));
 /** A tile naming column `i` (its first). */
-export const tileOfColumn = <I>(f: Flow<I>, i: number): I | undefined => (f.kids[i] ? tilesIn(f.kids[i]!)[0] : undefined);
+export const tileOfColumn = <I>(f: Flow<I>, i: number): I | undefined => (f.kids[i] ? leaves(f.kids[i]!)[0] : undefined);
 
 /** One column as placed: its cover, what shows of it, and where it's drawn (a peek's box runs on under its neighbour). */
 export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
@@ -47,7 +43,7 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   const keepAt = columnOf(f, f.keep);
   const keep = keepAt === anchor ? -1 : keepAt;
   const docked = new Set((f.docked ?? []).map(id => columnOf(f, id)).filter(i => i >= 0));
-  const busy = (i: number) => !!holds && tilesIn(f.kids[i]!).some(id => holds(id));
+  const busy = (i: number) => !!holds && leaves(f.kids[i]!).some(id => holds(id));
   const shown = [...f.kids.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
     .slice(0, Math.max(1, Math.floor(width / SPINE))).sort((a, b) => a - b);
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
@@ -104,7 +100,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
 
 /** The trail entry of column `i` (where it was opened from, where back last left it), made when missing. */
 function trailOf<I>(f: Flow<I>, i: number): { tile: I; from?: I; ahead?: I } | undefined {
-  const ids = f.kids[i] ? tilesIn(f.kids[i]!) : [];
+  const ids = f.kids[i] ? leaves(f.kids[i]!) : [];
   return (f.trail ?? []).find(t => ids.includes(t.tile));
 }
 /** Column `i` was opened from the column holding `from`: back from it goes there. */
@@ -130,7 +126,7 @@ export function setAhead<I>(f: Flow<I>, to: number, from: number) {
 }
 /** Dock or undock column `i` (docked, it resists compression). Docking lets go of the column kept full: the dock is the newer choice. */
 export function setDocked<I>(f: Flow<I>, i: number, on: boolean) {
-  const ids = f.kids[i] ? tilesIn(f.kids[i]!) : [];
+  const ids = f.kids[i] ? leaves(f.kids[i]!) : [];
   f.docked = (f.docked ?? []).filter(id => !ids.includes(id));
   if (on && ids.length) { f.docked.push(ids[0]!); delete f.keep; }
   if (!f.docked.length) delete f.docked;
@@ -187,7 +183,7 @@ export function leaving<I>(f: Flow<I>, ci: number, covers: Map<number, Cover>) {
  * column while it has any (the first, when none was said), so a widen of the one shown wide is never a shift.
  */
 export function tidyFlow<I>(f: Flow<I>): Flow<I> {
-  const here = new Set(f.kids.flatMap(k => tilesIn(k)));
+  const here = new Set(f.kids.flatMap(k => leaves(k)));
   const out: Flow<I> = { ...f };
   for (const k of ["anchor", "keep", "read"] as const) if (out[k] !== undefined && !here.has(out[k]!)) delete out[k];
   if (out.anchor === undefined && out.kids.length) out.anchor = tileOfColumn(out, 0);

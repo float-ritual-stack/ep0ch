@@ -17,6 +17,7 @@ import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { privateDir, stateDir } from "./state";
+import { ask, jsonLine, JsonLines, listening } from "./jsonl";
 
 /** Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in the state dir. */
 export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(stateDir(), "door.sock");
@@ -50,7 +51,7 @@ export function snapPath(path: unknown): string {
 export function feedWriter(sock: { writableLength: number; write(s: string): unknown; destroy(): unknown }, types: Set<string> | null, off: () => void, limit = FEED_LIMIT) {
   return (e: { type: string }) => {
     if (sock.writableLength > limit) { off(); sock.destroy(); return; }
-    if (!types || types.has(e.type) || e.type === "hello") sock.write(JSON.stringify({ event: e }) + "\n");
+    if (!types || types.has(e.type) || e.type === "hello") sock.write(jsonLine({ event: e }));
   };
 }
 
@@ -81,17 +82,6 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
  * a program in a tile (an agent's `show`) reaches the door it runs in, not whichever door has door.sock.
  */
 export let controlPath: string | null = null;
-
-/**
- * Is a door listening on `path`? False only when nobody is (the file is left from a door that died). A
- * file that isn't a socket has nobody on it either: macOS says ENOTSOCK where Linux says ECONNREFUSED.
- */
-export const listening = (path: string, ms = 2000) => new Promise<boolean>(res => {
-  const c = connect(path, () => { clearTimeout(t); c.end(); res(true); });
-  // No answer in time: somebody holds it but isn't answering (a session or door busy starting): taken, not free.
-  const t = setTimeout(() => { c.destroy(); res(true); }, ms);
-  c.on("error", (e: NodeJS.ErrnoException) => { clearTimeout(t); res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT" && e.code !== "ENOTSOCK"); });
-});
 
 /**
  * Remove control sockets that no door listens on any more (a door killed with kill -9, or before this
@@ -126,36 +116,24 @@ export async function startControl(d: ControlDeps, at = controlSocket()): Promis
     else try { unlinkSync(path); } catch { /* another door starting swept it */ }
   }
   const server: Server = createServer(sock => {
-    let buf = "";
-    // Decoded as a stream: a character split across two chunks arrives whole (a note's text, for edit.text).
-    sock.setEncoding("utf8");
-    sock.on("data", (chunk: string) => {
-      // Only the new chunk is searched for a line's end: a long request costs its length once, not per chunk.
-      if (!chunk.includes("\n")) {
-        buf += chunk;
-        if (buf.length > LINE_LIMIT) {
-          // Said, then closed once said; nothing more it sends is read.
-          sock.removeAllListeners("data"); buf = "";
-          sock.end(JSON.stringify({ ok: false, error: `request line too long (over ${LINE_LIMIT} characters)` }) + "\n", () => sock.destroy());
-        }
+    const reply = (r: unknown) => sock.write(jsonLine(r));
+    const lines = new JsonLines(req => {
+      // The live feed: this connection stays open, and every change to what the person sees comes down it as
+      // one JSON line (`{"event":{…}}`) until the subscriber hangs up.
+      if (req?.cmd === "subscribe") {
+        const types = Array.isArray(req.types) ? new Set<string>(req.types.map(String)) : null;
+        let off = () => {};
+        off = d.app.subscribe(feedWriter(sock, types, () => off()));
+        sock.on("close", off); sock.on("error", off);
         return;
       }
-      buf += chunk;
-      for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
-        const line = buf.slice(0, i); buf = buf.slice(i + 1);
-        let req: any;
-        try { req = JSON.parse(line); } catch { sock.write(JSON.stringify({ ok: false, error: "bad json" }) + "\n"); continue; }
-        // The live feed: this connection stays open, and every change to what the person sees comes down it as
-        // one JSON line (`{"event":{…}}`) until the subscriber hangs up.
-        if (req.cmd === "subscribe") {
-          const types = Array.isArray(req.types) ? new Set<string>(req.types.map(String)) : null;
-          let off = () => {};
-          off = d.app.subscribe(feedWriter(sock, types, () => off()));
-          sock.on("close", off); sock.on("error", off);
-          continue;
-        }
-        handle(req, d).then(result => sock.write(JSON.stringify({ ok: true, result }) + "\n"), e => sock.write(JSON.stringify({ ok: false, error: String(e.message ?? e) }) + "\n"));
-      }
+      handle(req, d).then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String(e.message ?? e) }));
+    }, () => reply({ ok: false, error: "bad json" }));
+    sock.on("data", (chunk: Buffer) => {
+      if (lines.feed(chunk, LINE_LIMIT)) return;
+      // Said, then closed once said; nothing more it sends is read.
+      sock.removeAllListeners("data");
+      sock.end(jsonLine({ ok: false, error: `request line too long (over ${LINE_LIMIT} characters)` }), () => sock.destroy());
     });
     sock.on("error", () => {});
   });
@@ -178,12 +156,9 @@ export async function controlClient(args: string[]): Promise<number> {
   if (cmd === "subscribe") {
     const path = controlSocket();
     return new Promise(res => {
-      const c = connect(path, () => c.write(JSON.stringify({ cmd, ...(arg ? { types: arg.split(",") } : {}) }) + "\n"));
-      let buf = "";
-      c.on("data", chunk => {
-        buf += chunk.toString();
-        for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) { const l = buf.slice(0, i); buf = buf.slice(i + 1); try { console.log(JSON.stringify(JSON.parse(l).event)); } catch { console.log(l); } }
-      });
+      const c = connect(path, () => c.write(jsonLine({ cmd, ...(arg ? { types: arg.split(",") } : {}) })));
+      const lines = new JsonLines(r => console.log(JSON.stringify(r?.event)), l => console.log(l));
+      c.on("data", chunk => lines.feed(chunk));
       c.on("close", () => res(0));
       c.on("error", e => { console.error(`no door running at ${path} (${e.message})`); res(1); });
     });
@@ -200,36 +175,26 @@ export async function controlClient(args: string[]): Promise<number> {
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).
   if (req.cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
   const path = controlSocket();
-  return new Promise(res => {
-    const c = connect(path, () => c.write(JSON.stringify(req) + "\n"));
-    let buf = "";
-    c.on("data", chunk => {
-      buf += chunk.toString();
-      const i = buf.indexOf("\n");
-      if (i < 0) return;
-      const r = JSON.parse(buf.slice(0, i));
-      c.end();
-      if (!r.ok) { console.error(r.error); return res(1); }
-      if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
-      else if (cmd === "actions") {
-        const a = r.result;
-        console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);
-        for (const x of a.actions) {
-          const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
-          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
-        }
-      }
-      else if (cmd === "snap" && arg) {
-        const out = resolve(arg);
-        try { writeFileSync(out, Buffer.from(r.result.png, "base64")); }
-        catch (e) { console.error(`can't write ${out}: ${(e as Error).message}`); return res(1); }
-        console.log(JSON.stringify({ path: out, cols: r.result.cols, rows: r.result.rows }));
-      }
-      else console.log(JSON.stringify(r.result));
-      res(0);
-    });
-    c.on("error", e => { console.error(`no door running at ${path} (${e.message})`); res(1); });
-  });
+  const r = await ask(path, req);
+  if (!r) { console.error(`no door answered at ${path}`); return 1; }
+  if (!r.ok) { console.error(r.error); return 1; }
+  if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
+  else if (cmd === "actions") {
+    const a = r.result;
+    console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);
+    for (const x of a.actions) {
+      const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
+      console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
+    }
+  }
+  else if (cmd === "snap" && arg) {
+    const out = resolve(arg);
+    try { writeFileSync(out, Buffer.from(r.result.png, "base64")); }
+    catch (e) { console.error(`can't write ${out}: ${(e as Error).message}`); return 1; }
+    console.log(JSON.stringify({ path: out, cols: r.result.cols, rows: r.result.rows }));
+  }
+  else console.log(JSON.stringify(r.result));
+  return 0;
 }
 
 /** One connected client as `ep0ch clients` lists it: any role the service reports, known or not. */

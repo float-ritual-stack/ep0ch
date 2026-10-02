@@ -12,7 +12,7 @@ import { subject } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import { USER, type Actor, type OutlineEvent } from "../socket";
+import type { Actor, OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -560,7 +560,6 @@ export class ActionsPane implements Pane {
     this.run?.(a.name, { kind: "user" }).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`));
   }
   key(k: Key, desk: DeskApi): boolean {
-    const c = ch(k);
     if (isUp(k)) { this.step(-1); desk.redraw(); return true; }
     if (isDown(k)) { this.step(1); desk.redraw(); return true; }
     if (k.kind === "pgdn") { for (let i = 0; i < 10; i++) this.step(1); desk.redraw(); return true; }

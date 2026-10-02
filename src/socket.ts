@@ -12,6 +12,7 @@ import type { ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
+import { jsonLine, JsonLines } from "./jsonl";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
 /** The protocol the door speaks, and the oldest service it reads. */
@@ -72,13 +73,13 @@ export function hostRequest<T = any>(path: string, action: string, params: Recor
   return new Promise<T>((resolve, reject) => {
     const s = connect(path);
     const timer = setTimeout(() => { s.destroy(); reject(new Error(`${action} timed out`)); }, timeoutMs);
-    const lines = new Line(r => {
+    const lines = new JsonLines(r => {
       clearTimeout(timer); s.destroy();
       r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`));
     });
     s.on("data", d => lines.feed(d));
     s.on("error", e => { clearTimeout(timer); reject(e); });
-    s.on("connect", () => s.write(JSON.stringify({ id: "host", action, ...params }) + "\n"));
+    s.on("connect", () => s.write(jsonLine({ id: "host", action, ...params })));
   });
 }
 
@@ -366,18 +367,6 @@ const annotationAuthor = (actor: Actor = USER) =>
     ? { author: "agent", source: "agent", provenance: { actorId: recordedActorId(actor) } }
     : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
 
-class Line {
-  private buf = "";
-  constructor(private readonly onLine: (v: any) => void) {}
-  feed(d: Buffer | string) {
-    this.buf += typeof d === "string" ? d : d.toString("utf8");
-    for (let i = this.buf.indexOf("\n"); i >= 0; i = this.buf.indexOf("\n")) {
-      const line = this.buf.slice(0, i); this.buf = this.buf.slice(i + 1);
-      if (line.trim()) { try { this.onLine(JSON.parse(line)); } catch { /* ignore garbage */ } }
-    }
-  }
-}
-
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
   private waiting = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: Timer }>();
@@ -398,7 +387,7 @@ export class SocketBoard implements Board {
   private conn(): Socket {
     if (this.sock && !this.sock.destroyed) return this.sock;
     const s = connect(this.path);
-    const lines = new Line(r => {
+    const lines = new JsonLines(r => {
       const w = this.waiting.get(r.id);
       if (!w) return;
       this.waiting.delete(r.id); clearTimeout(w.timer);
@@ -419,7 +408,7 @@ export class SocketBoard implements Board {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, this.timeoutMs);
       this.waiting.set(id, { resolve, reject, timer });
-      this.conn().write(JSON.stringify({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }) + "\n");
+      this.conn().write(jsonLine({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }));
     });
   }
 
@@ -895,7 +884,7 @@ export class SocketBoard implements Board {
     let subscribed = false;
     // Live events that arrive while the catch-up is still reading wait for it, so order holds.
     let held: OutlineEvent[] | null = reconnect ? [] : null;
-    const lines = new Line(r => {
+    const lines = new JsonLines(r => {
       if (r.id === "sub") {
         if (!r.ok) return;
         subscribed = true; sub.attempt = 0;
@@ -929,10 +918,10 @@ export class SocketBoard implements Board {
       const wait = Math.min(5000, this.reconnectMs * 2 ** sub.attempt++);
       sub.retry = setTimeout(() => this.openEvents(true), wait);
     });
-    s.on("connect", () => s.write(JSON.stringify({
+    s.on("connect", () => s.write(jsonLine({
       id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId },
       ...(this.outline ? { outline: this.outline } : {}),
-    }) + "\n"));
+    })));
     this.events = s;
   }
 

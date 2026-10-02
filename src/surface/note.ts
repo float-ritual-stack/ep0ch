@@ -3019,7 +3019,6 @@ export class NoteSurface {
 
   /** What the surface is doing, for `peek`. */
   describe() {
-    const d = this.draft;
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
       editing: (this.modes.get("draft") as DraftMode | null)?.describe(),

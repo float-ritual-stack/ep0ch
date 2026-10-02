@@ -8,7 +8,7 @@
 // are the desk's. `,` and `.` are the spec's keys for the kind's actions (BRIEF_ACTIONS); a note opened from it goes
 // to a reader beside (the kind's open rule, `beside`), unless it's another brief, which it steps to.
 import { subject, type Msg } from "../board";
-import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
+import { USER, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";

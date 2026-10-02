@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { listening } from "../control";
+import { listening } from "../jsonl";
 import { connect } from "node:net";
 import { privateDir, stateDir } from "../state";
 import { encode, Frames, type DaemonMsg, type SessionInfo } from "./protocol";

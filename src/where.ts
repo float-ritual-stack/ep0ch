@@ -5,8 +5,8 @@
 //
 // It answers with no door ("not in a door"), with a door gone, and with a door older than the fields it reads
 // (`pid`, `nest`, tile ids): it says what it couldn't check instead of guessing.
-import { connect } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
+import { ask } from "./jsonl";
 import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
@@ -48,22 +48,7 @@ export interface WhereDeps {
 }
 
 /** `peek` on a control socket; null when nothing answers in `timeoutMs`. Reads only. */
-export function peekDoor(path: string, timeoutMs = 2000): Promise<any | null> {
-  return new Promise(res => {
-    let done = false, buf = "";
-    const finish = (v: any | null) => { if (done) return; done = true; clearTimeout(timer); try { c.destroy(); } catch { /* gone */ } res(v); };
-    const c = connect(path, () => c.write(JSON.stringify({ cmd: "peek" }) + "\n"));
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    c.on("data", d => {
-      buf += d.toString();
-      const i = buf.indexOf("\n");
-      if (i < 0) return;
-      try { const r = JSON.parse(buf.slice(0, i)); finish(r?.ok ? r.result : null); } catch { finish(null); }
-    });
-    c.on("error", () => finish(null));
-    c.on("close", () => finish(null));
-  });
-}
+export const peekDoor = (path: string, timeoutMs = 2000): Promise<any | null> => ask(path, { cmd: "peek" }, timeoutMs).then(r => (r?.ok ? r.result : null));
 
 /** Each process's parent: read from /proc on Linux; where there's no /proc (macOS, the BSDs), `ps` lists them all once. */
 function parents(): (pid: number) => number | null {

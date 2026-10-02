@@ -116,29 +116,25 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
   return spec;
 }
 
-/** The names of a saved tree's tiles, and the keys of its containers. */
-function leafNames(n: any): string[] {
+/**
+ * Every node of a saved or spec'd tree, outermost first: the one walk over a layout as data (either form; anything in
+ * it that isn't a node is skipped).
+ */
+export function savedNodes(n: any): any[] {
   if (!n || typeof n !== "object") return [];
-  if (n.t === "leaf") return typeof n.name === "string" ? [n.name] : [];
-  return [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(leafNames);
+  return [n, ...[...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(savedNodes)];
 }
-function containerKeys(n: any): string[] {
-  if (!n || typeof n !== "object" || n.t === "leaf") return [];
-  return [...(typeof n.key === "string" ? [n.key] : []), ...[...(Array.isArray(n.kids) ? n.kids : []), n.kid, n.a, n.b].flatMap(containerKeys)];
-}
+const leafField = (n: unknown, f: "name" | "kind"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
+/** The names of a saved tree's tiles, the kinds of them, and the keys of its containers. */
+export const leafNames = (n: unknown) => leafField(n, "name");
+const leafKinds = (n: unknown) => leafField(n, "kind");
+export const containerKeys = (n: unknown): string[] => savedNodes(n).flatMap(x => (x.t !== "leaf" && typeof x.key === "string" ? [x.key] : []));
 /** A hint per focused kind, as data: its strings only. */
 const hintMap = (x: unknown): { hint?: Record<string, string> } => {
   if (!x || typeof x !== "object" || Array.isArray(x)) return {};
   const out = Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, v]) => typeof v === "string") as [string, string][]);
   return Object.keys(out).length ? { hint: out } : {};
 };
-
-/** The kinds of a saved tree's tiles. */
-function leafKinds(n: any): string[] {
-  if (!n || typeof n !== "object") return [];
-  if (n.t === "leaf") return typeof n.kind === "string" ? [n.kind] : [];
-  return [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(leafKinds);
-}
 
 // ── the screens the door knows by name ──────────────────────────────────────────
 
