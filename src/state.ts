@@ -64,7 +64,7 @@ export function claimState(): number[] {
   if (!dir) return [];
   // Claimed before looking: two doors starting at once each see the other (look first, and both may see none).
   const mine = join(dir, String(process.pid));
-  try { writeFileSync(mine, "", { mode: 0o600 }); process.on("exit", () => rmSync(mine, { force: true })); } catch { /* not fatal */ }
+  try { writeFileSync(mine, "", { mode: 0o600 }); process.on("exit", () => unclaimState()); } catch { /* not fatal */ }
   const others: number[] = [];
   for (const n of readdirSync(dir)) {
     const pid = Number(n);
@@ -78,3 +78,6 @@ export function claimState(): number[] {
 /** When the person last called (logged on): "new since your last call" reads it. */
 export const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json")?.at) || 0;
 export const writeLastCall = (at: number) => writeState("lastcall.json", { at });
+
+/** This door stops using the state dir (it exits, or a session's daemon hands over to the next): its claim goes. */
+export function unclaimState(): void { rmSync(join(stateDir(), "doors", String(process.pid)), { force: true }); }

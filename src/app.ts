@@ -171,6 +171,8 @@ export interface Screen {
   editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
+  /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
+  reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
   /** No agent drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDock?: boolean;
   /**
@@ -269,13 +271,16 @@ export class App implements Ctx {
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
   background: Screen[] = [];
-  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); }
+  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
+  /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
+  onStack: (() => void) | null = null;
   pop() {
     const last = this.stack.length === 1;
     if (!this.leaving(last ? [...this.stack, ...this.background] : [this.stack.at(-1)], last)) return;
     this.leave();
     if (!this.stack.length) return this.quit();
     this.redraw();
+    this.onStack?.();
   }
   replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.leave(); this.push(s); }
   /** The top screen goes: it ends what it started, or keeps running in the background (its programs). */

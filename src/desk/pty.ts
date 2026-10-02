@@ -11,7 +11,6 @@
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
 import { scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
-import type { Subprocess } from "bun";
 import { unlink } from "node:fs/promises";
 import { basename } from "node:path";
 import { C, fg } from "../style";
@@ -22,6 +21,7 @@ import { controlPath } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
+import { ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -64,9 +64,17 @@ export function cttyPrefix(which: (b: string) => string | null = Bun.which, plat
 }
 const CTTY = cttyPrefix();
 let saidNoCtty = false;
-/** Every live pty, so the door's exit takes them down with it. */
+/**
+ * Every live pty. The door's exit takes down those it runs itself; a session's terminal host keeps its own running
+ * for the next daemon (src/session/pty-host.ts), until the session ends.
+ */
 const LIVE = new Set<PtyPane>();
-process.on("exit", () => { for (const p of LIVE) p.kill(); });
+process.on("exit", () => { for (const p of LIVE) if (p.ownProcess) p.kill(); });
+/**
+ * A session's daemon is handing over (src/session/daemon.ts): a program no layout brings back (a ctrl+e editor on a
+ * temp file, whose text was copied out) ends, rather than run on in the terminal host with no tile to adopt it.
+ */
+export function endUnkept(): void { for (const p of [...LIVE]) if (!p.keptAs) p.kill(); }
 /** Every program running in a terminal tile (and the agent drawer) right now: what ending a session would stop. */
 export const livePrograms = (): readonly PtyPane[] => [...LIVE].filter(p => p.running);
 
@@ -120,8 +128,9 @@ export class PtyPane implements Pane {
   /** `pty`, or a kind of its own for a program the service names (an extension's tile, ProgramTile). */
   readonly kind: string = "pty";
   private term: XTermLike | null = null;
-  private pty: InstanceType<typeof Bun.Terminal> | null = null;
-  private proc: Subprocess | null = null;
+  private proc: PtyProc | null = null;
+  /** Its program runs in this process (it ends with the door); false under a session's terminal host. */
+  ownProcess = true;
   private cols = 0;
   private rows = 0;
   /** The program's exit code once it's gone (null while it runs, or before it starts). */
@@ -133,13 +142,22 @@ export class PtyPane implements Pane {
    * Set by `tile.herdr`, which scripts/door-agent-herdr.ts calls over the control socket as it attaches (PIE-491:
    * a typed field, not what the program puts in its title); cleared when the program starts again or exits.
    */
-  herdr: { pane: string; name?: string } | null = null;
+  get herdr(): { pane: string; name?: string } | null { return this.herdrPane; }
+  set herdr(h: { pane: string; name?: string } | null) { this.herdrPane = h; this.remember(); }
+  private herdrPane: { pane: string; name?: string } | null = null;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
   /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */
   tileName: string | null = null;
   /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
   place: string | null = null;
+  /** The state file its screen's layout is saved in (desk.json, the dock's): with its id, what it's known by across daemons. */
+  home: string | null = null;
+  /**
+   * Which tile it is across session daemons (`<home>:<tile id>`): a new daemon adopts the program kept under it. Null
+   * for a tile no layout restores (a ctrl+e editor on a temp file, a showcase's exhibit).
+   */
+  get keptAs(): string | null { return this.run.temp || !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
   /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
@@ -183,9 +201,13 @@ export class PtyPane implements Pane {
 
   init(desk: DeskApi) { this.desk = desk; }
 
-  /** Start the program at this size (the first time it's drawn: the tile's size is known then). */
+  /**
+   * Start the program at this size (the first time it's drawn: the tile's size is known then). In a session whose
+   * daemon was handed over (or restarted), the program its terminal host kept for this tile is adopted instead: what it
+   * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
+   */
   private start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdr = null;
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdrPane = null;
     this.term?.dispose();
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
@@ -193,32 +215,49 @@ export class PtyPane implements Pane {
     term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
-    term.onData(d => { if (this.running) this.pty?.write(d); });
-    this.pty = new Bun.Terminal({
-      cols, rows, name: "xterm-256color",
-      data: (_t, d) => {
-        this.lastOutput = Date.now();
-        const s = Buffer.from(d).toString("latin1");
-        // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
-        // with other modes (ESC [ ? 1000 ; 1006 h) and maybe split across reads (the tail is kept).
-        const seen = this.modeTail + s;
-        this.modeTail = seen.slice(-32);
-        for (const m of seen.matchAll(/\x1b\[\?([\d;]+)([hl])/g)) if (m[1]!.split(";").includes("1006")) this.sgr = m[2] === "h";
-        // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
-        // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
-        for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.pty?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
-        // The Kitty keyboard protocol: xterm ignores it, so the door follows the program's push and pop and
-        // answers its query here (before xterm's DA reply, as a terminal with the protocol does).
-        const kbdReply = this.kbd.observe(s);
-        if (kbdReply) this.pty?.write(kbdReply);
-        term.write(d, () => this.soon());
-      },
-    });
+    term.onData(d => { if (this.running) this.proc?.write(d); });
+    const data = (d: Uint8Array) => {
+      this.lastOutput = Date.now();
+      const s = Buffer.from(d).toString("latin1");
+      // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
+      // with other modes (ESC [ ? 1000 ; 1006 h) and maybe split across reads (the tail is kept).
+      const seen = this.modeTail + s;
+      this.modeTail = seen.slice(-32);
+      for (const m of seen.matchAll(/\x1b\[\?([\d;]+)([hl])/g)) if (m[1]!.split(";").includes("1006")) this.sgr = m[2] === "h";
+      // The terminal's colours (OSC 10 foreground, 11 background): the headless emulator doesn't answer, and
+      // nvim asks at startup and complains when no answer comes. The door's ground is black, its text grey.
+      for (const m of s.matchAll(/\x1b\](1[01]);\?(\x07|\x1b\\)/g)) this.proc?.write(`\x1b]${m[1]};rgb:${m[1] === "11" ? "0000/0000/0000" : "cccc/cccc/cccc"}${m[2]}`);
+      // The Kitty keyboard protocol: xterm ignores it, so the door follows the program's push and pop and
+      // answers its query here (before xterm's DA reply, as a terminal with the protocol does).
+      const kbdReply = this.kbd.observe(s);
+      if (kbdReply) this.proc?.write(kbdReply);
+      term.write(d, () => this.soon());
+    };
+    const backend = ptyBackend();
+    this.ownProcess = backend.kind === "local";
+    const keep = this.continueNext;
+    this.continueNext = false;
+    // The program a session kept for this tile, when there is one (a run again, `keep`, starts a new one).
+    const key = this.keptAs, kept = key && !keep ? backend.adopt(key, this.run.cmd, data) : null;
+    if (kept) {
+      this.proc = kept.proc;
+      // What it wrote, at the size it wrote it; then the tile's size, and a redraw asked for (a resize, twice when the
+      // size is the same: a full-screen program redraws on SIGWINCH).
+      term.resize(kept.cols, kept.rows);
+      term.write(kept.replay, () => this.soon());
+      term.resize(cols, rows);
+      if (kept.cols === cols && kept.rows === rows && cols > 2) { try { kept.proc.resize(cols, rows - 1); } catch { /* exiting */ } }
+      try { kept.proc.resize(cols, rows); } catch { /* exiting */ }
+      this.socket = kept.meta.socket ?? null;
+      this.herdrPane = kept.meta.herdr ?? null;
+      if (this.socket) this.attach(this.socket);
+      if (kept.exited !== null) { this.ended(kept.proc, kept.exited, this.socket); return; }
+      this.watch(this.proc);
+      return;
+    }
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
     const env = tileEnv(process.env, this.run.label || this.tileName || basename(this.run.cmd[0] ?? "") || "tile", controlPath, this.tileId, this.place);
-    const keep = this.continueNext;
-    this.continueNext = false;
     if (keep) env.EP0CH_AGENT_CONTINUE = "1";
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
@@ -228,7 +267,7 @@ export class PtyPane implements Pane {
       // buffer, and an agent edits other lines through it without moving the person's cursor.
       const cmd = keep ? withContinue(this.run.cmd) : [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
-      this.proc = Bun.spawn(CTTY ? [...CTTY, ...cmd] : cmd, { terminal: this.pty, cwd: this.run.cwd, env });
+      this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...cmd] : cmd, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
       if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);
     } catch (e) {
@@ -237,22 +276,33 @@ export class PtyPane implements Pane {
       term.write(`\r\ncan't start ${this.run.cmd.join(" ")}: ${(e as Error).message}\r\n`);
       return;
     }
-    LIVE.add(this);
-    const proc = this.proc;
-    const socket = this.socket;
-    proc.exited.then(code => {
-      // nvim can leave its socket behind when it's killed: the one the door made for it goes with it.
-      if (socket) void unlink(socket).catch(() => {});
-      if (this.proc !== proc) return;
-      this.exited = code ?? 0;
-      this.herdr = null;
-      LIVE.delete(this);
-      try { this.pty?.close(); } catch { /* already closed */ }
-      this.soon();
-      const f = this.onExit; this.onExit = null;
-      f?.(this.exited);
-    });
+    this.watch(this.proc);
   }
+
+  /** It runs: kept with the live ones until it exits. */
+  private watch(proc: PtyProc) {
+    LIVE.add(this);
+    const socket = this.socket;
+    void proc.exited.then(code => this.ended(proc, code, socket));
+  }
+
+  /** Its program ended: the tile says so, and an editor opened for a draft reads its file back. */
+  private ended(proc: PtyProc, code: number, socket: string | null) {
+    // nvim can leave its socket behind when it's killed: the one the door made for it goes with it.
+    if (socket) void unlink(socket).catch(() => {});
+    if (this.proc !== proc) return;
+    this.exited = code;
+    this.herdrPane = null;
+    LIVE.delete(this);
+    try { proc.close(); } catch { /* already closed */ }
+    this.soon();
+    const f = this.onExit; this.onExit = null;
+    f?.(this.exited);
+  }
+
+  /** What the terminal host keeps with the program for the next daemon: its command, nvim's socket, a Herdr attach. */
+  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane }; }
+  private remember() { const k = this.keptAs; if (k && this.running) ptyBackend().meta(k, this.meta()); }
 
   /** Connect to nvim's socket and ask it to report its view. A failure leaves the tile a plain terminal. */
   private attach(path: string) {
@@ -290,11 +340,11 @@ export class PtyPane implements Pane {
     this.socket = null;
     this.nvim?.close(); this.nvim = null;
     try { this.proc?.kill(); } catch { /* gone */ }
-    try { this.pty?.close(); } catch { /* gone */ }
+    try { this.proc?.close(); } catch { /* gone */ }
   }
 
   /** Keys or text straight to the program (an agent's `tile.type`). */
-  input(s: string) { if (this.running) { this.back = 0; this.pty?.write(s); } }
+  input(s: string) { if (this.running) { this.back = 0; this.proc?.write(s); } }
   /**
    * Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for
    * them; a Kitty keyboard report reaches it as it asked (the protocol, or legacy bytes: Shift+Enter as ESC CR).
@@ -309,7 +359,7 @@ export class PtyPane implements Pane {
     else if (w !== this.cols || h !== this.rows) {
       this.cols = w; this.rows = h;
       this.term.resize(w, h);
-      if (this.running) try { this.pty?.resize(w, h); } catch { /* exiting */ }
+      if (this.running) try { this.proc?.resize(w, h); } catch { /* exiting */ }
     }
     const t = this.term!, b = t.buffer.active;
     const top = Math.max(0, b.baseY - this.back);
@@ -358,7 +408,7 @@ export class PtyPane implements Pane {
       if (k.action === "drag" && mode !== "drag" && mode !== "any") return true;
       if (k.action === "up" && mode === "x10") return true;
       const s = mouseBytes(k, x, y, this.sgr);
-      if (s) this.pty?.write(s);
+      if (s) this.proc?.write(s);
       return true;
     }
     if (k.action === "wheel-up" || k.action === "wheel-down") {

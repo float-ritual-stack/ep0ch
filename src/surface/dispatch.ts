@@ -15,7 +15,7 @@
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts } from "../whereabouts";
-import { ActionRefused, agentLabel, asActor, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec } from "./actions";
+import { ActionRefused, agentLabel, asActor, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type Replay, type Touches } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 export interface TileRef {
@@ -129,7 +129,19 @@ export interface DispatchHost {
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
   draftOf?(t: TileRef): DraftAt | null;
+  /** The layout's revision now, when the screen has one: what `expected=` is checked against. */
+  rev?(): number;
 }
+
+/**
+ * An action that ran, as a session's journal records it (src/session/restore.ts): the request as this dispatcher took
+ * it, who ran it, what it declares (`replay`, `touches`), the screen, and the layout revision it ran on (a replay names
+ * it as `expected=`, so one already in the saved layout is refused by the revision check, never applied twice).
+ */
+export interface Ran { action: string; args: Record<string, unknown>; tile?: string; actor: Actor; replay: Replay; touches: Touches; screen: string; rev?: number }
+const ranHooks = new Set<(r: Ran) => void>();
+/** Hear every action that runs to its end, on every dispatcher; returns how to stop. */
+export function onRan(f: (r: Ran) => void): () => void { ranHooks.add(f); return () => { ranHooks.delete(f); }; }
 
 /** What the draft rule is asked about: the block an action writes, and the draft session where it runs (if any). */
 export interface DraftAt { board?: object | null; blockId?: string | null; session?: DraftSession | null }
@@ -348,12 +360,17 @@ export class Dispatcher {
     const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
     if (no) throw new ActionRefused(no);
     const ctx = this.host.ctx();
+    const rev = ranHooks.size ? this.host.rev?.() : undefined;
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const ran = reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
     // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
     const done = (out: unknown) => {
+      if (ranHooks.size) {
+        const r: Ran = { action: req.action, args: { ...(req.args ?? {}) }, ...(at.name !== undefined ? { tile: at.name } : {}), actor, replay: def.replay, touches, screen: this.host.title, ...(rev !== undefined ? { rev } : {}) };
+        for (const h of ranHooks) { try { h(r); } catch { /* a journal's own problem */ } }
+      }
       if (def.says && (actor.kind === "agent" || def.confirms)) {
         const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
         if (said) ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);

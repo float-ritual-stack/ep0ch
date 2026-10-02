@@ -326,7 +326,7 @@ A door checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the installed Outliner plugin's, found through Herdr), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
-| `ep0ch session list`, `attach [--watch]`, `end [--yes]` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it |
+| `ep0ch session list`, `attach [--watch]`, `end [--yes]`, `upgrade [--clients]`, `restart` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it, hand it to a new daemon on this checkout's code (its programs keep running) |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
 `bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
@@ -356,6 +356,7 @@ A door checkout from before `install` gets it by hand, once:
     ep0ch session list         # who's attached, what runs in its tiles
     ep0ch session attach --watch
     ep0ch session end          # asks while programs run in its tiles or a draft is unsaved; --yes doesn't
+    ep0ch session upgrade      # hand it to a new daemon on this checkout's code: programs keep running
 
 A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs. One runs per
 user and state dir (`EP0CH_STATE`), started on demand in the background, and holds everything the door holds:
@@ -380,13 +381,32 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
   images. `ep0ch session attach --watch` shows the session read-only (`q` stops watching).
 - **Agents** reach the session through its control socket as before (`peek`, `act`, `subscribe`); `peek` says which
   terminals are attached (`session.clients`). An agent's act never takes the person's keys, whichever terminal they're on.
+- **Upgrades keep your programs.** `ep0ch session upgrade` hands the session to a new daemon on the code in the
+  checkout. The programs in its terminal tiles and the agent drawer keep running: they never belonged to the daemon,
+  but to the session's **terminal host**, and the new daemon adopts each by its tile, its output and scrollback
+  replayed. The screens come back, and so do the edits that were open (`e` or `⏎` in one carries on). Every attached
+  terminal attaches again by itself, in the same terminal and the same ssh login. On a session already on this code,
+  or with `--clients`, only the terminals start again; `ep0ch session restart` hands over whatever code it runs.
+- **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
+  the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
+  then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.
 - **In this terminal instead:** `--no-daemon` or `EP0CH_DAEMON=0` opens the door here, as before: quitting it ends it.
 
 How it's built: the session sends frames, not state. It renders once, as the door always has, and paints each
 client the bytes its terminal takes (rows diffed per client, Kitty images uploaded per client), so a client is a
-few hundred lines that work over ssh as is. The session's files are in the state dir: `session.sock` (mode 0600, the
-dir 0700), `session.json` (who it is), `session.lock` (held while it runs), `session.log`. A test door on its own `EP0CH_STATE` has its own session and
-never reaches yours. See `src/session/`.
+few hundred lines that work over ssh as is. A terminal tile's pty can't be handed from one Bun process to another
+(`Bun.Terminal` doesn't expose its file descriptor, and Bun's sockets can't pass one), so the ptys live in a small
+process of their own from the start, the terminal host (`pty.sock`, `src/session/pty-host.ts`), which keeps the last
+megabyte each program wrote; a daemon of another host protocol ends its programs and starts them again. What else a
+new daemon needs is a checkpoint and a journal (`src/session/restore.ts`): the screens open (written as they change,
+and with the open edits at a handoff), then every action since with its declarations. A restore runs the
+checkpoint, then the journal's `replay: "safe"` actions as whoever ran them (a layout action names the revision it
+ran on, so the saved layout's revision check refuses one it already has); `replay: "ask"` ones, which write, are
+never run again by themselves, and the restore says which they were. The session's files are in the state dir:
+`session.sock` (mode 0600, the dir 0700), `session.json` (who it is), `session.lock` (held while it runs),
+`session.log`, `pty.sock` and `pty-host.log` (the terminal host), `session-state.json` and `session-journal.jsonl`
+(the checkpoint and journal; gone once the session ends). A test door on its own `EP0CH_STATE` has its own session
+and never reaches yours. See `src/session/`.
 
 ## The desk
 

@@ -14,18 +14,17 @@ import { join, resolve } from "node:path";
 import type { App } from "../app";
 import { openDoor, connectTarget, guardDoor, type Door } from "../door";
 import { listening } from "../control";
-import { livePrograms } from "../desk/pty";
+import { endUnkept, livePrograms } from "../desk/pty";
+import { usePtyBackend } from "../desk/pty-backend";
+import { ensurePtyHost, type HostPtys } from "./pty-host";
+import { Journal, readCheckpoint, readJournal, restore, restoredSaying, type Restored } from "./restore";
 import { nestLayers } from "../nest";
 import { Offline, USER } from "../socket";
-import { alive, privateDir, readLastCall, stateDir, writeLastCall } from "../state";
+import { alive, privateDir, readLastCall, stateDir, unclaimState, writeLastCall } from "../state";
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
-
-/** The session's socket, file (who it is), lock and log: all in the state dir. */
-export const sessionSocket = () => join(stateDir(), "session.sock");
-export const sessionFile = () => join(stateDir(), "session.json");
-const sessionLock = () => join(stateDir(), "session.lock");
-export const sessionLog = () => join(stateDir(), "session.log");
+import { sessionFile, sessionLock, sessionSocket, startSession } from "./start";
+export { sessionFile, sessionLog, sessionSocket } from "./start";
 
 /** The checkout this code runs from, and its commit (an upgrade compares them). */
 export function codeVersion(dir = resolve(import.meta.dir, "../..")): { dir: string; commit: string | null } {
@@ -82,8 +81,20 @@ export async function serve(args: string[]): Promise<never> {
   if (!(await takeLock())) { ready({ ok: false, error: `${LOCKED} on ${stateDir()}` }); process.exit(1); }
   const opened = await connectTarget(args);
   if ("error" in opened) { ready({ ok: false, error: opened.error }); console.error(`ep0ch session: ${opened.error}`); process.exit(1); }
+  // How this daemon came to be: handed a session by the one before it (an upgrade), or after one that stopped.
+  const handedOver = process.env.EP0CH_SESSION_RESTORE === "upgrade";
+  delete process.env.EP0CH_SESSION_RESTORE;
+  const checkpoint = readCheckpoint();
+  // The terminal tiles' programs live in the session's terminal host, which outlives this daemon: the programs a
+  // daemon before this one left there are adopted by their tiles as they're drawn.
+  let host: HostPtys;
+  let endedOld = 0;
+  try { ({ host, ended: endedOld } = await ensurePtyHost()); }
+  catch (e) { ready({ ok: false, error: `no terminal host: ${(e as Error).message}` }); process.exit(1); }
+  usePtyBackend(host);
+  const keptPrograms = host.unadopted().length;
 
-  const term = new SessionTerm();
+  const term = new SessionTerm(checkpoint?.size);
   serveAs(term);
   const started = Date.now();
   const code = codeVersion();
@@ -101,6 +112,8 @@ export async function serve(args: string[]): Promise<never> {
     screen: door?.app.screens().at(-1)?.title ?? null,
     clients: term.list(),
     terminals: livePrograms().map(p => ({ tile: p.tileName ?? p.run.label ?? p.title(), cmd: p.run.cmd.join(" "), ...(p.pid ? { pid: p.pid } : {}) })),
+    kept: host.unadopted().map(p => ({ key: p.key, cmd: (p.meta.cmd ?? p.argv).join(" "), ...(p.pid ? { pid: p.pid } : {}) })),
+    host: host.hostPid,
   });
   const writeInfo = () => { if (over) return; try { writeFileSync(sessionFile(), JSON.stringify(info(), null, 1), { mode: 0o600 }); } catch { /* not fatal */ } };
   term.onClients = writeInfo;
@@ -113,6 +126,9 @@ export async function serve(args: string[]): Promise<never> {
   /** The session is over (App.quit): every client told why, then everything closed. */
   const finish = (app: App) => {
     over = true;
+    // Ended for good: nothing to restore next time, and the programs end with it.
+    journal?.clear();
+    host.endAll();
     const ending = guard.ending();
     writeLastCall(loggedOnAt);
     const kept = app.keptOnExit.length ? `\nunsaved text was copied to:\n  ${app.keptOnExit.join("\n  ")}` : "";
@@ -132,10 +148,62 @@ export async function serve(args: string[]): Promise<never> {
     Promise.race([Promise.all(left.map(s => new Promise(r => s.once("close", r)))), Bun.sleep(1000)]).finally(() => process.exit(ending?.code ?? 0));
   };
 
-  door = await openDoor({ term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish });
+  let journal: Journal | null = null;
+  let restored: Restored | null = null;
+  door = await openDoor({
+    term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish,
+    // A session that ran before on this state dir (handed over, or its daemon stopped): what was open, opened again.
+    ...(checkpoint ? { start: async (app: App) => {
+      restored = await restore(app, checkpoint, readJournal());
+      console.error(`ep0ch session ${process.pid}: restored ${JSON.stringify({ ...restored, checkpoint: { screens: checkpoint.screens.length, reopen: checkpoint.reopen.length } })}`);
+    } } : {}),
+  });
   const app = door.app;
+  journal = new Journal(app, () => ({ cols: term.info.cols, rows: term.info.rows }));
+  journal.start();
+  host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
+  if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
+  // Said once the screens have been drawn (their tiles adopt their programs as they are).
+  if (restored || keptPrograms) setTimeout(() => {
+    const adopted = keptPrograms - host.unadopted().length;
+    app.flash(restoredSaying(restored ?? { screens: 0, replayed: 0, refused: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
+  }, 400);
   const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline ?? null) === (opened.board.outline ?? null));
   const where = opened.service.outline ? `the outline ${opened.service.outline}` : opened.service.workspace;
+
+  /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */
+  const reload = () => { for (const c of term.all()) c.link.close({ t: "bye", reason: "restart", message: "restarting this terminal on new code · it attaches again" }); };
+
+  /**
+   * Hand the session to a new daemon on the code in the checkout (`ep0ch session upgrade`): the checkpoint written with
+   * the edits open, their text put aside; every terminal told to attach again; the terminal host let go of with every
+   * program in it; the sockets and lock given up; then the successor started, which restores and adopts. This daemon
+   * exits once it serves (or says why it couldn't: the programs still run in the host, and the next `ep0ch` restores).
+   */
+  const handOver = async (asker: Link) => {
+    if (over) return;
+    over = true;
+    journal?.checkpoint(true);
+    journal?.detach();
+    for (const s of [...app.screens(), ...app.background]) { try { s.keepDrafts?.(); } catch { /* the rest still go */ } }
+    // A ctrl+e editor on a temp file has no tile to come back to: its text is copied out, and it ends.
+    for (const s of [...app.screens(), ...app.background]) { try { s.keepEdits?.(); } catch { /* the rest still go */ } }
+    endUnkept();
+    for (const c of term.all()) c.link.close({ t: "bye", reason: "upgrade", message: "the session is being handed over to new code · this terminal attaches again" });
+    host.release();
+    door?.control?.close();
+    server?.close();
+    try { unlinkSync(path); } catch { /* gone */ }
+    rmSync(sessionFile(), { force: true });
+    rmSync(sessionLock(), { force: true });
+    unclaimState();
+    opened.board.close();
+    const next = await startSession(args, { EP0CH_SESSION_RESTORE: "upgrade" });
+    asker.send({ t: "ask", message: next.ok ? "handed over" : `the new daemon didn't start: ${next.error} · the programs still run; \`ep0ch\` starts a session that adopts them` });
+    asker.close();
+    await Bun.sleep(200);
+    process.exit(next.ok ? 0 : 1);
+  };
 
   server = createServer(sock => {
     sockets.add(sock);
@@ -192,6 +260,12 @@ export async function serve(args: string[]): Promise<never> {
           return;
         }
         case "query": link.send({ t: "info", info: info() }); return;
+        case "upgrade": case "reload": {
+          if (client) { link.send({ t: "ask", message: `\`ep0ch session upgrade\` does that, not an attached terminal` }); return; }
+          if (m.t === "reload") { reload(); link.close(); return; }
+          void handOver(link);
+          return;
+        }
         case "end": {
           // Ending is the person's (`ep0ch session end` at their shell), the same action as E on the main menu. A
           // terminal attached here (a watcher above all) ends it from the menu, not over the wire.

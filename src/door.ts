@@ -29,6 +29,11 @@ export interface DoorOpen {
   notice?: string;
   /** The door is ending (App.quit): put the terminal back, close up, exit. */
   done(app: App): void;
+  /**
+   * Open the first screens another way than the flags say (a session's next daemon restores what was open,
+   * src/session/restore.ts); else the logon, or the screen a flag names.
+   */
+  start?(app: App): Promise<void>;
 }
 
 export interface Door { app: App; control: { path: string; close(): void } | null }
@@ -51,7 +56,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   const others = claimState();
   // ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
   const recovered = recoverEdits(alive);
-  for (const s of startScreens(o.args, process.env, then => new Logon(app, then))) app.push(s);
+  if (o.start) await o.start(app);
+  if (!app.screens().length) for (const s of startScreens(o.args, process.env, then => new Logon(app, then))) app.push(s);
   if (refused) app.flash(refused, 20_000);
   else if (others.length) app.flash(`another door (pid ${others.join(", ")}) uses this state dir · marks are shared, the desk layout is whichever saves last`, 20_000);
   else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);

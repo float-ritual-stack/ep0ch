@@ -494,7 +494,8 @@ the person does:
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
 | `layout.load` | same-named tiles keep their programs; others running go in one shut drawer on the right | replaced (refused on a locked screen) |
 | detaching from a session (ctrl+c, the menu's logoff `G`, closing the terminal, a dropped ssh) | keep running in the session, scrollback and all; the next attach shows them | kept, live |
-| ending a session (`E` on the main menu, `ep0ch session end`; an agent's `session.end` is refused) | asked (programs running), then ended with the session | kept |
+| a session handed over (`ep0ch session upgrade`, `restart`) or its daemon dying (`kill -9`, a crash) | keep running in the session's terminal host; the next daemon adopts them, their output replayed, nvim's socket and a Herdr attach remembered | kept; the screens open come back, and at a handoff the edits open |
+| ending a session (`E` on the main menu, `ep0ch session end`; an agent's `session.end` is refused) | asked (programs running), then ended with the session and its terminal host | kept |
 | quitting a door in its own terminal (`--no-daemon`: ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
 | SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception | ended with the door, after drafts, comments and an open `ctrl+e` editor's text are copied to `drafts/`; the terminal is put back and the socket removed | kept; written whole (temp file, rename) |
 | `kill -9` | ended by the pty's hangup; a watcher puts the terminal back; the next door sweeps the socket and keeps the `ctrl+e` file | kept |

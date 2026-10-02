@@ -66,7 +66,10 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   the session; never a second keep-alive. A frame goes to a `Display` (`src/display.ts`): a `Painter` per terminal,
   so never write CP437 or Kitty bytes from a screen. A program the person runs in their own terminal (the drop
   shell, `$EDITOR`) goes through `Ctx.suspend`'s `Handover`, never `stdio: "inherit"` from the door: in a session the
-  door has no terminal.
+  door has no terminal. A terminal tile's program starts through the `PtyBackend` (`src/desk/pty-backend.ts`), never
+  `Bun.Terminal` directly: in a session it runs in the terminal host, so a daemon upgrade adopts it. State that must
+  come back after an upgrade comes back through an action that declares `replay` (the session's journal) or a
+  screen's saved state, never a restore of its own.
 - **Two clients, one outline.** Tree/Detail in Herdr is the sysop console (find any block, edit it); the door
   is the everyday board. Both are maintained. A service capability added for one stays usable by the other.
   Don't call the Herdr UI legacy.
@@ -133,8 +136,8 @@ tmux send-keys -t try j                                       # a key
 tmux send-keys -t try -l $'\e[<0;6;7M'; tmux send-keys -t try -l $'\e[<0;6;7m'   # click col 6, row 7
 tmux send-keys -t try -l $'\e[<65;6;7M'                       # wheel down (64 is up)
 tmux capture-pane -p -t try                                   # or: bun src/main.ts snap out.png
-EP0CH_STATE=$d/s ep0ch session end --yes      # a session (EP0CH_DAEMON=1) outlives its pane: end yours
-tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts (or `session serve`) of yours is left
+EP0CH_STATE=$d/s ep0ch session end --yes      # a session (EP0CH_DAEMON=1) and its terminal host outlive the pane: end yours
+tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts (or `session serve`, `session pty-host`) of yours is left
 ```
 
 - **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or
