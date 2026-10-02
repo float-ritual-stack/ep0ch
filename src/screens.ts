@@ -781,7 +781,7 @@ export class MessageReader implements Screen {
 
   private get msg() { return this.list[this.index]!; }
   /** What the person is in here, for a refusal: "an edit", "a comment", "the property panel". */
-  personIn(): string { const s = this.surface; return s.draft ? "an edit" : s.session ? "a comment" : "the property panel"; }
+  personIn(): string { const w = this.surface.sessionWord() ?? "property panel"; return w === "property panel" ? "the property panel" : `${w === "edit" ? "an" : "a"} ${w}`; }
 
   /** The surface's host: this screen, its header, and where a followed link opens (the next reader on the stack). */
   host(ctx: Ctx): SurfaceHost {

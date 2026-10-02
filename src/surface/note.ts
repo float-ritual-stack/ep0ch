@@ -437,7 +437,14 @@ export class NoteSurface {
    * What holds the surface's keys now: the draft, the comment session or the property panel (null while
    * reading). Hosts compare it by identity to know whether the person is in this one (PIE-411).
    */
-  sessionOf(): object | null { return this.modes.all().find(m => m.name !== "picker")?.of ?? null; }
+  sessionOf(): object | null { return this.sessionMode()?.of ?? null; }
+  /**
+   * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
+   * choice opened over one of them isn't a session: it holds no note.
+   */
+  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel"); }
+  /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
+  sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
   /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
   unsaved() { return this.modes.unsaved(); }
   /** Copy unsaved text to disk (the screen is closing anyway); kept where it was written too, so opening it again brings it back. */
@@ -520,8 +527,7 @@ export class NoteSurface {
   refresh(m: Msg) {
     if (this.msg?.id !== m.id) return;
     // What a mode holds (an edit, a value being typed) is marked "changed elsewhere", never replaced.
-    if (m.revision !== undefined && !m.partial) this.modes.changed(m.revision);
-    else if (m.revision !== undefined && this.draft) this.modes.get("draft")?.changed?.(m.revision);
+    if (m.revision !== undefined) this.modes.changed(m.revision, !!m.partial);
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     if (!m.partial) this.unread = "";
     this.msg = m;
@@ -1320,6 +1326,7 @@ export class NoteSurface {
     const d = s.draft;
     return {
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
+      word: "edit",
       changed: revision => { if (!d.saving && revision !== d.base) d.changedElsewhere = true; },
       editing: () => true, covers: () => true,
       key: (k, host) => this.draftKey(k, host),
@@ -1345,7 +1352,7 @@ export class NoteSurface {
   private commentMode(cs: CommentSession): CommentMode {
     const writing = () => (cs.mode === "compose" ? cs.composer : null);
     return {
-      name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment",
+      name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       editing: () => true, covers: () => true,
       key: (k, host) => this.commentKey(cs, k, host),
       click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) : false; },
@@ -1381,9 +1388,11 @@ export class NoteSurface {
   private panelMode(P: PropertyPanel): PanelMode {
     return {
       name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
-      changed: revision => {
+      word: "property panel",
+      changed: (revision, partial) => {
+        // A list row's revision says nothing about the value's token: only a whole read marks it.
         const f = P.field;
-        if (!f || f.saving || revision === f.revision) return;
+        if (partial || !f || f.saving || revision === f.revision) return;
         f.changedElsewhere = true;
         f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
       },
@@ -1430,7 +1439,7 @@ export class NoteSurface {
   /** A step's status choice (PIE-472), open under its box: its keys until a choice or esc; a click elsewhere closes it. */
   private pickerMode(p: Picker): PickerMode {
     return {
-      name: "picker", of: p, picker: p,
+      name: "picker", of: p, picker: p, word: "status choice",
       // Not a session: it holds no note, and hosts give it the keys first by `choosing`.
       holdsKeys: false, editing: () => false, covers: () => false,
       key: (k, host) => this.pickerKey(k, host),
@@ -1630,10 +1639,6 @@ export class NoteSurface {
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
   scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
 
-  /** The draft or comment being written here, if any. */
-  private writing(): Draft | null {
-    return this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
-  }
 
   /**
    * Reading keys only (j k, arrows, PgUp PgDn, space, Home End): scroll the note without starting or
@@ -2896,7 +2901,7 @@ export class NoteSurface {
     this.use(host);
     // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
     // comment under it, where the panel would take the keys meant for the agent's session.
-    if (actor.kind === "agent" && this.modes.top()?.name === "panel" && STARTS_SESSION.has(name))
+    if (actor.kind === "agent" && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, agent: true }), startSession: undefined, actor } : host;
     return NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor);

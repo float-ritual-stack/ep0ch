@@ -3,7 +3,9 @@
 // Each is a mode behind one seam, kept in a small stack whose order is their precedence, stated once
 // (PRECEDENCE). The note surface asks the stack, never each field: the key, a click, a press or drag, the
 // wheel, what to draw, the hint, leaving, and `peek`. Reading itself (layout, elements, folds, history,
-// selection, projections) stays the surface's: a mode only takes what reaches it first.
+// selection, projections) stays the surface's: a mode only takes what reaches it first. The edit and the comment
+// draw in place of the note (`rows`); the panel and the status choice are drawn inside it by the reading render,
+// which asks the surface's `panel` and `picker` (views of this stack).
 import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
@@ -51,8 +53,10 @@ export interface ReaderMode<H> {
   describe(): unknown;
   /** It ended by itself (a reply landed): the stack lets it go. */
   ended?(): boolean;
-  /** The note it's on changed elsewhere (`revision`): an edit or a value being typed is marked, never replaced. */
-  changed?(revision: number): void;
+  /** The note it's on changed elsewhere (`revision`; `partial`: only its list row was read): what it holds is marked, never replaced. */
+  changed?(revision: number, partial: boolean): void;
+  /** Its name for hints and refusals: "edit", "comment", "property panel", "status choice". */
+  readonly word: string;
   /** How a refusal names it while it holds the note: "the edit", "the comment", "the property value". */
   readonly noun?: string;
 }
@@ -101,7 +105,7 @@ export class ModeStack<H> {
   keep(): string[] { return this.all().flatMap(m => m.keep?.() ?? []); }
 
   /** The note changed elsewhere: each open mode marks what it holds. */
-  changed(revision: number) { for (const m of this.all()) m.changed?.(revision); }
+  changed(revision: number, partial: boolean) { for (const m of this.all()) m.changed?.(revision, partial); }
   /** The mode that holds the note, by the noun a refusal names it with ("finish the edit first"). */
   holding(): string | null { return this.all().find(m => m.editing())?.noun ?? null; }
 

@@ -277,12 +277,12 @@
       "built": "NoteSurface behind the SurfaceHost seam; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
         { "r": "door", "p": "src/surface/note.ts", "l": 299, "m": "export class NoteSurface" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 61, "m": "export class ModeStack" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 18, "m": "export const PRECEDENCE" },
+        { "r": "door", "p": "src/surface/modes.ts", "l": 65, "m": "export class ModeStack" },
+        { "r": "door", "p": "src/surface/modes.ts", "l": 20, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 49, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3492, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 488, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 505, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 3497, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 495, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 512, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {

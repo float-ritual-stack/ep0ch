@@ -15,7 +15,7 @@ const char = (ch: string): Key => ({ kind: "char", ch });
 function fake(name: ModeName, o: Partial<ReaderMode<Host>> & { clicks?: boolean | undefined } = {}): ReaderMode<Host> & { got: string[] } {
   const got: string[] = [];
   return {
-    name, of: { name }, holdsKeys: true, got,
+    name, of: { name }, holdsKeys: true, got, word: name,
     editing: () => false, covers: () => false,
     key: (k, h) => { got.push(`key ${k.kind === "char" ? k.ch : k.kind}`); h.said.push(name); return true; },
     click: () => { got.push("click"); return o.clicks; },
@@ -82,7 +82,7 @@ describe("the stack", () => {
     expect(s.wheel(1, h)).toBe(true);
     expect(s.leaveRefusal()).toBe("finish the value");
     expect([s.unsaved(), s.keep()]).toEqual([true, ["/copy"]]);
-    s.changed(7);
+    s.changed(7, false);
     expect(marks).toEqual([7]);
     done = true;
     expect(s.all().map(m => m.name)).toEqual(["panel"]);
@@ -90,7 +90,7 @@ describe("the stack", () => {
 });
 
 describe("the reader's four modes, with no service", () => {
-  const note = (text: string, revision = 3): Msg => ({ id: "0e1f2a3b-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, props: {} } as Msg);
+  const note = (text: string, revision = 3): Msg => ({ id: "0e1f2a3b-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, props: text.includes("[stage::queued]") ? { stage: "queued" } : {} } as Msg);
   const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
   const TEXT = "Seed potatoes [stage::queued]\nChit them in the shed.\n\n- [ ] buy the seed\n- [ ] find the trays";
 
@@ -140,5 +140,44 @@ describe("the reader's four modes, with no service", () => {
     s.session = new CommentSession(s.msg!, [], "threads");
     s.session.finished = true;
     expect([s.session, s.editing] as unknown[]).toEqual([null, false]);
+  });
+
+  test("an agent doesn't start an edit or a comment under the person's panel, even with a status choice open over it", async () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(TEXT), h);
+    s.openPanel(false);
+    const agent = { kind: "agent" as const, id: "gardener" };
+    await expect(s.act("edit", {}, h, agent)).rejects.toThrow("the person has the property panel open");
+    s.picker = { key: "task:x#0", sel: 0, note: "", busy: false };
+    await expect(s.act("edit", {}, h, agent)).rejects.toThrow("the person has the property panel open");
+    expect([s.sessionOf(), s.sessionWord()]).toEqual([s.panel, "property panel"]);   // the choice isn't a session
+  });
+
+  test("a click closes the status choice, then a panel row under it takes the same click", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(TEXT), h);
+    s.openPanel(false);
+    const lines = s.render(80, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+    const y = lines.findIndex(l => l.includes("stage") && l.includes("queued"));
+    expect(y).toBeGreaterThan(0);
+    s.picker = { key: "task:x#0", sel: 0, note: "", busy: false };
+    expect(s.click(4, y, h)).toBe(true);
+    expect([s.choosing, s.panel!.sel]).toEqual([false, 0]);
+  });
+
+  test("leaving goes through the stack: the panel's value is let go, the edit closes, a changed value refuses", async () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note(TEXT), h);
+    s.startDraft(s.msg!, h);
+    expect(await s.leave(h)).toEqual({ left: "closed" });
+    expect(s.editing).toBe(false);
+    s.openPanel(false);
+    s.editValue(s.rows(s.msg!)[0]!);
+    s.panel!.field!.text = "doing";
+    expect(s.leaveRefusal()).toBe("finish the property value first · ⏎ saves · esc cancels");
+    await expect(s.leave(h)).rejects.toThrow("finish the property value first");
+    s.panel!.field!.text = s.panel!.field!.row.value;
+    expect(await s.leave(h)).toEqual({ left: "nothing" });
+    expect([s.panel!.field, !!s.panel]).toEqual([null, true]);
   });
 });

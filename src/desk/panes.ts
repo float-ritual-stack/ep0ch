@@ -279,7 +279,7 @@ export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi,
 /** "the edit", "an agent's (claude-7) edit", "the comment", "the property panel": for hints and flashes. */
 export function sessionName(p: ReaderPane): string {
   const s = p.surface;
-  const what = s.draft ? "edit" : s.session ? "comment" : "property panel";
+  const what = s.sessionWord() ?? "property panel";
   const typed = s.draft?.writers ?? s.session?.composer?.writers ?? [];
   const agents = [...new Set(typed.filter(w => w.kind === "agent").map(w => (w as { id: string }).id))];
   return agents.length ? `an agent's (${agents.join(", ")}) ${what}` : `the ${what}`;
