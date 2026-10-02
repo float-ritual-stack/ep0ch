@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { boardScreen } from "../src/desk/screen-specs";
 import { ReaderPane } from "../src/desk/panes";
 import { Draft } from "../src/edit";
-import { recordAs } from "../src/draft-session";
+import { draftRule, recordAs } from "../src/draft-session";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
@@ -191,7 +191,7 @@ describe("the surface without a service", () => {
     const act = async (name: string, args: Record<string, unknown> = {}) => s.act(name, args, h, AGENT);
     // Replacing the text is the agent's to ask (the person's is copied out first), and waits for the save; leaving or
     // reloading the person's draft is never an agent's (the draft rule, checked before the action runs).
-    await expect(act("edit.text", { text: "Something else" })).rejects.toThrow("still landing");
+    await expect(act("edit.text", { text: "Something else" })).rejects.toThrow("the person is typing in reader; an agent doesn't replace their text");
     await expect(act("edit.close", { discard: true })).rejects.toThrow("the person is in this edit");
     await expect(act("edit.reload")).rejects.toThrow("this draft is the person's");
     await expect(act("edit.save")).rejects.toThrow("the person is in this edit");
@@ -337,24 +337,27 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("open, edit.text, edit.save: the same save as ctrl+s, recorded as the agent's, and said on screen", async () => {
     const was = BV.where(b);
-    expect(await act("open", { id: cards.beans.id }, "preview")).toEqual({ reader: "preview", id: cards.beans.id });
-    expect(B().preview.msg.id).toBe(cards.beans.id);
+    // The preview the person reads the lanes through is theirs (round 3, C3): an agent opens beside it.
+    await expect(act("open", { id: cards.beans.id }, "preview")).rejects.toThrow(/preview has the person's keys; opening a note there would move what they're reading/);
+    const { reader } = await act("open", { id: cards.beans.id }, "new-detail") as { reader: string };
+    const P = () => B().details.find((d: ReaderPane) => d.msg?.id === cards.beans.id) as ReaderPane;
+    expect(P()).toBeTruthy();
     expect(BV.where(b)).toBe(was);                                  // naming the reader never moves the person's keys (PIE-514)
-    await until(() => !B().preview.msg.partial, "the whole note");
+    await until(() => !P().msg!.partial, "the whole note");
     const text = (await current(cards.beans.id)).text.replace("Canes along the fence.", "Canes along the fence, two per plant.");
-    expect(await act("edit.text", { text })).toMatchObject({ reader: "preview", dirty: true });
-    expect(B().preview.draft.text).toBe(text);
-    const shown = B().preview.render(90, 20, true, b).lines.join("\n");
+    expect(await act("edit.text", { text }, reader)).toMatchObject({ reader, dirty: true });
+    expect(P().draft!.text).toBe(text);
+    const shown = P().render(90, 20, true, b).lines.join("\n");
     expect(shown).toContain("an agent (test-agent-7) typed this");
-    const r: any = await act("edit.save");
-    expect(r).toMatchObject({ reader: "preview", saved: true });
+    const r: any = await act("edit.save", {}, reader);
+    expect(r).toMatchObject({ reader, saved: true });
     const now = await current(cards.beans.id);
     expect(now.text).toBe(text);
     expect(await lastBy(cards.beans.id)).toEqual(["agent", AS]);
     expect(message()).toStartWith("an agent (test-agent-7) · saved · revision");
-    expect(B().preview.surface.agent).toMatchObject({ id: AS, did: "saved this note" });
-    expect(B().preview.render(90, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) saved this note");
-    expect((app.describe() as any).state.readers.find((x: any) => x.name === "preview").agent.id).toBe(AS);
+    expect(P().surface.agent).toMatchObject({ id: AS, did: "saved this note" });
+    expect(P().render(90, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) saved this note");
+    expect((app.describe() as any).state.readers.find((x: any) => x.name === reader).agent.id).toBe(AS);
   });
 
   test("a save that changes properties is shown to the agent first, like the second ctrl+s", async () => {
@@ -371,22 +374,24 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect([now.text, now.properties.length]).toEqual([text, 0]);
   });
 
-  test("an agent's text never silently replaces the person's typing: it's copied out first", async () => {
+  test("an agent never replaces the person's draft: edit.text is refused in their edit, which stays theirs (round 3, C2)", async () => {
     await act("open", { id: cards.mine.id }, "detail");
-    const pane = B().details[B().active] as ReaderPane;
+    const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
     await until(() => pane.msg?.id === cards.mine.id && !pane.msg?.partial, "the note");
-    await mine("focus", {}, `detail${B().active + 1}`);
+    await mine("focus", {}, reader);
     key(char("e"));
     await until(() => !!pane.draft, "the person's draft");
     key({ kind: "end" }); for (const c of " (mine)") key(char(c));
     const typed = pane.draft!.text;
-    const r: any = await act("edit.text", { text: "Turn the compost [stage::queued]\nEvery week." }, cards.mine.id);
-    expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe(typed + "\n");
-    expect(pane.draft!.note).toContain(r.keptYourDraftAt);
-    // The draft is still the person's: an agent replaced its text (theirs kept), but doesn't close it (the draft rule).
+    // Typing in it: refused before anything runs, the agent's ways said.
+    await expect(act("edit.text", { text: "Turn the compost [stage::queued]\nEvery week." }, cards.mine.id)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · draft.patch lands in their draft, or comment on the note or block.mark it/);
+    expect(pane.draft!.text).toBe(typed);
+    expect(pane.draft!.note).not.toContain("replaced");
+    // Theirs even when they aren't typing in it right now: the draft rule says whose it is.
+    expect(draftRule(AGENT, "replace", { session: pane.surface.draftSession() })).toMatch(/the person has this note open in an edit here; an agent doesn't replace their draft/);
+    // Nothing of the agent's in it: the preview and the draft don't say an agent is editing.
+    expect(pane.surface.describe().agent?.did ?? "").not.toContain("is editing");
     await expect(act("edit.close", { discard: true }, cards.mine.id)).rejects.toThrow("the person is in this edit");
-    expect(message()).toContain("edit.close refused");
-    await expect(mine("edit.close", {}, cards.mine.id)).rejects.toThrow("unsaved changes");
     expect(await mine("edit.close", { discard: true }, cards.mine.id)).toMatchObject({ closed: true });
     expect(pane.draft).toBeNull();
     expect((await current(cards.mine.id)).text).toBe("Turn the compost [stage::queued]\nEvery two weeks.");
@@ -403,15 +408,14 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   };
   const type = (s: string) => { for (const c of s) key(char(c)); };
 
-  test("the person's typing after an agent's is copied out before the agent replaces it again", async () => {
+  test("an agent's own edit the person entered and types in: edit.text is refused while they type", async () => {
     const { pane, reader } = await openFresh("Water the ferns\nTwice a week.");
     await act("edit.text", { text: "Water the ferns\nTwice a week, early." }, reader);
     key(char("e"));                                                            // the person enters the agent's edit
     key({ kind: "end" }); type(" (mine)");
     const typed = pane.draft!.text;
-    const r: any = await act("edit.text", { text: "Water the ferns\nDaily." }, reader);
-    expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe(typed + "\n");
-    expect(pane.draft!.note).toContain("what you had typed is at");
+    await expect(act("edit.text", { text: "Water the ferns\nDaily." }, reader)).rejects.toThrow(/the person is typing in/);
+    expect(pane.draft!.text).toBe(typed);
     // The person typed in it too: it's no longer the agent's alone to close (the draft rule); the person closes it.
     await expect(act("edit.close", { discard: true }, reader)).rejects.toThrow("someone else is typing in this draft");
     await mine("edit.close", { discard: true }, reader);
@@ -482,6 +486,10 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect([list[0].block.author, list[0].block.actorId, list[0].body]).toEqual(["agent", AS, "Use soft twine?"]);
     const id = list[0].block.id;
     expect(await act("reply", { thread: id.slice(0, 8), body: "Jute is fine." }, reader)).toMatchObject({ sent: "reply" });
+    // Resolving opens the thread list over the note: refused in the reader the person has (round 3, C3).
+    await mine("focus", {}, reader);
+    await expect(act("resolve", { thread: id }, reader)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
+    BV.at(b, "lanes");
     expect(await act("resolve", { thread: id }, reader)).toEqual({ reader, lifecycle: "resolved" });
     expect(await act("resolve", { thread: id }, reader)).toEqual({ reader, already: "resolved" });
     list = await threads(cards.beans.id);

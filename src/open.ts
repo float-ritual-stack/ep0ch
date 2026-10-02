@@ -13,6 +13,13 @@ export function externalOpenCommand(url: string, platform: NodeJS.Platform = pro
   return ["xdg-open", parsed.href];
 }
 
+/** The command that opens a local file (a figure from the media cache) in the system's viewer, per platform. */
+export function fileOpenCommand(path: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === "darwin") return ["open", path];
+  if (platform === "win32") return ["rundll32", "url.dll,FileProtocolHandler", path];
+  return ["xdg-open", path];
+}
+
 /** Runs a command detached. Tests swap `run` so nothing is really opened. */
 export const external = {
   run(cmd: string[]) { Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref(); },

@@ -11,6 +11,8 @@ import { App, type ViewEvent } from "../src/app";
 import { controlClient, startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { NvimClient } from "../src/desk/nvim";
+import { ReaderPane } from "../src/desk/panes";
+import { external } from "../src/open";
 import { Mirror } from "../src/mirror";
 import { decode, encode, Ext, handle, Incomplete } from "../src/msgpack";
 import { MainMenu } from "../src/screens";
@@ -215,6 +217,40 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     key({ kind: "alt", ch: "x" });                                  // dismisses the marks on the focused tile's note
     expect(await act("marks.list")).toMatchObject({ marks: [] });
   });
+
+  test("an agent never opens the browser, and never moves the reader the person has (round 3, C1 C3)", async () => {
+    const ran: string[][] = [];
+    const run = external.run;
+    external.run = cmd => { ran.push(cmd); };
+    try {
+      const fence = (await board.request<{ id: string }>("create", { parentId: notes.shed.id, text: `Fence quote\nAsk [the supplier](https://example.invalid/fence) and see ((${notes.long.id}|the seed order)).`, author: "agent" })).id;
+      await mine("tile.focus", "tree");
+      await act("open", { id: fence }, "side");
+      await until(() => desk.dispatch.tile("side")?.shows === fence, "the note in side");
+      const side = () => (desk.paneNamed("side") as ReaderPane).surface;
+      await until(() => side().describe().links.length === 2, "its links");
+      // A web link: the agent is given the address; nothing outside the door opens, and the screen says so.
+      expect(await act("link.follow", { n: 1 }, "side")).toMatchObject({ opened: null, outside: "browser", url: "https://example.invalid/fence", launched: false });
+      expect(ran).toEqual([]);
+      expect(said.at(-1)).toMatch(/watcher-7.*was given https:\/\/example\.invalid\/fence · an agent doesn't open the browser/);
+      // ...and the person's [ ] position stayed where it was (none).
+      expect(side().describe().links.some(l => l.selected)).toBe(false);
+      // In the reader the person has, every action that would move what they read is refused, the agent's way said.
+      await mine("tile.focus", "side");
+      const shown = side().msg?.id;
+      await expect(act("link.follow", { n: 2 }, "side")).rejects.toThrow(/side has the person's keys; following a link there would move what they're reading/);
+      await expect(act("element.open", { n: 2 }, "side")).rejects.toThrow(/side has the person's keys; opening an element there/);
+      await expect(act("up", {}, "side")).rejects.toThrow(/side has the person's keys; up would move what they're reading/);
+      await expect(act("threads", {}, "side")).rejects.toThrow(/side has the person's keys/);
+      await expect(act("props.follow", { n: 1 }, "side")).rejects.toThrow(/side has the person's keys/);
+      await expect(act("open", { id: notes.shed.id }, "side")).rejects.toThrow(/side has the person's keys; opening a note there would move what they're reading/);
+      expect(side().msg?.id).toBe(shown);
+      // Naming no tile, an agent's open lands where the person isn't.
+      expect(await act("open", { id: notes.shed.id })).toMatchObject({ id: notes.shed.id });
+      expect(side().msg?.id).toBe(shown);
+      await mine("tile.focus", "tree");
+    } finally { external.run = run; }
+  }, 20_000);
 
   test("a border dragged is layout.resize, the action an agent calls", async () => {
     const f = feed(["layout.changed"]);

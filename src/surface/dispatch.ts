@@ -148,7 +148,13 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   if (def.person) return def.person;
   switch (def.touches) {
     case "nothing": case "shape": return null;
-    case "draft": return at.draft?.() ?? null;
+    case "draft": {
+      // Replacing a tile's whole draft: never under the person's keys while they type there (the draft rule says
+      // whose the draft is).
+      const t = at.tile;
+      if (def.draft === "replace" && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · draft.patch lands in their draft, or comment on the note or block.mark it to get their attention`;
+      return at.draft?.() ?? null;
+    }
     case "tile": {
       const t = at.tile;
       if (!t) return null;
@@ -332,7 +338,7 @@ export class Dispatcher {
     const where = this.where();
     // What the def sees: coerced from the wire and mapped from an alias (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
-    const touches = def.touchesWith?.(seen as never) ?? def.touches;
+    const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
     const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null) });
     if (no) throw new ActionRefused(no);
     const ctx = this.host.ctx();

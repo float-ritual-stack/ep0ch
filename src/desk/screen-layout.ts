@@ -437,6 +437,18 @@ class Step<I> {
   private guard(id: I, what: string) {
     refuse(this.agent && this.ctx.person.typingIn === id ? `${this.name(id)} is where the person is typing; an agent doesn't ${what} it` : null);
   }
+  /**
+   * An agent never resizes the tile the person is typing in (a border moved, a split's shares, a tile grown, the
+   * screen evened out): the size it has on screen after the step is the size it had before, or the step is refused.
+   */
+  private keepsSize(step: () => void) {
+    const t = this.agent ? this.ctx.person.typingIn : null;
+    const before = t !== null ? rects(this.d, this.ctx.area).get(t) : undefined;
+    step();
+    if (t === null || !before) return;
+    const after = rects(this.d, this.ctx.area).get(t);
+    if (!after || after.cols !== before.cols || after.rows !== before.rows) refuse(`${this.name(t)} is where the person is typing; an agent doesn't resize it (block.mark gets their attention)`);
+  }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
     const p = this.ctx.person;
@@ -512,10 +524,10 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "drawer": return this.drawer(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on);
-      case "resize": return this.resizeBorder(op);
-      case "shares": return this.shares(op.split, op.shares);
-      case "grow": return this.grow(op.tile, op.axis, op.by);
-      case "even": return this.even();
+      case "resize": return this.keepsSize(() => this.resizeBorder(op));
+      case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
+      case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
+      case "even": return this.keepsSize(() => this.even());
       case "lock": return this.lock(op.on);
       case "policy": return this.setPolicy(op);
       case "link": return this.link(op.tile, op.to);

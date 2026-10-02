@@ -325,7 +325,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     writeFileSync(script, `#!/bin/sh\nprintf '\\nWritten in the tile.\\n' >> "$1"\n`);
     chmodSync(script, 0o755);
     process.env.EDITOR = script;
-    await act("open", { id: notes.beans.id }, "middle");
+    await mine("open", { id: notes.beans.id }, "middle");
     const mid = D().panes.get([...D().names].find(([, v]: any) => v === "middle")[0]);
     await until(() => mid.msg?.id === notes.beans.id && !mid.msg.partial, "beans in middle");
     D().focus = [...D().names].find(([, v]: any) => v === "middle")[0];

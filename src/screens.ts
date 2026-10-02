@@ -507,7 +507,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "theme.set": {
     summary: `the door's colours: ${THEME_NAMES.map(n => `${n} (${THEMES[n].about})`).join("; ")}. Every screen at once, kept for the next start (EP0CH_THEME overrides it there). ANSI art keeps true VGA in every theme. An agent's waits until the person is idle and is said on the status bar`,
-    touches: "screen", replay: "safe", says: out => `· switched the theme to ${out.theme}`,
+    // Kept for the next start: a restarted door asks before running it again.
+    touches: "screen", replay: "ask", says: out => `· switched the theme to ${out.theme}`,
     args: { name: { type: "string", about: `the theme: ${THEME_NAMES.join(", ")}` } },
     run({ name }, { ctx }) {
       const want = themeNamed(name);
@@ -520,7 +521,7 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   "theme.cycle": {
     summary: `the next theme: ${THEME_NAMES.join(" → ")} (theme.set picks one by name)`,
     keys: "alt+t on every screen; click on the status bar's theme",
-    touches: "screen", replay: "safe", says: out => `· switched the theme to ${out.theme}`,
+    touches: "screen", replay: "ask", says: out => `· switched the theme to ${out.theme}`,
     args: {},
     run(_, { ctx }) {
       if (!ctx.setTheme) throw new ActionRefused("this screen can't change the door's theme");

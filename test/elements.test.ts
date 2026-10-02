@@ -361,7 +361,9 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(d.msg!.id).toBe(long.id);
     key(char("]")); frame();
     expect(current(d)).toMatchObject({ n: 2, kind: "fold", label: "## Autumn" });   // on from it, not from the view
-    await act("element.open", { n: 2 }, "detail1", AS);              // the agent toggles it; the position stays
+    // element.open there is refused (round 3: it could move what they read); the agent folds by the fold action.
+    await expect(act("element.open", { n: 2 }, "detail1", AS)).rejects.toThrow(/detail1 has the person's keys; opening an element there .* or folds a section with fold or unfold/);
+    await act("fold", { text: "Autumn" }, "detail1", AS);             // the agent folds it; the position stays
     expect(d.surface.describe().folds!.folded).toEqual(["## Autumn"]);
     frame();
     expect(current(d)).toMatchObject({ n: 2 });

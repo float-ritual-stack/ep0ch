@@ -222,7 +222,11 @@ describe.skipIf(!outliner)("the brief screen", () => {
     (app as any).lastInput = 0;                                                     // the person is idle: an agent's open may step the brief
     const els = (await app.act({ action: "elements", reader: "1", as: "test-agent" }) as any).elements as { n: number; label: string }[];
     const row = els.find(e => e.label.includes("Brief C"))!;
-    await app.act({ action: "element.open", reader: "1", args: { n: row.n }, as: "test-agent" });
+    // element.open in the brief the person has is refused (round 3: it moves what they read); brief.show steps it
+    // once they're idle, the same screen rule a followed link to another day has.
+    await expect(app.act({ action: "element.open", reader: "1", args: { n: row.n }, as: "test-agent" })).rejects.toThrow(/has the person's keys; opening an element there/);
+    expect(brief().shown?.id).toBe(notes.b.id);
+    await app.act({ action: "brief.show", reader: "1", args: { id: notes.c.id }, as: "test-agent" });
     expect(brief().shown?.id).toBe(notes.c.id);
     expect(panes()).toBe(before);
     ch(".");

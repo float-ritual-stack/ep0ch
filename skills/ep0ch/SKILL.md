@@ -130,8 +130,12 @@ yourself (path 1): `/exit`, then `claude --continue`.
   turns it off), and their `y` or cmd+c copies too.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
+- An agent never moves the reader the person has: `link.follow`, `element.open`, `up`, `back`, `props.follow`,
+  `threads`, `resolve` and `open tile=<reader>` are refused there (use another reader, or `open id=` naming
+  none). A web link or figure you follow is never opened in their browser or viewer: you get the address back.
 - While the person has a note open in a draft, you don't write it underneath them: an `edit` of it in
-  another reader, a `props.edit`, a step or a card move on it is refused. Patch their draft instead
+  another reader, an `edit.text` in their own edit (or one they're typing in), a `props.edit`, a step or a
+  card move on it is refused. Patch their draft instead
   (`outline_patch`, the service's `draft.patch`: it lands above their cursor, or becomes a proposal), or
   wait until they save or close it. The draft actions (`draft.*`, `session.leave`) work only in a draft you
   opened and alone typed in.

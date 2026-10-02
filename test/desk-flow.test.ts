@@ -68,8 +68,10 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
     expect(tile(second).showing.id).toBe(notes.boat.id);
     expect(get().focus).toBe(second);
     expect(tile("c1").showing.id).toBe(notes.trip.id);             // the column it came from keeps its note
-    // An agent's follow from the second column: a third, the person's keys where they were.
-    await follow(second, { kind: "agent", id: AS });
+    // An agent's follow in the column the person has is refused (round 3, C3); it opens from there instead: a third
+    // column, the person's keys where they were.
+    await expect(follow(second, { kind: "agent", id: AS })).rejects.toThrow(/has the person's keys; following a link there/);
+    expect(await act("open", { id: notes.tide.id, from: second })).toMatchObject({ id: notes.tide.id });
     await until(() => columns().length === 3, "a third column");
     expect(get().focus).toBe(second);
     expect(tile(columns()[2]!).showing.id).toBe(notes.tide.id);

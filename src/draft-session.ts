@@ -492,9 +492,9 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   if (on instanceof DraftSession) {
     if (!sameParty(on.openedBy, actor)) {
       return op === "leave" ? "the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)"
-        : "this draft is the person's; send the whole text with edit.text or comment.write";
+        : "this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit, comment.write replaces a comment's text";
     }
-    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; send the whole text with edit.text or comment.write";
+    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit, comment.write replaces a comment's text";
     return null;
   }
   const theirs = [...registry(on.board)].find(s => s !== on.except && s.target.blockId === on.blockId && !(sameParty(s.openedBy, actor) && s.draft.writers.every(w => sameParty(w, actor))));
@@ -512,10 +512,17 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
  *   elsewhere (the tile's own is the action's to handle: edit.text replaces it, copying theirs out first).
  * - `safe`: what the session keeps safe itself (comment.write replaces the text, copying theirs out first; draft.undo
  *   takes back only that actor's own patch): allowed.
+ * - `replace`: replacing the tile's whole draft (edit.text): only one the agent opened (text someone else typed in it
+ *   since is copied out first), and, as `write`, never under a draft someone else has open on the block elsewhere.
+ *   The person typing in that tile right now is the actor rule's to refuse (`actorRule`: it knows where they type).
  */
-export function draftRule(actor: Actor, use: "type" | "leave" | "write" | "safe", at: { board?: object | null; blockId?: string | null; session?: DraftSession | null }): string | null {
+export function draftRule(actor: Actor, use: "type" | "leave" | "write" | "safe" | "replace", at: { board?: object | null; blockId?: string | null; session?: DraftSession | null }): string | null {
   if (actor.kind !== "agent") return null;
   if (use === "type" || use === "leave") return at.session ? agentRefusal(actor, at.session, { op: use }) : null;
+  if (use === "replace" && at.session && at.session.open && !sameParty(at.session.openedBy, actor)) {
+    return `${at.session.openedBy.kind === "user" ? "the person has this note open in an edit here" : `${agentLabel(at.session.openedBy)} has this note open in an edit here`}; an agent doesn't replace their draft · draft.patch lands in it, or comment on the note or block.mark it to get their attention`;
+  }
+  if (use === "replace") use = "write";
   if (use === "write" && at.blockId) return agentRefusal(actor, { board: at.board, blockId: at.blockId, ...(at.session ? { except: at.session } : {}) });
   return null;
 }

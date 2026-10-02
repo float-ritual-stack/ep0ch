@@ -41,9 +41,9 @@ export const PTY_ACTIONS = new ActionSet<{
     },
   },
   "tile.restart": {
-    summary: "run the program in terminal tile=<tile> again (after it exited)",
+    summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
     keys: "⏎ on an exited terminal",
-    touches: "nothing", replay: "ask", says: r => `restarted ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
     args: {},
     run(_, { pane, desk, tile }, actor) {
       const r = host(desk).restartTerminal(tile, pane, actor);
@@ -66,7 +66,10 @@ export const PTY_ACTIONS = new ActionSet<{
   },
   "tile.herdr": {
     summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
-    touches: "nothing", replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
+    // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the
+    // person types in. Cleared (on=false), the warning comes back: anyone, any time.
+    touches: "tile", touchesWith: a => (a.on === false ? "nothing" : "tile"), while: "typing", way: "an agent doesn't flag the terminal they're typing in (quitting would no longer warn that it ends its program)",
+    replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
     run({ pane: label, name, on }, { pane, desk, tile }, actor) {
       const r = host(desk).herdrTerminal(tile, pane, label, on, actor, name);

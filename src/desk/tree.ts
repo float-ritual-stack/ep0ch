@@ -546,7 +546,8 @@ export const TREE_ACTIONS = new ActionSet<{
   "tree.pick": {
     summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
     keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎ (open)",
-    touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} row ${r.row} of the outline`,
+    // open=true may register a resource and opens a note: a restarted door asks first (replay is per action).
+    touches: "nothing", replay: "ask", says: (r, a) => `${a.open ? "opened" : "picked"} row ${r.row} of the outline`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
