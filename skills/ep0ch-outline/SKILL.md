@@ -34,6 +34,11 @@ In Claude with the Outliner's Claude mod: `outline_read`, `outline_find`, `outli
 `door_act`, `door_open`. The table is in the mod's `claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`.
 
+- **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
+  outline its nearest bound folder names: a `client.json` (the choose-outline action) or an outline root the
+  host serves; `outliner bound-folder` says which. Installing the mod (`scripts/install-claude-mod.ts`) needs
+  no folder. In a folder bound to no outline they refuse and nothing is sent: bind it, don't work around it.
+
 - **Read before you write,** the whole text. A ref is an id, `((id))`, `[[page]]` or a Work ID, never a title.
 - With the raw CLI, `outliner read <id>` returns the title, not the text: read with `list --subtree <id>
   --limit 1`, refuse to write from an empty read, pass `--expected <revision>` and `--author agent --actor

@@ -338,7 +338,13 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
 
   const settingsPath = join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings.json");
   let settingsDirs: string[] | null = null;
-  try { settingsDirs = splitDirs(JSON.parse(readFileSync(settingsPath, "utf8"))?.env?.CLAUDE_CODE_PLUGIN_DIRS); } catch { /* none */ }
+  let mentions: { listed: boolean; mode?: string } | undefined;
+  try {
+    const settingsEnv = JSON.parse(readFileSync(settingsPath, "utf8"))?.env;
+    settingsDirs = splitDirs(settingsEnv?.CLAUDE_CODE_PLUGIN_DIRS);
+    const mode = typeof settingsEnv?.PI_OUTLINER_MENTIONS_MODE === "string" ? settingsEnv.PI_OUTLINER_MENTIONS_MODE.trim() : "";
+    mentions = { listed: /[^\s:,]/.test(String(settingsEnv?.PI_OUTLINER_MENTIONS_WORKSPACES ?? "")), ...(mode ? { mode } : {}) };
+  } catch { /* none */ }
 
   return {
     platform, home, pathDirs,
@@ -351,7 +357,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     host,
     services,
     databases: databases(base, host, services),
-    claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
+    claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     expected: plugin?.capabilities ?? [...OUTLINE_CAPABILITIES],
   };
 }

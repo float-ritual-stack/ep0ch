@@ -245,6 +245,8 @@ export function planNotes(f: Facts): string[] {
   if (f.plugin && missingKeys.length) notes.push(`Herdr has no key for ${missingKeys.map(a => `${PLUGIN_ID}.${a}`).join(", ")} in ${f.herdr.configPath}; the Outliner's install.sh writes them (install doesn't edit Herdr's config).`);
   const mod = claudeModState(f);
   if (mod.status !== "ok") notes.push(`Claude mod: ${mod.detail}${mod.fix ? `; ${mod.fix}` : ""}.`);
+  const old = oldMentionsAllowlist(f);
+  if (old) notes.push(`Claude mod: ${old}.`);
   return notes;
 }
 export function hostRestartHint(f: Facts): string {
@@ -259,11 +261,24 @@ export function claudeModState(f: Facts): { status: "ok" | "behind" | "missing";
   const want = join(f.plugin.root, "claude-mod");
   const dirs = f.claude.settingsDirs ?? f.claude.envDirs ?? [];
   const where = f.claude.settingsDirs ? f.claude.settingsPath : "CLAUDE_CODE_PLUGIN_DIRS";
-  const fix = `bun ${f.plugin.root}/scripts/install-claude-mod.ts <workspace root>`;
+  // No folder to name: each Claude session follows the outline its folder is bound to (PIE-526).
+  const fix = `bun ${f.plugin.root}/scripts/install-claude-mod.ts`;
   if (dirs.includes(want)) return { status: "ok", detail: `${where} loads ${want}` };
   const other = dirs.find(d => /claude-mod\/?$/.test(d) && /outliner/i.test(d));
   if (other) return { status: "behind", detail: `${where} loads ${other}, not the installed plugin's ${want}`, fix };
   return { status: "missing", detail: `${where} doesn't load ${want}`, fix };
+}
+
+/**
+ * Settings that list the mod's folders with no mode: the mod then feeds nothing anywhere (mentionsModeOf in the
+ * Outliner's claude-mod), since the list may be an allowlist from before folder mode. The person chooses, so it is
+ * never a fix to apply: it says the ways on. Keep in step with the mod's rule.
+ */
+export function oldMentionsAllowlist(f: Facts): string | null {
+  const m = f.claude.mentions;
+  if (!f.plugin || !m?.listed || m.mode) return null;
+  const installer = `bun ${f.plugin.root}/scripts/install-claude-mod.ts`;
+  return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */

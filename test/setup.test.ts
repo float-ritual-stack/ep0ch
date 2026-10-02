@@ -350,7 +350,25 @@ describe("the doctor", () => {
     const c = byName(f);
     expect(c["claude/claude-mod"]).toMatchObject({ status: "behind" });
     expect(c["claude/claude-mod"]!.fix).toContain("scripts/install-claude-mod.ts");
+    // No workspace to name: each Claude session follows its folder's bound outline (PIE-526).
+    expect(c["claude/claude-mod"]!.fix).toMatch(/install-claude-mod\.ts$/);
     expect(c["claude/FORCE_HYPERLINK"]!.detail).toContain("PIE-486");
+  });
+
+  test("the Claude mod needs no workspace; a folder list with no mode is noted (nothing feeds), never a fix", () => {
+    const f = current();
+    expect(byName(f)["claude/mentions"]).toBeUndefined();
+    for (const mentions of [{ listed: false }, { listed: true, mode: "folder" }, { listed: true, mode: "allowlist" }]) {
+      f.claude = { ...f.claude, mentions };
+      expect(byName(f)["claude/mentions"]).toBeUndefined();
+    }
+    f.claude = { ...f.claude, mentions: { listed: true } };
+    const row = byName(f)["claude/mentions"]!;
+    expect(row.status).toBe("info");
+    expect(row.fix).toBeUndefined();
+    expect(row.detail).toContain("so the Claude mod feeds nothing anywhere");
+    expect(row.detail).toContain("install-claude-mod.ts --folder drops it, and then every folder bound to an outline feeds that outline");
+    expect(row.detail).toContain("--allowlist <folder> keeps strict mode");
   });
 
   test("missing keys and a stopped Herdr server", () => {

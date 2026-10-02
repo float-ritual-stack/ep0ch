@@ -128,6 +128,11 @@ export interface Facts {
     settingsDirs: string[] | null;
     /** CLAUDE_CODE_PLUGIN_DIRS in this process's environment. */
     envDirs: string[] | null;
+    /**
+     * The mod's folder list in Claude Code's settings: whether PI_OUTLINER_MENTIONS_WORKSPACES lists any, and
+     * PI_OUTLINER_MENTIONS_MODE. A list with no mode is an allowlist from before folder mode (PIE-526).
+     */
+    mentions?: { listed: boolean; mode?: string };
     forceHyperlink?: string;
     /**
      * The Claude processes started in a door tile or a door's Herdr pane, each judged against the mod Claude

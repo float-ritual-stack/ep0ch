@@ -254,7 +254,8 @@ exits 1), and · for information:
 - **Herdr**: the server, and the keys for the plugin's actions in `config.toml`.
 - **Claude**: whether Claude Code's `CLAUDE_CODE_PLUGIN_DIRS` loads the installed plugin's `claude-mod`
   (a managed reinstall can move the plugin's root; the Outliner's `scripts/install-claude-mod.ts` points
-  it again), and `FORCE_HYPERLINK`, a known issue (PIE-486).
+  it again, with no folder to name: each Claude session follows the outline its folder is bound to), a
+  folder list with no mode (the mod then feeds nothing until the mode is set), and `FORCE_HYPERLINK`, a known issue (PIE-486).
 
 `install` runs these steps in order, each skipped when it's already current, each saying what it did:
 

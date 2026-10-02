@@ -3,7 +3,7 @@
 import { OUTLINE_CAPABILITIES } from "../socket";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
-import { chooseLinkDir, claudeModState, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, serviceLabel, unitRunsElsewhere } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -104,6 +104,8 @@ export function doctorChecks(f: Facts): Check[] {
   // Claude
   const mod = claudeModState(f);
   add("claude", "claude-mod", mod.status, mod.detail, mod.fix);
+  const old = oldMentionsAllowlist(f);
+  if (old) add("claude", "mentions", "info", old);
   if (f.claude.forceHyperlink !== undefined) add("claude", "FORCE_HYPERLINK", "info", `set to ${f.claude.forceHyperlink}: a known issue (PIE-486)`);
   for (const c of doorAgentChecks(f)) out.push(c);
   return out;
