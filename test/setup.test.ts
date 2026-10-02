@@ -216,6 +216,14 @@ describe("the door session (PIE-418)", () => {
     expect(step).toMatchObject({ id: "session", status: "do", commands: ["ep0ch session upgrade"] });
     expect(step.why).toBe("the session (pid 4321) runs 40aaaaa, the door will be at 49bbbbb: a new daemon on that code takes it over; its 3 programs keep running and its 2 terminals attach again");
   });
+  test("the target is the door's code after this run: a deps-only update keeps HEAD; a checkout left for the person isn't handed to", () => {
+    const f = current();
+    const ahead = { ...f, door: { checkout: checkout(f.door.checkout.root, { head: "50ccccc", upstream: "1111111aaaa", ahead: 2 }), deps: { needed: true, why: "a package is missing" }, entry: f.door.entry } };
+    expect(buildPlan({ ...ahead, session: session({ commit: "50ccccc" }) }, opts()).steps.at(-1)!.status).toBe("skip");
+    const branch = { ...f, door: { ...f.door, checkout: checkout(f.door.checkout.root, { branch: "pie-418/try", head: "60ddddd" }) } };
+    expect(buildPlan({ ...branch, session: session({ commit: "1111111aaaa" }) }, opts()).steps.at(-1)).toMatchObject({ status: "skip", why: expect.stringContaining("left for you") });
+  });
+
   test("none running, one on the current code, or one from another checkout: nothing to do", () => {
     expect(buildPlan(laptop(), opts()).steps.at(-1)).toMatchObject({ id: "session", status: "skip", why: "no door session runs" });
     expect(buildPlan(laptop({ session: session({ commit: "49bbbbb" }) }), opts()).steps.at(-1)!.status).toBe("skip");

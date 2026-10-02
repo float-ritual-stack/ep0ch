@@ -57,9 +57,9 @@ export function doctorChecks(f: Facts): Check[] {
   else add("door", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
   // The door session (PIE-418): the daemon, on the door's code or behind it.
   if (f.session !== undefined) {
-    const sess = sessionStep(f, false), sx = f.session;
+    const sess = sessionStep(f, { status: "skip" }), sx = f.session;
     if (!sx) add("door", "session", "info", "none running · `ep0ch` starts one");
-    else add("door", "session", sess.status === "do" ? "behind" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
+    else add("door", "session", sess.status === "do" ? "behind" : /another door checkout|left for you/.test(sess.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
   }
 
   // outline services

@@ -15,7 +15,8 @@ Before a PR claims a change works:
 3. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` writes PNGs to `out/`;
    open them. A snapshot nobody looked at is not evidence.
 4. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch
-   service, with your own `EP0CH_STATE` and `EP0CH_CONTROL` (see [AGENTS.md](AGENTS.md)).
+   service, with your own `EP0CH_STATE` and `EP0CH_CONTROL` and `--no-daemon` (see [AGENTS.md](AGENTS.md);
+   `scripts/test-door-env.sh` sets `EP0CH_DAEMON=0`).
    - Drive it with keys, and with injected SGR mouse sequences (`ESC [ < b ; x ; y M` press,
      `… m` release) for clicks, drags and the wheel.
    - Check the result with `peek` or `snap` on your own control socket.

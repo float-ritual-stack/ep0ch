@@ -22,7 +22,7 @@ import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } 
 import { SessionTerm, type Link } from "../src/session/session-term";
 import { doorMode, runEnv, sessionInfo } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
-import { sessionFile, sessionSocket, takeLock } from "../src/session/daemon";
+import { ancestors, sessionFile, sessionSocket, takeLock } from "../src/session/daemon";
 import { controlSocket } from "../src/control";
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, screenSteps, type Checkpoint } from "../src/session/restore";
@@ -71,6 +71,25 @@ describe("the door is a session by default", () => {
       if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a session is for a terminal", () => {
+  test("`ep0ch` with no terminal (a script, an agent's shell) starts no session and says what to run", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-notty-"));
+    try {
+      const env: Record<string, string> = { ...(process.env as Record<string, string>), EP0CH_STATE: join(dir, "s"), EP0CH_CONTROL: join(dir, "s", "door.sock"), EP0CH_SOCKET: join(dir, "nowhere.sock") };
+      delete env.EP0CH_DAEMON;
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts")], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      expect(await p.exited).toBe(1);
+      expect(await new Response(p.stderr).text()).toContain("not a terminal");
+      expect(existsSync(join(dir, "s", "session.sock"))).toBe(false);
+      expect(existsSync(join(dir, "s", "session.lock"))).toBe(false);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("a process's parents are found, so a program kept from an earlier daemon can't attach the session into itself", () => {
+    expect(ancestors(process.pid)[0]).toBe(process.ppid);
   });
 });
 

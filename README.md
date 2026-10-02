@@ -398,9 +398,10 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
   the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
   then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.
-- **`ssh` lands in it.** The ForceCommand door (`ssh -p 2323`) and the login landing run `ep0ch`, so every ssh
-  login, the laptop's and the phone's, attaches to the one session instead of starting a door of its own; a dropped
-  connection only detaches.
+- **`ssh` lands in it.** The ForceCommand door (`ssh -p 2323`) runs `ep0ch`, so every ssh login, the laptop's and
+  the phone's, attaches to the one session instead of starting a door of its own; a dropped connection only
+  detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
+  and `--no-daemon` opens the door there.
 - **The daily agent stays Herdr's.** `▲ claude` in the agent drawer attaches to the `door-claude` pane in Herdr
   ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
   between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent

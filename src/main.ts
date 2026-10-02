@@ -98,6 +98,9 @@ if (args[0] === "clients") {
 // The door: attached to this state dir's session (started when sessions are on and none runs), or in this terminal.
 const how = await doorMode(args);
 if (how.mode === "attach") process.exit(await attachDoor(args, how));
+// A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on
+// this state dir.
+process.env.EP0CH_DAEMON = "0";
 const opened = await connectTarget(args);
 if ("error" in opened) { console.error(`ep0ch: ${opened.error}`); process.exit(1); }
 

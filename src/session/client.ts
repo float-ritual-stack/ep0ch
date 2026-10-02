@@ -6,6 +6,8 @@
 //   ep0ch session list [--json]        the session in this state dir: its outline, terminals, programs
 //   ep0ch session attach [--watch]     attach to it (--watch: read-only, never the person's keys)
 //   ep0ch session end [--yes]          end it (asks when programs run in its tiles)
+//   ep0ch session upgrade [--clients]  hand it to a new daemon on this checkout's code (its programs keep running)
+//   ep0ch session restart              hand it over whatever code it runs
 //   ep0ch session serve [door flags]   run one in the foreground (what `ep0ch` starts, detached)
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
@@ -34,6 +36,12 @@ export async function doorMode(args: readonly string[], env: Record<string, stri
 
 /** `ep0ch [door flags]` with sessions: the session in this state dir, started first when none runs; then attached. */
 export async function attachDoor(args: string[], how: { running: boolean }): Promise<number> {
+  // A session is for a terminal: run without one (a script, an agent's shell, cron, ssh without -t), `ep0ch` would
+  // start a daemon that outlives the caller, maybe the person's own. Refused, with what to run instead.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error("ep0ch: not a terminal, so no session is started or attached · `ep0ch --no-daemon` opens the door here, `ep0ch session list` says what runs");
+    return 1;
+  }
   // The outline it names, when it names one and a session runs: a session on another one refuses it. (One starting
   // now takes these same flags.)
   const target = how.running ? await namedTarget(args) : null;

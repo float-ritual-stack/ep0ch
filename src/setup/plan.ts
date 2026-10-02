@@ -281,17 +281,20 @@ export function oldMentionsAllowlist(f: Facts): string | null {
   return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
-/** The whole plan, in order: backup first, whenever anything after it will change something. */
 /**
  * The door session (PIE-418): a daemon on older code than the door checkout (after its update) is handed to a new one
  * on that code (`ep0ch session upgrade`): its programs keep running in the terminal host, its terminals attach again.
  */
-export function sessionStep(f: Facts, doorUpdates: boolean): Step {
+export function sessionStep(f: Facts, door: Pick<Step, "status">): Step {
   const title = "Hand the door session to the new code";
   const s = f.session;
   if (!s) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
   const c = f.door.checkout;
   if (resolve(s.dir) !== resolve(c.root)) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs another door checkout, ${s.dir}; run install from that one`, commands: [] };
+  // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
+  // hand the session to.
+  if (door.status === "manual" || door.status === "offer" || c.branch !== "main") return { id: "session", title, status: "skip", why: `the door checkout is left for you (not main, or not fast-forwardable), so the session (pid ${s.pid}) stays on ${short(s.commit)}`, commands: [] };
+  const doorUpdates = door.status === "do" && c.behind > 0;
   const target = doorUpdates ? c.upstream : c.head;
   if (s.commit && s.commit === target) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs the current door code (${short(s.commit)})`, commands: [] };
   return {
@@ -301,11 +304,12 @@ export function sessionStep(f: Facts, doorUpdates: boolean): Step {
   };
 }
 
+/** The whole plan, in order: backup first, whenever anything after it will change something. */
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const plugin = pluginStep(f);
   const door = doorStep(f);
   const link = linkStep(f);
-  const session = sessionStep(f, door.status === "do");
+  const session = sessionStep(f, door);
   const restart = restartStep(f, o, plugin.status === "do");
   const host = hostStep(f, plugin.status === "do");
   const backup = backupStep(f, o, [plugin, door, link, restart, host].some(s => s.status === "do"));
