@@ -145,7 +145,9 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     expect(fromDock!.EP0CH_NEST).toMatch(/door:\d+\/dock\/dock\.agent:claude$/);
     // In Herdr: the link the launcher points at the attached door, the tile's nest then the pane's layer.
     expect(fromHerdr).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DOCK_TILE_ID, EP0CH_IN_DOOR: "1", EP0CH_CONTROL: cfg.link });
-    expect(fromHerdr.EP0CH_NEST).toMatch(/door:\d+\/dock\/dock\.agent:claude › herdr:door-claude$/);
+    // A test door (its own EP0CH_STATE): its own pane, `door-claude-<hash>`, never the person's.
+    expect(cfg.pane).toMatch(/^door-claude-[0-9a-f]{8}$/);
+    expect(fromHerdr.EP0CH_NEST).toMatch(new RegExp(`door:\\d+/dock/dock\\.agent:claude › herdr:${cfg.pane}$`));
     // The pane mustn't inherit how a door was started from the Herdr server's own environment.
     const run = calls.find(c => c.startsWith("pane run"))!;
     for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);

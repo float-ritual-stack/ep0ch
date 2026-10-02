@@ -77,7 +77,7 @@ describe("EP0CH_NEST", () => {
   });
 
   test("the Herdr launcher's pane gets the tile's nest and its own label", () => {
-    const c = agentConfig({ HOME: "/home/someone", PWD: "/somewhere", EP0CH_STATE: "/tmp/door-state", EP0CH_TILE: "claude", EP0CH_NEST: "ssh:pts/5 › door:77/daily/t3:claude" }, () => null);
+    const c = agentConfig({ HOME: "/home/someone", PWD: "/somewhere", EP0CH_TILE: "claude", EP0CH_NEST: "ssh:pts/5 › door:77/daily/t3:claude" }, () => null);
     expect(c.env.EP0CH_NEST).toBe(`ssh:pts/5${NEST_SEP}door:77/daily/t3:claude${NEST_SEP}herdr:door-claude`);
   });
 });

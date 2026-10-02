@@ -224,7 +224,8 @@ export class AgentDock {
   private pollHerdr(now: number) {
     if (!this.herdr || this.polling || now - this.lastPoll < HERDR_POLL_MS) return;
     this.polling = true; this.lastPoll = now;
-    const name = agentConfig().name;
+    // The name the launcher said it gave the agent (a test door's is door-<hash>); else the person's own.
+    const name = this.tile?.herdr?.name ?? agentConfig().name;
     this.herdr(["agent", "get", name]).then(r => {
       let s: string | undefined;
       try { s = JSON.parse(r.out)?.result?.agent?.agent_status; } catch { s = undefined; }
@@ -664,18 +665,18 @@ export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: 
  * `tile.herdr` for the host layer's agent (`tile=dock.agent`): the same rule as a desk terminal's (PTY_ACTIONS), said by
  * the Herdr launcher as it attaches, on whatever screen is shown.
  */
-export const HOST_TILE_ACTIONS = new ActionSet<{ "tile.herdr": { pane?: string; on?: boolean } }, { dock: AgentDock }>("host", {
+export const HOST_TILE_ACTIONS = new ActionSet<{ "tile.herdr": { pane?: string; name?: string; on?: boolean } }, { dock: AgentDock }>("host", {
   "tile.herdr": {
     summary: "the host layer's agent (tile=dock.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
     touches: "nothing", replay: "ask",
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
-    run({ pane, on }, { dock }) {
+    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
+    run({ pane, name, on }, { dock }) {
       const p = dock.tile;
       if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);
       if (on === false) { p.herdr = null; return { tile: DOCK_TILE_ID, herdr: null }; }
       if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
       if (!p.running) throw new ActionRefused(`${DOCK_TILE_ID}'s program isn't running`);
-      p.herdr = { pane };
+      p.herdr = { pane, ...(name ? { name } : {}) };
       return { tile: DOCK_TILE_ID, herdr: p.herdr };
     },
   },

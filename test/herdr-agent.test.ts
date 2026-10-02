@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { agentConfig, attachOutcome, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
+import { agentConfig, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
 import { PtyPane } from "../src/desk/pty";
 
 const SCRIPT = resolve(import.meta.dir, "../scripts/door-agent-herdr.ts");
@@ -32,7 +32,7 @@ case "$1 $2" in
   "hang now") sleep 30 ;;
   "agent get") [ -f "$d/named" ] && echo '{"result":{"agent":{"name":"door","pane_id":"w9:p1"}}}' || exit 1 ;;
   "agent rename") [ -f "$d/detected" ] || exit 1; touch "$d/named"; echo '{"result":{}}' ;;
-  "terminal attach") echo "attached $3 $4 link=$(readlink "$d/state/agent-door-claude.sock")"; [ -f "$d/busy" ] && { echo "herdr: terminal attach failed: terminal $3 already has an attached client; retry with --takeover" >&2; exit 1; }; exit 0 ;;
+  "terminal attach") echo "attached $3 $4 link=$(readlink "$d/ep0ch-door/agent-door-claude.sock")"; [ -f "$d/busy" ] && { echo "herdr: terminal attach failed: terminal $3 already has an attached client; retry with --takeover" >&2; exit 1; }; exit 0 ;;
   *) exit 2 ;;
 esac
 `);
@@ -41,6 +41,9 @@ esac
   answer("spaces", { result: { workspaces: [{ workspace_id: "w1", label: "~" }] } });
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+// The person's own door: the default state dir (XDG_STATE_HOME/ep0ch-door) and its control socket in it.
+const ownSock = () => join(dir, "ep0ch-door", "door.sock");
 
 const cfg = (more: Partial<AgentConfig> = {}): AgentConfig => ({
   pane: "door-claude", name: "door", workspace: "door", cwd: "/tmp/garden", cmd: "door-claude",
@@ -132,7 +135,7 @@ describe("attaching", () => {
   });
 
   test("the pane's EP0CH_CONTROL link points at the attaching door, and can be put back", () => {
-    const link = join(dir, "state", "agent-door-claude.sock");
+    const link = join(dir, "ep0ch-door", "agent-door-claude.sock");
     expect(pointLink(link, "/run/door-a.sock")).toBeNull();
     expect(readlinkSync(link)).toBe("/run/door-a.sock");
     expect(pointLink(link, "/run/door-b.sock")).toBe("/run/door-a.sock");
@@ -146,7 +149,7 @@ describe("attaching", () => {
   });
 
   test("when the attach ends the link is dropped if it's still this door's, and kept if another door took it", () => {
-    const link = join(dir, "state", "agent-door-claude.sock");
+    const link = join(dir, "ep0ch-door", "agent-door-claude.sock");
     pointLink(link, "/run/door-a.sock");
     releaseLink(link, "/run/door-b.sock");
     expect(readlinkSync(link)).toBe("/run/door-a.sock");
@@ -157,7 +160,7 @@ describe("attaching", () => {
 
 describe("the defaults", () => {
   test("door-claude when it's on PATH, else claude; EP0CH_HERDR_AGENT_CMD wins; the folder is EP0CH_DAILY_CWD", () => {
-    const base = { HOME: "/home/someone", PWD: "/somewhere", EP0CH_STATE: "/tmp/door-state" };
+    const base = { HOME: "/home/someone", PWD: "/somewhere" };
     expect(agentConfig(base, c => (c === "door-claude" ? "/bin/door-claude" : null)).cmd).toBe("door-claude");
     expect(agentConfig(base, () => null).cmd).toBe("claude");
     expect(agentConfig({ ...base, EP0CH_HERDR_AGENT_CMD: "claude --model x" }, () => "/x").cmd).toBe("claude --model x");
@@ -170,10 +173,68 @@ describe("the defaults", () => {
   });
 });
 
+describe("a test door never reaches the person's agent pane", () => {
+  const person = { HOME: "/home/someone", PWD: "/somewhere" };
+  test("the person's door (default state, its socket in it) uses door-claude, door and door", () => {
+    expect(doorScope(person)).toBeNull();
+    expect(doorScope({ ...person, EP0CH_STATE: "/home/someone/.local/state/ep0ch-door/", EP0CH_CONTROL: "/home/someone/.local/state/ep0ch-door/door-123.sock" })).toBeNull();
+    expect(doorScope({ ...person, XDG_STATE_HOME: "/x", EP0CH_STATE: "/x/ep0ch-door" })).toBeNull();
+    expect(agentConfig(person, () => null)).toMatchObject({ pane: "door-claude", name: "door", workspace: "door", scope: null });
+  });
+
+  test("its own EP0CH_STATE or EP0CH_CONTROL: every Herdr name carries the state's hash, even an inherited EP0CH_HERDR_PANE", () => {
+    const test1 = agentConfig({ ...person, EP0CH_STATE: "/tmp/claude-1000/t1/s", EP0CH_HERDR_AGENT_CMD: "door-claude" }, () => null);
+    const test2 = agentConfig({ ...person, EP0CH_STATE: "/tmp/claude-1000/t2/s" }, () => null);
+    const ctl = agentConfig({ ...person, EP0CH_CONTROL: "/tmp/claude-1000/t3/door.sock" }, () => null);
+    for (const c of [test1, test2, ctl]) {
+      expect(c.scope).toMatch(/^[0-9a-f]{8}$/);
+      expect(c).toMatchObject({ pane: `door-claude-${c.scope}`, name: `door-${c.scope}`, workspace: `door-${c.scope}` });
+    }
+    expect(new Set([test1.scope, test2.scope, ctl.scope]).size).toBe(3);
+    expect(agentConfig({ ...person, EP0CH_STATE: "/tmp/t", EP0CH_HERDR_PANE: "door-claude" }, () => null).pane).not.toBe("door-claude");
+  });
+
+  test("its own process and its tile agree on the hash: door.sock, door-<pid>.sock or no EP0CH_CONTROL in its state", () => {
+    const st = "/tmp/claude-1000/t9/s";
+    const a = doorScope({ ...person, EP0CH_STATE: st }), b = doorScope({ ...person, EP0CH_STATE: st, EP0CH_CONTROL: `${st}/door.sock` }), c = doorScope({ ...person, EP0CH_STATE: st, EP0CH_CONTROL: `${st}/door-99.sock` });
+    expect(a).not.toBeNull();
+    expect(new Set([a, b, c]).size).toBe(1);
+  });
+
+  test("end to end, by default: a test door starts no Herdr agent at all, and says why", async () => {
+    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
+    const p = Bun.spawn([process.execPath, SCRIPT], {
+      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_HERDR_AGENT_CMD: "echo the person's agent ran", EP0CH_HERDR_BIN: fake },
+      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(code).toBe(1);
+    expect(calls()).toEqual([]);
+    expect(out).toBe("");
+    expect(err).toContain(SCOPED_REFUSAL);
+  });
+
+  test("end to end, asked to (EP0CH_HERDR_SCOPED=1): a test door finds the person's door-claude pane and makes its own instead", async () => {
+    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
+    answer("spaces", { result: { workspaces: [{ workspace_id: "w4", label: "door" }] } });
+    const p = Bun.spawn([process.execPath, SCRIPT], {
+      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_CONTROL: join(dir, "test-door", "door.sock"), EP0CH_HERDR_AGENT_CMD: "door-claude", EP0CH_HERDR_BIN: fake, EP0CH_HERDR_SCOPED: "1" },
+      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(out).not.toContain("term_person");
+    expect(calls().join("\n")).not.toContain("term_person");
+    expect(calls().some(c => c.startsWith("workspace create") && /--label door-[0-9a-f]{8}\b/.test(c))).toBe(true);
+    expect(calls().some(c => /^pane rename w9:p1 door-claude-[0-9a-f]{8}$/.test(c))).toBe(true);
+    expect(out).toContain("attached term_new");
+    expect(err).toContain("its own Herdr pane door-claude-");
+  });
+});
+
 describe("the wrapper, end to end", () => {
   const run = async (env: Record<string, string>) => {
     const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", ...env },
+      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", ...env },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
@@ -183,37 +244,37 @@ describe("the wrapper, end to end", () => {
   test("with Herdr: attaches to the agent's pane without --takeover, and points the link at its door", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
     writeFileSync(join(dir, "named"), "");
-    const r = await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: "/run/this-door.sock" });
+    const r = await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
     expect(r.code).toBe(0);
     expect(r.out).toContain("attached term_agent");
     expect(r.out).not.toContain("--takeover");
     // While attached, the link named this door (the fake attach read it).
-    expect(r.out).toContain("link=/run/this-door.sock");
+    expect(r.out).toContain(`link=${ownSock()}`);
   });
 
   test("detached (or the door went): the link no longer names this door", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
     writeFileSync(join(dir, "named"), "");
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: "/run/this-door.sock" });
-    expect(() => readlinkSync(join(dir, "state", "agent-door-claude.sock"))).toThrow();
+    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
+    expect(() => readlinkSync(join(dir, "ep0ch-door", "agent-door-claude.sock"))).toThrow();
   });
 
   test("refused, with no door having had it before: no link is left pointing at this watching door", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
     writeFileSync(join(dir, "named"), "");
     writeFileSync(join(dir, "busy"), "");
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: "/run/this-door.sock" });
-    expect(() => readlinkSync(join(dir, "state", "agent-door-claude.sock"))).toThrow();
+    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
+    expect(() => readlinkSync(join(dir, "ep0ch-door", "agent-door-claude.sock"))).toThrow();
   });
 
   test("refused because another door has it: the link stays that door's", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
     writeFileSync(join(dir, "named"), "");
     writeFileSync(join(dir, "busy"), "");
-    const link = join(dir, "state", "agent-door-claude.sock");
+    const link = join(dir, "ep0ch-door", "agent-door-claude.sock");
     pointLink(link, "/run/other-door.sock");
     // No terminal here, so the watch ends at once; what matters is where the link points.
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: "/run/this-door.sock" });
+    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
     expect(readlinkSync(link)).toBe("/run/other-door.sock");
   });
 
@@ -226,7 +287,7 @@ describe("the wrapper, end to end", () => {
   test("Herdr can't make the pane: the agent runs in the tile directly, and the tile says why", async () => {
     writeFileSync(join(dir, "nocreate"), "");
     const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", EP0CH_HERDR_BIN: fake },
+      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", EP0CH_HERDR_BIN: fake },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -261,7 +322,7 @@ describe("quitting the door", () => {
     await new Promise<void>(r => server.listen(sock, r));
     try {
       expect(await tellDoor({ EP0CH_CONTROL: sock, EP0CH_TILE: "claude", EP0CH_TILE_ID: "t4" }, "door-claude", "door")).toBe(true);
-      expect(heard[0]).toEqual({ cmd: "act", action: "tile.herdr", args: { pane: "door-claude" }, reader: "t4", as: "door" });
+      expect(heard[0]).toEqual({ cmd: "act", action: "tile.herdr", args: { pane: "door-claude", name: "door" }, reader: "t4", as: "door" });
     } finally { server.close(); }
     expect(await tellDoor({ EP0CH_CONTROL: join(dir, "none.sock"), EP0CH_TILE: "claude" }, "door-claude", "door")).toBe(false);
     expect(await tellDoor({}, "door-claude", "door")).toBe(false);

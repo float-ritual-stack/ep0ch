@@ -491,9 +491,9 @@
       "built": "stateDir, privateDir (the nvim sockets' check, extracted), writeState (temp file and rename), claimState.",
       "refs": [
         { "r": "door", "p": "src/state.ts", "l": 7, "m": "export const stateDir" },
-        { "r": "door", "p": "src/state.ts", "l": 20, "m": "export function privateDir" },
-        { "r": "door", "p": "src/state.ts", "l": 41, "m": "export function writeState" },
-        { "r": "door", "p": "src/state.ts", "l": 60, "m": "export function claimState" }
+        { "r": "door", "p": "src/state.ts", "l": 22, "m": "export function privateDir" },
+        { "r": "door", "p": "src/state.ts", "l": 43, "m": "export function writeState" },
+        { "r": "door", "p": "src/state.ts", "l": 62, "m": "export function claimState" }
       ]
     },
     {
@@ -524,7 +524,7 @@
       "id": "kept.herdr", "name": "Herdr", "group": "kept", "chapter": "terminal", "ladder": "stable", "dependsOn": [],
       "does": "The terminal multiplexer the outliner's panes run in. A Herdr pane outlives the door; the door attaches to it.",
       "built": "Called through its CLI with a timeout.",
-      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 204, "m": "export function herdrRunner" } ]
+      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 232, "m": "export function herdrRunner" } ]
     },
     {
       "id": "door.pty", "name": "Terminal tile", "group": "door", "chapter": "terminal", "ladder": "recognised", "dependsOn": ["kept.xterm", "door.desk"],
@@ -547,12 +547,12 @@
       "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of the host layer's drawer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 310, "m": "export async function main" },
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 228, "m": "export function tellDoor" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 341, "m": "export async function main" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 256, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 67, "m": "\"tile.herdr\": {" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 133, "m": "herdr: { pane: string } | null" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 133, "m": "herdr: { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/dock.ts", "l": 91, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 579, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/dock.ts", "l": 580, "m": "export const DOCK_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1126, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]

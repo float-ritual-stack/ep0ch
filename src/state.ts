@@ -4,7 +4,9 @@ import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, st
 import { join } from "node:path";
 
 // Read at call time so scripts (the snapshot harness) can point it elsewhere first.
-export const stateDir = () => join(process.env.EP0CH_STATE ?? join(process.env.XDG_STATE_HOME ?? join(process.env.HOME!, ".local/state"), "ep0ch-door"));
+export const stateDir = () => join(process.env.EP0CH_STATE ?? defaultStateDir());
+/** The person's own state dir, where a door without EP0CH_STATE keeps everything: $XDG_STATE_HOME/ep0ch-door. */
+export const defaultStateDir = (env: Record<string, string | undefined> = process.env) => join(env.XDG_STATE_HOME ?? join(env.HOME!, ".local/state"), "ep0ch-door");
 
 /**
  * Cached media (converted images). Under the state dir when EP0CH_STATE names one, so a test door writes

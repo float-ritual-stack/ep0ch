@@ -459,6 +459,10 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - It starts `EP0CH_HERDR_AGENT_CMD` there with `exec` (default `door-claude` if it's on PATH, else
     `claude`), so `/exit` ends the pane. Once Herdr detects the agent, the wrapper names it `door`.
   - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
+  - Only your own door uses them: the default state dir with its control socket in it. A door on its own
+    `EP0CH_STATE` or `EP0CH_CONTROL` (a test door, the showcase) starts no Herdr agent and says why; with
+    `EP0CH_HERDR_SCOPED=1` it adds a hash of that state to all three (`door-claude-1a2b3c4d`). Either way it
+    never attaches to, or types into, your `door-claude`.
   - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
     link below (`agent-door-claude.sock.lock`).
 - **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
