@@ -130,7 +130,7 @@ export class PtyPane implements Pane {
    * Set by `tile.herdr`, which scripts/door-agent-herdr.ts calls over the control socket as it attaches (PIE-491:
    * a typed field, not what the program puts in its title); cleared when the program starts again or exits.
    */
-  herdr: { pane: string } | null = null;
+  herdr: { pane: string; name?: string } | null = null;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
   /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */

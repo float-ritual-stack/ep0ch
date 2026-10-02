@@ -1802,11 +1802,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     return { tile: name, chars: text.length };
   }
 
-  herdrTerminal(name: string, p: PtyPane, pane: string | undefined, on: boolean | undefined, _actor: Actor): TileDone {
+  herdrTerminal(name: string, p: PtyPane, pane: string | undefined, on: boolean | undefined, _actor: Actor, agent?: string): TileDone {
     if (on === false) { p.herdr = null; return { tile: name, herdr: null }; }
     if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
     if (!p.running) throw new ActionRefused(`${name}'s program isn't running`);
-    p.herdr = { pane };
+    p.herdr = { pane, ...(agent ? { name: agent } : {}) };
     this.redraw();
     return { tile: name, herdr: p.herdr };
   }

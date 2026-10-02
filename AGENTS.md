@@ -42,7 +42,10 @@ for working in an outline for someone, and `ep0ch` for driving a door.
   `bun src/main.ts act|peek|snap|open|actions` without pointing at your own test door:
   - start the door with `EP0CH_STATE` and `EP0CH_CONTROL` set under a temp directory, and with
     `EP0CH_SOCKET` (or the socket argument) pointing at a scratch service;
-  - pass the same `EP0CH_CONTROL` to every control command.
+  - pass the same `EP0CH_CONTROL` to every control command;
+  - start it through `scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs the agent
+    drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the real-pane
+    recipe in `skills/ep0ch-core/SKILL.md`). Never attach to or type into a Herdr pane you didn't make.
 - `EP0CH_CONTROL` moves the control socket; `EP0CH_STATE` moves everything else the door writes (layouts,
   drafts, marks, `lastcall.json`, snaps, `ctrl+e` files, the media cache, and the default socket). Set both.
   Two doors on one `EP0CH_STATE` share marks, but the desk layout is whichever saves last; the second is warned.
