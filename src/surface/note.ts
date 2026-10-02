@@ -3364,7 +3364,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "back": Record<string, never>;
   "forward": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
-  "comment.write": { body: string };
+  "comment.write": { body: string; invitation?: string; base?: string };
   "comment.send": Record<string, never>;
   "comment.reload": Record<string, never>;
   "comment": { quote: string; body: string; near?: number };
@@ -3379,7 +3379,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "props.edit": { n?: number; key?: string; value: string; revision?: number };
   "props.close": Record<string, never>;
   "props.summary": { keys?: string; toggle?: string; reset?: boolean };
-  "complete": { text?: string; insert?: number };
+  "complete": { text?: string; insert?: number; invitation?: string };
   "folds": Record<string, never>;
   "fold": FoldArgs & { all?: boolean };
   "unfold": FoldArgs & { all?: boolean };
@@ -3591,12 +3591,16 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
-    touches: "draft", draft: "safe", replay: "ask",
+    // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
+    // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
+    touches: "draft", draft: "type", replay: "ask",
+    touchesWith: ({ insert }) => (insert === undefined ? "nothing" : "draft"),
     args: {
       text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
       insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
+      invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up)" },
     },
-    async run({ text, insert }, { surface, host }, actor) {
+    async run({ text, insert, invitation }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
       const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
@@ -3628,6 +3632,11 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (!d || d.busy) throw new ActionRefused(d ? "the save is still landing" : "nothing is being written here");
       try {
         if (!still()) throw new Error("the draft changed while the references were looked up; ask again");
+        if (invitation !== undefined && actor.kind === "agent") {
+          const ds = surface.draftSession();
+          if (!ds || ds.draft !== d) throw new Error("the invitation is for another draft");
+          ds.spend(invitation, actor);
+        }
         if (!await insertCompletion(board, d, target, item, own, still, actor)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
       surface.noteAgent(actor, `inserted ${item.insertion.slice(0, 60)}`);
@@ -3877,13 +3886,25 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "comment.write": {
-    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text", keys: "enter, then typing",
-    touches: "draft", draft: "safe", replay: "ask",
-    args: { body: { type: "string", about: "the comment's text" } },
-    async run({ body }, { surface, host }, actor) {
+    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: "enter, then typing",
+    touches: "draft", draft: "text", replay: "ask",
+    args: {
+      body: { type: "string", about: "the comment's text" },
+      invitation: { type: "string", optional: true, about: "the invitation the person's @name line gave this agent: body replaces the text above that line (one reply)" },
+      base: { type: "string", optional: true, about: "with invitation=: the hash of the text the reply was written on, as the invitation gave it" },
+    },
+    async run({ body, invitation, base }, { surface, host }, actor) {
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
       if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
+      // Invited into the person's comment: the reply seam edits use (DraftSession.reply), compared on the invited range.
+      if (invitation !== undefined && actor.kind === "agent") {
+        if (s.mode !== "compose" || !s.writing) throw new ActionRefused("no comment is being written here to be invited into");
+        if (base === undefined) throw new ActionRefused("invitation= needs base=, the hash of the text the reply was written on");
+        const r = s.writing.reply(invitation, base, body, actor);
+        host.redraw();
+        return { ...r, dirty: s.writing.dirty };
+      }
       // An agent's comment is its own: the person's put-aside text stays put aside.
       if (s.mode === "select") { const why = s.write(actor); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");

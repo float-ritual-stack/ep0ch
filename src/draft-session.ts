@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { subject, type Msg } from "./board";
 import { DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
-import { ActionRefused, agentLabel } from "./surface/actions";
+import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completionKey, type Completer } from "./surface/completer";
 import { stateDir } from "./state";
 import type { Key } from "./term";
@@ -415,6 +415,16 @@ export class DraftSession {
     return { applied: false, suggested: true };
   }
 
+  /**
+   * Use up an invitation for a step it lets an agent take in the person's draft other than a reply to the range
+   * (`complete insert=`, a reference put in at their cursor): checked as a reply is, then spent. One invitation, one step.
+   */
+  spend(invitationId: string, by: Actor): void {
+    const no = agentRefusal(by, this, { invitation: invitationId });
+    if (no) throw new ActionRefused(no);
+    this.invitations.get(invitationId)!.used = true;
+  }
+
   /** The person takes a suggestion (the last, by default): the text above its `@` line becomes it, one undo step. */
   accept(invitationId?: string): boolean {
     const i = invitationId ? this.suggestions.findIndex(x => x.invitation === invitationId) : this.suggestions.length - 1;
@@ -474,7 +484,8 @@ export function recordAs(d: Draft, saver: Actor): Actor {
 /**
  * Whether an agent may do this, and why not. Two cases, one rule: the person's draft is theirs.
  * - In a session (`leave`, or `type`: the draft's own actions): only one the agent opened and alone typed in.
- *   (Replacing the whole text, `edit.text` and `comment.write`, is allowed: the person's is copied out first.)
+ *   (Replacing the whole text, `edit.text` and `comment.write`, is allowed in one the agent opened: text the person
+ *   typed in it since is copied out first. In one the person opened, it's refused: `draftRule`.)
  * - On a block (`{ board, blockId }`): an agent never writes a block someone else has open in a draft here, nor
  *   opens a second draft of it; the write would land underneath them and make their save stale. It patches
  *   their draft instead (`draft.patch`, which reaches it through the hold). `except`: the agent's own session.
@@ -492,9 +503,9 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   if (on instanceof DraftSession) {
     if (!sameParty(on.openedBy, actor)) {
       return op === "leave" ? "the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)"
-        : "this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit, comment.write replaces a comment's text";
+        : "this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
     }
-    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit, comment.write replaces a comment's text";
+    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
     return null;
   }
   const theirs = [...registry(on.board)].find(s => s !== on.except && s.target.blockId === on.blockId && !(sameParty(s.openedBy, actor) && s.draft.writers.every(w => sameParty(w, actor))));
@@ -506,22 +517,37 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
 /**
  * The rule for an action declared `touches: "draft"` (PIE-514), as the dispatcher asks it before the action runs: the
  * rule above, for what the action does (`use`) in a tile that shows `blockId` and holds `session`.
- * - `type`: typing in the tile's draft (draft.*, a passage picked, a reply): only one the agent opened and alone typed in.
+ * - `type`: typing in the tile's draft (draft.*, a passage picked, a reference put in at the cursor by
+ *   `complete insert=`): only one the agent opened and alone typed in.
  * - `leave`: saving, closing or sending it: the same.
  * - `write`: writing the block (an edit opened, a property, a step): never under a draft someone else has open on it
  *   elsewhere (the tile's own is the action's to handle: edit.text replaces it, copying theirs out first).
- * - `safe`: what the session keeps safe itself (comment.write replaces the text, copying theirs out first; draft.undo
- *   takes back only that actor's own patch): allowed.
- * - `replace`: replacing the tile's whole draft (edit.text): only one the agent opened (text someone else typed in it
- *   since is copied out first), and, as `write`, never under a draft someone else has open on the block elsewhere.
- *   The person typing in that tile right now is the actor rule's to refuse (`actorRule`: it knows where they type).
+ * - `safe`: what the session keeps safe itself (draft.undo takes back only that actor's own patch): allowed.
+ * - `text`: replacing the whole text of the tile's draft (comment.write, a comment or reply): only one the agent
+ *   opened (text someone else typed in it since is copied out first). It writes no block, so a note open in an edit
+ *   elsewhere doesn't stop it.
+ * - `replace`: `text`, for a draft that writes the block (edit.text), so also as `write`: never under a draft
+ *   someone else has open on the block elsewhere.
+ * The person typing in that tile right now is the actor rule's to refuse for `text` and `replace` (`actorRule`: it
+ * knows where they type).
+ *
+ * `invitation`: the agent says it was invited (an `@name` line in the person's draft, `DraftSession.invite`), for an
+ * action that takes one (it declares an `invitation` argument and spends it). Into the person's draft, the
+ * invitation is the one way: the session must hold it open for this agent; the action then uses it up.
  */
-export function draftRule(actor: Actor, use: "type" | "leave" | "write" | "safe" | "replace", at: { board?: object | null; blockId?: string | null; session?: DraftSession | null }): string | null {
+export function draftRule(actor: Actor, use: DraftUse, at: { board?: object | null; blockId?: string | null; session?: DraftSession | null }, how: { invitation?: string } = {}): string | null {
   if (actor.kind !== "agent") return null;
-  if (use === "type" || use === "leave") return at.session ? agentRefusal(actor, at.session, { op: use }) : null;
-  if (use === "replace" && at.session && at.session.open && !sameParty(at.session.openedBy, actor)) {
-    return `${at.session.openedBy.kind === "user" ? "the person has this note open in an edit here" : `${agentLabel(at.session.openedBy)} has this note open in an edit here`}; an agent doesn't replace their draft · draft.patch lands in it, or comment on the note or block.mark it to get their attention`;
+  if (how.invitation !== undefined && (use === "type" || use === "text" || use === "replace")) {
+    return at.session?.open ? agentRefusal(actor, at.session, { invitation: how.invitation }) : `nothing is being written here to be invited into (invitation ${how.invitation})`;
   }
+  if (use === "type" || use === "leave") return at.session ? agentRefusal(actor, at.session, { op: use }) : null;
+  if ((use === "replace" || use === "text") && at.session && at.session.open && !sameParty(at.session.openedBy, actor)) {
+    const s = at.session, who = s.openedBy.kind === "user" ? "the person" : agentLabel(s.openedBy);
+    return s.target.blockId
+      ? `${who} has this note open in an edit here; an agent doesn't replace their draft · draft.patch lands in it, or comment on the note or block.mark it to get their attention`
+      : `${who} is writing ${s.target.what} here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @${actor.id} line in it invites one reply)`;
+  }
+  if (use === "text") return null;
   if (use === "replace") use = "write";
   if (use === "write" && at.blockId) return agentRefusal(actor, { board: at.board, blockId: at.blockId, ...(at.session ? { except: at.session } : {}) });
   return null;

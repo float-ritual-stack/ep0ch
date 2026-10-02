@@ -143,6 +143,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   tile?: { name: string; label?: string } | null;
   /** The draft rule's answer for that tile (asked only for `touches: "draft"`). */
   draft?: () => string | null;
+  /** The agent says it was invited into the draft (`invitation=`, for an action that takes one): the draft rule checks it. */
+  invited?: boolean;
 }): string | null {
   if (actor.kind !== "agent") return null;
   if (def.person) return def.person;
@@ -150,9 +152,11 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
     case "nothing": case "shape": return null;
     case "draft": {
       // Replacing a tile's whole draft: never under the person's keys while they type there (the draft rule says
-      // whose the draft is).
+      // whose the draft is), unless they invited it (their `@name` line: the draft rule checks the invitation).
       const t = at.tile;
-      if (def.draft === "replace" && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · draft.patch lands in their draft, or comment on the note or block.mark it to get their attention`;
+      if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
+        return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
+      }
       return at.draft?.() ?? null;
     }
     case "tile": {
@@ -339,7 +343,9 @@ export class Dispatcher {
     // What the def sees: coerced from the wire and mapped from an alias (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
     const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
-    const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null) });
+    // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
+    const invitation = reg.set.argsOf(req.action)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
+    const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
     if (no) throw new ActionRefused(no);
     const ctx = this.host.ctx();
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
@@ -360,8 +366,9 @@ export class Dispatcher {
   private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }
 
   /** What the draft rule says for a `draft` action, about the draft it would write. */
-  private draftAnswer(def: ActionDef<unknown, unknown>, actor: Actor, d: DraftAt | null): string | null {
-    return d ? draftRule(actor, def.draft ?? "write", d) : null;
+  private draftAnswer(def: ActionDef<unknown, unknown>, actor: Actor, d: DraftAt | null, invitation?: string): string | null {
+    if (!d) return invitation !== undefined && actor.kind === "agent" ? `nothing is being written here to be invited into (invitation ${invitation})` : null;
+    return draftRule(actor, def.draft ?? "write", d, invitation !== undefined ? { invitation } : {});
   }
 
   /** Arguments that name a tile (`to=`), read with `tile=`'s grammar: the action gets the tile's name. */

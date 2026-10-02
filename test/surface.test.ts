@@ -210,25 +210,48 @@ describe("the surface without a service", () => {
     expect([s.draft?.propertyWarned, updates]).toEqual([null, []]);
   });
 
-  test("an agent writing a comment keeps the person's unsent text, and waits while a send is out", () => withState(async () => {
+  test("an agent never replaces a comment the person is writing: refused while they type, and while they don't (round 3, deferred)", () => withState(async () => {
     const h = host();
     const s = new NoteSurface();
     s.show(note("Water\nwater the ferns"), h);
     s.session = new CommentSession(s.msg!, [], "select");
     s.session.write();
     for (const c of "Mine: daily?") s.key(char(c), h);
-    const r: any = await s.act("comment.write", { body: "Twice a week is enough." }, h, AGENT);
-    expect(readFileSync(r.keptYourDraftAt, "utf8")).toBe("Mine: daily?\n");
-    expect(s.session.composer!.text).toBe("Twice a week is enough.");
-    expect(s.render(400, 12, h).lines.join("\n")).toContain(r.keptYourDraftAt);
-    // The agent's own text again: nothing of anyone else's to keep.
-    expect(await s.act("comment.write", { body: "Twice a week." }, h, AGENT)).toEqual({ dirty: true });
-    s.session.busy = "sending the comment...";
     const act = async (name: string, args: Record<string, unknown>) => s.act(name, args, h, AGENT);
-    await expect(act("comment.write", { body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
+    // Typed in: refused before anything runs, their text and cursor as they were.
+    await expect(act("comment.write", { body: "Twice a week is enough." })).rejects.toThrow("the person is typing in reader; an agent doesn't replace their text · block.mark gets their attention");
+    expect([s.session.composer!.text, s.session.composer!.row, s.session.composer!.col, s.session.composer!.note]).toEqual(["Mine: daily?", 0, 12, ""]);
+    // Theirs while they aren't typing in it too: the draft rule says whose it is, and names the way in.
+    expect(draftRule(AGENT, "text", { session: s.session.writing })).toBe(`the person is writing the comment on “Water” here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @claude-7 line in it invites one reply)`);
     // Picking a passage in it is typing in the person's comment: the draft rule refuses it before anything runs.
-    await expect(act("comment", { quote: "ferns", body: "Replaced mid-send" })).rejects.toThrow("this draft is the person's");
-    expect(s.session.composer!.text).toBe("Twice a week.");
+    await expect(act("comment", { quote: "ferns", body: "Replaced" })).rejects.toThrow("this draft is the person's");
+    expect(s.session.composer!.text).toBe("Mine: daily?");
+  }));
+
+  test("invited by the person's @name line, an agent's comment.write rewrites the text above it, once; nothing else opens", () => withState(async () => {
+    const h = host();
+    const s = new NoteSurface();
+    s.show(note("Water\nwater the ferns"), h);
+    s.session = new CommentSession(s.msg!, [], "select");
+    s.session.write();
+    for (const c of "how often, daily") s.key(char(c), h);
+    s.key({ kind: "enter" }, h);
+    for (const c of "@claude-7 tidy") s.key(char(c), h);
+    const c = s.session.composer!, at = [c.row, c.col];
+    const act = async (args: Record<string, unknown>) => s.act("comment.write", { body: "How often: daily?", ...args }, h, AGENT);
+    // No invitation yet, a made-up one, or one without the base it was written on: refused, their text as it was.
+    await expect(act({ invitation: "inv-made-up", base: "0" })).rejects.toThrow("no open invitation inv-made-up for claude-7");
+    const inv = s.session.writing!.invite("claude-7")!;
+    await expect(act({ invitation: inv.id })).rejects.toThrow("invitation= needs base=");
+    await expect(s.act("comment.write", { body: "x", invitation: inv.id, base: inv.base }, h, { kind: "agent", id: "other-agent" })).rejects.toThrow(`no open invitation ${inv.id} for other-agent`);
+    // edit.text takes no invitation: an invitation= sent with it opens nothing.
+    await expect(s.act("edit.text", { text: "x", invitation: inv.id }, h, AGENT)).rejects.toThrow("edit.text takes no invitation");
+    expect(c.text).toBe("how often, daily\n@claude-7 tidy");
+    // Invited: the range above the line is rewritten, the line and the cursor's place in it kept; one reply.
+    expect(await act({ invitation: inv.id, base: inv.base })).toEqual({ applied: true, dirty: true });
+    expect(c.text).toBe("How often: daily?\n@claude-7 tidy");
+    expect([c.row, c.col]).toEqual(at);
+    await expect(act({ invitation: inv.id, base: inv.base })).rejects.toThrow(`no open invitation ${inv.id}`);
   }));
 
   test("once an agent has typed, the person's later typing is still theirs: kept before an agent replaces it", () => withState(() => {
@@ -407,6 +430,45 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     return { id: m.id as string, pane, reader };
   };
   const type = (s: string) => { for (const c of s) key(char(c)); };
+
+  test("an agent acts while the person types a comment, then an edit: comment.write and complete insert= are refused, said, and nothing of theirs moves (round 3, deferred)", async () => {
+    const { pane, reader } = await openFresh("Stake the raspberries\nAlong the north wall.");
+    // The person's comment: C picks a passage, enter writes under it, then they type.
+    key(char("C"));
+    await until(() => pane.session?.mode === "select" && !pane.session.busy, "the passage picker");
+    key({ kind: "enter" });
+    await until(() => pane.session?.mode === "compose", "the comment");
+    type("Which canes?");
+    const c = pane.session!.composer!;
+    const theirs = () => ({ text: c.text, cursor: [c.row, c.col], focus: BV.where(b), mode: pane.session?.mode });
+    const was = theirs();
+    expect(was.text).toBe("Which canes?");
+    await expect(act("comment.write", { body: "Tie them in pairs." }, reader)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · block.mark gets their attention/);
+    expect(message()).toContain("comment.write refused: the person is typing in");
+    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    expect(message()).toContain("complete refused: this draft is the person's");
+    expect(theirs()).toEqual(was);
+    expect(c.writers.map(w => w.kind)).toEqual(["user"]);
+    key({ kind: "esc" }); key({ kind: "esc" });                               // put aside as unsent, as esc twice does
+    await until(() => pane.session?.mode !== "compose", "the comment put aside");
+    if (pane.session) key({ kind: "esc" });                                   // and back out of the passage picker
+    await until(() => !pane.session, "the comment session closed");
+
+    // The person's edit: e, then typing a reference the agent could complete.
+    key(char("e"));
+    await until(() => !!pane.draft, "the person's edit");
+    key({ kind: "end" }); type(" see ((Stake the");
+    const d = pane.draft!;
+    const editing = () => ({ text: d.text, cursor: [d.row, d.col], focus: BV.where(b) });
+    const before = editing();
+    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    await expect(act("edit.text", { text: "Stake the raspberries\nTie them in pairs." }, reader)).rejects.toThrow(/the person is typing in/);
+    // A lookup only reads: the agent may still ask what the popup would offer.
+    expect(await act("complete", {}, reader)).toMatchObject({ kind: expect.any(String) });
+    expect(editing()).toEqual(before);
+    expect(d.writers.map(w => w.kind)).toEqual(["user"]);
+    expect(await mine("edit.close", { discard: true }, reader)).toMatchObject({ closed: true });
+  });
 
   test("an agent's own edit the person entered and types in: edit.text is refused while they type", async () => {
     const { pane, reader } = await openFresh("Water the ferns\nTwice a week.");
