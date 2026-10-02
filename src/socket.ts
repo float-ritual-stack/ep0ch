@@ -1264,6 +1264,12 @@ export class SocketBoard implements Board {
     };
   }
 
+  /** The draft of `blockId` this connection holds on the service: `holdId` once the service granted it, else null while asking. Null when none. */
+  heldDraft(blockId: string): { holdId: string | null } | null {
+    const h = this.drafts.get(blockId);
+    return h && !h.gone ? { holdId: h.holdId } : null;
+  }
+
   /**
    * Tell the service the person typed in a held draft (`drafts.touch`, pi-herdr-outliner PIE-510): it reads the
    * draft back (a `draft` event of kind `read`) and runs a request line written there once quiet. A hold that

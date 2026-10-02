@@ -149,15 +149,15 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     // Without priority, arc and track the allocator can't make it: refused before any write, text kept.
     type("Oil the hinges\nThe back door squeaks.");
     ctrl("s");
-    await until(() => B().composer?.draft.note.startsWith("not created"), "the refusal");
-    expect(B().composer.draft.note).toContain("not created: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text");
-    expect(B().composer.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
+    await until(() => B().composer?.session.draft.note.startsWith("not created"), "the refusal");
+    expect(B().composer.session.draft.note).toContain("not created: Queued makes roadmap items through the workboard's allocator, which needs priority, arc and a track: add [priority::high|medium|low] [arc::…] [track::…] to the text");
+    expect(B().composer.session.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
     // Esc, esc puts it aside (never lost), and n in the same lane brings it back to finish (PIE-496).
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(message()).toContain("put aside as unsent · n in Queued brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
-    expect(B().composer.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
+    expect(B().composer.session.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
     press({ kind: "up" }); press({ kind: "end" });
     type(" [priority::medium] [arc::home] [track::doors]");
     ctrl("s");
@@ -206,9 +206,9 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.needs).toEqual(["(project=pi-outliner OR project=ep0ch-door)"]);
     type("Replace the doormat [priority::low] [arc::home] [track::doors]");
     ctrl("s");
-    await until(() => B().composer?.draft.note.startsWith("not created"), "the refusal");
-    expect(B().composer.draft.note).toContain("not created: Doing makes roadmap items through the workboard's allocator, which needs project: add [project::…] to the text");
-    expect(B().composer.draft.text).toBe("Replace the doormat [priority::low] [arc::home] [track::doors]");   // kept
+    await until(() => B().composer?.session.draft.note.startsWith("not created"), "the refusal");
+    expect(B().composer.session.draft.note).toContain("not created: Doing makes roadmap items through the workboard's allocator, which needs project: add [project::…] to the text");
+    expect(B().composer.session.draft.text).toBe("Replace the doormat [priority::low] [arc::home] [track::doors]");   // kept
     type(" [project::pi-outliner]");
     ctrl("s");
     await until(() => !B().composer, "the create");
@@ -287,7 +287,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     type("Paint the railings");
     // An agent can't close it: it's the person's.
     await expect(act("composer.leave", {})).rejects.toThrow("the person's");
-    expect(B().composer.draft.text).toBe("Paint the railings");
+    expect(B().composer.session.draft.text).toBe("Paint the railings");
     // A click outside it leaves it as unsent (never created: creating is ctrl+s), and n brings it back.
     const before = (await board.children(queue.id)).length;
     // A cell of another lane, outside the composer, as drawn now. A click finds what the last paint placed, and
@@ -305,11 +305,11 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     BV.at(b, "lanes"); B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
-    expect(B().composer.draft.text).toBe("Paint the railings");
+    expect(B().composer.session.draft.text).toBe("Paint the railings");
     type(" too");
     const r: any = await act("card.create", { lane: "Doing", text: "Sweep the chimney [project::ep0ch-door] [priority::high] [arc::home] [track::roof]" });
     expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: `agent ${AS}` });
-    expect(B().composer.draft.text).toBe("Paint the railings too");
+    expect(B().composer.session.draft.text).toBe("Paint the railings too");
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     expect(message()).toBe(`an agent (${AS}) · created ${r.workId} in Doing · Sweep the chimney · priority=high arc=home track=roof project=ep0ch-door`);
     press({ kind: "esc" });
@@ -320,7 +320,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(message()).toContain("put aside as unsent · n in Doing brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
-    expect(B().composer.draft.text).toBe("Paint the railings too");
+    expect(B().composer.session.draft.text).toBe("Paint the railings too");
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().composer).toBeNull();
     expect(message()).toContain("dropped the unsent draft · a copy stays at");
@@ -333,13 +333,13 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const before = await current(cards.kettle.id);
     press({ kind: "char", ch: "n" });
     type("Level the Hedge, then mend it");                                  // L, H, e, m, d: all board keys
-    expect(B().composer.draft.text).toBe("Level the Hedge, then mend it");
+    expect(B().composer.session.draft.text).toBe("Level the Hedge, then mend it");
     expect(B().details.some((d: any) => d.editing) || B().preview.editing).toBe(false);
     expect(B().mover).toBeNull();
     press({ kind: "esc" }); press({ kind: "esc" });
     press({ kind: "char", ch: "N" });
     type("Hmm, descale it monthly");
-    expect(B().composer.draft.text).toBe("Hmm, descale it monthly");
+    expect(B().composer.session.draft.text).toBe("Hmm, descale it monthly");
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().composer).toBeNull();
     await Bun.sleep(300);

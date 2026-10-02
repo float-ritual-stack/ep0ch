@@ -29,8 +29,10 @@ import { clone, columnsOf, drawerOf, drawerToEdge, insert, normalise, unwrapDraw
 import { TILE_ACTIONS, type TileDone } from "./tile-actions";
 import { TREE_ACTIONS } from "./tree";
 import { shellKeyOf } from "../shell-keys";
-import { Draft, DRAFT_ACTIONS, tidy } from "../edit";
+import { DRAFT_ACTIONS } from "../edit";
+import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
+import { completerFor, completerOf } from "../surface/completer";
 import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { findBoards, hubViews, laneTileName, QueryPane } from "./query";
@@ -529,7 +531,7 @@ export class DeliveryBoard extends Desk {
     }, 150);
   }
 
-  override unsaved() { return super.unsaved() || !!this.composer?.draft.dirty; }
+  override unsaved() { return super.unsaved() || !!this.composer?.session.dirty; }
   /**
    * Screen.holdsKeys: the person's keys are the board's own business right now: the desk's (an edit, a comment
    * or the property panel they're in, a filter, a ^W command), a new card or note being written, the mover or
@@ -541,7 +543,7 @@ export class DeliveryBoard extends Desk {
   }
   override keepDrafts() {
     const c = this.composer;
-    return [...super.keepDrafts(), ...(c?.draft.dirty ? [c.draft.keep()] : [])];
+    return [...super.keepDrafts(), ...(c?.session.dirty ? [c.session.keep()] : [])];
   }
   override dispose() { if (this.reload) clearTimeout(this.reload); return super.dispose(); }
 
@@ -1004,7 +1006,7 @@ export class DeliveryBoard extends Desk {
       layout: { tree: super.describe().tree, floats: this.floats.map(f => ({ pane: this.nameOf(f.id), rect: { ...f.rect } })) },
       backlinks: links ? { from: L.source, pinned: this.linksPinned, ...L.describe() } : null,
       moving: this.moving, lastMove: this.lastMove,
-      composer: this.composer ? { kind: this.composer.kind, ...(this.composer.kind === "card" ? { lane: this.composer.lane.name, bornWith: this.composer.born, needs: this.composer.needs, parent: this.composer.parent } : { parent: brief(this.composer.parent) }), dirty: this.composer.draft.dirty, note: this.composer.draft.note || null } : null,
+      composer: this.composer ? { kind: this.composer.kind, ...(this.composer.kind === "card" ? { lane: this.composer.lane.name, bornWith: this.composer.born, needs: this.composer.needs, parent: this.composer.parent } : { parent: brief(this.composer.parent) }), dirty: this.composer.session.dirty, note: this.composer.session.draft.note || null } : null,
       steps: this.steps ? { card: brief(this.steps.card), revision: this.steps.read?.revision ?? null, selected: this.steps.sel + 1, items: this.steps.read?.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), id: it.itemId ?? null })) ?? null, note: this.steps.note || null } : null,
       agentSelected: Object.fromEntries(this.agentCards),
       trashArmed: this.trashArm?.id ?? null, trashed: this.trashed, lastWrite: this.lastWrite,
@@ -1286,8 +1288,8 @@ export class DeliveryBoard extends Desk {
     if (this.moving) return "another move is still landing";
     // An open draft of this card keeps it where it is: the draft's base revision would go stale under
     // it. Saving or closing the edit first lets the revision checks decide in order.
-    const r = this.readers().find(p => p.draft?.blockId === card.id);
-    if (r) return `it's open for editing${r.draft!.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
+    const r = openDraftOf(this.ctx.board, card.id);
+    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
     // A comment names the revision its passage was read at; a write under it would make the send fail.
     const c = this.readers().find(p => p.session?.blockId === card.id);
     if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · send (ctrl+s) or close (esc) the comment first`;
@@ -1448,10 +1450,9 @@ export class DeliveryBoard extends Desk {
     if (!lane || this.composer) return;
     // Open now, so what's typed next is the card's text; what the lane gives it is filled in when the
     // service's plan arrives. A lane that can't define a card says why, and the text is kept.
-    const C0: Composer = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, draft: new Draft(`new-${slug(lane.name)}`, 0, "") };
-    // A new card put aside in this lane (esc twice, the board closed) comes back.
-    C0.draft.shelf = { key: `card:${lane.name}`, back: `n in ${lane.name} brings it back`, label: `new-card-${slug(lane.name)}` };
-    C0.draft.restore();
+    // A new card put aside in this lane (esc twice, the board closed) comes back (the card adapter's place).
+    const session = this.openComposer(cardTarget({ kind: "card", lane: lane.name, create: (text, by) => BOARD_ACTIONS.run("card.create", { lane: lane.name, text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { b: this }, by) }));
+    const C0: Composer = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, session };
     this.composer = C0;
     this.redraw();
     this.cardPlan(lane).then(plan => {
@@ -1462,13 +1463,13 @@ export class DeliveryBoard extends Desk {
       if (pick) this.ctx.board.get(pick.id).then(parent => {
         if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
         if (parent) C0.parent.title = titleOf(parent);
-        else C0.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+        else C0.session.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
         this.redraw();
       }, () => {});
     }, (e: Error) => {
       if (this.composer !== C0 || C0.kind !== "card") return;
-      C0.planning = false; C0.draft.note = `not created: can't create in ${lane.name}: ${e.message}`;
-      if (!C0.draft.dirty) this.composer = null;                     // nothing typed yet: nothing to keep
+      C0.planning = false; C0.session.draft.note = `not created: can't create in ${lane.name}: ${e.message}`;
+      if (!C0.session.dirty) { C0.session.close(); this.composer = null; }   // nothing typed yet: nothing to keep
       this.ctx.flash(`can't create in ${lane.name}: ${e.message}`);
       this.redraw();
     });
@@ -1479,64 +1480,67 @@ export class DeliveryBoard extends Desk {
     const card = this.card();
     if (!card) return this.ctx.flash("select a card to add a note under");
     if (this.composer) return;
-    this.composer = { kind: "child", parent: card, draft: new Draft(`new-under-${card.id.slice(0, 8)}`, 0, "") };
-    this.composer.draft.shelf = { key: `child:${card.id}`, back: "N on the card brings it back", label: `new-note-${card.id.slice(0, 8)}` };
-    this.composer.draft.restore();
+    const session = this.openComposer(cardTarget({ kind: "child", parent: card, create: (text, by) => BOARD_ACTIONS.run("note.create", { text, parent: card.id }, { b: this }, by) }));
+    this.composer = { kind: "child", parent: card, session };
     this.redraw();
   }
 
+  /** The composer's draft session (the card adapter): it ends by itself once created, closed or put aside. */
+  private openComposer(target: ReturnType<typeof cardTarget>): DraftSession {
+    const s: DraftSession = DraftSession.open(target, {}, { redraw: () => this.redraw(), closed: () => { if (this.composer?.session === s) this.composer = null; }, said: m => this.ctx.flash(m, 8000) });
+    return s;
+  }
+
+  /** A key in the composer: typing is its draft's; what ends it runs the board's action, as a click would. */
   private composerKey(k: Key) {
-    const C0 = this.composer!, d = C0.draft;
-    if (d.busy) return;
-    const a = d.key(k);
-    if (a === "save") void this.submitComposer();
-    else if (a === "editor") openInEditor(this.ctx, d);
-    // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
-    else if (a === "copy") void runAsPerson(DRAFT_ACTIONS, "draft.copy", {}, d, m => this.ctx.flash(m)).then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
-    else if (a === "close") { this.composer = null; if (d.closedWith) this.ctx.flash(d.closedWith, 8000); }
+    const s = this.composer!.session;
+    // Reference completion ([[ (( [file::), as in every draft: the editing component's, from this board's connection.
+    s.key(k, { completer: completerFor(s.draft, this.ctx.board, () => this.redraw()), run: cmd => this.composerCommand(cmd) });
     this.redraw();
+  }
+
+  private composerCommand(cmd: DraftCommand) {
+    const C0 = this.composer!, d = C0.session.draft;
+    if (cmd === "save") void this.submitComposer();
+    else if (cmd === "editor") openInEditor(this.ctx, d);
+    // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
+    else if (cmd === "copy") void runAsPerson(DRAFT_ACTIONS, "draft.copy", {}, d, m => this.ctx.flash(m)).then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
+    // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
+    else if (cmd === "close" || cmd === "discard") void runAsPerson(BOARD_ACTIONS, "composer.close", cmd === "discard" ? { discard: true } : {}, { b: this }, m => this.ctx.flash(m));
   }
 
   /**
-   * The person leaves the new card or note they're writing by a click outside it: it's never created
-   * (ctrl+s creates), and typed text is put aside as unsent where n or N brings it back.
+   * The person leaves the new card or note they're writing (a click outside it, or esc twice): its session
+   * leaves (never created: ctrl+s creates), and typed text is put aside as unsent where n or N brings it back.
    */
-  leaveComposer(): { left: "nothing" | "creating" | "closed" } | { left: "kept"; keptAt: string; said: string } {
+  async leaveComposer(): Promise<LeaveResult> {
     const C0 = this.composer;
     if (!C0) return { left: "nothing" };
-    const d = C0.draft;
-    if (d.busy) return { left: "creating" };
-    this.composer = null;
+    const r = await C0.session.leave(USER);
     this.redraw();
-    if (!d.dirty) return { left: "closed" };
-    const keptAt = d.keep();
-    const what = C0.kind === "card" ? `the new card in ${C0.lane.name}` : `the new note under “${titleOf(C0.parent).slice(0, 40)}”`;
-    const said = `${what} was kept as unsent, not created · ${d.shelf?.back ?? `a copy is at ${tidy(keptAt)}`}`;
-    this.ctx.flash(said, 8000);
-    return { left: "kept", keptAt, said };
+    return r;
   }
 
-  /** Ctrl+S in the composer: create it. A refusal keeps the text, says why, and copies it to disk. */
+  /** Close the new card or note (esc): unchanged, it goes; typed text only with `discard`, put aside as unsent. */
+  closeComposer(discard: boolean, actor: Actor): { closed: boolean; keptAt?: string; said?: string } {
+    const C0 = this.composer;
+    if (!C0) return { closed: false };
+    if (C0.session.dirty && !discard) throw new ActionRefused("there's typed text; ctrl+s creates it, discard=true puts it aside as unsent");
+    if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
+    const r = C0.session.close(discard);
+    if (r.said) this.ctx.flash(r.said, 8000);
+    this.redraw();
+    return r;
+  }
+
+  /** Ctrl+S in the composer: create it (the card adapter, through card.create or note.create). A refusal keeps the text, says why, and copies it to disk. */
   private async submitComposer() {
     const C0 = this.composer;
     if (!C0) return;
-    const d = C0.draft;
-    const by = d.recordAs(USER);
-    d.saving = true; d.note = "creating…"; this.redraw();
-    try {
-      // The same actions an agent creates with: card.create, note.create.
-      if (C0.kind === "card") await BOARD_ACTIONS.run("card.create", { lane: C0.lane.name, text: d.text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { b: this }, by);
-      else await BOARD_ACTIONS.run("note.create", { text: d.text, parent: C0.parent.id }, { b: this }, by);
-      if (this.composer === C0) this.composer = null;
-    } catch (e) {
-      d.saving = false;
-      const why = e instanceof Error ? e.message : String(e);
-      d.note = `not created: ${why}${d.dirty ? ` · your text is kept (and copied to ${d.copyOut(C0.kind === "card" ? `new-card-${slug(C0.lane.name)}` : `new-note-${C0.parent.id.slice(0, 8)}`)})` : ""}`;
-      this.ctx.flash(`not created: ${why}`);
-    } finally {
-      d.saving = false;
-      this.redraw();
-    }
+    this.redraw();
+    const r = await C0.session.submit(USER);
+    if (!r.ok) this.ctx.flash(r.why);
+    this.redraw();
   }
 
   /**
@@ -1835,7 +1839,7 @@ export class DeliveryBoard extends Desk {
       return paint(say);
     }
     if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched");
-    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
+    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
     if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read");
     return null;
   }
@@ -1890,10 +1894,12 @@ export class DeliveryBoard extends Desk {
       if (k.kind !== "mouse") { this.composerKey(k); return true; }
       // The wheel scrolls it, a click places the cursor, a drag selects. A click outside it puts it aside as
       // unsent (composer.leave: never created, n brings it back) and does what it does on the board.
-      const d = this.composer.draft, r = this.composerAt;
-      if (k.action === "wheel-up" || k.action === "wheel-down") { void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1) }, d, USER); this.redraw(); return true; }
+      const d = this.composer.session.draft, r = this.composerAt;
+      const pop = completerOf(d)?.shown ? completerOf(d) : null;
+      if (k.action === "wheel-up" || k.action === "wheel-down") { if (pop) pop.move(k.action === "wheel-down" ? 1 : -1); else void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1) }, d, USER); this.redraw(); return true; }
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
+      if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1)) { this.redraw(); return true; }
       if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) { this.redraw(); return true; }
       if (k.action !== "down" || inside) return true;
       if (d.busy) { this.ctx.flash("the new card is being created · wait for it"); return true; }
@@ -2103,7 +2109,7 @@ export class DeliveryBoard extends Desk {
   }
 
   private drawComposer(canvas: Canvas, W: number, H: number) {
-    const C0 = this.composer!, d = C0.draft;
+    const C0 = this.composer!, d = C0.session.draft;
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
     const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${titleOf(C0.parent, 40)}`;
@@ -2163,8 +2169,8 @@ const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] 
 const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
 
 type Composer =
-  | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; draft: Draft }
-  | { kind: "child"; parent: Msg; draft: Draft };
+  | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession }
+  | { kind: "child"; parent: Msg; session: DraftSession };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
 /** A step's first line, without its list mark, checkbox and ^id. */
@@ -2200,6 +2206,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "card.trash": { confirm?: string; card?: string };
   "card.restore": { id?: string };
   "composer.leave": Record<string, never>;
+  "composer.close": { discard?: boolean };
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
@@ -2277,6 +2284,12 @@ export const BOARD_ACTIONS = new ActionSet<{
       if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
       return b.leaveComposer();
     },
+  },
+  "composer.close": {
+    summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",
+    keys: "esc (twice with typed text)",
+    args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
+    run: ({ discard }, { b }, actor) => b.closeComposer(!!discard, actor),
   },
   "card.create": {
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",

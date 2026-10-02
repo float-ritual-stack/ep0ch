@@ -1,12 +1,12 @@
 // PIE-496: the shared draft writes nested lists comfortably. Enter keeps the level, Tab and Shift+Tab move
-// it, long lines wrap at words under the item's text, the wheel scrolls without moving the cursor, a click
-// places it, and no way out of a draft loses the text. Pure model tests: no service, no terminal; the
+// it, long lines wrap at words under the item's text, the wheel scrolls without moving the cursor, and a click
+// places it (no way out of a draft loses the text: test/draft-session.test.ts). Pure model tests: no service, no terminal; the
 // state dir is a temp dir (test/preload.ts and EP0CH_STATE below).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Draft, DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, listLead, shelve, unsent, unsentAll, wrapRows } from "../src/edit";
+import { Draft, DRAFT_ACTIONS, listLead, wrapRows } from "../src/edit";
 import { pasteKeys } from "../src/term";
 import { editHint, renderEditor } from "../src/surface/editor";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -210,64 +210,6 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
   });
 });
 
-describe("no way out of a draft loses its text", () => {
-  test("esc twice puts the draft aside as unsent, with a copy; opening it again brings it back", () => {
-    const d = new Draft("comment", 0, "");
-    d.shelf = { key: "comment:note-lantern", back: "C brings it back", label: "lantern-comment" };
-    type(d, "- keep the brass ones");
-    expect(d.key({ kind: "esc" })).toBe("keep");
-    expect(d.note).toContain("puts it aside");
-    expect(d.key({ kind: "esc" })).toBe("close");
-    expect(d.closedWith).toContain("put aside as unsent · C brings it back");
-    const u = unsent("comment:note-lantern")!;
-    expect(u.text).toBe("- keep the brass ones");
-    expect(readFileSync(u.copy!, "utf8")).toBe("- keep the brass ones\n");
-    const again = new Draft("comment", 0, "");
-    again.shelf = { key: "comment:note-lantern", back: "C brings it back" };
-    expect(again.restore()).toBe(true);
-    expect(again.text).toBe("- keep the brass ones");
-    expect(unsent("comment:note-lantern")).toBeNull();
-    // Esc twice on the brought-back text, unchanged: it's dropped, and its copy still says where.
-    again.key({ kind: "esc" }); expect(again.note).toContain("drops");
-    again.key({ kind: "esc" });
-    expect(again.closedWith).toContain("dropped the unsent draft · a copy stays at");
-    expect(unsentAll().some(x => x.key === "comment:note-lantern")).toBe(false);
-  });
-  test("an edit put aside on an older revision isn't laid over the newer note; it says where the copy is", () => {
-    const d = new Draft("note-a", 3, "Title\nold body");
-    d.shelf = { key: "edit:note-a", back: "e brings it back" };
-    type(d, " more");
-    d.key({ kind: "esc" }); d.key({ kind: "esc" });
-    const u = unsent("edit:note-a")!;
-    expect(existsSync(u.copy!)).toBe(true);
-    const newer = new Draft("note-a", 4, "Title\nnew body");
-    newer.shelf = { key: "edit:note-a", back: "e brings it back" };
-    expect(newer.restore()).toBe(false);
-    expect(newer.text).toBe("Title\nnew body");
-    expect(newer.note).toContain(u.copy!);
-  });
-  test("a screen closing or the door quitting keeps the draft the same way", () => {
-    const d = new Draft("note-b", 1, "x");
-    d.shelf = { key: "edit:note-b", back: "e brings it back" };
-    type(d, "y");
-    const copy = d.keep();
-    expect(unsent("edit:note-b")?.copy).toBe(copy);
-  });
-});
-
-describe("agents", () => {
-  test("an agent can indent in a draft it alone writes, never in the person's", async () => {
-    const mine = at_end("- a\n- b");
-    mine.openedBy = AGENT; mine.wrote(AGENT);
-    await DRAFT_ACTIONS.runUntyped("draft.indent", { from: 2 }, mine, AGENT);
-    expect(mine.lines[1]).toBe("  - b");
-    const theirs = at_end("- a\n- b");
-    type(theirs, "!");
-    expect(() => DRAFT_ACTIONS.runUntyped("draft.indent", { from: 2 }, theirs, AGENT)).toThrow("the person's");
-    expect(theirs.lines[1]).toBe("- b!");
-  });
-});
-
 describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
   const TEXT = "Lantern workshop\nWhat it needs before Saturday.";
   const msg = (text = TEXT) => ({ id: "0a1b2c3d-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 5, props: {} });
@@ -330,7 +272,7 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
 
 // Review of PIE-496: paste through the App's key path, agents and the person's put-aside text, the
 // unsent index's bound.
-describe("review: nothing reformatted, nothing mixed up, nothing unbounded", () => {
+describe("review: nothing reformatted", () => {
   test("a bracketed paste typed out as keys by the App is never reformatted", () => {
     const d = new Draft("n1", 1, "");
     const text = "- - [ ] the list, quoted\n1. 2. 3. counting\n\t- tabbed";
@@ -342,64 +284,6 @@ describe("review: nothing reformatted, nothing mixed up, nothing unbounded", () 
     expect(c.lines).toEqual(["- a", "- b"]);
   });
 
-  test("an agent's own draft is only copied when it's put aside: the person's C never brings it back as theirs", () => {
-    const key = "comment:note-rope";
-    const a = new Draft("comment", 0, "");
-    a.shelf = { key, back: "C brings it back" };
-    a.replace("- the agent's summary", AGENT);
-    const copy = a.keep();
-    expect(readFileSync(copy, "utf8")).toBe("- the agent's summary\n");
-    expect(unsent(key)).toBeNull();
-    const mine = new Draft("comment", 0, "");
-    mine.shelf = { key, back: "C brings it back" };
-    expect(mine.restore()).toBe(false);
-    expect(mine.text).toBe("");
-  });
-
-  test("an agent's draft put aside never covers the person's put-aside text", () => {
-    const key = "edit:note-tarp";
-    const p = new Draft("note-tarp", 2, "Tarp");
-    p.shelf = { key, back: "e brings it back" };
-    type(p, " and pegs");
-    p.keep();
-    const a = new Draft("note-tarp", 2, "Tarp");
-    a.shelf = { key, back: "e brings it back" };
-    a.replace("Tarp, by the agent", AGENT);
-    a.keep();
-    expect(unsent(key)?.text).toBe("Tarp and pegs");
-  });
-
-  test("text brought back keeps who wrote it: a save names the agent that had a hand in it", () => {
-    const key = "edit:note-lamp";
-    const d = new Draft("note-lamp", 1, "Lamp");
-    d.shelf = { key, back: "e brings it back" };
-    type(d, " oil");
-    d.replace(`${d.text}\n- wick, from the agent`, AGENT);
-    d.keep();
-    const again = new Draft("note-lamp", 1, "Lamp");
-    again.shelf = { key, back: "e brings it back" };
-    expect(again.restore()).toBe(true);
-    expect(again.writers.map(w => w.kind)).toEqual(["user", "agent"]);
-    expect(again.recordAs(USER)).toEqual({ kind: "user", with: [AGENT.id] } as Actor);
-  });
-
-  test("the unsent index is bounded like the draft copies: old entries past the newest DRAFT_KEEP go", () => {
-    const old = Date.now() - (DRAFT_DAYS + 5) * 86_400_000;
-    for (let i = 0; i < DRAFT_KEEP + 10; i++) {
-      const d = new Draft(`n${i}`, 1, "");
-      d.shelf = { key: `edit:bulk-${i}`, back: "e" };
-      type(d, `text ${i}`);
-      shelve(`edit:bulk-${i}`, d, null, old + i);
-    }
-    const fresh = new Draft("fresh", 1, "");
-    fresh.shelf = { key: "edit:bulk-fresh", back: "e" };
-    type(fresh, "today");
-    fresh.keep();
-    const all = unsentAll();
-    expect(all.length).toBe(DRAFT_KEEP);
-    expect(all[0]!.key).toBe("edit:bulk-fresh");
-    expect(all.some(u => u.key === "edit:bulk-0")).toBe(false);
-  });
 });
 
 describe("review: an agent never moves the person's draft", () => {
