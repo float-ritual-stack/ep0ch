@@ -7,7 +7,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setupCommand, withoutProgress } from "../src/setup/apply";
-import { run } from "../src/setup/facts";
+import { drain, run } from "../src/setup/facts";
 import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SPINNER, spinnerFor, type Terminal } from "../src/setup/progress";
 import { visible, width } from "../src/style";
 
@@ -263,4 +263,17 @@ test("closing after an exception out of a step: its line ends as ✗, the timer 
 test("a failed step's error is git's, not the progress lines before it", () => {
   expect(withoutProgress("remote: Enumerating objects: 5, done.\nReceiving objects:  45% (9/20)\rReceiving objects: 100% (20/20), done.\nfatal: Not possible to fast-forward, aborting."))
     .toBe("remote: Enumerating objects: 5, done.\nfatal: Not possible to fast-forward, aborting.");
+});
+
+test("drain: lines split across chunks (a \\r\\n, a multibyte glyph) arrive whole; a fragment only when there's nothing else", async () => {
+  const bytes = new TextEncoder().encode("Cloning ✓ done\r\nReceiving objects:  45%\rReceiving");
+  const cut = [0, 10, 15, 17, 39, bytes.length]; // inside ✓ (bytes 8-10), between \r and \n, mid-word
+  const stream = new ReadableStream<Uint8Array>({ start(c) { for (let i = 1; i < cut.length; i++) c.enqueue(bytes.slice(cut[i - 1], cut[i])); c.close(); } });
+  const seen: string[] = [];
+  const all = await drain(stream, l => seen.push(l));
+  expect(all).toBe("Cloning ✓ done\r\nReceiving objects:  45%\rReceiving");
+  expect(seen[0]).toBe("Cloning "); // the first chunk is all there is so far: its fragment, never half a glyph
+  expect(seen).toContain("Cloning ✓ done");
+  expect(seen.at(-1)).toBe("Receiving objects:  45%");
+  expect(seen.every(l => !l.includes("�"))).toBe(true);
 });

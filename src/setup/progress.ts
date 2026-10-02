@@ -5,7 +5,7 @@
 // lines as before, no escapes. With --json: nothing (the JSON is the output).
 import { kittyHint } from "../kitty";
 import { C, fg, headOf, RESET, width } from "../style";
-import { printable } from "../text";
+import { paintable, printable } from "../text";
 
 type Env = Record<string, string | undefined>;
 
@@ -18,7 +18,7 @@ export type ProgressMode = "live" | "plain" | "quiet";
 export function progressMode(o: { json: boolean; terminal?: Terminal; env: Env }): ProgressMode {
   if (o.json) return "quiet";
   // A dumb terminal can't move the cursor; CI logs keep every byte.
-  if (!o.terminal?.isTTY || o.env.TERM === "dumb" || o.env.CI) return "plain";
+  if (!o.terminal?.isTTY || o.env.TERM === "dumb" || (o.env.CI && !/^(false|0)$/i.test(o.env.CI))) return "plain";
   return "live";
 }
 
@@ -211,7 +211,8 @@ export class Progress {
    */
   private over(lines: string[], end: "" | "\n"): string {
     const up = this.drawn > 1 ? `\x1b[${this.drawn - 1}A` : "";
-    return `${this.drawn ? `${up}\r` : ""}${lines.map(l => `${l}\x1b[K`).join("\n")}${end}${lines.length < this.drawn ? "\x1b[J" : ""}`;
+    // Only the reporter's own colours reach the terminal: a why or a said line can carry a child's error text.
+    return `${this.drawn ? `${up}\r` : ""}${lines.map(l => `${paintable(l)}\x1b[K`).join("\n")}${end}${lines.length < this.drawn ? "\x1b[J" : ""}`;
   }
 
   /** The region's rows emptied, the cursor back on its first: what's printed next takes its place. */

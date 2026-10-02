@@ -235,7 +235,8 @@ macOS and Linux alike:
                                      also restart per-folder services running old code
 
 `doctor` marks each piece ✓ current, ! behind, ✗ missing, ? couldn't be checked (a `git fetch` that failed
-or timed out after 90s: never ✓ on an old fetch), and · for information:
+or timed out after 90s, or a source `git ls-remote` couldn't reach: never ✓ on an old fetch, and doctor
+exits 1), and · for information:
 
 - **bun**: its path and version.
 - **the plugin**: linked (a checkout: its commit against `origin/main`, after a `git fetch`) or managed

@@ -338,9 +338,9 @@ describe("the doctor", () => {
     expect(text).toContain("1 couldn't be checked (? above); the rest is current");
   });
 
-  test("a managed install that can't be compared says so, without failing", () => {
+  test("a managed install that can't be compared says so: it couldn't be checked, not current", () => {
     const c = byName(laptop({ plugin: { ...laptop().plugin!, remote: { commit: null, error: "offline" } } }));
-    expect(c["plugin/installed"]!.status).toBe("info");
+    expect(c["plugin/installed"]!.status).toBe("unknown");
     expect(c["plugin/installed"]!.detail).toContain("managed, cannot compare");
   });
 

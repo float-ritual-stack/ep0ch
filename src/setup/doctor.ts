@@ -32,8 +32,10 @@ export function doctorChecks(f: Facts): Check[] {
   const p = f.plugin;
   if (!p) add("plugin", PLUGIN_ID, "missing", plugin.why, plugin.commands[0]);
   else {
+    // A managed install whose source couldn't be reached (ls-remote failed) isn't known to be current either.
+    const unreachable = p.kind === "github" && !!p.source?.commit && !p.remote?.commit && !!p.remote?.error && p.remote.error !== "not fetched";
     const how = p.kind === "local" ? `linked checkout ${p.root}` : `managed install ${p.root}`;
-    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : plugin.unchecked ? "unknown" : p.kind === "github" && !p.remote?.commit ? "info" : "behind";
+    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : plugin.unchecked || unreachable ? "unknown" : p.kind === "github" && !p.remote?.commit ? "info" : "behind";
     const commit = p.kind === "local" ? (p.checkout?.head ? ` at ${short(p.checkout.head)}${p.checkout.branch ? ` on ${p.checkout.branch}` : ""}` : "") : p.source?.commit ? ` at ${short(p.source.commit)}` : "";
     add("plugin", "installed", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" || plugin.unchecked ? undefined : plugin.commands.filter(c => !c.includes("# when")).join(" && ") || "ep0ch install --apply");
     add("plugin", "protocol", p.protocol === null ? "missing" : "info",

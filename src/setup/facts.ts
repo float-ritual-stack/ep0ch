@@ -40,7 +40,8 @@ export async function drain(stream: ReadableStream<Uint8Array>, onLine?: OnLine)
     all += text;
     const parts = (partial + text).split(/\r\n|\r|\n/);
     partial = parts.pop()!;
-    const last = [partial, ...parts.reverse()].find(l => l.trim());
+    // The last whole line; an unfinished one only when there is nothing else (a prompt, a line still coming).
+    const last = [...parts.reverse(), partial].find(l => l.trim());
     if (last) onLine(last);
   }
   return all + decoder.decode();
