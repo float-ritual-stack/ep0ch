@@ -365,8 +365,9 @@ export class DraftSession {
   // ── invitations: an `@name` line asks one agent for one range ─────────────
 
   /**
-   * The person's `@agent` line (the last one in the draft) invites that agent to rewrite the text above it,
-   * once. Null when the draft has no such line or nothing above it. The person keeps typing: nothing blocks.
+   * The person's `@agent` line (the last one in the draft) invites that agent to one step in their draft: a reply
+   * that rewrites the text above the line (`reply`, `comment.write invitation=`), or one reference put in at their
+   * cursor (`complete insert= invitation=`, `spend`), once. Null when the draft has no such line or nothing above it. The person keeps typing: nothing blocks.
    */
   invite(agent: string): Invitation | null {
     const d = this.draft, name = agent.replace(/^@/, "");
@@ -394,9 +395,7 @@ export class DraftSession {
    * it). Refused without the invitation, from another agent, or a second time: an invitation is one reply.
    */
   reply(invitationId: string, base: string, replacement: string, by: Actor): ReplyResult {
-    const no = agentRefusal(by, this, { invitation: invitationId });
-    if (no) throw new ActionRefused(no);
-    const inv = this.invitations.get(invitationId)!;
+    const inv = this.invited(invitationId, by);
     if (base !== inv.base) throw new ActionRefused("the reply names another base than the invitation's; it was written on other text");
     inv.used = true;
     const d = this.draft, mark = markStart(d.text, inv.mark);
@@ -420,9 +419,16 @@ export class DraftSession {
    * (`complete insert=`, a reference put in at their cursor): checked as a reply is, then spent. One invitation, one step.
    */
   spend(invitationId: string, by: Actor): void {
+    this.invited(invitationId, by).used = true;
+  }
+
+  /** The invitation `id`, open to `by` (the agent rule's check; for the person, only that it's open), or refused. */
+  private invited(invitationId: string, by: Actor): Invitation {
     const no = agentRefusal(by, this, { invitation: invitationId });
     if (no) throw new ActionRefused(no);
-    this.invitations.get(invitationId)!.used = true;
+    const inv = this.invitations.get(invitationId);
+    if (!inv || inv.used) throw new ActionRefused(`no open invitation ${invitationId} in this draft`);
+    return inv;
   }
 
   /** The person takes a suggestion (the last, by default): the text above its `@` line becomes it, one undo step. */

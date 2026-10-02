@@ -426,6 +426,23 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.lines.at(-1)).toBe("so see [file::notes/pl");                // untouched: nothing spliced at the old span
     expect(e.d.writers.map(w => w.kind)).not.toContain("agent");
     expect(e.s.draftSession()!.invitation(inv.id, "claude-7")).not.toBeNull(); // nothing put in: the invitation isn't used up
+
+    // The same while the reference is checked with the service (inside the insert): nothing spliced, nothing spent.
+    e.press(K("end")); e.type("x [[HOME");
+    await e.settled();
+    e.press(K("esc"));
+    const checking = new Proxy(board, {
+      get(t, p) {
+        if (p === "blockContext") return async (id: string) => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.blockContext(id); };
+        const v = (t as any)[p];
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+    const line = () => e.d.lines.at(-1);
+    await expect(e.s.act("complete", { insert: 1, invitation: inv.id }, { ...e.h, ctx: { ...e.h.ctx, board: checking } } as SurfaceHost, AGENT)).rejects.toThrow("the draft changed while the reference was checked");
+    expect(line()).toStartWith("so so see");
+    expect(e.d.writers.map(w => w.kind)).not.toContain("agent");
+    expect(e.s.draftSession()!.invitation(inv.id, "claude-7")).not.toBeNull();
   });
 });
 

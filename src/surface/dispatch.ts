@@ -367,7 +367,7 @@ export class Dispatcher {
 
   /** What the draft rule says for a `draft` action, about the draft it would write. */
   private draftAnswer(def: ActionDef<unknown, unknown>, actor: Actor, d: DraftAt | null, invitation?: string): string | null {
-    if (!d) return invitation !== undefined && actor.kind === "agent" ? `nothing is being written here to be invited into (invitation ${invitation})` : null;
+    if (!d) return invitation !== undefined ? draftRule(actor, def.draft ?? "write", {}, { invitation }) : null;
     return draftRule(actor, def.draft ?? "write", d, invitation !== undefined ? { invitation } : {});
   }
 

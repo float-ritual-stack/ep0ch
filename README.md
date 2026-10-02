@@ -1409,7 +1409,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
 | `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes its embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
-| `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (`invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
+| `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
 | `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
@@ -1465,7 +1465,7 @@ another note, a draft or comment it typed says so in its frame, and its writes a
 yours: it would take over your terminal. `peek` shows the last agent action per reader.
 
 **Nobody's text is lost.** Each draft and comment remembers who changed it last; every keystroke of yours
-makes that you. An agent's `edit.text` or `comment.write` never replaces an edit or comment you opened, and never one you're typing in, and its `complete insert=` never types at your cursor; when
+makes that you. An agent's `edit.text` or `comment.write` never replaces an edit or comment you opened, and never one you're typing in, and its `complete insert=` never types at your cursor, unless an `@name` line of yours invites it (one step); when
 it replaces text someone else changed last in its own edit or comment (your typing there, or another agent's),
 that text is copied to `drafts/` first, the draft says where, and the action answers `keptYourDraftAt`. While a save is checking properties or landing, or a comment is
 sending, the draft holds still: keys wait and an agent's `edit.text`, `edit.close`, `edit.reload` and

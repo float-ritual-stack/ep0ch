@@ -106,7 +106,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
  * named address still names that note, the note isn't gone, the fragment is still there once. Throws
  * with the reason (and changes nothing) when it doesn't.
  */
-export async function insertCompletion(board: CompletionBoard, d: Draft, target: CompletionTarget, item: CompletionItem, own: OwnNote | undefined, still: () => boolean, by: Actor = USER): Promise<boolean> {
+export async function insertCompletion(board: CompletionBoard, d: Draft, target: CompletionTarget, item: CompletionItem, own: OwnNote | undefined, still: () => boolean, by: Actor = USER, commit?: () => void): Promise<boolean> {
   if (item.blockId) {
     if (item.address) {
       const r = await board.completePages(item.address, COMPLETION_LIMIT);
@@ -131,6 +131,8 @@ export async function insertCompletion(board: CompletionBoard, d: Draft, target:
       if (written.fragmentId !== item.fragmentId) throw new Error("that heading changed; search again");
     }
   }
+  // Right before the splice, with no wait between: what the insert uses up (an invitation) is spent only when it lands.
+  commit?.();
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by);
   return true;
 }

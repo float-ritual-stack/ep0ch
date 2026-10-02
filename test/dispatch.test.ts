@@ -152,7 +152,9 @@ describe("the draft rule, for the person's draft and an agent's (round 3, deferr
   test("each use × whose draft: the person's is theirs, an agent's own is its own, an invitation is the one way in", () => {
     const sessions: DraftSession[] = [];
     const s = <T extends DraftSession>(x: T) => { sessions.push(x); return x; };
-    const theirs = s(comment(USER)), ours = s(comment(AGENT)), their = s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000a")), elsewhere = s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000b"));
+    // Open with no connection: the person's edit of …0b is in the same (loose) registry the rule asks.
+    const theirs = s(comment(USER)), ours = s(comment(AGENT)), their = s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000a"));
+    s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000b"));
     const invited = s(comment(USER));
     invited.draft.replace("Leeks in March?\n@table-agent-514", USER);
     const inv = invited.invite("table-agent-514")!;
@@ -180,7 +182,6 @@ describe("the draft rule, for the person's draft and an agent's (round 3, deferr
       return (want === null ? got === null : !!got && want.test(got)) ? [] : [`${what}: wanted ${want ?? "it to run"}, got ${got ?? "it runs"}`];
     });
     expect(bad).toEqual([]);
-    void elsewhere;
     for (const x of sessions) x.dispose();
   });
 

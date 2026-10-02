@@ -965,7 +965,7 @@ export class MessageReader implements Screen {
   /** Screen.keys: the one reader has the person's focus; they type in it while it holds their keys. */
   keys() {
     const busy = this.holdsKeys();
-    return { focus: READER, typingIn: busy ? READER : null, busy, ...(busy ? { why: `the person is in ${this.personIn()} on the ${this.title}` } : {}) };
+    return { focus: READER, typingIn: this.surface.personHolds || this.surface.choosing ? READER : null, busy, ...(busy ? { why: `the person is in ${this.personIn()} on the ${this.title}` } : {}) };
   }
 
   describe() {

@@ -228,6 +228,25 @@ describe("the surface without a service", () => {
     expect(s.session.composer!.text).toBe("Mine: daily?");
   }));
 
+  test("an agent's own comment in a reader on its own, step by step: its to write until the person types in it", () => withState(async () => {
+    const h = host();
+    Object.assign(h.ctx.board, { get: async () => note("Water\nwater the ferns") });
+    const s = new NoteSurface();
+    s.show(note("Water\nwater the ferns"), h);
+    const act = async (name: string, args: Record<string, unknown>) => s.act(name, args, h, AGENT);
+    await act("passage.select", { quote: "ferns" });
+    expect(s.session?.startedBy).toEqual(AGENT);
+    expect(await act("comment.write", { body: "Twice a week?" })).toEqual({ dirty: true });
+    expect(await act("comment.write", { body: "Twice a week." })).toEqual({ dirty: true });
+    s.session!.busy = "sending the comment...";
+    await expect(act("comment.write", { body: "Replaced mid-send" })).rejects.toThrow("wait: sending the comment");
+    s.session!.busy = null;
+    // The person types in it: theirs now, while they type.
+    s.key({ kind: "end" }, h); s.key(char("!"), h);
+    await expect(act("comment.write", { body: "Daily." })).rejects.toThrow("the person is typing in reader");
+    expect(s.session!.composer!.text).toBe("Twice a week.!");
+  }));
+
   test("invited by the person's @name line, an agent's comment.write rewrites the text above it, once; nothing else opens", () => withState(async () => {
     const h = host();
     const s = new NoteSurface();
