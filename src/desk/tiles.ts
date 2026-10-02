@@ -1,6 +1,6 @@
 // Tiles and named layouts (PIE-413, PIE-474). A tile is a view in the layout tree: the outline tree, a
 // reader that follows the current note, a detail that keeps its note, a preview following a tile or a
-// file, a program in a terminal, a whole screen (board, river, brief), and the desk's other panes. A
+// file, a program in a terminal, a whole screen (board, river), the brief, and the desk's other panes. A
 // layout is the tree of splits and tab sets over tiles, with each tile's name, where its opens land (its
 // link), whether it slides over as a drawer, and the layout's open rule. It is data: saved by name in the
 // door's state (layouts.json), restored with one key or `act layout.restore name=…`.
@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
-import { leaf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
+import { leaf, serializeTree, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
@@ -58,6 +58,10 @@ export interface TileSpec {
   view?: string;
   /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
   collapsed?: true;
+  /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
+  label?: string;
+  /** A backlinks tile whose groups start open (the welcome's). */
+  groups?: "open";
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
@@ -245,7 +249,7 @@ export { isTileKind };
 
 /** A reader that keeps its note: opened on purpose, the current note never moves it (the board's detail). */
 export class DetailPane extends ReaderPane {
-  override readonly kind = "detail" as const;
+  override readonly kind: TileKindName = "detail";
   /** The note it should show once the desk can read it (a restored layout). */
   want: string | null = null;
   /** The page it's pinned to, if any: it shows that page each time it starts, not the last note it held. */
@@ -253,7 +257,7 @@ export class DetailPane extends ReaderPane {
   constructor() { super(true); this.holdOn(); }
   override title(): string { return this.msg ? "detail" : "detail · empty"; }
   override select() {}
-  spec() { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
+  spec(): Record<string, unknown> { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
 }
 
 export const shell = () => process.env.SHELL || "sh";
@@ -277,6 +281,8 @@ export function dailyDraft(): string {
 }
 
 const T = (kind: TileKindName, name: string, more: Partial<TileSpec> = {}): LNode<TileSpec> => leaf({ t: "leaf", kind, name, ...more });
+/** A tree of tile specs as a layout saves it (a spec built in code: the board's, the built-in layouts). */
+export const savedTree = (n: LNode<TileSpec>): SavedTree => serializeTree(n, l => l) as SavedTree;
 
 /**
  * The built-in layouts, as trees of tile specs:
@@ -290,7 +296,7 @@ const T = (kind: TileKindName, name: string, more: Partial<TileSpec> = {}): LNod
  * - `desk`: the desk as it has always opened.
  */
 export function builtin(name: string): LayoutSpec | null {
-  const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : n.t === "drawer" ? { t: "drawer", edge: n.edge, open: n.open, kid: serial(n.kid) as NaryForm<TileSpec> } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
+  const serial = savedTree;
   if (name === "daily") {
     const draft = dailyDraft();
     return {

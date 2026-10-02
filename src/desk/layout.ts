@@ -50,8 +50,9 @@ export interface Policy {
   opensInto?: string;
   /**
    * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
-   * opens-into says: the current note (`current`), or a new column right after the tile's own in its flow
-   * (`next`, a flow's own rule when it says none).
+   * opens-into says: the current note (`current`), a new column right after the tile's own in its flow (`next`, a
+   * flow's own rule when it says none), or a reader beside the tile, which stays on its own note (`beside`, PIE-515:
+   * a pinned page, the brief).
    */
   opens?: OpenRule;
   /**
@@ -63,8 +64,8 @@ export interface Policy {
 }
 /** Where the host layer may appear over a screen. */
 export type HostMode = "beside" | "over" | "none";
-/** Where an open with no link lands: the current note, or the next column of the flow it's in. */
-export type OpenRule = "current" | "next";
+/** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
+export type OpenRule = "current" | "next" | "beside";
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host"] as const;
 
 export type Split<I = number> = {
@@ -244,9 +245,20 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   // off the screen while there's a cell for it.
   fit(fixed, Math.max(0, S - Math.min(open.length, S)));
   fit(mins, Math.max(0, S - fixed.reduce<number>((a, f) => a + (f ?? 0), 0)), open);
-  const flex = [...open].reverse().find(i => { const k = n.kids[i]!; return !(k.t === "leaf" && opts.sized?.(k.id)); }) ?? open.at(-1);
-  const room = S - fixed.reduce<number>((a, f) => a + (f ?? 0), 0);
-  const wsum = open.reduce((a, i) => a + n.weights[i]!, 0) || 1;
+  let room = S - fixed.reduce<number>((a, f) => a + (f ?? 0), 0);
+  // A kid held to its `max` gives the rest of its share back to the others by their weights (not all of it to the
+  // last one): the welcome's list at its 30 columns leaves the detail and the preview their proportions. One kid is
+  // left to take what rounding leaves (the flex), never one held to its max while another can.
+  const capped = new Set<number>();
+  for (let again = true; again;) {
+    again = false;
+    const free = open.filter(i => !capped.has(i));
+    const w = free.reduce((a, i) => a + n.weights[i]!, 0) || 1;
+    for (const i of free) if (free.length > 1 && maxs[i] !== undefined && (room * n.weights[i]!) / w > maxs[i]!) { capped.add(i); room -= maxs[i]!; again = true; break; }
+  }
+  const flexible = open.filter(i => !capped.has(i));
+  const flex = [...flexible].reverse().find(i => { const k = n.kids[i]!; return !(k.t === "leaf" && opts.sized?.(k.id)); }) ?? flexible.at(-1) ?? open.at(-1);
+  const wsum = open.filter(i => !capped.has(i)).reduce((a, i) => a + n.weights[i]!, 0) || 1;
   const need = (i: number) => fixed[i] ?? mins[i]!;
   const sizes: (number | null)[] = n.kids.map((_, i) => fixed[i] ?? null);
   let used = fixed.reduce<number>((a, f) => a + (f ?? 0), 0);
@@ -254,7 +266,7 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
     if (i === flex) continue;
     const later = open.filter(j => j !== i && sizes[j] === null).reduce((a, j) => a + need(j), 0);
     const hi = S - used - later;
-    const size = Math.max(mins[i]!, Math.min(hi, maxs[i] ?? Infinity, Math.round((room * n.weights[i]!) / wsum)));
+    const size = Math.max(mins[i]!, Math.min(hi, maxs[i] ?? Infinity, capped.has(i) ? maxs[i]! : Math.round((room * n.weights[i]!) / wsum)));
     sizes[i] = size; used += size;
   }
   if (flex !== undefined) sizes[flex] = Math.max(0, S - used);
@@ -890,7 +902,7 @@ export function policyOf(x: unknown): Policy {
   for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
-  if (o.opens === "current" || o.opens === "next") out.opens = o.opens;
+  if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
   return out;
 }

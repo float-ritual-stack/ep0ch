@@ -33,6 +33,7 @@
     "PIE-494": "review cleanup: portability defaults, terminal-tile fidelity, docs that are wrong, CI (wave 4)",
     "PIE-423": "attention marks in the service: marks.* and change-feed events",
     "PIE-418": "a session daemon: shell state and scrollback outlive a terminal",
+    "PIE-412": "screens stored as notes in the outline (gap 4): a screen spec read from a note, with revision checks",
     "service track": "the decision log's service track: tree.search as the one search, outlines.resolve, shared marks"
   },
   "findings": [
@@ -108,7 +109,7 @@
     { "id": "actions", "title": "The action registry", "lede": "An action is an ActionDef in an ActionSet: typed arguments, an actor, a refusal with a reason. The desk and the BBS shell run their keys through it. The board and the river still match keys in place, and ActionDef.keys is a caption, not a binding." },
     { "id": "layout", "title": "The layout tree and tiles", "lede": "The desk is a tree of splits, tab sets and tiles, each with a stable id, and a revision any agent can check with expected=. The algebra is pure and shared; the host around it is still the desk's own." },
     { "id": "terminal", "title": "Terminal tiles and Herdr", "lede": "A tile can run a program: a pty from Bun, the screen through @xterm/headless. An agent that must outlive the door runs in a Herdr pane the tile attaches to. Every exit goes through one teardown." },
-    { "id": "screens", "title": "Screens as presets", "lede": "The goal: every screen is a preset of the layout tree. Today the brief, Waiting and the welcome are Desk subclasses, the board is its own host on the tree's algebra, and the river and the BBS screens are outside the tree." },
+    { "id": "screens", "title": "Screens as specs", "lede": "Every screen is a spec on the one screen host, the desk: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land, all plain data. The desk, the welcome, the brief, Waiting and a pinned page are specs; the board is still a Desk subclass and the river its own strip until the rest of PIE-515; the BBS screens are outside the tree."},
     { "id": "agents", "title": "Agents via act and peek", "lede": "A second actor drives the door over its control socket: peek and snap to see, act to do, subscribe for the live feed. An agent's action is attributed and never takes the person's focus, selection or keys." },
     { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and component renderers in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
   ],
@@ -334,9 +335,9 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 174, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 141, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 460, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 465, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 506, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 765, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 786, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" },
@@ -348,10 +349,10 @@
       "does": "screen.open, screen.back, screen.list on every screen; list.select, list.open, list.read on the BBS lists; screen.shell drops to the person's login shell (the menu's !, the desk's ^W !) and the door comes back where it was, an agent's refused. Esc never logs off; q is back below the menu. An agent can't move the person's screen while they type.",
       "built": "SHELL_ACTIONS and LIST_ACTIONS in screens.ts; the menu's letters, Enter and clicks run them; the App's dispatcher holds the shell's set (a screen's own action of the same name first); a move of the person's screen declares touches: screen, and the actor rule guards it (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 420, "m": "export const SHELL_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 591, "m": "export const LIST_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 418, "m": "export const SHELL_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 598, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 141, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 469, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 474, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 44, "m": "export async function runLoginShell" }
       ]
     },
@@ -360,8 +361,8 @@
       "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in river.ts), each screen with its own priority order.",
       "refs": [
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 2024, "m": "if (c === \"m\") { this.openMover(); return true; }" },
-        { "r": "door", "p": "src/screens.ts", "l": 41, "m": "const isBack" }
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 2030, "m": "if (c === \"m\") { this.openMover(); return true; }" },
+        { "r": "door", "p": "src/screens.ts", "l": 39, "m": "const isBack" }
       ],
       "questions": [
         { "text": "No keymap: share the outliner's keybindings.json shape, with scopes and collision checks.", "finding": "C-F10", "route": "PIE-492" },
@@ -373,7 +374,7 @@
       "id": "door.hits", "name": "Hit-testing", "group": "door", "chapter": "actions", "ladder": "accidental", "dependsOn": ["kept.terminal"],
       "does": "What the mouse is over, turned into a key or an action.",
       "built": "Ten private maps. Pointer on the BBS screens is the right shape: a spot sends a key back through key(), so click and key are one path.",
-      "refs": [ { "r": "door", "p": "src/screens.ts", "l": 62, "m": "class Pointer" } ],
+      "refs": [ { "r": "door", "p": "src/screens.ts", "l": 60, "m": "class Pointer" } ],
       "questions": [
         { "text": "One hit map instead of ten.", "finding": "C-F8", "route": "PIE-492" },
         { "text": "The right button is the left button: context menus from the pane's actions.", "finding": "C-F5", "route": "PIE-492" }
@@ -411,17 +412,17 @@
       "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, drawers, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
       "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, landing); layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 250, "m": "export function apply" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 47, "m": "export interface LayoutState" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 128, "m": "export type Op<" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 222, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 319, "m": "export function landing" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 107, "m": "export type LNode" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 93, "m": "export type Drawer" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 85, "m": "export type Columns" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 100, "m": "export type Flow" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 252, "m": "export function apply" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 49, "m": "export interface LayoutState" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 130, "m": "export type Op<" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 224, "m": "export function init" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 321, "m": "export function landing" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 108, "m": "export type LNode" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 94, "m": "export type Drawer" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 86, "m": "export type Columns" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 101, "m": "export type Flow" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 28, "m": "export interface Policy" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 765, "m": "export function effective" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 777, "m": "export function effective" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 42, "m": "export function squeeze" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 78, "m": "export function placeFlow" },
         { "r": "door", "p": "src/desk/drop.ts", "l": 39, "m": "export function dropAt" }
@@ -432,8 +433,8 @@
       "does": "Every split (s<n>), tab set (g<n>), drawer (d<n>), columns (c<n>), flow (f<n>) and tile (t<n>) keeps an id through moves and saves; the layout has a revision. An agent's expected=<rev> is refused, with nothing done, when the person changed the layout meanwhile.",
       "built": "The ids live on the LNode tree; the screen-layout module gives them and moves the revision on a change of shape, in every operation; layout.resize takes split=<id>.",
       "refs": [
-        { "r": "door", "p": "src/desk/layout.ts", "l": 78, "m": "id?: string" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 238, "m": "export function revisionRefusal" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 79, "m": "id?: string" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 240, "m": "export function revisionRefusal" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 120, "m": "\"layout.resize\"" }
       ]
     },
@@ -442,12 +443,12 @@
       "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, drawers, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 67, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 255, "m": "protected apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 231, "m": "protected layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 861, "m": "protected cmd(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 481, "m": "protected async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2131, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 71, "m": "export class Desk" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 253, "m": "protected apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 229, "m": "protected layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 884, "m": "protected cmd(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 482, "m": "protected async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2202, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 97, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 288, "m": "\"tile.widen\": {" }
       ],
@@ -457,14 +458,14 @@
     },
     {
       "id": "door.tilekinds", "name": "Tile kinds", "group": "door", "chapter": "layout", "ladder": "provisional", "was": "accidental", "dependsOn": [],
-      "does": "What a tile can show: tree, reader, detail, preview, pty, thread, activity, who, art, query (a saved view's cards: a board lane), board, river, brief, backlinks, and any kind an extension registers; and where a container's tiles come from (a tile source: hub:<id>, a hub's views).",
+      "does": "What a tile can show: tree, reader, detail, preview, pty, thread, activity, who, art, query (a saved view's cards: a board lane), board, river, brief (its own reader since PIE-515), welcome.list, welcome.detail, welcome.preview, waiting, pinned, backlinks, and any kind an extension registers; and where a container's tiles come from (a tile source: hub:<id>, a hub's views).",
       "built": "An open registry (PIE-505): one TileKind entry per kind (make, ^W o keys, actions, default policy, accepts, save, revive, holdsWork, shows, follows, start, describe, view, previewSource). The built-ins register at startup; serviceKind makes an entry whose tile the service draws. Tile sources register the same way (PIE-511: tiles, affects, key); the desk fills columns from them and keeps each tile by its key. The desk never switches on a kind's name. A source says what a tile dropped on its columns does (drop, #105).",
       "refs": [
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 37, "m": "export interface TileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 108, "m": "export function registerTileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 180, "m": "export interface TileSource" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 192, "m": "readonly drop?: string;" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 288, "m": "export function serviceKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 39, "m": "export interface TileKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 126, "m": "export function registerTileKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 198, "m": "export interface TileSource" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 210, "m": "readonly drop?: string;" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 306, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 87, "m": "export class QueryPane" },
         { "r": "door", "p": "src/desk/query.ts", "l": 67, "m": "export const HUB_SOURCE" },
         { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 173, "m": "export function registerBuiltinTiles" }
@@ -478,10 +479,10 @@
       "does": "A layout saved by name (daily, river, your own), restored with its tiles, links and ids.",
       "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, DeskPreset (code), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
       "refs": [
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 74, "m": "export interface LayoutSpec" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 173, "m": "export function withoutAgentTile" },
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 63, "m": "interface Saved" },
-        { "r": "door", "p": "src/river/river.ts", "l": 209, "m": "river.json" }
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 78, "m": "export interface LayoutSpec" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 177, "m": "export function withoutAgentTile" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 64, "m": "interface Saved" },
+        { "r": "door", "p": "src/river/river.ts", "l": 210, "m": "river.json" }
       ],
       "questions": [ { "text": "One LayoutSpec shape for river.json too, and presets as screen notes in the outline.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -501,8 +502,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 231, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 556, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 236, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 557, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -553,7 +554,7 @@
         { "r": "door", "p": "src/desk/pty.ts", "l": 133, "m": "herdr: { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/dock.ts", "l": 91, "m": "export class AgentDock" },
         { "r": "door", "p": "src/dock.ts", "l": 580, "m": "export const DOCK_ACTIONS" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1126, "m": "export function hostLayer" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1128, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -564,7 +565,7 @@
       "refs": [
         { "r": "door", "p": "src/main.ts", "l": 134, "m": "process.on(sig" },
         { "r": "door", "p": "src/main.ts", "l": 148, "m": "uncaughtException" },
-        { "r": "door", "p": "src/app.ts", "l": 489, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 494, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -583,19 +584,20 @@
     },
 
     {
-      "id": "door.presets", "name": "DeskPreset and its subclasses", "group": "door", "chapter": "screens", "ladder": "accidental", "tree": "on", "dependsOn": ["door.desk", "door.layouts"],
-      "does": "Screens built on the desk: the brief, Waiting, the welcome. Their tiles, links and focus.",
-      "built": "DeskPreset holds Pane instances and a layout closure; each screen is a Desk subclass overriding key, act and its band. PinnedPage is test-only.",
+      "id": "door.presets", "name": "Screen specs", "group": "door", "chapter": "screens", "ladder": "provisional", "tree": "on", "dependsOn": ["door.desk", "door.layouts", "door.tilekinds"],
+      "does": "A screen as data on the one screen host, the desk: its containers and tiles by kind, a key map naming actions, a hint, a band drawn by a tile kind, where opens land. The desk, the welcome, the brief, Waiting and a pinned page are specs; what each does beyond layout is its tiles' kinds'.",
+      "built": "ScreenSpec (plain data: specData writes it, readSpec reads it back checked) and the built-in screens registered by name (openScreen). The desk is final: nothing subclasses it. The welcome's list kind is its model and draws its band; the brief's and a pinned page's kinds open beside by policy (opens: beside).",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 58, "m": "export interface DeskPreset" },
-        { "r": "door", "p": "src/brief/brief.ts", "l": 91, "m": "class Brief extends Desk" },
-        { "r": "door", "p": "src/hub/welcome.ts", "l": 266, "m": "class Welcome extends Desk" },
-        { "r": "door", "p": "src/hub/waiting.ts", "l": 172, "m": "class Waiting extends Desk" },
-        { "r": "door", "p": "src/hub/pinned.ts", "l": 32, "m": "class PinnedPage extends Desk" }
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 33, "m": "export interface ScreenSpec" },
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 85, "m": "export function readSpec" },
+        { "r": "door", "p": "src/desk/screen-specs.ts", "l": 29, "m": "export function openScreen" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 53, "m": "export function deskSpec" },
+        { "r": "door", "p": "src/hub/welcome.ts", "l": 553, "m": "export function welcomeSpec" },
+        { "r": "door", "p": "src/brief/brief.ts", "l": 266, "m": "export function briefSpec" }
       ],
       "questions": [
-        { "text": "A preset as data: LayoutSpec plus band, keys and digits.", "finding": "A-F5", "route": "PIE-493" },
-        { "text": "Four readers that hold one note.", "finding": "A-F9", "route": "PIE-493" }
+        { "text": "The board and the river are still their own classes: their specs are the rest of PIE-515.", "finding": "A-F5", "route": "PIE-515" },
+        { "text": "Specs stored as notes in the outline (gap 4): the data shape is ready (specData, readSpec, screen.spec).", "finding": "A-F5", "route": "PIE-412" }
       ]
     },
     {
@@ -603,10 +605,10 @@
       "does": "Kanban lanes from saved views, a preview and details beside them, the outline and backlinks drawers, floats. Moves and new cards are the service's plans.",
       "built": "A screen preset on the desk (PIE-511): its lanes are query tiles in a columns container filled by the hub source; its drawers, floats, spines, borders, focus and frames are the desk's. What it adds is its own: card moves, writes, steps, trash, the hub picker, and lane refresh from the change feed.",
       "refs": [
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 110, "m": "export class DeliveryBoard extends Desk" },
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 99, "m": "function boardTree" },
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 2211, "m": "export const BOARD_ACTIONS" },
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 1320, "m": "private async moveTo" }
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 117, "m": "export class DeliveryBoard extends Desk" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 100, "m": "function boardTree" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 2217, "m": "export const BOARD_ACTIONS" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 1326, "m": "private async moveTo" }
       ],
       "questions": [
         { "text": "The preset as a screen note in the outline (gap 4).", "finding": "A-F5", "route": "PIE-493" }
@@ -618,9 +620,9 @@
       "built": "Its own screen still: its strip, cover, hit rects and frames, saved to river.json; an in-memory index for its own search and filter. Its squeeze is the layout engine's flow container's (squeeze, PIE-513); the screen ports onto the flow in PIE-515.",
       "refs": [
         { "r": "door", "p": "src/river/river.ts", "l": 152, "m": "export class River" },
-        { "r": "door", "p": "src/river/river.ts", "l": 315, "m": "private layout(W" },
+        { "r": "door", "p": "src/river/river.ts", "l": 316, "m": "private layout(W" },
         { "r": "door", "p": "src/river/river.ts", "l": 89, "m": "class OutlineIndex" },
-        { "r": "door", "p": "src/river/river.ts", "l": 1425, "m": "export const RIVER_ACTIONS" }
+        { "r": "door", "p": "src/river/river.ts", "l": 1426, "m": "export const RIVER_ACTIONS" }
       ],
       "questions": [
         { "text": "Its layout is now the engine's flow container (PIE-513: the squeeze, cover, calm focus, the open rule as policy); the screen itself ports onto it.", "finding": "A-F4", "route": "PIE-515" },
@@ -632,20 +634,20 @@
       "does": "The logon, the main menu, the message lists and reader, Who's Online, Last Callers, Stats, the art viewer, Goodbye: the door as a 1997 BBS.",
       "built": "Screen classes in screens.ts. The art screens are compositions and stay as they are; the lists now take actions.",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 252, "m": "export class MainMenu" },
-        { "r": "door", "p": "src/screens.ts", "l": 772, "m": "export class MessageReader" },
-        { "r": "door", "p": "src/screens.ts", "l": 1038, "m": "export class WhoOnline" },
-        { "r": "door", "p": "src/screens.ts", "l": 1093, "m": "export class LastCallers" }
+        { "r": "door", "p": "src/screens.ts", "l": 250, "m": "export class MainMenu" },
+        { "r": "door", "p": "src/screens.ts", "l": 779, "m": "export class MessageReader" },
+        { "r": "door", "p": "src/screens.ts", "l": 1045, "m": "export class WhoOnline" },
+        { "r": "door", "p": "src/screens.ts", "l": 1100, "m": "export class LastCallers" }
       ],
       "questions": [ { "text": "Who's Online and Last Callers are built twice (screens and tiles).", "finding": "A-F7", "route": "PIE-493" } ]
     },
     {
       "id": "door.screentile", "name": "Screen in a tile", "group": "door", "chapter": "screens", "ladder": "accidental", "dependsOn": ["door.desk"],
-      "does": "A whole screen (the board, the river, the brief) inside one tile.",
-      "built": "Twice: ScreenTile (board, river and brief only, loaded by require) over the showcase's FramedScreen, and the showcase's own ScreenPane. The desk imports the showcase.",
+      "does": "A whole screen (the board, the river) inside one tile; the brief is a tile kind of its own since it became a spec (PIE-515).",
+      "built": "Twice: ScreenTile (board and river only, loaded by require) over the showcase's FramedScreen, and the showcase's own ScreenPane. The desk imports the showcase.",
       "refs": [
         { "r": "door", "p": "src/desk/screen-tile.ts", "l": 15, "m": "export const SCREEN_KINDS" },
-        { "r": "door", "p": "src/desk/screen-tile.ts", "l": 25, "m": "export class ScreenTile" },
+        { "r": "door", "p": "src/desk/screen-tile.ts", "l": 24, "m": "export class ScreenTile" },
         { "r": "door", "p": "src/showcase/frame.ts", "l": 104, "m": "export class ScreenPane" }
       ],
       "questions": [ { "text": "One ScreenTile over a screen registry; delete ScreenPane.", "finding": "A-F6", "route": "PIE-493" } ]
@@ -655,7 +657,7 @@
       "does": "Find a note: the desk's /, the river's palette, the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2503, "m": "class SearchOverlay" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2575, "m": "class SearchOverlay" },
         { "r": "door", "p": "src/river/river.ts", "l": 128, "m": "function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
@@ -689,8 +691,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 469, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 281, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 474, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 286, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },
@@ -792,15 +794,15 @@
     "about": "The path the code takes today when the person presses m on a board card and picks a lane. m only opens the mover, an input state; the move itself is card.move, the same ActionDef that H, L, a drag and an agent's act run (PIE-506 closed the gap PIE-492 named).",
     "steps": [
       { "label": "key m", "at": "door.keys", "what": "The lanes' key handler opens the mover: an input state that holds the keys, and changes nothing until it ends.",
-        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 2024, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
+        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 2030, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
-        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1379, "m": "planMoves(this.ctx.board, card, ids)" } },
+        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1385, "m": "planMoves(this.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 35, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
         "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
-        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1400, "m": "this.runBoard(\"card.move\", { lane: this.lanes[M.sel]!.name, card: M.card.id })" } },
+        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1406, "m": "this.runBoard(\"card.move\", { lane: this.lanes[M.sel]!.name, card: M.card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 948, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
@@ -810,7 +812,7 @@
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
         "ref": { "r": "door", "p": "src/main.ts", "l": 172, "m": "board.subscribe(e => app!.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
-        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 469, "m": "private changed(c: Change, e: OutlineEvent)" } },
+        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 475, "m": "private changed(c: Change, e: OutlineEvent)" } },
       { "label": "lanes repaint", "at": "door.board", "what": "Each marked lane, a query tile in the board's columns container, reads its view again with views.read and draws. In the door that moved it, moveTo's finally reloads the source and target lanes.",
         "ref": { "r": "door", "p": "src/desk/query.ts", "l": 157, "m": "readView(desk.ctx.board, def)" } }
     ]

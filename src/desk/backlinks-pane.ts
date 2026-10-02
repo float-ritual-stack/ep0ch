@@ -105,7 +105,7 @@ export class BacklinksPane implements Pane {
     return `backlinks · ${subject(this.target).slice(0, 50)}${n}`;
   }
   hint() { return "j k pick · ⏎ open · alt+⏎ fresh · s K w h n . view"; }
-  spec() { return { source: `tile:${this.source}` }; }
+  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}) }; }
 
   init(desk: DeskApi) { this.sync(desk); }
 

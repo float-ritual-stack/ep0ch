@@ -70,8 +70,11 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   peek or spine around the wide one) under a saved *policy* (`layout.policy`, `^W P`; `locked` fixes a screen's
   shape; `opens` is the open rule); a *screen* is a saved tree of containers and tiles. *Pane* means Herdr's or
   tmux's box only. Don't switch on a tile kind's name. A container's tiles can come from data (a tile source:
-  the board's columns are `hub:<id>`); a screen is a preset on the desk's one engine (the board, the welcome,
-  the brief), never a second layout host.
+  the board's columns are `hub:<id>`); a screen is a **spec** on the desk, the one screen host (PIE-515,
+  `src/desk/screen-spec.ts`: containers with policy, tiles by kind, a key map naming actions, a hint, a band, where
+  opens land), never a subclass and never a second layout host. What a screen does beyond layout goes in its
+  tiles' kinds (a kind's actions, `peek`, `band`, `take`, its default policy) or a policy field; a spec stays plain
+  data (`specData`/`readSpec`), because a screen note can't hold an override.
 - **A layout changes one way:** an operation of the screen-layout module (`src/desk/screen-layout.ts`,
   `apply(state, op, ctx)`): one step for one actor, the new state or a refusal with its reason. Its rules
   (floats, policy, the lock, never the tile the person types in) live inside it, so a view never checks them

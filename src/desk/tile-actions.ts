@@ -88,7 +88,7 @@ function policyChange({ clear, accepts, opensInto, opens, host, min, max, fixed,
   for (const [k, v] of Object.entries({ min, max, fixed })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
   if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
-  if (opens !== undefined) { if (opens !== "current" && opens !== "next") throw new ActionRefused(`layout.policy: opens is current or next, not ${opens}`); set.opens = opens; }
+  if (opens !== undefined) { if (opens !== "current" && opens !== "next" && opens !== "beside") throw new ActionRefused(`layout.policy: opens is current, next or beside, not ${opens}`); set.opens = opens; }
   if (host !== undefined) { if (host !== "over" && host !== "beside" && host !== "none") throw new ActionRefused(`layout.policy: host is over, beside or none, not ${host}`); set.host = host; }
   return { set, gone };
 }

@@ -3,18 +3,20 @@
 // `.` step to the previous and next day's brief; a followed link opens in a reader beside, so the brief
 // stays where it is.
 //
-// Built on the desk (a preset, as the showcase's stages are): the layout tree, the reader's sessions, the
-// mouse, `act` and `peek` are the desk's. This file only adds which note is the brief and the day keys.
-import type { Ctx } from "../app";
+// A screen spec on the desk (PIE-515: `briefSpec`): one tile of its own kind (`brief`, BRIEF_KIND), a reader that
+// knows which notes are briefs and which one it shows; the layout, the reader's sessions, the mouse, `act` and `peek`
+// are the desk's. `,` and `.` are the spec's keys for the kind's actions (BRIEF_ACTIONS); a note opened from it goes
+// to a reader beside (the kind's open rule, `beside`), unless it's another brief, which it steps to.
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
-import type { Key } from "../term";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
-import { Desk } from "../desk/desk";
-import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
+import type { Key } from "../term";
+import { ReaderPane, type DeskApi, type PaneView } from "../desk/panes";
+import type { ScreenSpec } from "../desk/screen-spec";
+import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
 
 export const BRIEF_TYPE = "daily-brief";
 /** How many briefs the door asks for: years of mornings. */
@@ -43,36 +45,6 @@ export async function findBriefs(board: SocketBoard): Promise<Msg[]> {
 
 const weekday = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" });
 
-/**
- * The brief's reader: a note surface that shows only what the brief screen puts in it. It never follows
- * the desk's current note, and a link followed in it opens beside (the desk's current note), never here.
- */
-export class BriefReader extends ReaderPane {
-  /** The screen it belongs to, for its title and its empty state (set once the screen is built). */
-  screen: Brief | null = null;
-  constructor() { super(false); }
-  override title() { return this.screen?.heading() ?? "daily brief"; }
-  override hint() { return `, . day · ${super.hint()}`; }
-  /** The desk's current note changed: the brief stays. */
-  override select() {}
-  /**
-   * The surface's host, with the brief's own header (the surface's `header` hook) while it shows a brief:
-   * the day and "n of m briefs" first, then the title and who wrote it.
-   */
-  override host(desk: DeskApi): SurfaceHost {
-    const shown = this.screen?.shown;
-    return {
-      ...super.host(desk),
-      navigate: (m: Msg, how?: OpenHow) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
-      ...(shown && this.msg?.id === shown.id ? { header: (m: Msg, w: number, info: HeaderInfo) => briefHeader(m, w, info, shown) } : {}),
-    };
-  }
-  override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
-    const empty = this.screen?.emptyLines();
-    return empty ? { lines: empty.map(l => pad(l, w)) } : super.render(w, h, focused, desk);
-  }
-}
-
 type Stepped = { date: string; n: number; of: number; id: string };
 
 /**
@@ -88,67 +60,101 @@ export function briefHeader(m: Msg, w: number, info: HeaderInfo, s: Stepped): st
   ];
 }
 
-export class Brief extends Desk {
-  readonly reader: BriefReader;
+/**
+ * The brief's reader: a note surface that shows only the brief it's on, and knows the briefs (every one, oldest
+ * first, read again as the outline changes). It never follows the desk's current note; a link followed in it opens
+ * beside (its kind's open rule), unless it's another brief, which it steps to.
+ */
+export class BriefReader extends ReaderPane {
+  override readonly kind: TileKindName = "brief";
   /** Every brief, oldest first; null until read. */
   briefs: Msg[] | null = null;
   /** The brief shown, by its place in `briefs`. */
   private at = -1;
   private problem = "";
   private reload: Timer | null = null;
-
-  constructor() {
-    const reader = new BriefReader();
-    super({ title: "daily brief", panes: [reader] });
-    this.reader = reader;
-    reader.screen = this;
-    // Its own actions (which day) before the desk's: `,` `.` and `act` run them through the desk's dispatcher.
-    this.dispatch.register([{ set: BRIEF_ACTIONS, takes: "screen", on: () => this }], true);
+  constructor() { super(false); }
+  override title() { return this.heading(); }
+  override hint() { return `, . day · ${super.hint()}`; }
+  /** `,` and `.` step a day (brief.step), wherever the brief is (its own screen, a tile on the desk), unless the person types. */
+  override key(k: Key, desk: DeskApi): boolean {
+    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+    if ((c === "," || c === ".") && !this.holdsKeys && !desk.personTyping?.()) { void desk.press?.(this, BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }); return true; }
+    return super.key(k, desk);
   }
-
-  override enter(ctx: Ctx) {
-    super.enter(ctx);
-    void this.load(true);
+  /** The desk's current note changed: the brief stays. */
+  override select() {}
+  /**
+   * The surface's host, with the brief's own header (the surface's `header` hook) while it shows a brief: the day and
+   * "n of m briefs" first, then the title and who wrote it. A link to another brief steps to it, as `,` `.` do.
+   */
+  override host(desk: DeskApi): SurfaceHost {
+    const shown = this.shown;
+    return {
+      ...super.host(desk),
+      navigate: (m: Msg, how?: OpenHow) => {
+        if (!how?.fresh && this.dayOf(m) >= 0) { void desk.perform?.("brief.show", { id: m.id }, how?.by ?? USER, this); return; }
+        desk.setCurrent(m, { reveal: true, from: this, ...how });
+      },
+      ...(shown && this.msg?.id === shown.id ? { header: (m: Msg, w: number, info: HeaderInfo) => briefHeader(m, w, info, shown) } : {}),
+    };
+  }
+  override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
+    const empty = this.emptyLines();
+    return empty ? { lines: empty.map(l => pad(l, w)) } : super.render(w, h, focused, desk);
   }
 
   /** Read the list again; the shown brief stays shown (a new one only changes the count), or the newest when first read. */
-  async load(first = false) {
+  async load(desk: DeskApi, first = false) {
     try {
-      const list = await findBriefs(this.ctx.board);
+      const list = await findBriefs(desk.ctx.board);
       const shown = this.briefs?.[this.at]?.id;
       this.briefs = list;
       this.problem = "";
       const keep = shown ? list.findIndex(m => m.id === shown) : -1;
-      if (first || keep < 0) this.showAt(list.length - 1);
+      if (first || keep < 0) this.showAt(list.length - 1, desk);
       else this.at = keep;
     } catch (e) {
       this.problem = `couldn't ask the outline for briefs: ${e instanceof Error ? e.message : String(e)}`;
     }
-    this.redraw();
+    desk.redraw();
   }
 
+  /** A brief written, edited, trashed or restored anywhere: the list is asked again (once per burst). */
+  override onEvent(desk: DeskApi, e?: OutlineEvent) {
+    super.onEvent(desk);
+    // Comments and reorders can't make or unmake a brief, so they aren't asked about.
+    if (!e || (e.change ? e.change.kind === "annotate" || e.change.kind === "reorder" : e.action !== "reset" && e.action !== "reconnected")) return;
+    if (this.reload) clearTimeout(this.reload);
+    this.reload = setTimeout(() => { this.reload = null; void this.load(desk); }, 300);
+  }
+  override dispose() { if (this.reload) clearTimeout(this.reload); super.dispose?.(); }
+
   /** Show the brief at `i` (oldest is 0). False when the reader holds an edit or a comment on another note. */
-  private showAt(i: number): boolean {
+  private showAt(i: number, desk: DeskApi): boolean {
     const list = this.briefs ?? [];
     const m = list[i];
-    if (!m) { this.at = -1; this.reader.show(null, this); return true; }
-    if (this.reader.msg?.id !== m.id && !this.reader.show(m, this)) return false;
+    if (!m) { this.at = -1; this.show(null, desk); return true; }
+    if (this.msg?.id !== m.id && !this.show(m, desk)) return false;
     this.at = i;
     return true;
   }
 
+  /** Where `m` is among the briefs, or -1. */
+  dayOf(m: Msg): number { return (this.briefs ?? []).findIndex(b => b.id === m.id); }
+
   /** The brief shown now, if the reader shows one. */
   get shown(): Stepped | null {
     const m = this.briefs?.[this.at];
-    return m && this.reader.msg?.id === m.id ? { date: briefDate(m), n: this.at + 1, of: this.briefs!.length, id: m.id } : null;
+    return m && this.msg?.id === m.id ? { date: briefDate(m), n: this.at + 1, of: this.briefs!.length, id: m.id } : null;
   }
 
-  /** The reader pane's title; the day and the count are in the brief's header (`briefHeader`). */
+  /** The reader's title; the day and the count are in the brief's header (`briefHeader`). */
   heading(): string {
     if (!this.briefs) return "daily brief · asking the outline…";
     if (!this.briefs.length) return "daily brief · none yet";
     const s = this.shown;
-    if (!s) return `daily brief · not a brief: ${this.reader.msg ? subject(this.reader.msg).slice(0, 40) : "nothing"} · , . back to the briefs`;
+    if (!s) return `daily brief · not a brief: ${this.msg ? subject(this.msg).slice(0, 40) : "nothing"} · , . back to the briefs`;
     return `daily brief · ${s.date}`;
   }
 
@@ -165,10 +171,10 @@ export class Brief extends Desk {
   }
 
   /**
-   * The previous (-1) or next (1) day's brief. From a note that isn't a brief (an agent's `open` put it
-   * here), either key comes back to the brief last shown.
+   * The previous (-1) or next (1) day's brief. From a note that isn't a brief (an agent's `open` put it here), either
+   * key comes back to the brief last shown.
    */
-  step(by: number): Stepped {
+  step(by: number, desk: DeskApi): Stepped {
     const list = this.briefs;
     if (!list) throw new ActionRefused("the briefs are still being read");
     if (!list.length) throw new ActionRefused("there are no briefs yet");
@@ -176,100 +182,92 @@ export class Brief extends Desk {
     const to = back ? this.at : this.at + Math.sign(by);
     if (to < 0) throw new ActionRefused(`this is the oldest brief (${briefDate(list[0]!)})`);
     if (to >= list.length) throw new ActionRefused(`this is the newest brief (${briefDate(list.at(-1)!)})`);
-    return this.go(to);
+    return this.go(to, desk);
   }
 
   /** Show the brief at `i` (BRIEF_ACTIONS say an agent's on screen, once the actor rule let it). */
-  go(i: number): Stepped {
-    if (!this.showAt(i)) throw new ActionRefused("the brief's reader holds an edit or a comment on another note; save or close it first");
-    this.redraw();
+  go(i: number, desk: DeskApi): Stepped {
+    if (!this.showAt(i, desk)) throw new ActionRefused("the brief's reader holds an edit or a comment on another note; save or close it first");
+    desk.redraw();
     return this.shown!;
-  }
-  /**
-   * The brief at `i`, reached by an open, not by an action of its own (a link to another day followed in it, an
-   * agent's `open` of a brief): the same actor rule as `brief.step`, for whoever opened it.
-   */
-  private goBy(i: number, by: Actor): Stepped {
-    const no = this.dispatch.rule("screen", by);
-    if (no) throw new ActionRefused(no);
-    return this.go(i);
   }
 
   /** The brief for a day (YYYY-MM-DD): the last one written that day. */
-  dated(day: string): Stepped {
+  dated(day: string, desk: DeskApi): Stepped {
     const i = (this.briefs ?? []).findLastIndex(m => briefDate(m) === day);
     if (i < 0) throw new ActionRefused(`no brief for ${day}${this.briefs?.length ? `; the briefs run ${briefDate(this.briefs[0]!)} to ${briefDate(this.briefs.at(-1)!)}` : ""}`);
-    return this.go(i);
+    return this.go(i, desk);
   }
 
-  newest(): Stepped {
+  newest(desk: DeskApi): Stepped {
     if (!this.briefs?.length) throw new ActionRefused("there are no briefs yet");
-    return this.go(this.briefs.length - 1);
+    return this.go(this.briefs.length - 1, desk);
   }
 
-  /**
-   * A note opened from the brief (a link, a figure row, `u`) that isn't a brief goes to a reader beside it: the one already
-   * there, or a new one (the person's keys stay on the brief). alt+⏎ still opens a new reader each time.
-   */
-  override setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
-    // Another brief (an "Earlier briefs" row, a link to yesterday's): the brief steps to it, as `,` `.` do.
-    const day = m && !opts.fresh && opts.from === this.reader ? (this.briefs ?? []).findIndex(b => b.id === m.id) : -1;
-    if (day >= 0) {
-      try { this.goBy(day, opts.by ?? USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
-      return;
-    }
-    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.readerBeside(this.reader, opts.by ?? USER);
-    super.setCurrent(m, opts);
-  }
-
-  /** `ep0ch open <id>`: a brief is stepped to; any other note opens beside it. */
-  override openBlock(m: Msg, by: Actor = USER) {
-    const i = (this.briefs ?? []).findIndex(b => b.id === m.id);
-    if (i >= 0) { this.goBy(i, by); return; }
-    this.setCurrent(m, { reveal: true, by });
-  }
-
-  override key(k: Key, ctx: Ctx) {
-    const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-    if ((c === "," || c === ".") && !this.personTyping()) {
-      void this.dispatch.pressIn(BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 });
-      return;
-    }
-    super.key(k, ctx);
-  }
-
-  override onEvent(e: OutlineEvent) {
-    super.onEvent(e);
-    // A brief written, edited, trashed or restored anywhere: the list is asked again (once per burst).
-    // Comments and reorders can't make or unmake a brief, so they aren't asked about.
-    if (e.change ? e.change.kind === "annotate" || e.change.kind === "reorder" : e.action !== "reset" && e.action !== "reconnected") return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; void this.load(); }, 300);
-  }
-
-  override describe() {
-    return { ...super.describe(), kind: "brief", brief: this.shown, briefs: this.briefs?.length ?? null, problem: this.problem || undefined };
-  }
+  describeBrief() { return { brief: this.shown, briefs: this.briefs?.length ?? null, problem: this.problem || undefined }; }
 }
 
 /** Which brief is shown. The keys and `act` call the same code. */
-export const BRIEF_ACTIONS = new ActionSet<{ "brief.step": { by: number }; "brief.newest": Record<string, never>; "brief.date": { date: string } }, Brief>("brief", {
+export const BRIEF_ACTIONS = new ActionSet<{ "brief.step": { by: number }; "brief.newest": Record<string, never>; "brief.date": { date: string }; "brief.show": { id: string } }, KindHost>("brief", {
   "brief.step": {
     summary: "show the previous (by=-1) or next (by=1) day's brief; refused to an agent while the person is typing here", keys: ", .",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { by: { type: "number", about: "-1 for the day before, 1 for the day after" } },
-    run({ by }, b) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return b.step(by); },
+    run({ by }, { pane, desk }) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return (pane as BriefReader).step(by, desk); },
   },
   "brief.newest": {
     summary: "show the newest brief",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: {},
-    run(_, b) { return b.newest(); },
+    run(_, { pane, desk }) { return (pane as BriefReader).newest(desk); },
   },
   "brief.date": {
     summary: "show the brief for a day (date=YYYY-MM-DD)",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { date: { type: "string", about: "the day, YYYY-MM-DD" } },
-    run({ date }, b) { return b.dated(date.trim()); },
+    run({ date }, { pane, desk }) { return (pane as BriefReader).dated(date.trim(), desk); },
+  },
+  "brief.show": {
+    summary: "show a brief by its block id (a link to another day's brief, followed in it, or an agent's `open` of one, steps there)",
+    keys: "⏎ or a click on a link to another brief, an \"Earlier briefs\" row",
+    touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
+    args: { id: { type: "string", about: "the brief's block id" } },
+    run({ id }, { pane, desk }) {
+      const b = pane as BriefReader, i = (b.briefs ?? []).findIndex(m => m.id === id || (id.length >= 8 && m.id.startsWith(id)));
+      if (i < 0) throw new ActionRefused(`${id} isn't a daily brief`);
+      return b.go(i, desk);
+    },
   },
 });
+
+/** The brief as a tile kind: a reader of its own (no `^W o` key), its actions, its open rule. */
+export function briefKind(): TileKind {
+  const reader = tileKind("reader")!;
+  return {
+    ...reader, kind: "brief", about: "the daily brief: the newest type::daily-brief note, , . stepping between days", noun: "the brief", keys: [{ key: "f", label: "brief" }],
+    make: () => new BriefReader(), actions: BRIEF_ACTIONS, inherits: reader.actions ? [reader.actions] : undefined,
+    // A note opened from it goes to a reader beside; the brief stays where it is.
+    policy: { opens: "beside" },
+    start: (p, env) => void (p as BriefReader).load(env.desk, true),
+    // An agent's open (`ep0ch open <id>`, ScreenSpec.lands): a brief is stepped to (the same actor rule as
+    // brief.step, its refusal answered); any other note opens beside it.
+    take: (p, m, desk, by) => {
+      const b = p as BriefReader, actor = by ?? USER, day = b.dayOf(m);
+      if (day < 0) { desk.setCurrent(m, { reveal: true, from: b, by: actor }); return null; }
+      const no = desk.ruleFor?.("screen", actor);
+      if (no) return no;
+      try { b.go(day, desk); return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
+    },
+    peek: p => (p as BriefReader).describeBrief(),
+  };
+}
+
+/** The daily brief: its reader at full width; `,` and `.` step between days. */
+export function briefSpec(): ScreenSpec {
+  return {
+    name: "brief", title: "daily brief", lands: "brief",
+    // From anywhere on the screen (a reader beside it too); a brief tile on the desk steps with its own , and . keys.
+    keys: [{ key: ",", action: "brief.step", args: { by: -1 } }, { key: ".", action: "brief.step", args: { by: 1 } }],
+    layout: { focus: "brief", root: { t: "leaf", kind: "brief", name: "brief" } },
+  };
+}

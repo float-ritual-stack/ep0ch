@@ -4,6 +4,8 @@
 // at startup (src/desk/builtin-tiles.ts); an extension's kind registers the same way, and its `make` builds a
 // tile whose content the service draws (`serviceKind`, below).
 import type { Msg } from "../board";
+import type { Canvas, Rect } from "../canvas";
+import type { Placement } from "../kitty";
 import type { Actor, Change } from "../socket";
 import type { ActionSet } from "../surface/actions";
 import { nameKinds, type Dispatcher } from "../surface/dispatch";
@@ -38,6 +40,12 @@ export interface TileKind {
   readonly kind: TileKindName;
   /** One line: what the tile shows (tile.open's list, the docs). */
   readonly about: string;
+  /**
+   * What its tiles are called when named for what they are (a header shows such a tile's title alone): its kind's
+   * name by default; a kind that is a screen's own sort of another says that one (the welcome's `welcome.detail`, a
+   * detail).
+   */
+  readonly word?: string;
   /** How a message names one ("a terminal tile", an extension's "Tarot"); default "a <its first key's label> tile". */
   readonly noun?: string;
   /** Its keys under ^W o, in the order the hint row lists them. */
@@ -65,8 +73,11 @@ export interface TileKind {
    * names no tile (an agent's `open <id>`) never lands in it.
    */
   readonly follower?: boolean;
-  /** Take a note opened into it (its link's target): null when it did, else why not ("holds an edit"). */
-  take?(p: Pane, m: Msg, desk: DeskApi): string | null;
+  /**
+   * Take a note opened into it (its link's target, or where a screen's agent opens land, `ScreenSpec.lands`): null when
+   * it did, else why not ("holds an edit"). `by`: who opened it (an agent's open never moves the person's keys).
+   */
+  take?(p: Pane, m: Msg, desk: DeskApi, by?: Actor): string | null;
   /** The tile it follows (a preview's `source=tile:<name>`): what that tile shows, this one shows. */
   follows?(p: Pane): string | null;
   /** It holds work closing would lose (a running program, an unsaved edit): a new layout keeps it in a drawer. */
@@ -92,6 +103,13 @@ export interface TileKind {
   takesKeys?(p: Pane): boolean;
   /** The dispatcher of a whole screen in the tile (a board's), whose actions it answers there (the board's `card.*`). */
   dispatcher?(p: Pane): Dispatcher | null;
+  /**
+   * It draws a band across the top of the screen, above the tiles (a screen spec's `band` names its tile: the
+   * welcome's logo and tabs): the rows it takes at this size, its drawing (and images), and a press on it.
+   */
+  band?: { rows(p: Pane, cols: number, rows: number, desk: DeskApi): number; draw(p: Pane, canvas: Canvas, r: Rect, desk: DeskApi): Placement[]; press?(p: Pane, x: number, y: number, desk: DeskApi): void };
+  /** What `peek` says about the screen a tile of it is on (the welcome's notes, the brief's day), beside the tiles. */
+  peek?(p: Pane, desk: DeskApi): Record<string, unknown>;
   /** A frame of its own animation: true when it changed (a screen in a tile, revealing its art). */
   tick?(p: Pane): boolean;
   /** Call `then` once it no longer holds work (`holdsWork`): a terminal's program exited. */

@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { DeliveryBoard } from "../src/desk/delivery";
 import { Desk } from "../src/desk/desk";
 import { drawerToEdge, splitOf, leaf, type LNode } from "../src/desk/layout";
-import { Waiting } from "../src/hub/waiting";
+import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { visible } from "../src/style";
@@ -143,7 +143,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   });
 
   test("a preset (Waiting) doesn't offer alt+d, which it refuses; its ? more lists the rest", () => {
-    const w = new Waiting();
+    const w = openScreen("waiting") as Desk;
     app.push(w);
     key(char("?"));
     const all = lines().join("\n");

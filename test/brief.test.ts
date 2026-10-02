@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { Brief, briefDate, findBriefs, orderBriefs } from "../src/brief/brief";
+import { briefDate, findBriefs, orderBriefs, type BriefReader } from "../src/brief/brief";
+import type { Desk } from "../src/desk/desk";
 import { presentLinks } from "../src/refs";
 import { Logon, MainMenu } from "../src/screens";
 import { skillCommand, skillsIn } from "../src/skills";
@@ -46,7 +47,7 @@ describe("where the door opens", () => {
   const logon = (then?: () => Screen) => ({ title: then ? `logon, then ${then().title}` : "logon" }) as Screen;
   test("--brief opens the newest brief over the main menu; the other flags as before", () => {
     const s = startScreens(["--brief"], {}, logon);
-    expect(s.map(x => x.constructor)).toEqual([MainMenu, Brief]);
+    expect(s.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "brief"]);
     expect(startScreens(["--board", "--brief"], {}, logon)[1]).toBeInstanceOf(DeliveryBoard);
   });
   test("EP0CH_LANDING=brief lands on the brief after the logon; unset or anything else, the logon then the menu", () => {
@@ -75,7 +76,9 @@ describe.skipIf(!outliner)("the brief screen", () => {
   let key: (k: Key) => void = () => {};
   const press = (k: Key) => key(k);
   const ch = (c: string) => press({ kind: "char", ch: c });
-  const top = () => (app as any).stack.at(-1) as Brief;
+  const top = () => (app as any).stack.at(-1) as Desk;
+  /** The brief's reader: its briefs and the one it shows. */
+  const brief = () => top().pane("brief") as BriefReader;
   const screen = () => top().render(app).lines.map(plain).join("\n");
   const notes = {} as Record<"root" | "view" | "kettle" | "a" | "b" | "c", Msg>;
 
@@ -92,8 +95,8 @@ describe.skipIf(!outliner)("the brief screen", () => {
   test("with no briefs it says so, and how to get one", async () => {
     app.push(new MainMenu());
     ch("T");
-    expect(top()).toBeInstanceOf(Brief);
-    await until(() => top().briefs !== null, "the briefs asked for");
+    expect(top().name).toBe("brief");
+    await until(() => brief().briefs !== null, "the briefs asked for");
     expect(screen()).toContain("No daily brief yet.");
     expect(screen()).toContain("ep0ch --skill daily-brief");
     expect(screen()).toContain("daily brief · none yet");
@@ -120,7 +123,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     notes.c = await make(notes.root.id, "Brief C [type::daily-brief] [brief-date::2026-01-06]\nThe middle morning.");   // written last
     expect((await findBriefs(board)).map(m => m.id)).toEqual([notes.a.id, notes.c.id, notes.b.id]);
     ch("T");
-    await until(() => top().reader.msg?.id === notes.b.id && !top().reader.msg?.partial, "brief B, read");
+    await until(() => brief().msg?.id === notes.b.id && !brief().msg?.partial, "brief B, read");
     await until(() => screen().includes("Jam jars") && screen().includes("Bread tins"), "the checklist over the saved view", 8000);
     const s = screen();
     expect(s).toContain("─ 1 daily brief · 2026-01-07 ─");
@@ -132,14 +135,14 @@ describe.skipIf(!outliner)("the brief screen", () => {
 
   test(", and . step a day at a time, and say where the briefs end", async () => {
     ch(",");
-    await until(() => top().reader.msg?.id === notes.c.id, "brief C");
+    await until(() => brief().msg?.id === notes.c.id, "brief C");
     expect(screen()).toContain("Tue 2026-01-06 · 2 of 3 briefs");
-    ch(","); expect(top().shown?.id).toBe(notes.a.id);
+    ch(","); expect(brief().shown?.id).toBe(notes.a.id);
     ch(",");
-    expect(top().shown?.id).toBe(notes.a.id);
+    expect(brief().shown?.id).toBe(notes.a.id);
     expect((app as any).message).toContain("this is the oldest brief (2026-01-05)");
     ch("."); ch(".");
-    expect(top().shown?.id).toBe(notes.b.id);
+    expect(brief().shown?.id).toBe(notes.b.id);
     ch(".");
     expect((app as any).message).toContain("this is the newest brief (2026-01-07)");
   });
@@ -151,62 +154,86 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect((app as any).message).toContain("an agent (test-agent) showed the brief for 2026-01-05");
     expect(await app.act({ action: "brief.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ id: notes.c.id });
     ch("e");
-    await until(() => !!top().reader.draft, "the person's edit");
+    await until(() => !!brief().draft, "the person's edit");
     await expect(app.act({ action: "brief.newest", as: "test-agent" })).rejects.toThrow(/the person is typing/);
     ch(".");                                                                        // typed into the edit, not a step
-    expect(top().shown?.id).toBe(notes.c.id);
-    expect(top().reader.draft?.dirty).toBe(true);
+    expect(brief().shown?.id).toBe(notes.c.id);
+    expect(brief().draft?.dirty).toBe(true);
     press({ kind: "esc" }); press({ kind: "esc" });                                 // closes it, discarding the stray full stop
-    await until(() => !top().reader.draft, "the edit closed");
+    await until(() => !brief().draft, "the edit closed");
     (app as any).lastInput = 0;
     expect(await app.act({ action: "brief.newest", as: "test-agent" })).toMatchObject({ id: notes.b.id });
   });
 
   test("a link followed from the brief opens in a reader beside it; the brief and the person's keys stay", async () => {
-    const r = top().reader;
+    const r = brief();
     await until(() => !r.msg?.partial && screen().includes("Jam jars"), "brief B drawn again");
     for (let i = 0; i < 20 && r.surface.describe().elements?.current?.label !== "the kettle"; i++) ch("]");
     expect(r.surface.describe().elements?.current?.label).toBe("the kettle");
     press({ kind: "enter" });
     await until(() => top().readerPanes().some(p => p.pane !== r && p.pane.msg?.id === notes.kettle.id), "the kettle beside the brief");
     const d = app.describe() as any;
-    expect(d.state.panes.map((p: any) => [p.kind, p.showing?.id, p.focused])).toEqual([["reader", notes.b.id, true], ["reader", notes.kettle.id, false]]);
+    expect(d.state.panes.map((p: any) => [p.kind, p.showing?.id, p.focused])).toEqual([["brief", notes.b.id, true], ["reader", notes.kettle.id, false]]);
     expect(screen()).toContain("It whistles now.");
     // The day keys still work with the reader beside, and it keeps the note it shows.
     ch(",");
-    expect(top().shown?.id).toBe(notes.c.id);
+    expect(brief().shown?.id).toBe(notes.c.id);
     expect(top().readerPanes()[1]!.pane.msg?.id).toBe(notes.kettle.id);
     ch(".");
+    // From the reader beside too: the screen's key map (PIE-515), not only the brief tile's own keys.
+    press({ kind: "tab" });
+    expect((top().describe() as any).focusName).toBe("reader");
+    ch(",");
+    expect(brief().shown?.id).toBe(notes.c.id);
+    ch(".");
+    press({ kind: "tab" });
+  });
+
+  test("an agent's open of a brief steps to it (refused, and said, while the person types); any other note opens beside", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, reader: "brief" });
+    expect(brief().shown?.id).toBe(notes.a.id);
+    expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
+    ch("e");
+    await until(() => !!brief().draft, "the person's edit");
+    await expect(app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
+    expect(brief().shown?.id).toBe(notes.b.id);
+    press({ kind: "esc" });                                                         // nothing typed: one esc closes it
+    await until(() => !brief().draft, "the edit closed");
+    (app as any).lastInput = 0;
+    const r = await app.act({ action: "open", args: { id: notes.kettle.id }, as: "test-agent" }) as { reader: string };
+    expect(r.reader).not.toBe("brief");
+    expect(brief().shown?.id).toBe(notes.b.id);
   });
 
   test("a row of the earlier-briefs table, clicked or opened, steps to that day instead of opening beside", async () => {
-    const r = top().reader;
+    const r = brief();
     const panes = () => top().readerPanes().length;
     const before = panes();
     await until(() => screen().includes("Brief A"), "the earlier-briefs table");
     const lines = r.render(150, 45, true, top()).lines.map(plain);
     const y = lines.findIndex(l => l.includes("Brief A")), x = lines[y]!.indexOf("Brief A") + 1;
     r.surface.press(x, y, r.host(top())); r.surface.release(x, y, r.host(top()));
-    await until(() => top().shown?.id === notes.a.id, "brief A, by a click on its row");
+    await until(() => brief().shown?.id === notes.a.id, "brief A, by a click on its row");
     expect(panes()).toBe(before);
     ch("."); ch(".");
-    expect(top().shown?.id).toBe(notes.b.id);
+    expect(brief().shown?.id).toBe(notes.b.id);
     await until(() => !r.msg?.partial && screen().includes("Brief A"), "brief B drawn again");
     (app as any).lastInput = 0;                                                     // the person is idle: an agent's open may step the brief
     const els = (await app.act({ action: "elements", reader: "1", as: "test-agent" }) as any).elements as { n: number; label: string }[];
     const row = els.find(e => e.label.includes("Brief C"))!;
     await app.act({ action: "element.open", reader: "1", args: { n: row.n }, as: "test-agent" });
-    expect(top().shown?.id).toBe(notes.c.id);
+    expect(brief().shown?.id).toBe(notes.c.id);
     expect(panes()).toBe(before);
     ch(".");
   });
 
   test("a new brief written elsewhere updates the count; the one being read stays", async () => {
     const d = await board.createBlock(notes.root.id, "Brief D [type::daily-brief] [brief-date::2026-01-08]\nThe next morning.");
-    await until(() => top().briefs?.length === 4, "the fourth brief counted", 5000);
-    expect(top().shown).toMatchObject({ id: notes.b.id, n: 3, of: 4 });
+    await until(() => brief().briefs?.length === 4, "the fourth brief counted", 5000);
+    expect(brief().shown).toMatchObject({ id: notes.b.id, n: 3, of: 4 });
     ch(".");
-    expect(top().shown?.id).toBe(d.id);
+    expect(brief().shown?.id).toBe(d.id);
   });
 
   test("EP0CH_LANDING=brief: the logon opens the main menu, then the brief over it", async () => {

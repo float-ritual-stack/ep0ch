@@ -151,6 +151,7 @@ const COVER_DIM = 0.55;
 
 export class River implements Screen {
   title = "river";
+  readonly name = "river";
   ctx!: Ctx;
   private cols: Col[] = [];
   private focus = 0;

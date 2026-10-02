@@ -1,6 +1,6 @@
 // The showcase (PIE-439): every shared door part, live, on the seeded showcase outline. One section per
 // row of the reuse map (docs/UI-GRAMMAR.md "Before adding a feature"), in the map's order; each is drawn
-// by the part itself, hosted on a preset desk or the real board, never a copy. A parallel version still
+// by the part itself, hosted on a desk of its own spec or the real board, never a copy. A parallel version still
 // in the code is shown beside the shared one and labelled, until consolidation removes it.
 //
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
@@ -21,7 +21,10 @@ import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
-import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
+import { Desk, DESK_ACTIONS } from "../desk/desk";
+import { openScreen } from "../desk/screen-specs";
+import { autoName, serializeTree } from "../desk/screen-layout";
+import type { SavedTree, TileSpec } from "../desk/tiles";
 import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
@@ -51,16 +54,30 @@ export interface Section {
   aside?: string;
   stage(n: Notes, show: Shower): Screen;
 }
-/** Put a note in a reader once its desk is open (readers on a preset desk keep their own notes). */
+/** Put a note in a reader once its desk is open (readers on a stage keep their own notes). */
 type Shower = (after: (ctx: Ctx) => void) => void;
 
 const PARALLEL = "parallel version, to consolidate";
 /** Two panes side by side, the first `ratio` of the width. */
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
-/** A preset desk whose readers show `notes` (one each, in order) once it opens. */
-function deskOf(preset: DeskPreset, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
-  const d = new Desk(preset);
+/** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode }
+/**
+ * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
+ * its kind (reader, reader2), laid out as the stage says.
+ */
+function stageDesk(st: Stage): Desk {
+  const names = new Map<number, string>();
+  st.panes.forEach((p, i) => names.set(i, autoName({ names }, p.kind)));
+  const ids = st.panes.map((_, i) => i);
+  const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)! })) as SavedTree;
+  return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
+}
+/** A stage whose readers show `notes` (one each, in order) once it opens. */
+function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
+  const d = stageDesk(st);
   show(() => {
     for (const [r, m] of readers) if (m) r.show(m, d);
     then?.(d);
@@ -102,8 +119,9 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · drafts", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], d => {
-        void a.act("edit", {}, d, USER).catch(() => {});
-        void b.act("passage.select", {}, d, USER).then(() => b.act("comment.write", { body: "" }, d, USER)).catch(() => {});
+        // The person's own keys would do these: through the stage's dispatcher, in each reader's tile.
+        void d.press(a, NOTE_ACTIONS, "edit");
+        void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));
       });
     },
   },
@@ -120,6 +138,11 @@ export const SECTIONS: Section[] = [
         layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "drawer", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
     },
+  },
+  {
+    key: "screens", need: "make a screen (the welcome, the brief, Waiting, a pinned page, the desk itself)", part: "a screen spec on the desk, the only screen host: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land (ScreenSpec; specData and readSpec, screen.spec); what it does beyond layout is its tiles' kinds'", files: "src/desk/screen-spec.ts, src/desk/screen-specs.ts, src/brief/brief.ts",
+    aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold",
+    stage: () => openScreen("brief"),
   },
   {
     key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile); fill a container from data", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws; a tile source fills columns (hub:<id>, one query tile per view)", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/query.ts",
@@ -235,6 +258,7 @@ const indexWidth = (cols: number) => (cols >= 160 ? 52 : cols >= 110 ? 34 : cols
 
 export class Showcase implements Screen {
   title = "showcase";
+  readonly name = "showcase";
   ctx!: Ctx;
   private notes: Notes | null = null;
   private problem = "";
@@ -399,15 +423,18 @@ export class Showcase implements Screen {
       claims: req => { if (SHOWCASE_ACTIONS.has(req.action)) return false; const d = this.stage(this.sel)?.top.dispatch; return d ? d.takes(req) : !SHELL_ACTIONS.has(req.action); },
     },
   ]);
-  /** Screen.keys: in the stage, its screen's; on the index, nothing holds them. */
+  /**
+   * Screen.keys: in the stage, its screen's, and held: the person works in a section, so an agent doesn't move them out
+   * of it (`section` touches the screen); on the index, nothing holds them.
+   */
   keys() {
     const f = this.focus === "stage" ? this.stages.get(this.sel) : undefined;
-    return f ? screenKeys(f.top) : { focus: null, typingIn: null, busy: false };
+    return f ? { ...screenKeys(f.top), busy: true, why: `the person is in section ${this.sel + 1} (${SECTIONS[this.sel]!.key}); sections change from the index` } : { focus: null, typingIn: null, busy: false };
   }
 
-  /** The section on screen, and whether the person's keys are in it (not on the index). */
+  /** The section on screen, and where the person's keys are: the index or its stage. */
   get shown() { return this.sel; }
-  personInStage() { return this.focus === "stage"; }
+  focusName() { return this.focus; }
 
   /** By number (1-10) or key (note, actions, edit…). */
   sectionOf(name: string): number {
@@ -420,24 +447,24 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-17> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-18> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
     run({ name }, s) {
       const i = name === undefined ? s.shown : s.sectionOf(name);
       s.pick(i, true);
-      return { section: i + 1, key: SECTIONS[i]!.key, in: s.personInStage() };
+      return { section: i + 1, key: SECTIONS[i]!.key, in: s.focusName() === "stage" };
     },
   },
   "section": {
-    summary: "show a section (name=<1-17> or its key: note, actions, edit, drafts, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-18> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
-    run({ name }, s, actor) {
+    run({ name }, s) {
+      // An agent never moves the person out of a section they are working in (the actor rule: the showcase says their
+      // keys are held while they're in one, `keys`): sections change from the index.
       const i = s.sectionOf(name);
-      // An agent never moves the person out of a section they are working in: sections change from the index.
-      if (actor.kind === "agent" && s.personInStage()) throw new ActionRefused(`the person is in section ${s.shown + 1} (${SECTIONS[s.shown]!.key}); sections change from the index`);
       s.pick(i, false);
       return { section: i + 1, key: SECTIONS[i]!.key };
     },

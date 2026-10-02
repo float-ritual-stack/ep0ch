@@ -3,8 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
-import { groupWaiting, sentAt, Waiting, waitingOn } from "../src/hub/waiting";
-import { claudeNow, PinnedPage } from "../src/hub/pinned";
+import { groupWaiting, sentAt, waitingOn, type WaitingPane } from "../src/hub/waiting";
+import { nowPage, type PinnedReader } from "../src/hub/pinned";
+import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -69,8 +70,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
 
   test("with nothing waiting it says so, and an agent's pick is refused", async () => {
     ch("O");
-    expect(top()).toBeInstanceOf(Waiting);
-    await until(() => (top() as Waiting).list.items !== null, "the waiting items asked for");
+    expect(top().name).toBe("waiting");
+    await until(() => (top().pane("waiting") as WaitingPane).items !== null, "the waiting items asked for");
     expect(screen()).toContain("Nobody owes you an answer.");
     (app as any).lastInput = 0;                                                     // the person is idle
     await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/nothing is waiting/);
@@ -80,7 +81,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     await board.createBlock(outbox.id, "Done already [type::outbox-item] [outbox::done] [to::Dot]");
     ada = await board.createBlock(outbox.id, "Ask Ada about the jars [type::outbox-item] [outbox::waiting] [ticket::JAM-1] [sent::2026-01-05 5:36 PM] [waiting-on::Ada: which shelf do the jars go on?]");
     brook = await board.createBlock(outbox.id, "Ask Brook about the tins [type::outbox-item] [outbox::waiting] [ticket::TIN-2] [sent::2026-01-08 6:35 PM] [waiting-on::Brook: how many bread tins]\nThe body of the ask.");
-    await until(() => (top() as Waiting).list.items?.length === 2, "two waiting items, read again after the change");
+    await until(() => (top().pane("waiting") as WaitingPane).items?.length === 2, "two waiting items, read again after the change");
     const s = screen();
     expect(s).toContain("outbox · 2 waiting on 2 people");
     expect(s).not.toContain("Done already");
@@ -110,15 +111,15 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     press({ kind: "esc" });
     await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
-    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ waiting: 2 });
+    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ tile: "waiting", waiting: 2 });
     ch("q");
   });
 
   test("Claude · now waits for its page, then pins it; a change to the page shows live", async () => {
     // C opens the welcome notes now (test/welcome.test.ts); the pinned page is still a screen of its own.
-    app.push(claudeNow());
-    expect(top()).toBeInstanceOf(PinnedPage);
-    await until(() => (top() as PinnedPage).asked, "the page asked for");
+    app.push(openScreen("pinned", nowPage()));
+    expect(top().name).toBe("pinned");
+    await until(() => (top().pane("pinned") as PinnedReader).asked, "the page asked for");
     expect(screen()).toContain("No [[claude-now]] page on this outline yet.");
     const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
     await until(() => screen().includes("Start here: the jam jars."), "the page, once it exists");
@@ -126,6 +127,13 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     const fresh = (await board.get(page.id))!;
     await board.update(page.id, fresh.text.replace("the jam jars", "the bread tins"), fresh.revision!);
     await until(() => screen().includes("Start here: the bread tins."), "the edit, live");
+    // An agent's open lands beside the page (its kind's open rule): the page stays pinned.
+    (app as any).lastInput = 0;
+    const jar = await board.createBlock(null, "Spare jar\nOn the top shelf.");
+    const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { reader: string };
+    expect(r.reader).not.toBe("pinned");
+    await until(() => screen().includes("On the top shelf."), "the note beside the page");
+    expect((top().pane("pinned") as PinnedReader).msg?.id).toBe(page.id);
     ch("q");
   });
 });

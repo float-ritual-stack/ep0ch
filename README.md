@@ -126,12 +126,12 @@ A journey to try, whichever service it is:
     scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
     scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
 
-opens the showcase (PIE-439): the shared door parts, live, in seventeen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in eighteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; it is under every section) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -154,14 +154,14 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   whatever process has that pid now is left alone. `--prepare` sets it up (or resets it) and exits without opening the door.
 - **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` (the first ten) or a click picks one; `⏎`, `→`, `Tab`
   or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
-  section names the part and its files and is drawn by the part itself, on a preset desk (the layout tree,
-  nothing saved to your `desk.json`) or the real board. A parallel version still in the code
+  section names the part and its files and is drawn by the part itself, on a desk of its own spec (the layout
+  tree, nothing saved to your `desk.json`) or the real board. A parallel version still in the code
   (`WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
   consolidate"; ones that can't be framed alone are named on the section's third line.
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-17|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch-door act section name=<1-18|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -177,14 +177,15 @@ embeds are live.
 
 - **Reaching it:** `T` (today) on the main menu, on its key line like the showcase, or `ep0ch --brief`.
   `EP0CH_LANDING=brief` opens it over the main menu right after the logon; the default is still the menu.
-- **The screen** is a desk with one reader at full width: the shared note surface, so links, live figures,
+- **The screen** is a desk with one reader at full width (a screen spec, PIE-515: one tile of the brief kind,
+  which knows the briefs; `^W o f` puts a brief tile on the desk too): the shared note surface, so links, live figures,
   folds, comments, selection, `[ ]` and the ruler work as in any reader. Its header (the surface's `header`
   hook, as the message reader's) leads with the day and "n of m briefs". `,` and `.` step to the previous and next day's brief (by `brief-date`, then by update).
   A link, a figure row or `u` opens in a reader beside it, so the brief stays; your keys stay on the brief.
   `^W` and the other desk keys work too; nothing is saved to your `desk.json`.
 - **No briefs:** it says so and names the skill.
-- **Agents:** `brief.step by=-1|1`, `brief.newest`, `brief.date date=YYYY-MM-DD` (refused while you're
-  typing in the brief), plus the desk's and the reader's actions. `open <id>` on a brief steps to it;
+- **Agents:** `brief.step by=-1|1`, `brief.newest`, `brief.date date=YYYY-MM-DD`, `brief.show id=<brief>` (refused
+  while you're typing in the brief), plus the desk's and the reader's actions. `open <id>` on a brief steps to it;
   any other note opens beside it.
 - The showcase outline has two made-up briefs, so `scripts/try-it.sh --showcase` then `T` shows one.
 
@@ -1291,7 +1292,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, `R`, a click on `R refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
 | `open` | `id`, `tile=detail\|new-detail\|preview\|float` (board), `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
-| `brief.step`, `brief.newest`, `brief.date` | `by=-1\|1`; `date=YYYY-MM-DD` (the daily brief) | `,` `.` |
+| `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |
+| `screen.spec` | none: the screen shown as its spec, the data a screen note holds (PIE-515) | |
 | `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the overlay, and its `⏎` runs `open` | `/` |
 | `tile.enter`, `tile.leave` | `send=` (enter: a key to pass on, the second `ctrl+]`): type in a terminal tile, or leave it. The person's only: an agent uses `tile.type` | `e`, `⏎` or a click on a terminal tile; `ctrl+]` |
 | `thread.pick`, `thread.up`, `activity.pick`, `activity.reload`, `reader.hold` | `n=`, `open=true`; `on=` (hold). The thread, activity and reader tiles' own keys, registered on their tile kinds. An agent's pick answers the row and moves nothing of yours | `j k ↑↓`, a click, `⏎`, `u`; `r`; `p` |
