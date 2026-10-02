@@ -1684,3 +1684,8 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
 - The editor wraps a line by cells, but a click and up/down count one cell per character, so on a line with wide (CJK, some emoji) characters they land a little off.
 - The Herdr capability check reads a config file; a lasting version should ask Herdr.
+- Sessions (PIE-418): one per state dir, so a second outline at once needs its own `EP0CH_STATE` (or `--no-daemon`).
+  Two terminals share one size, the latest typer's (as tmux's `window-size latest`); the other sees the frame cut or
+  padded. Text typed into a draft since it was last put aside lives only in the daemon's memory: a daemon killed
+  with `-9` loses it (a handoff puts it aside first). The terminal host's own code can't be upgraded under its
+  programs: a change to its protocol ends them, and their tiles start them again.
