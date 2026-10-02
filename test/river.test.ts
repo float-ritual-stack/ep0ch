@@ -3,7 +3,7 @@
 // PIE-515: the River is a screen spec on the desk; its columns are `river.column` tiles in a flow, named as any tile
 // (`library`, `column2`…), and widen, dock, close, back and forward are the engine's tile actions.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
@@ -493,14 +493,31 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("the Library stays (the river is made around it), so a restarted river comes back with its columns (round 3, B-M2)", async () => {
     const o: any = await act("open", { id: notes.squash.id, from: lib() });
     await until(() => !!paneOf(o.reader).root, "the squash column");
-    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: the river screen is made around it/);
-    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/made around it/);
+    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it \(closable off\)/);
+    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/closable off/);
+    // The hint row offers x only where it closes something: in the note column, not in the Library.
+    const hintRow = () => screen().split("\n").find(l => l.includes("h l columns")) ?? "";
+    await mine("focus", {}, o.reader);
+    expect(hintRow()).toContain("x close");
+    await mine("focus", {}, lib());
+    expect(hintRow()).toContain("h l columns");
+    expect(hintRow()).not.toContain("x close");
+    expect(await act("layout.policy", {}, lib())).toMatchObject({ effective: { closable: false } });   // the spec says it, as policy
     (river as any).save();
     // The river opened again, as a restarted door does: its saved columns come back.
     const again = openScreen("river") as Desk;
     const titles = view(again).columns.map(c => view(again).name(c));
     expect(titles).toContain("library");
     expect(titles).toContain(o.reader);
+    // A river saved before the spec held the Library in its tab set (a bare leaf) gets its rule back as it's read.
+    const f = join(process.env.EP0CH_STATE!, "river.json");
+    const bare = (n: any): any => (n?.t === "tabs" && n.tabs?.[0]?.name === "library" ? n.tabs[0] : n?.kids ? { ...n, kids: n.kids.map(bare) } : n);
+    const saved = JSON.parse(readFileSync(f, "utf8"));
+    writeFileSync(f, JSON.stringify({ ...saved, root: bare(saved.root) }));
+    expect(readFileSync(f, "utf8")).not.toContain('"closable":false');
+    const old = openScreen("river") as any;
+    expect(old.policyAt(old.idNamed("library")).closable).toBe(false);
+    expect(view(old).columns.map(c => view(old).name(c))).toContain(o.reader);
     await act("tile.close", {}, o.reader);
   });
 });

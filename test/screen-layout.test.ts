@@ -368,6 +368,9 @@ describe("the rest of the layout's operations", () => {
     // A name another tile has stays that tile's.
     s = ok(s, { op: "fill", container: cid, order: [12, 13], names: [[12, "Done"]] }).state;
     expect(names(s, [12, 13])).toEqual(["To-do", "Done"]);
+    // Two views that swapped titles: both lanes get theirs back.
+    s = ok(s, { op: "fill", container: cid, order: [12, 13], names: [[12, "Done"], [13, "To-do"]] }).state;
+    expect(names(s, [12, 13])).toEqual(["Done", "To-do"]);
   });
 
   test("a spine swapped into a column split opens, as a move there does (round 3, B-L2)", () => {

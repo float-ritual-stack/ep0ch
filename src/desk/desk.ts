@@ -238,22 +238,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   protected facts(id: number): TileFacts {
     const p = this.panes.get(id), k = kindOf(p), src = this.sourced.get(id);
     const how = src ? tileSource(src.source)?.source.drop : undefined;
-    // A screen of a fixed shape needs the tiles its spec names (the river's library): without one, its save couldn't
-    // come back (savedScreen), so they stay. The desk's tiles are the person's own: anything goes.
-    const named = !src && !this.spec.layouts && this.specNames().has(this.nameOf(id));
     return {
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
-      ...(named ? { keeps: `the ${this.spec.name} screen is made around it (its spec names it)` } : {}),
       ...(p instanceof ReaderPane && p.editing ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
       ...(p && this.holdsWork(p) ? { holds: true } : {}),
     };
   }
-  private specNames_: Set<string> | undefined;
-  /** The tiles this screen's spec names. */
-  private specNames(): Set<string> { return (this.specNames_ ??= new Set(leafNames(this.spec.layout.root))); }
   /**
    * Who acts, where the person is, the room: what `apply` reads. Where the person is comes from the shell's one
    * answer (the whereabouts query, PIE-514): the tile they type in, and whether they're busy anywhere (here, in the
@@ -1793,7 +1786,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       return `|14 ${f instanceof DetailPane && f.label ? f.label : this.nameOf(this.focus)} · collapsed${holds}|08 · ${h.spine ?? ""}`;
     }
     if (this.isFloat(this.focus) && h.float !== undefined) return h.float;
-    return h[f.kind] ?? h["*"] ?? null;
+    const k = h[f.kind] ?? h["*"] ?? null;
+    // A tile that doesn't close (closable off, or kept by its source) isn't offered x: its kind's hint says it for the rest.
+    return k && (!this.policyAt(this.focus).closable || this.facts(this.focus).keeps) ? k.split(" · ").filter(p => !/^(?:\|\d\d)?\s*\|15x\|08 close$/.test(p)).join(" · ") : k;
   }
 
   /** A float's frame hint, with this screen's keys for docking and closing it (the board has its own o and x). */
@@ -3158,7 +3153,29 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
   const want = names(spec.layout.root), have = new Set(names(o.root)), wantKeys = keys(spec.layout.root), haveKeys = new Set(keys(o.root));
   // The desk's tiles are the person's own: anything goes. A screen of a fixed shape needs its tiles and named containers.
   if (!spec.layouts && (!want.every(n => have.has(n)) || !wantKeys.every(k => haveKeys.has(k)))) return { ...(o as SavedDesk), root: undefined as never };
-  return o as SavedDesk;
+  return spec.layouts ? o as SavedDesk : { ...(o as SavedDesk), root: heldAsSpecced(o.root, spec.layout.root) };
+}
+
+/**
+ * A fixed screen's tiles its spec holds in a tab set of one for its policy (the river's library: closable off), held
+ * so again in a save written before the spec said it (a bare leaf by that name): the rule comes back with the save.
+ */
+function heldAsSpecced(saved: any, specRoot: unknown): any {
+  const held = new Map<string, any>();
+  const find = (n: any) => {
+    if (!n || typeof n !== "object") return;
+    if (n.t === "tabs" && n.policy && Array.isArray(n.tabs) && n.tabs.length === 1 && typeof n.tabs[0]?.name === "string") held.set(n.tabs[0].name, n.policy);
+    for (const k of [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b]) find(k);
+  };
+  find(specRoot);
+  if (!held.size) return saved;
+  const fix = (n: any): any => {
+    if (!n || typeof n !== "object") return n;
+    if (n.t === "leaf") return typeof n.name === "string" && held.has(n.name) ? { t: "tabs", tabs: [n], active: 0, policy: { ...held.get(n.name) } } : n;
+    if (n.t === "tabs") return n;
+    return { ...n, ...(Array.isArray(n.kids) ? { kids: n.kids.map(fix) } : {}), ...(n.kid ? { kid: fix(n.kid) } : {}), ...(n.a ? { a: fix(n.a) } : {}), ...(n.b ? { b: fix(n.b) } : {}) };
+  };
+  return fix(saved);
 }
 
 /**

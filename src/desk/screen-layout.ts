@@ -609,7 +609,9 @@ class Step<I> {
       const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
       // An edit in it is said first: it's what the person would lose.
       if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
-      if (!e.closable) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`);
+      // A tab set of one holding the rule is the tile's own place (the board's preview, the river's library).
+      const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
+      if (!e.closable) refuse(own ? `${name} stays: its place (${own.id}) keeps it (closable off)${fold}` : `${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
       if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
@@ -1031,7 +1033,12 @@ class Step<I> {
       this.forget(id);
       if (this.d.focus === id) this.d.focus = visible(this.d.tree).find(x => !this.d.collapsed.has(x)) ?? visible(this.d.tree)[0] ?? this.all()[0]!;
     }
-    for (const [id, name] of op.names ?? []) if (this.d.names.has(id) && this.d.names.get(id) !== name && named(this.d, name) === undefined) this.d.names.set(id, name);
+    // In two steps, so two kept tiles whose views swapped names both get theirs: each that differs lets its name go, then
+    // takes the source's when no other tile holds it (else it's named by its kind).
+    const renames = (op.names ?? []).filter(([id, name]) => this.d.names.has(id) && this.d.names.get(id) !== name);
+    const was = new Map(renames.map(([id]) => [id, this.d.names.get(id)!] as const));
+    for (const [id] of renames) this.d.names.delete(id);
+    for (const [id, name] of renames) this.d.names.set(id, named(this.d, name) === undefined ? name : named(this.d, was.get(id)!) === undefined ? was.get(id)! : autoName(this.d, this.facts(id).kind));
     for (const t of op.fresh ?? []) this.d.names.set(t.id, t.name !== undefined && named(this.d, t.name) === undefined ? t.name : autoName(this.d, t.kind));
     const c = nodeById(this.d.tree, op.container);
     if (!c || c.t !== "columns") { if (op.drop?.length) return; refuse(`no columns ${op.container} in the layout`); }

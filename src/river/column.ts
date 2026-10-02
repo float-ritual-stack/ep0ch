@@ -745,7 +745,9 @@ const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15�
 export function riverSpec(): ScreenSpec {
   return {
     name: "river", title: "river", digits: false, saves: "river.json", lands: "river",
-    layout: { focus: "library", root: { t: "flow", key: "river", docked: [0], kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec] } },
+    // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
+    // board's preview's is), so a saved river always comes back with it.
+    layout: { focus: "library", root: { t: "flow", key: "river", docked: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
     keys: [
       { key: "h", action: "tile.focus", args: { dir: "left" } },
       { key: "l", action: "tile.focus", args: { dir: "right" } },
