@@ -340,6 +340,19 @@ function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | 
 export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed">, holds?: (id: I) => boolean): PlaceOpts<I> {
   return { fixed: (id, dir) => (dir === "row" && s.collapsed.has(id) ? SPINE : undefined), ...(holds ? { holds } : {}) };
 }
+/** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
+function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
+  const out = { row: 1, col: 1 };
+  const chain = chainOf(tree, id);
+  chain.forEach((c, i) => {
+    if (!isLine(c) || c.t === "flow") return;
+    const next = chain[i + 1];
+    const k = c.kids.findIndex(x => (next ? x === next : x.t === "leaf" && x.id === id));
+    const sum = c.weights.reduce((a, w) => a + w, 0) || 1;
+    if (k >= 0) out[c.dir === "col" ? "col" : "row"] *= c.weights[k]! / sum;
+  });
+  return out;
+}
 /** The screen placed in `area`: the tree, the drawers sliding over it, each flow's columns (floats keep their own rects). */
 export function place<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed">, area: Rect, holds?: (id: I) => boolean): PlacedScreen<I> {
   return placeScreen({ root: s.tree, floats: [...s.floats] }, area, placeOpts(s, holds));
@@ -443,11 +456,13 @@ class Step<I> {
    */
   private keepsSize(step: () => void) {
     const t = this.agent ? this.ctx.person.typingIn : null;
-    const before = t !== null ? rects(this.d, this.ctx.area).get(t) : undefined;
+    if (t === null || !has(this.d.tree, t)) return step();
+    const before = shareOf(this.d.tree, t);
     step();
-    if (t === null || !before) return;
-    const after = rects(this.d, this.ctx.area).get(t);
-    if (!after || after.cols !== before.cols || after.rows !== before.rows) refuse(`${this.name(t)} is where the person is typing; an agent doesn't resize it (block.mark gets their attention)`);
+    const after = shareOf(this.d.tree, t);
+    // Its share of the screen along each axis, from the weights (not cells, which round as other borders move).
+    const moved = (["row", "col"] as const).some(a => Math.abs(after[a] - before[a]) > 1e-9);
+    if (moved) refuse(`${this.name(t)} is where the person is typing; an agent doesn't resize it (block.mark gets their attention)`);
   }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {

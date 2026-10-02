@@ -255,8 +255,10 @@ Every action says what it touches, and the dispatcher checks it once, the same w
 | `screen` | the person is away (not logged on, or in the door's shell or editor), busy (typing anywhere), or touched a key or the mouse within the last 2s (`SHELL_IDLE_MS`) | `screen.open`, `tile.focus`, `marks.next`, `brief.step`, `board.hub id=`, `host.toggle open=true` |
 
 An action may say its touches depend on its arguments, or on whether the request named a tile (`board.hub` with
-`id=` touches the screen, without it nothing; the desk's `open` with `tile=<reader>` touches that tile, naming none
-it lands where the person isn't). An action that is the person's own (`tile.enter`, `select.mode`, `screen.shell`) is refused to every
+`id=` touches the screen, without it nothing; the desk's `open` with `tile=<reader>` touches that tile). An agent
+never names the reader with the person's keys: `open tile=…` there is refused, its way named. An open naming no tile lands where opens land (the tile's link, the readers row, a reader that follows), which can be the note the person is reading: said on screen, never their keys, never a reader they're typing in.
+A place word (`tile=detail`, `new-detail`, `float` on the board) is a place, not a reader: it is where opens land too,
+and behaves as an open naming no tile. An action that is the person's own (`tile.enter`, `select.mode`, `screen.shell`) is refused to every
 agent with the way an agent does it instead. Each action also says whether replaying it is `safe` (the same
 answer again, nothing written twice) or `ask` (it writes, starts something, opens something outside the door, or
 is kept for the next start: `link.follow`, `props.follow`, `tree.pick`, `theme.set`, `theme.cycle`): for PIE-418's replay.
@@ -353,7 +355,7 @@ at, and what it does while they're typing:
 | `host.toggle open=false`, `host.size` | no | refused while they're typing in the drawer |
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
-| `open tile=<reader>`, `link.follow`, `element.open`, `props.follow`, `up`, `threads`, `resolve` in the reader that has the person's keys (on the board, the preview they read the lanes through too) | it would move what they're reading | refused, the way named: another reader (`tile=`), or `open id=` naming none. Elsewhere allowed; an agent's `link.follow n=` never moves the person's `[ ]` position |
+| `open tile=<reader>`, `link.follow`, `element.open`, `props.follow`, `up`, `threads`, `resolve` in the reader that has the person's keys (on the board, the preview they read the lanes through too) | it would move what they're reading | refused, the way named: another reader (`tile=`), or `open id=` naming none (an open naming no tile lands where opens land (the tile's link, the readers row, a reader that follows), which can be the note the person is reading: said on screen, never their keys, never a reader they're typing in). Elsewhere allowed; an agent's `link.follow n=` never moves the person's `[ ]` position |
 | `link.follow`, `element.open` on a web link or a figure | no: an agent never opens the person's browser or system viewer | allowed: the answer gives the address (`outside: browser\|viewer`, `url`, `launched: false`) and the reader says the agent was given it |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's | allowed |
 | `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut drawer opens it | the typing tile refused |

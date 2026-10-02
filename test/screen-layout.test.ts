@@ -243,6 +243,11 @@ describe("agents never take the person's place (C3, C4)", () => {
     expect(ok(s, { op: "resize", path: "2", border: 0, share: 0.3 }, AGENT, typing).state).toBeTruthy();
     expect(ok(s, { op: "resize", path: "", border: 0, share: 0.4 }, PERSON, typing).state).toBeTruthy();
     expect(ok(s, { op: "even" }, AGENT, { focus: 2, typingIn: null, busy: false }).state).toBeTruthy();
+    // A border between two other tiles in a line over theirs (tree | reader, the person in thread): never refused,
+    // at any share, though thread's cells may round by one as the screen re-lays out.
+    const inThread: Partial<Person> = { focus: 3, typingIn: 3, busy: true };
+    for (let x = 10; x <= 90; x++) expect({ x, ok: apply(s, { op: "resize", path: "", border: 0, share: x / 100 }, ctxOf(AGENT, inThread)).ok }).toEqual({ x, ok: true });
+    no(s, { op: "resize", path: "", border: 1, share: 0.4 }, /thread is where the person is typing; an agent doesn't resize it/, AGENT, inThread);
   });
 
   test("C4: an agent undoes only a lock it set; the person's are theirs, by lock, by policy, by loading a layout", () => {

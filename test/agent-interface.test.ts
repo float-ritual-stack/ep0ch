@@ -245,11 +245,36 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       await expect(act("props.follow", { n: 1 }, "side")).rejects.toThrow(/side has the person's keys/);
       await expect(act("open", { id: notes.shed.id }, "side")).rejects.toThrow(/side has the person's keys; opening a note there would move what they're reading/);
       expect(side().msg?.id).toBe(shown);
-      // Naming no tile, an agent's open lands where the person isn't.
-      expect(await act("open", { id: notes.shed.id })).toMatchObject({ id: notes.shed.id });
-      expect(side().msg?.id).toBe(shown);
       await mine("tile.focus", "tree");
     } finally { external.run = run; }
+  }, 20_000);
+
+  test("an open naming no tile lands where opens land, even the note the person reads: said on screen, never their keys, never a reader they type in", async () => {
+    const mid = () => (desk.paneNamed("middle") as ReaderPane);
+    // The person on the tree, whose opens land in middle: the agent's tile-less open shows the note there (the
+    // designed "show the person" path), their keys stay on the tree, and it's said on the status bar.
+    await mine("tile.focus", "tree");
+    const r = await act("open", { id: notes.shed.id }) as { reader: string | null; id: string };
+    expect(r).toMatchObject({ reader: "middle", id: notes.shed.id });
+    await until(() => mid().msg?.id === notes.shed.id, "the note in middle");
+    expect(person().focus).toBe("tree");
+    expect(said.at(-1)).toMatch(/watcher-7.*opened a note in middle/);
+    // The person reading middle themselves: it lands where opens land from there (a reader that follows), keys unmoved.
+    await mine("tile.focus", "middle");
+    const r2 = await act("open", { id: notes.long.id }) as { reader: string | null };
+    expect(r2.reader).toBeTruthy();
+    expect(person().focus).toBe("middle");
+    // Typing in middle: the open never lands in that reader; their edit and its note stay.
+    await desk.dispatch.act({ action: "edit", args: {}, reader: "middle" }, USER);
+    key(char("e"));
+    await until(() => person().typingIn === "middle", "the person typing in middle");
+    const typing = mid().msg?.id;
+    const landed = await act("open", { id: notes.shed.id }) as { reader: string | null };
+    expect(landed.reader).not.toBe("middle");
+    expect(mid().msg?.id).toBe(typing);
+    expect(person().typingIn).toBe("middle");
+    await desk.dispatch.act({ action: "edit.close", args: { discard: true }, reader: "middle" }, USER).catch(() => {});
+    await mine("tile.focus", "tree");
   }, 20_000);
 
   test("a border dragged is layout.resize, the action an agent calls", async () => {
