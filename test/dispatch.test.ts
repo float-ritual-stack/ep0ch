@@ -22,6 +22,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard, USER, type Actor } from "../src/socket";
 import { ActionRefused, ActionSet, allActionSets, type ActionDef, type Touches } from "../src/surface/actions";
 import { actorRule, Dispatcher, type TileRef } from "../src/surface/dispatch";
+import { DraftSession, draftRule } from "../src/draft-session";
 import { NOBODY, SHELL_IDLE_MS, type Whereabouts } from "../src/whereabouts";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -44,8 +45,8 @@ function promised(def: ActionDef<unknown, unknown>, actor: Actor, state: keyof t
   if (def.person) return def.person;
   const t: Touches = def.touches;
   if (t === "nothing" || t === "shape") return null;
-  // Replacing a tile's whole draft: never while the person types there; else the draft rule's (whose draft it is).
-  if (t === "draft") return def.draft === "replace" && state === "typing" ? /the person is typing in middle; an agent doesn't replace their text/ : "the draft rule's answer";
+  // Replacing a tile's whole draft (an edit's, a comment's): never while the person types there; else the draft rule's (whose draft it is).
+  if (t === "draft") return (def.draft === "replace" || def.draft === "text") && state === "typing" ? /the person is typing in middle; an agent doesn't replace their text/ : "the draft rule's answer";
   if (t === "tile") {
     if (state === "typing") return /the person is typing in middle/;
     return def.while === "typing" ? null : /middle has the person's keys/;
@@ -131,9 +132,64 @@ describe("the actor rule, for every action (PIE-514)", () => {
       expect({ n, person: !!of(n).person }).toEqual({ n, person: true });
     }
     // The person's draft: the draft session's rule.
-    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "replace"], ["props.edit", "write"], ["task.status", "write"], ["draft.newline", "type"], ["comment.write", "safe"]] as const) {
+    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "replace"], ["props.edit", "write"], ["task.status", "write"], ["draft.newline", "type"], ["comment.write", "text"], ["complete", "type"]] as const) {
       expect({ n, t: of(n).touches, use: of(n).draft }).toEqual({ n, t: "draft", use });
     }
+    // A lookup reads; complete insert= types at the cursor (round 3, deferred).
+    expect([of("complete").touchesWith!({}), of("complete").touchesWith!({ text: "[[HOME" }), of("complete").touchesWith!({ insert: 1 })]).toEqual(["nothing", "nothing", "draft"]);
+    // Only these take an invitation (and spend it): anywhere else invitation= opens nothing.
+    expect(allActionSets().flatMap(s => s.names().filter(n => s.argsOf(n)?.invitation)).sort()).toEqual(["comment.write", "complete"]);
+  });
+});
+
+describe("the draft rule, for the person's draft and an agent's (round 3, deferred: comment.write, complete insert=)", () => {
+  /** A comment being written (no block of its own), and an edit of a block: opened by whom, typed in by whom. */
+  const comment = (by: Actor) => DraftSession.open({ place: `comment:${by.kind}`, back: "C brings it back", label: "c", what: "the comment on “Sow the leeks”", verb: "send", leaveWrites: false, submit: async () => ({ ok: true }) }, { by });
+  const edit = (by: Actor, blockId: string) => DraftSession.open({ place: `edit:${blockId}`, back: "e brings it back", label: "e", what: "the edit to “Sow the leeks”", verb: "save", blockId, leaveWrites: true, submit: async () => ({ ok: true }) }, { by, text: "Sow the leeks" });
+  const PERSONS = /^the person is writing the comment on “Sow the leeks” here; an agent doesn't replace their text/;
+  const TYPE = /^this draft is the person's; an agent doesn't type in it/;
+
+  test("each use × whose draft: the person's is theirs, an agent's own is its own, an invitation is the one way in", () => {
+    const sessions: DraftSession[] = [];
+    const s = <T extends DraftSession>(x: T) => { sessions.push(x); return x; };
+    // Open with no connection: the person's edit of …0b is in the same (loose) registry the rule asks.
+    const theirs = s(comment(USER)), ours = s(comment(AGENT)), their = s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000a"));
+    s(edit(USER, "aaaaaaaa-0000-4000-8000-00000000000b"));
+    const invited = s(comment(USER));
+    invited.draft.replace("Leeks in March?\n@table-agent-514", USER);
+    const inv = invited.invite("table-agent-514")!;
+    const rows: [string, Parameters<typeof draftRule>, RegExp | null][] = [
+      // comment.write (`text`): the person's comment is refused; the agent's own is its own; a note open in an edit elsewhere doesn't stop a comment.
+      ["comment.write in the person's comment", [AGENT, "text", { session: theirs }], PERSONS],
+      ["comment.write in the agent's own comment", [AGENT, "text", { session: ours }], null],
+      ["comment.write while the note is open in an edit elsewhere", [AGENT, "text", { blockId: "aaaaaaaa-0000-4000-8000-00000000000b", session: ours }], null],
+      ["comment.write invited", [AGENT, "text", { session: invited }, { invitation: inv.id }], null],
+      ["comment.write with another's invitation", [AGENT, "text", { session: theirs }, { invitation: inv.id }], /no open invitation/],
+      ["comment.write invited, with nothing written", [AGENT, "text", { session: null }, { invitation: inv.id }], /nothing is being written here to be invited into/],
+      // complete insert= (`type`): only a draft the agent opened and alone typed in, or one it's invited into.
+      ["complete insert= in the person's comment", [AGENT, "type", { session: theirs }], TYPE],
+      ["complete insert= in the person's edit", [AGENT, "type", { session: their }], TYPE],
+      ["complete insert= in the agent's own", [AGENT, "type", { session: ours }], null],
+      ["complete insert= invited", [AGENT, "type", { session: invited }, { invitation: inv.id }], null],
+      // edit.text (`replace`) as it was: the person's edit refused, and a note they edit elsewhere.
+      ["edit.text in the person's edit", [AGENT, "replace", { session: their }], /^the person has this note open in an edit here/],
+      ["edit.text under the person's edit elsewhere", [AGENT, "replace", { blockId: "aaaaaaaa-0000-4000-8000-00000000000b" }], /^the person has “Sow the leeks” open in a draft/],
+      // The person is never refused.
+      ["the person's own, every use", [USER, "text", { session: ours }], null],
+    ];
+    const bad = rows.flatMap(([what, args, want]) => {
+      const got = draftRule(...args);
+      return (want === null ? got === null : !!got && want.test(got)) ? [] : [`${what}: wanted ${want ?? "it to run"}, got ${got ?? "it runs"}`];
+    });
+    expect(bad).toEqual([]);
+    for (const x of sessions) x.dispose();
+  });
+
+  test("invited, the actor rule lets the draft rule decide even while the person types; uninvited it refuses first", () => {
+    const def = { touches: "draft" as const, draft: "text" as const };
+    expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, draft: () => null })).toMatch(/^the person is typing in middle; an agent doesn't replace their text · block.mark gets their attention/);
+    expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, invited: true, draft: () => null })).toBeNull();
+    expect(actorRule(def, AGENT, STATES.typing, { tile: { name: TILE }, invited: true, draft: () => "no open invitation" })).toBe("no open invitation");
   });
 });
 

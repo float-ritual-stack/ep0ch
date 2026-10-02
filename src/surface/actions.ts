@@ -32,12 +32,13 @@ export type Touches = "nothing" | "tile" | "shape" | "draft" | "screen";
  */
 export type Replay = "safe" | "ask";
 /**
- * What a `draft` action does to a draft (draftRule): types in it, leaves it (save, close, send), writes the block, or
- * changes it in a way the session keeps safe for the person itself (`safe`: a whole text replaced copies theirs out
- * first, an undo takes back only that actor's own patch), or replaces the tile's whole draft (`replace`: an agent's only
- * in a draft it opened, and never while the person types in that tile).
+ * What a `draft` action does to a draft (draftRule): types in it (`type`: a reference put in at the cursor too), leaves
+ * it (save, close, send), writes the block, changes it in a way the session keeps safe for the person itself (`safe`:
+ * an undo takes back only that actor's own patch), replaces the whole text of the tile's comment or reply (`text`), or
+ * replaces the tile's whole draft of the block (`replace`). `text` and `replace` are an agent's only in a draft it
+ * opened, and never while the person types in that tile; an invitation (the person's `@name` line) is the one way in.
  */
-export type DraftUse = "type" | "leave" | "write" | "safe" | "replace";
+export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
 
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */

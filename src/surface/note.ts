@@ -388,6 +388,17 @@ export class NoteSurface {
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
   draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? null; }
+  /**
+   * The person is in this reader's edit, comment or panel: it holds the keys, and it isn't an agent's own that the
+   * person hasn't typed in (an agent's comment holds a reader's keys from the start; it's the person's once they type).
+   * What a reader with no desk around it says is where the person types (the desk asks whether they entered it).
+   */
+  get personHolds(): boolean {
+    if (!this.holdsKeys) return false;
+    const s = this.draftSession();
+    if (s) return !(s.openedBy.kind === "agent" && s.draft.writers.every(w => w.kind === "agent"));
+    return this.session?.startedBy.kind !== "agent";
+  }
   /** It holds an edit or a comment that's `actor`'s own: one they opened or typed in (a tile named by a block id prefers it). */
   heldBy(actor: Actor): boolean {
     const s = this.draftSession();
@@ -1617,7 +1628,7 @@ export class NoteSurface {
     const me = "reader";
     return new Dispatcher({
       title: "reader", ctx: () => host.ctx,
-      where: () => ({ ...(host.ctx.person?.() ?? NOBODY), focus: host.focused === false ? null : me, typingIn: this.holdsKeys ? me : null, ...(this.holdsKeys ? { busy: true } : {}) }),
+      where: () => ({ ...(host.ctx.person?.() ?? NOBODY), focus: host.focused === false ? null : me, typingIn: this.personHolds ? me : null, ...(this.holdsKeys ? { busy: true } : {}) }),
       tiles: () => [{ name: me, kind: "reader", shows: this.msg?.id ?? null, editing: this.editing, holds: a => this.heldBy(a) }],
       draftOf: () => ({ board: host.ctx.board, blockId: this.msg?.id ?? null, session: this.draftSession() }),
     }, [{ set: NOTE_ACTIONS, takes: "tile", noun: "a reader", on: () => ({ surface: this, host }), run: (name, args, _on, actor, typed) => this.run(name, args, host, actor, typed) }]);
@@ -3087,13 +3098,15 @@ export class NoteSurface {
     return s.close(discard);
   }
 
-  async ensureSession(host: SurfaceHost, mode: "select" | "threads"): Promise<CommentSession> {
+  async ensureSession(host: SurfaceHost, mode: "select" | "threads", by: Actor = USER): Promise<CommentSession> {
     if (this.draft) throw new ActionRefused("this reader is editing; save or close the edit first (edit.save, edit.close)");
     if (!this.session) {
       this.requireNote();
       await this.comment(host, mode, undefined, false);
-      if (!this.session) throw new ActionRefused("the note couldn't be opened for commenting (its revision is unknown)");
-      return this.session;
+      const made = this.session as CommentSession | null;
+      if (!made) throw new ActionRefused("the note couldn't be opened for commenting (its revision is unknown)");
+      made.startedBy = by;
+      return made;
     }
     const s = this.session;
     if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
@@ -3364,7 +3377,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "back": Record<string, never>;
   "forward": Record<string, never>;
   "passage.select": { quote?: string; near?: number };
-  "comment.write": { body: string };
+  "comment.write": { body: string; invitation?: string; base?: string };
   "comment.send": Record<string, never>;
   "comment.reload": Record<string, never>;
   "comment": { quote: string; body: string; near?: number };
@@ -3379,7 +3392,7 @@ export interface NoteActionArgs extends DraftActionArgs {
   "props.edit": { n?: number; key?: string; value: string; revision?: number };
   "props.close": Record<string, never>;
   "props.summary": { keys?: string; toggle?: string; reset?: boolean };
-  "complete": { text?: string; insert?: number };
+  "complete": { text?: string; insert?: number; invitation?: string };
   "folds": Record<string, never>;
   "fold": FoldArgs & { all?: boolean };
   "unfold": FoldArgs & { all?: boolean };
@@ -3591,12 +3604,16 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "complete": {
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
-    touches: "draft", draft: "safe", replay: "ask",
+    // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
+    // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
+    touches: "draft", draft: "type", replay: "ask",
+    touchesWith: ({ insert }) => (insert === undefined ? "nothing" : "draft"),
     args: {
       text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
       insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
+      invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up only when it lands); not for a draft of the agent's own" },
     },
-    async run({ text, insert }, { surface, host }, actor) {
+    async run({ text, insert, invitation }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
       const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
@@ -3628,7 +3645,10 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (!d || d.busy) throw new ActionRefused(d ? "the save is still landing" : "nothing is being written here");
       try {
         if (!still()) throw new Error("the draft changed while the references were looked up; ask again");
-        if (!await insertCompletion(board, d, target, item, own, still, actor)) throw new Error("the draft changed while the reference was checked; ask again");
+        const ds = surface.draftSession();
+        if (invitation !== undefined && (!ds || ds.draft !== d)) throw new Error("the invitation is for another draft");
+        const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
+        if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
       surface.noteAgent(actor, `inserted ${item.insertion.slice(0, 60)}`);
       host.redraw();
@@ -3866,7 +3886,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
     async run({ quote, near }, { surface, host }, actor) {
       // The person's C starts from their selected text (the quote) and their put-aside comment; an agent's never.
-      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select");
+      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select", actor);
       // Picking reads the note again; when that fails the session stays where it was, with the reason.
       const p = s.mode === "select" ? s.passage : null;
       if (!p) throw new ActionRefused(s.error ?? "the passage couldn't be picked: the note's current text wasn't read");
@@ -3877,13 +3897,25 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     },
   },
   "comment.write": {
-    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text", keys: "enter, then typing",
-    touches: "draft", draft: "safe", replay: "ask",
-    args: { body: { type: "string", about: "the comment's text" } },
-    async run({ body }, { surface, host }, actor) {
+    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: "enter, then typing",
+    touches: "draft", draft: "text", replay: "ask",
+    args: {
+      body: { type: "string", about: "the comment's text" },
+      invitation: { type: "string", optional: true, about: "the invitation the person's @name line gave this agent: body replaces the text above that line (one reply)" },
+      base: { type: "string", optional: true, about: "with invitation=: the hash of the text the reply was written on, as the invitation gave it" },
+    },
+    async run({ body, invitation, base }, { surface, host }, actor) {
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
       if (s.busy) throw new ActionRefused(`wait: ${s.busy}`);
+      // Invited into the person's comment: the reply seam edits use (DraftSession.reply), compared on the invited range.
+      if (invitation !== undefined) {
+        if (s.mode !== "compose" || !s.writing) throw new ActionRefused("no comment is being written here to be invited into");
+        if (base === undefined) throw new ActionRefused("invitation= needs base=, the hash of the text the reply was written on");
+        const r = s.writing.reply(invitation, base, body, actor);
+        host.redraw();
+        return { ...r, dirty: s.writing.dirty };
+      }
       // An agent's comment is its own: the person's put-aside text stays put aside.
       if (s.mode === "select") { const why = s.write(actor); if (why) throw new ActionRefused(why); }
       if (s.mode !== "compose" || !s.composer) throw new ActionRefused("pick a passage first (passage.select) or reply to a thread");
@@ -3944,7 +3976,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     args: {},
     async run(_, { surface, host }, actor) {
       // The person's opens as it was asked for: on a comment mark's thread, or with a Reply control's reply started.
-      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "threads") : await surface.ensureSession(host, "threads");
+      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "threads") : await surface.ensureSession(host, "threads", actor);
       host.redraw();
       return { threads: s.threads.map(t => ({ id: t.id, open: t.open, author: t.author, quote: t.quote, body: t.body, replies: t.replies.length })) };
     },

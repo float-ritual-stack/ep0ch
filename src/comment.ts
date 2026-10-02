@@ -201,6 +201,8 @@ export class CommentSession {
    */
   inline = false;
   finished = false;
+  /** Who started it (the person's C or m, or an agent's passage.select, reply or threads): an agent's isn't the person's keys until they type in it. */
+  startedBy: Actor = USER;
 
   constructor(public msg: Msg, public threads: Comment[], mode: "select" | "threads") {
     this.mode = this.origin = mode;

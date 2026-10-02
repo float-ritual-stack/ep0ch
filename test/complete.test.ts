@@ -380,20 +380,40 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("esc"));
     const f: any = await e.s.act("complete", { text: "[file::notes/" }, e.h, AGENT);
     expect(f.items.map((i: any) => i.insertion)).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
-    const ins: any = await e.s.act("complete", { insert: 1 }, e.h, AGENT);
+    // The person's draft is theirs: a candidate isn't put in at their cursor (round 3, deferred), their text and cursor as they were.
+    const before = [e.d.text, e.d.row, e.d.col];
+    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    expect([e.d.text, e.d.row, e.d.col]).toEqual(before);
+    expect(e.d.writers.map(w => w.kind)).toEqual(["user"]);
+    // An invitation for another agent, or one made up, opens nothing.
+    await expect(e.s.act("complete", { insert: 1, invitation: "inv-made-up" }, e.h, AGENT)).rejects.toThrow("no open invitation inv-made-up for claude-7");
+    // Invited (their @claude-7 line): one insert at their cursor, then the invitation is used up.
+    e.press({ kind: "home" }); e.type("@claude-7 the work item"); e.press(K("enter")); e.press(K("end"));
+    const inv = e.s.draftSession()!.invite("claude-7")!;
+    expect(inv).not.toBeNull();
+    const ins: any = await e.s.act("complete", { insert: 1, invitation: inv.id }, e.h, AGENT);
     expect(ins.inserted).toBe(`[[${workId}|${workId} — Oil the hinges]]`);
     expect(e.d.lines.at(-1)).toBe(`see ${ins.inserted}`);
     expect(e.d.writers.map(w => w.kind)).toEqual(["user", "agent"]);
     expect(e.s.agent?.did).toStartWith("inserted [[");
-    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("isn't inside [[, (( or [file::");
+    await expect(e.s.act("complete", { insert: 1, invitation: inv.id }, e.h, AGENT)).rejects.toThrow(`no open invitation ${inv.id}`);
+    // An edit the agent opened is its own to complete in.
+    const own = new NoteSurface(), oh = host();
+    own.show((await board.get(await create("Sharpen the hoe\nBefore spring.")))!, oh);
+    await own.act("edit.text", { text: "Sharpen the hoe\nsee [[HOME" }, oh, AGENT);
+    await own.act("draft.place", { line: 2 }, oh, AGENT);
+    const mine: any = await own.act("complete", { insert: 1 }, oh, AGENT);
+    expect(own.draft!.lines.at(-1)).toBe(`see ${mine.inserted}`);
+    own.drafting!.dispose();
   });
 
   test("the complete action refuses to insert when the person typed while it looked the references up", async () => {
     const e = await editing(ids.compost!);
-    e.press(K("enter")); e.type("see [file::notes/pl");
+    e.press(K("enter")); e.type("@claude-7"); e.press(K("enter")); e.type("see [file::notes/pl");
     await e.settled();
     e.press(K("esc"));
-    // The person types at the start of the line while the agent's lookup is in flight.
+    const inv = e.s.draftSession()!.invite("claude-7")!;
+    // The person types at the start of the line while the (invited) agent's lookup is in flight.
     const slow = new Proxy(board, {
       get(t, p) {
         if (p === "workIdPrefix") return async () => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.workIdPrefix(); };
@@ -402,9 +422,27 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       },
     });
     const h = { ...e.h, ctx: { ...e.h.ctx, board: slow } } as SurfaceHost;
-    await expect(e.s.act("complete", { insert: 1 }, h, AGENT)).rejects.toThrow("the draft changed");
+    await expect(e.s.act("complete", { insert: 1, invitation: inv.id }, h, AGENT)).rejects.toThrow("the draft changed");
     expect(e.d.lines.at(-1)).toBe("so see [file::notes/pl");                // untouched: nothing spliced at the old span
     expect(e.d.writers.map(w => w.kind)).not.toContain("agent");
+    expect(e.s.draftSession()!.invitation(inv.id, "claude-7")).not.toBeNull(); // nothing put in: the invitation isn't used up
+
+    // The same while the reference is checked with the service (inside the insert): nothing spliced, nothing spent.
+    e.press(K("end")); e.type("x [[HOME");
+    await e.settled();
+    e.press(K("esc"));
+    const checking = new Proxy(board, {
+      get(t, p) {
+        if (p === "blockContext") return async (id: string) => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.blockContext(id); };
+        const v = (t as any)[p];
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+    const line = () => e.d.lines.at(-1);
+    await expect(e.s.act("complete", { insert: 1, invitation: inv.id }, { ...e.h, ctx: { ...e.h.ctx, board: checking } } as SurfaceHost, AGENT)).rejects.toThrow("the draft changed while the reference was checked");
+    expect(line()).toStartWith("so so see");
+    expect(e.d.writers.map(w => w.kind)).not.toContain("agent");
+    expect(e.s.draftSession()!.invitation(inv.id, "claude-7")).not.toBeNull();
   });
 });
 
