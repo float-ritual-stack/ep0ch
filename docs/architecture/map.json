@@ -359,7 +359,7 @@
       "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in the river's old screen), each screen with its own priority order.",
       "refs": [
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1133, "m": "if (c === \"m\") { this.openMover(); return true; }" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1134, "m": "if (c === \"m\") { this.openMover(); return true; }" },
         { "r": "door", "p": "src/screens.ts", "l": 38, "m": "const isBack" }
       ],
       "questions": [
@@ -463,7 +463,7 @@
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 211, "m": "readonly drop?: string;" },
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 390, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 63, "m": "export class QueryPane" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1410, "m": "export const HUB_SOURCE" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1411, "m": "export const HUB_SOURCE" },
         { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 180, "m": "export function registerBuiltinTiles" }
       ],
       "questions": [
@@ -615,7 +615,7 @@
       "built": "ScreenSpec (plain data: specData writes it, readSpec reads it back checked) and the built-in screens registered by name (openScreen). The desk is final: nothing subclasses it. The welcome's list kind is its model and draws its band; the brief's and a pinned page's kinds open beside by policy (opens: beside).",
       "refs": [
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 33, "m": "export interface ScreenSpec" },
-        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 93, "m": "export function readSpec" },
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 82, "m": "export function readSpec" },
         { "r": "door", "p": "src/desk/screen-specs.ts", "l": 33, "m": "export function openScreen" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 59, "m": "export function deskSpec" },
         { "r": "door", "p": "src/hub/welcome.ts", "l": 551, "m": "export function welcomeSpec" },
@@ -632,8 +632,8 @@
       "refs": [
         { "r": "door", "p": "src/desk/delivery.ts", "l": 47, "m": "export function boardSpec" },
         { "r": "door", "p": "src/desk/lanes.ts", "l": 46, "m": "export class Lanes implements SourceModel" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1272, "m": "export const BOARD_ACTIONS" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 616, "m": "async moveTo" }
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1273, "m": "export const BOARD_ACTIONS" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 617, "m": "async moveTo" }
       ],
       "questions": [
         { "text": "The spec as a screen note in the outline (gap 4).", "finding": "A-F5", "route": "PIE-493" }
@@ -819,15 +819,15 @@
     "about": "The path the code takes today when the person presses m on a board card and picks a lane. m only opens the mover, an input state; the move itself is card.move, the same ActionDef that H, L, a drag and an agent's act run (PIE-506 closed the gap PIE-492 named).",
     "steps": [
       { "label": "key m", "at": "door.keys", "what": "The lanes' key handler opens the mover: an input state that holds the keys, and changes nothing until it ends.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 1133, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 1134, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 695, "m": "planMoves(this.host.ctx.board, card, ids)" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 696, "m": "planMoves(this.host.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 32, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
         "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 686, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 687, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 858, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",

@@ -208,11 +208,15 @@ const NAMED: Record<string, string> = {
   "alt+←": "alt+left", "alt+→": "alt+right", "alt+left": "alt+left", "alt+right": "alt+right",
   click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
 };
+/** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
+export const isKeyName = (s: unknown): s is string =>
+  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
 /** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
 const MOUSE = new Set(["click", "drag", "wheel"]);
 
-/** The one name of a key: `q`, `Q`, `space`, `enter`, `ctrl+w`, `alt+l`, `shift+tab`, `click`; null for a paste. */
+/** The one name of a key: `q`, `Q`, `space`, `enter`, `ctrl+w`, `alt+l`, `shift+tab`, `click`; null for a paste (or a key typed out of one). */
 export function keyName(k: Key): string | null {
+  if ("pasted" in k && k.pasted) return null;
   switch (k.kind) {
     case "char": return k.ctrl ? `ctrl+${k.ch.toLowerCase()}` : k.ch === " " ? "space" : k.ch;
     case "alt": return `alt+${k.ch}`;

@@ -15,9 +15,9 @@
 // (gap 4, screens as notes), which can't hold an override.
 import { isTileKind } from "./tile-kinds";
 import type { LayoutSpec } from "./tiles";
-import type { Key } from "../term";
+import { isKeyName } from "../surface/actions";
 
-/** One key of a screen's key map: the key (`L`, `,`, `alt+c`, `esc`), the action it runs, and with what. */
+/** One key of a screen's key map: the key by its one name (`keyName`: `L`, `,`, `alt+c`, `esc`, `alt+left`), the action it runs, and with what. */
 export interface KeyBinding {
   key: string;
   action: string;
@@ -65,17 +65,6 @@ export interface ScreenSpec {
   layouts?: true;
 }
 
-const KEY_WORDS = new Set(["enter", "esc", "tab", "backtab", "backspace", "up", "down", "left", "right", "pgup", "pgdn", "home", "end", "delete", "alt-enter", "alt-left", "alt-right"]);
-
-/** A key as a key map names it: the character, or its word (`enter`, `alt+c`, `ctrl+e`). Null: a key no map names. */
-export function keyName(k: Key): string | null {
-  if (k.kind === "char") return "pasted" in k && k.pasted ? null : k.ctrl ? `ctrl+${k.ch}` : k.ch;
-  if (k.kind === "alt") return `alt+${k.ch}`;
-  if (k.kind === "mouse" || k.kind === "paste" || k.kind === "super" || k.kind === "back" || k.kind === "forward") return null;
-  if ((k.kind === "enter" || k.kind === "tab") && "pasted" in k && k.pasted) return null;
-  return k.kind;
-}
-const goodKey = (s: unknown): s is string => typeof s === "string" && (/^.$/u.test(s) || /^(alt|ctrl)\+.$/u.test(s) || KEY_WORDS.has(s));
 const NAME = /^[A-Za-z][\w.-]{0,39}$/;
 const kinds = (x: unknown): string[] | undefined => (Array.isArray(x) && x.every(k => typeof k === "string") ? [...x] : undefined);
 
@@ -98,7 +87,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
   if (typeof title !== "string" || !title.trim()) throw new Error(`screen ${name}: title is the words its status bar shows`);
   if (!layout || typeof layout !== "object" || !layout.root || typeof layout.root !== "object") throw new Error(`screen ${name}: layout is a layout as saved, with a root`);
   const keys = o.keys === undefined ? undefined : Array.isArray(o.keys) ? o.keys.map((b: any, i: number) => {
-    if (!b || typeof b !== "object" || !goodKey(b.key)) throw new Error(`screen ${name}: key ${i + 1} names no key (a character, enter, esc, tab, alt+<c>, ctrl+<c>…)`);
+    if (!b || typeof b !== "object" || !isKeyName(b.key)) throw new Error(`screen ${name}: key ${i + 1} names no key (a character, enter, esc, space, shift+tab, alt+left, alt+<c>, ctrl+<c>…)`);
     if (typeof b.action !== "string" || !b.action) throw new Error(`screen ${name}: key ${b.key} names no action`);
     return {
       key: b.key, action: b.action,
