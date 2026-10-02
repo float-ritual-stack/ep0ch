@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { blockTarget, cardTarget, commentTarget, DraftSession, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, unsentOn, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
+import { blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, unsentOn, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
 import { SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -130,6 +130,73 @@ describe("the lifecycle, on a fake target", () => {
     const s = DraftSession.open(t, { text: "Gate" });
     keys(s, ["!"]); s.keep(); s.dispose();
     expect(unsentOn("note-gate")).toEqual([expect.stringMatching(/^■ unsent edit from .* · e brings it back$/)]);
+  });
+
+  test("an edit put aside and brought back untouched isn't saved by a click away: it's put aside again", async () => {
+    const sent: string[] = [];
+    const said: string[] = [];
+    const t = (): DraftTarget => ({ place: "edit:note-quince", back: "e brings it back", label: "quince", what: "the edit to “Quince”", verb: "save", blockId: "note-quince", leaveWrites: true,
+      async submit(s) { sent.push(s.draft.text); return { ok: true }; } });
+    const a = DraftSession.open(t(), { text: "Quince jam", base: 3 });
+    keys(a, [" -- wrong idea"]); a.close(true);                       // esc esc
+    const b = DraftSession.open(t(), { text: "Quince jam", base: 3 }, { said: m => said.push(m) });   // e brings it back
+    expect(b.dirty).toBe(true);
+    expect(await b.leave()).toMatchObject({ left: "kept", said: "the edit to “Quince” was kept as unsent, not saved: it came back unsent and nothing was typed since · e brings it back" });
+    expect(said).toHaveLength(1);
+    expect(sent).toEqual([]);
+    expect(unsent("edit:note-quince")?.text).toBe("Quince jam -- wrong idea");
+    // Brought back and typed in, a click away saves it as any edit.
+    const c = DraftSession.open(t(), { text: "Quince jam", base: 3 });
+    keys(c, ["!"]);
+    expect(await c.leave()).toMatchObject({ left: "saved" });
+    expect(sent).toEqual(["Quince jam -- wrong idea!"]);
+  });
+
+  test("an edit put aside on an older revision stays put aside (and on the reader's line) when the note has moved on", () => {
+    const { t } = fake({ place: "edit:note-medlar", blockId: "note-medlar" });
+    const a = DraftSession.open(t, { text: "Medlar", base: 2 });
+    keys(a, [" bletted"]); a.close(true);
+    const b = DraftSession.open(t, { text: "Medlar, picked", base: 5 });
+    expect([b.dirty, b.draft.text, b.draft.note]).toEqual([false, "Medlar, picked", expect.stringContaining("was on revision 2; the note changed since")]);
+    expect(unsent("edit:note-medlar")?.text).toBe("Medlar bletted");
+    expect(unsentOn("note-medlar")).toEqual([expect.stringMatching(/^■ unsent edit from /)]);
+    b.dispose();
+  });
+
+  test("a new card is put aside under its lane's view: two hubs' lanes of one name never share it, and the reminder knows it", async () => {
+    const made: string[] = [];
+    const lane = (view: string, name = "Doing") => cardTarget({ kind: "card", lane: name, view, create: async text => { made.push(`${view}:${text}`); return {}; } });
+    const a = DraftSession.open(lane("view-plum-doing"), {});
+    keys(a, ["Prune the plum"]);
+    expect(await a.leave()).toMatchObject({ left: "kept", said: "the new card in Doing was kept as unsent, not created · n in Doing brings it back" });
+    expect(hasUnsent("card:view-plum-doing")).toBe(true);
+    expect(unsentOn("view-plum-doing")).toEqual([expect.stringMatching(/^■ unsent new card from .* · n in this lane brings it back$/)]);
+    // Another hub's "Doing" lane opens empty, and creating there never creates the plum card.
+    const b = DraftSession.open(lane("view-pear-doing"), {});
+    expect(b.draft.text).toBe("");
+    keys(b, ["Net the pears"]);
+    expect(await b.submit(USER)).toMatchObject({ ok: true });
+    expect(made).toEqual(["view-pear-doing:Net the pears"]);
+    // Its own lane brings it back.
+    const c = DraftSession.open(lane("view-plum-doing"), {});
+    expect(c.draft.text).toBe("Prune the plum");
+    c.dispose();
+  });
+
+  test("put-aside places whose names differ only in punctuation keep their own files; an older card:<lane> file is ignored", () => {
+    shelve("card:To do", new Draft("x", 0, "Weed the beds"), null);
+    shelve("card:To-do", new Draft("x", 0, "Sow the carrots"), null);
+    expect([unsent("card:To do")?.text, unsent("card:To-do")?.text]).toEqual(["Weed the beds", "Sow the carrots"]);
+    const s = DraftSession.open(cardTarget({ kind: "card", lane: "To do", view: "view-veg-todo", create: async () => ({}) }), {});
+    expect(s.draft.text).toBe("");
+    s.dispose();
+  });
+
+  test("the reader's line names a new note put aside under a card", () => {
+    const parent = { id: "card-hedge", text: "Trim the hedge" } as any;
+    const s = DraftSession.open(cardTarget({ kind: "child", parent, create: async () => ({}) }), {});
+    keys(s, ["Borrow the shears"]); s.keep(); s.dispose();
+    expect(unsentOn("card-hedge")).toEqual([expect.stringMatching(/^■ unsent note under this from .* · N on the card brings it back$/)]);
   });
 
   test("leave: unchanged closes; a changed edit is written; refused, it's kept as unsent with why; a comment is never sent", async () => {
@@ -397,12 +464,12 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(made).toEqual([{ text: "Turn the compost", by: USER }]);
     expect((await board.get(parent))!.childIds.length).toBe(1);
 
-    const card = DraftSession.open(cardTarget({ kind: "card", lane: "Doing", create: async () => { throw new Error("Doing makes roadmap items through the allocator"); } }), {});
+    const card = DraftSession.open(cardTarget({ kind: "card", lane: "Doing", view: "view-allotment-doing", create: async () => { throw new Error("Doing makes roadmap items through the allocator"); } }), {});
     keys(card, ["Fix the shed door"]);
     expect(await card.submit(USER)).toEqual({ ok: false, why: "not created: Doing makes roadmap items through the allocator" });
     expect([card.open, card.draft.note]).toEqual([true, expect.stringContaining("your text is kept (and copied to")]);
     expect(await card.leave()).toMatchObject({ left: "kept", said: "the new card in Doing was kept as unsent, not created · n in Doing brings it back" });
-    expect(unsent("card:Doing")?.text).toBe("Fix the shed door");
+    expect(unsent("card:view-allotment-doing")?.text).toBe("Fix the shed door");
   }, 30_000);
 
   test("in readers: an agent's edit, property or step under the person's open draft is refused, and its draft.patch lands", async () => {

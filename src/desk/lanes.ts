@@ -777,8 +777,9 @@ export class Lanes implements SourceModel {
     if (!lane || this.composer) return;
     // Open now, so what's typed next is the card's text; what the lane gives it is filled in when the
     // service's plan arrives. A lane that can't define a card says why, and the text is kept.
-    // A new card put aside in this lane (esc twice, the board closed) comes back (the card adapter's place).
-    const session = this.openComposer(cardTarget({ kind: "card", lane: lane.name, create: (text, by) => BOARD_ACTIONS.run("card.create", { lane: lane.name, text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { model: this }, by) }));
+    // A new card put aside in this lane (esc twice, a click away, the board closed) comes back: the card adapter's
+    // place is the lane's view, so another hub's lane of the same name never brings it back (or creates it there).
+    const session = this.openComposer(cardTarget({ kind: "card", lane: lane.name, view: lane.view, create: (text, by) => BOARD_ACTIONS.run("card.create", { lane: lane.name, text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { model: this }, by) }));
     const C0: Composer = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, session };
     this.composer = C0;
     this.host.redraw();

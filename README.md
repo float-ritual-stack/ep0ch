@@ -800,17 +800,20 @@ The board's new-card composer is the same control too.
 - **Nothing you type is lost.** `Esc` twice on unsaved text doesn't drop it: it's **put aside as unsent**
   where you wrote it (an edit on its note, a comment on its note, a reply on its thread, a new card in its
   lane) and copied to `~/.local/state/ep0ch-door/drafts/`. The status bar says where. The reader shows
-  `■ unsent edit from 10:42 · e brings it back` (or the comment's), and opening the same draft again (`e`;
+  `■ unsent edit from 10:42 · e brings it back` (or the comment's; a lane's header says `■ unsent card`), and
+  opening the same draft again (`e`;
   `C` and a passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that
   came back unchanged drops it, and says where its copy stays. Closing a screen, quitting and a dropped
   connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
-  over a newer note: the reader says where its copy is. An agent's edit or comment never picks up your
-  put-aside text.
+  over a newer note: the reader says where its copy is, and it stays unsent. A new card is put aside in its
+  lane on its own board: another board's lane of the same name doesn't bring it back. An agent's edit or
+  comment never picks up your put-aside text.
 - **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
   leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a drawer).
   An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's
   refused (it changed elsewhere, offline, refused) keeps the text as **unsent**, and the status bar says
-  `not saved: … · the edit to “…” was kept as unsent · e brings it back`. A comment, a reply or a new card
+  `not saved: … · the edit to “…” was kept as unsent · e brings it back`. An edit brought back unsent and not
+  typed in since isn't saved by a click away: it's put aside again, and said. A comment, a reply or a new card
   is kept as unsent, never sent or created: sending is `Ctrl+S`. On the desk `^W` does the same by keys:
   the window key after it leaves the edit and runs (`Esc` after it stays in; `Tab` indents). An agent never
   saves or closes your draft this way (`session.leave`, `composer.leave` are yours).

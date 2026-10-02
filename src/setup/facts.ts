@@ -19,14 +19,30 @@ export type OnLine = (line: string) => void;
 /**
  * Runs a command to completion; never throws. With `onLine`, its output is read as it arrives and each
  * chunk's latest line (a `\r`-redrawn progress line too) is passed on; the whole output is still returned.
+ * Past `timeoutMs` the wait ends (code 124): the command runs in its own process group, and the whole group
+ * is stopped (TERM, then KILL if it lingers), so a grandchild holding its output open (git fetch's
+ * git-remote-https on a hung network) neither keeps the wait going nor outlives it.
  */
 export async function run(cmd: string[], opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<{ code: number; out: string; err: string }> {
+  const ms = opts.timeoutMs ?? 20_000;
   try {
-    const p = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...(opts.env ?? process.env), GIT_TERMINAL_PROMPT: "0" } as Record<string, string>, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    const timer = setTimeout(() => p.kill(), opts.timeoutMs ?? 20_000);
-    const [out, err, code] = await Promise.all([drain(p.stdout, opts.onLine), drain(p.stderr, opts.onLine), p.exited]);
+    const p = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...(opts.env ?? process.env), GIT_TERMINAL_PROMPT: "0" } as Record<string, string>, stdout: "pipe", stderr: "pipe", stdin: "ignore", detached: true });
+    const group = (sig: NodeJS.Signals) => { try { process.kill(-p.pid, sig); } catch { try { p.kill(sig); } catch { /* gone */ } } };
+    const done = Promise.all([drain(p.stdout, opts.onLine), drain(p.stderr, opts.onLine), p.exited]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>(res => { timer = setTimeout(() => res(null), ms); });
+    const r = await Promise.race([done, late]);
     clearTimeout(timer);
-    return { code: p.signalCode ? 124 : code, out: out.trim(), err: (p.signalCode ? `timed out after ${(opts.timeoutMs ?? 20_000) / 1000}s` : err).trim() };
+    if (!r) {
+      group("SIGTERM");
+      // What ignores TERM is killed; either way the streams close once the group is gone, and the reads end with them.
+      let ended = false;
+      done.then(() => { ended = true; }, () => { ended = true; });
+      setTimeout(() => { if (!ended) group("SIGKILL"); }, 2000).unref?.();
+      return { code: 124, out: "", err: `timed out after ${ms / 1000}s` };
+    }
+    const [out, err, code] = r;
+    return { code, out: out.trim(), err: err.trim() };
   } catch (e) { return { code: 127, out: "", err: (e as Error).message }; }
 }
 
