@@ -46,6 +46,9 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
 - **Every draft is a draft session** (`src/draft-session.ts`): a new kind of text the door writes is a
   target adapter on it (block, comment or reply, card or child), never its own put-aside, restore, hold or
   click-away. Every rule about an agent and a draft is its `agentRefusal`.
+- **A reader's modes are one stack** (`src/surface/modes.ts`): a new thing that takes a reader's keys (a
+  picker, a panel, an editor) is a `ReaderMode` with its place in `PRECEDENCE`, never a field `key`, `click`
+  and `render` each check. NoteSurface stays the only reader.
 - **Agents are first-class, and never take the person's cursor.** An agent can do what the person can, with
   honest provenance (`author: agent`, its actor id, said on screen). It never moves the person's focus,
   selection or keys, and never the reader they type in; refusals say why. Safety comes from revision
