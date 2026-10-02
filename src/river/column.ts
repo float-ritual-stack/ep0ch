@@ -14,7 +14,7 @@ import { historyRow, IN_TRASH, type Link } from "../surface/note";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
 import { readState, writeState } from "../state";
-import { C, fg, INPUT_CURSOR, pad, paint, RESET, selected, visible } from "../style";
+import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import { scrolled, wheelRows } from "../scroll";
@@ -23,6 +23,7 @@ import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
+import { LineInput } from "../surface/line";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
@@ -127,7 +128,7 @@ export class RiverColumn extends ReaderPane {
   error?: string;
   /** An input state of its own: the filter being typed (`/`), or the properties `#` offers. */
   mode: "" | "filter" | "tags" = "";
-  input = "";
+  input = new LineInput();
   tagChoices: [string, string][] = [];
   /** Text the person selected in the column's drawn rows (PIE-419); only y copies it. */
   text: Selection | null = null;
@@ -181,7 +182,7 @@ export class RiverColumn extends ReaderPane {
   headLabel() { const st = this.surface.state(); return `${fg(C.dark)}${this.items ? this.listed() : ""}${st ? `${fg(C.yellow)} · ${st}` : ""}${RESET}`; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
-    if (this.mode === "filter") return paint(`|14/ filter this column: |15${this.input}|07${INPUT_CURSOR}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
+    if (this.mode === "filter") return paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
     return "j k notes · ⏎ open beside · space replies · / filter this column · # same property · s split · v select";
@@ -194,7 +195,7 @@ export class RiverColumn extends ReaderPane {
   override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
-  blur() { if (this.mode) { this.mode = ""; this.input = ""; } }
+  blur() { if (this.mode) { this.mode = ""; this.input = new LineInput(); } }
   focused(desk: DeskApi) { this.justFocused = true; this.desk = desk; }
 
   /** A note opened into this column (an open from the column before it): it becomes that note's column. */
@@ -258,7 +259,7 @@ export class RiverColumn extends ReaderPane {
     if (this.surface.editing && this.surface.msg) return super.render(w, h, focused, desk);
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
-    const foot = this.mode === "filter" ? [paint(`|14/ |15${this.input}|07${INPUT_CURSOR}`)] : this.mode === "tags" ? this.tagLines(w) : [];
+    const foot = this.mode === "filter" ? [paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
     this.headRows = head.length;
     const room = Math.max(1, h - head.length - foot.length);
     const view = this.view(w, room, focused);
@@ -413,7 +414,7 @@ export class RiverColumn extends ReaderPane {
       }
       if (c === " ") { if (this.flat()[this.sel]) this.run(desk, "column.replies"); return true; }
       if (c === "s") { this.run(desk, "column.split"); return true; }
-      if (c === "/") { this.mode = "filter"; this.input = filterText(this.filter); desk.redraw(); return true; }
+      if (c === "/") { this.mode = "filter"; this.input = new LineInput(filterText(this.filter)); desk.redraw(); return true; }
       if (c === "#") { this.tagChoices = followable(this.flat()[this.sel]?.m ?? (this.source.kind === "block" ? this.rootOf() ?? undefined : undefined)); this.mode = "tags"; desk.redraw(); return true; }
       if (k.kind === "esc" && (this.linked() || current)) { this.surface.clearLink(); desk.redraw(); return true; }
     }
@@ -430,11 +431,8 @@ export class RiverColumn extends ReaderPane {
       desk.redraw();
       return true;
     }
-    if (k.kind === "enter" || k.kind === "alt-enter") { this.mode = ""; this.run(desk, "column.filter", { query: this.input }); return true; }
-    if (k.kind === "backspace") this.input = this.input.slice(0, -1);
-    else if (k.kind === "char" && k.ctrl && k.ch === "u") this.input = "";
-    else if (k.kind === "char" && !k.ctrl) this.input += k.ch;
-    else if (k.kind === "tab" || k.kind === "backtab") return false;
+    if (k.kind === "enter" || k.kind === "alt-enter") { this.mode = ""; this.run(desk, "column.filter", { query: this.input.text }); return true; }
+    if (!this.input.key(k) && (k.kind === "tab" || k.kind === "backtab")) return false;
     desk.redraw();
     return true;
   }

@@ -157,9 +157,9 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     // The drawer: the person opens it and types in the preview's… no: they're in it; an agent can't shut it on them.
     await mine("tile.drawer", { open: true }, "side");
     expect(D().focus).toBe(idOf("side"));
-    D().picker = { key() {}, draw() {} };                           // typing (a picker counts)
+    D().overlays.push({ name: "layouts", key: () => true, draw() {} }); // typing (a picker counts)
     await expect(act("tile.drawer", { open: false }, "side")).rejects.toThrow(/shut the drawer they have/);
-    D().picker = null;
+    D().overlays.drop("layouts");
     await mine("tile.pin", { on: true }, "side");
   });
 
@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     enter("short");
     await until(() => tile("short").terminal.exited !== null, "the program to exit");
     for (const k of [char("/"), char("q"), { kind: "esc" } as Key, char("1"), { kind: "tab" } as Key]) key(k);
-    expect(D().search).toBeNull();
+    expect(D().overlays.get("search")).toBeNull();
     expect(top()).toBe(desk);
     expect(D().focus).toBe(idOf("short"));
     expect(message()).toContain("exited · ⏎ runs it again · ctrl+] back to the door");
